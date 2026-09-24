@@ -243,7 +243,10 @@ function ZCodeEmptyStateLogo({ className }: { className?: string }) {
         </defs>
         <path d="M184 224H512L453 308Q439 328 415 328H184Z" fill="url(#zcode-brand-z-gradient)" />
         <path d="M584 224H832L424 800H176Z" fill="url(#zcode-brand-z-gradient)" />
-        <path d="M536 720L600 656L648 704L824 528L888 592L648 832Z" fill="url(#zcode-brand-z-gradient)" />
+        <path
+          d="M536 720L600 656L648 704L824 528L888 592L648 832Z"
+          fill="url(#zcode-brand-z-gradient)"
+        />
       </svg>
     </>
   );

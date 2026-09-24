@@ -131,7 +131,9 @@ export function buildAppUsageDailyModelChartViewModel({
   locale: string;
   snapshot: AppUsageSnapshot;
 }) {
-  const topModels = snapshot.models.slice(0, 6);
+  // 用量页去截断（对齐 zcode-patcher --usage-chart）：不再只画 Top6 模型，
+  // 全部模型都出线；图例颜色在调色板内循环复用。
+  const topModels = snapshot.models;
   const modelKeys = topModels.map((model, index) => ({
     modelId: model.modelId,
     key: `model${index}`,

@@ -110,6 +110,21 @@ function createWebPlatform(): IPlatformService {
     getPathForFile: () => null,
     createTempTextAttachment: () =>
       Promise.reject(new Error("Temporary text attachments require a desktop host")),
+    // modelhub / enhance 都在桌面 main 进程读取本机配置并直连渠道端点，Web 端不可用；
+    // UI 层用 `platform.xxx?.` 探测，这里显式拒绝以保持 IPlatformService 完整实现。
+    modelhubFetchModels: () =>
+      Promise.resolve({ ok: false, error: "Model hub requires a desktop host" }),
+    modelhubProbeVision: () =>
+      Promise.resolve({ ok: false, error: "Model hub requires a desktop host" }),
+    enhancePromptDraft: () =>
+      Promise.resolve({ ok: false, error: "Prompt enhancement requires a desktop host" }),
+    enhanceListModels: () =>
+      Promise.resolve({
+        ok: false,
+        selected: "",
+        channels: [],
+        error: "Prompt enhancement requires a desktop host",
+      }),
     onRemoteConnectionLog: () => () => {},
     onRemoteSessionClosed: () => () => {},
     onBotRemoteWorkspaceReconnected: () => () => {},

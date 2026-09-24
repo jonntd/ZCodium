@@ -1,0 +1,160 @@
+/* Composer 下方统计行（1:1 移植自 deepseek-harness
+ * packages/client/ui-chat/src/client/chat/StatsPills.module.css 与
+ * packages/client/ui-conversation/src/client/skeleton/ContextMeter.module.css，
+ * 设计 token 按本仓库主题等价替换：
+ *   label-tertiary → --color-foreground-subtle
+ *   label-secondary/primary → --color-foreground
+ *   interactive-bg-hover → foreground 7% color-mix
+ *   separator/border → --color-border
+ *   menu surface → --color-popover 系。 */
+
+/* Two icon pills side by side under the composer, 12/20 tertiary text tier
+   with a hover-pill affordance. */
+.composer-stats-root:empty {
+  /* 两个子组件都可能因无数据返回 null；整行为空时完全退场，不占 4px 内边距。 */
+  display: none;
+}
+
+.composer-stats-root {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding-top: 4px;
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.composer-stats-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  max-width: 100%;
+  padding: 1px 8px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-foreground-subtle);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  white-space: nowrap;
+}
+
+/* Tailwind preflight 把 svg 置为 block；必须在 inline-flex 内压回 inline 的
+   14px 定宽，否则图标以 lucide 默认 24px 独占一行，把文字挤到下一行。 */
+.composer-stats-pill svg {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/* ── ContextMeter：composer 下方的上下文占用环 + 展开面板 ── */
+
+.context-meter-root {
+  display: inline-flex;
+  flex: none;
+}
+
+.context-meter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 1px 8px;
+  border: none;
+  border-radius: var(--radius-sm, 6px);
+  background: transparent;
+  color: var(--color-foreground-subtle);
+  font-family: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.context-meter-trigger:hover,
+.context-meter-trigger[aria-expanded="true"] {
+  background: color-mix(in oklab, var(--color-foreground) 7%, transparent);
+  color: var(--color-foreground);
+}
+
+.context-meter-track {
+  fill: none;
+  stroke: var(--color-border);
+  stroke-width: 2;
+}
+
+.context-meter-fill {
+  fill: none;
+  stroke: var(--color-foreground-subtle);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.context-meter-panel {
+  position: fixed;
+  z-index: 1100;
+  box-sizing: border-box;
+  width: min(264px, calc(100vw - 24px));
+  padding: 12px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--color-popover);
+  color: var(--color-popover-foreground);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 50%);
+  font-size: 12px;
+  line-height: 20px;
+  cursor: default;
+}
+
+.context-meter-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.context-meter-figures {
+  margin-left: auto;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-popover-foreground);
+}
+
+.context-meter-percent {
+  font-weight: 500;
+  color: var(--color-popover-foreground);
+}
+
+.context-meter-headline {
+  color: var(--color-foreground-subtle);
+}
+
+/* The headline brackets the reading, so the side a locale leaves empty must
+   drop out of the flex row rather than spend a gap. */
+.context-meter-headline:empty {
+  display: none;
+}
+
+.context-meter-bar {
+  display: flex;
+  gap: 1px;
+  margin: 10px 0 12px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--color-foreground) 7%, transparent);
+  overflow: hidden;
+}
+
+.context-meter-segment {
+  flex: none;
+  min-width: 2px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--color-foreground-subtle);
+}

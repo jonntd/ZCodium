@@ -48,16 +48,3 @@ export function allBucketsExhausted(buckets: UsageQuotaLimit[]): boolean {
     )
   );
 }
-
-export function bucketReminderKey(bucket: UsageQuotaLimit): string | null {
-  if (
-    !bucket.bucketId?.trim() ||
-    !finite(bucket.periodStart) ||
-    !finite(bucket.periodEnd) ||
-    bucket.periodStart < 0 ||
-    bucket.periodEnd <= bucket.periodStart
-  )
-    return null;
-  // 桶标识隔离账号/套餐；同桶服务多个模型时也只提醒一次，不把任务和余额写进 key。
-  return JSON.stringify([bucket.bucketId.trim(), bucket.periodStart, bucket.periodEnd]);
-}

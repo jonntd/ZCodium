@@ -18,6 +18,9 @@ import {
   type OpenInEditorOptions,
   type SaveCliMcpToUserDirectoryRequest,
   type CreateTempTextAttachmentRequest,
+  type ModelhubFetchModelsRequest,
+  type ModelhubProbeVisionRequest,
+  type EnhancePromptDraftRequest,
   type UpdateStatePayload,
   type WindowControlsOverlayReadyPayload,
 } from "@zcode/shared";
@@ -52,6 +55,8 @@ import {
   saveCliMcpToUserDirectory,
 } from "./mcpUserDirectory/index.js";
 import { createTempTextAttachment } from "./tempTextAttachment.js";
+import { modelhubFetchModels, modelhubProbeVision } from "./modelhubService.js";
+import { enhancePromptDraft, enhanceListModels } from "./enhanceService.js";
 import { registerDesktopSaveFileIpcHandler } from "./desktopSaveFile.js";
 import { registerDesktopPrintToPdfIpcHandler } from "./desktopPrintToPdf.js";
 import { registerCuaPipActiveSessionIpc } from "./desktopCuaPipIpc.js";
@@ -140,6 +145,28 @@ export function registerPlatformIpcHandlers(options: {
       return createTempTextAttachment(payload);
     },
   );
+
+  ipcMain.handle(
+    PlatformChannels.ModelhubFetchModels,
+    async (_event, payload: ModelhubFetchModelsRequest) => {
+      return modelhubFetchModels(payload);
+    },
+  );
+  ipcMain.handle(
+    PlatformChannels.ModelhubProbeVision,
+    async (_event, payload: ModelhubProbeVisionRequest) => {
+      return modelhubProbeVision(payload);
+    },
+  );
+  ipcMain.handle(
+    PlatformChannels.EnhanceRun,
+    async (_event, payload: EnhancePromptDraftRequest) => {
+      return enhancePromptDraft(payload);
+    },
+  );
+  ipcMain.handle(PlatformChannels.EnhanceListModels, async () => {
+    return enhanceListModels();
+  });
 
   registerDesktopBrowserIpcHandlers(
     options.attachBrowserGuest,

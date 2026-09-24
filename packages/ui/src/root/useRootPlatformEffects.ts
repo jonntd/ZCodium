@@ -239,7 +239,6 @@ export function useRootPlatformEffects({
     };
   }, [activeWorkspaceIdentity, activeWorkspacePath, platform, tabs]);
 
-
   useEffect(() => {
     if (!isDesktop || !shouldPublishCompleteWorkspaceSnapshot(hasCompletedFullTabRestore)) {
       return;

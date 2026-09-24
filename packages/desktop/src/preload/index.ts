@@ -62,6 +62,13 @@ import type {
   WindowControlsOverlayMetrics,
   WindowControlsOverlayReadyPayload,
   CreateTempTextAttachmentRequest,
+  ModelhubFetchModelsRequest,
+  ModelhubFetchModelsResult,
+  ModelhubProbeVisionRequest,
+  ModelhubProbeVisionResult,
+  EnhancePromptDraftRequest,
+  EnhancePromptDraftResult,
+  EnhanceListModelsResult,
   OpenCuaPermissionOnboardingOptions,
 } from "@zcode/shared";
 import { InternalChannels, PlatformChannels, formatZCodeRendererProcessName } from "@zcode/shared";
@@ -278,6 +285,18 @@ contextBridge.exposeInMainWorld("zcode", {
   /** 长文本粘贴落盘为真正的本地附件，避免正文和 prompt payload 被撑大 */
   createTempTextAttachment: (payload: CreateTempTextAttachmentRequest) =>
     ipcRenderer.invoke(PlatformChannels.CreateTempTextAttachment, payload),
+  /** 拉取自定义渠道端点的模型列表（modelhub，main 侧绕过 CORS） */
+  modelhubFetchModels: (payload: ModelhubFetchModelsRequest): Promise<ModelhubFetchModelsResult> =>
+    ipcRenderer.invoke(PlatformChannels.ModelhubFetchModels, payload),
+  /** 探测模型视觉能力（modelhub） */
+  modelhubProbeVision: (payload: ModelhubProbeVisionRequest): Promise<ModelhubProbeVisionResult> =>
+    ipcRenderer.invoke(PlatformChannels.ModelhubProbeVision, payload),
+  /** 按用户渠道配置改写提示词草稿（增强按钮） */
+  enhancePromptDraft: (payload: EnhancePromptDraftRequest): Promise<EnhancePromptDraftResult> =>
+    ipcRenderer.invoke(PlatformChannels.EnhanceRun, payload),
+  /** 列出可用于提示词增强的渠道与模型 */
+  enhanceListModels: (): Promise<EnhanceListModelsResult> =>
+    ipcRenderer.invoke(PlatformChannels.EnhanceListModels),
   /** 订阅当前窗口内远程连接过程日志，返回 disposer */
   onRemoteConnectionLog: (callback: (entry: RemoteConnectionRuntimeLog) => void) => {
     const handler = (_event: unknown, payload: unknown) =>

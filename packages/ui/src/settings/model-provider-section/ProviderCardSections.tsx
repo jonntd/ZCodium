@@ -34,10 +34,15 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useServices } from "@/hooks/useServices.js";
+import { useOptionalPlatform } from "@/hooks/usePlatform.js";
+import { toast } from "@/components/ui/toast.js";
 import { TECHNICAL_INPUT_ATTRIBUTES } from "@/lib/technicalInputAttributes.js";
 import { ApiKeyInput } from "./ApiKeyInput.js";
 import { ModelRowInput } from "./ProviderFormControls.js";
 import { PresetProviderApiKeyBanner } from "./PresetProviderApiKeyBanner.js";
+import { ModelhubModelPickerDialog } from "./ModelhubModelPickerDialog.js";
+import { ModelhubHeadersDialog } from "./ModelhubHeadersDialog.js";
+import { readDeletedModelIds } from "./modelhubTombstones.js";
 import { type ProviderModelDraftValues } from "@/settings/model-provider-section/ProviderModelMetadata.js";
 import { ProviderModelMetadataDialog } from "@/settings/model-provider-section/ProviderModelMetadataDialog.js";
 import {
@@ -356,6 +361,9 @@ export function ProviderModelsSection({
   onAddModel,
   onReorderModelIds,
   settingsRevision = 0,
+  modelhubEndpoint,
+  providerHeaders,
+  onSaveProviderHeaders,
 }: {
   providerId: string;
   providerName?: string;
@@ -373,9 +381,15 @@ export function ProviderModelsSection({
   onAddModel: (model: ProviderSettingsFormModel) => void | Promise<void>;
   onReorderModelIds?: (modelIds: string[]) => void;
   settingsRevision?: number;
+  /** 拉取模型（modelhub）用的渠道连接事实；缺省或无 baseUrl 时隐藏拉取入口。 */
+  modelhubEndpoint?: { apiType: string; baseUrl: string; apiKey: string } | null;
+  /** 渠道当前生效的请求头（api.headers）；配合 onSaveProviderHeaders 提供请求头模拟。 */
+  providerHeaders?: Record<string, string> | null;
+  onSaveProviderHeaders?: (headers: Record<string, string>) => Promise<void>;
 }) {
   const { intl } = useZCodeIntl();
   const { providerSettingsService } = useServices();
+  const platform = useOptionalPlatform();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
   const addSavingRef = useRef(false);
@@ -464,24 +478,192 @@ export function ProviderModelsSection({
       })
     : null;
 
+  // ── 拉取模型（zcode-patcher --modelhub 原生版）──
+  // main 进程拉取 /models → 选择器勾选（可视觉探测）→ 走与「添加模型」一致的
+  // onAddModel 通路逐个落库（useRecommendedConfig=true，推荐配置由服务端解析）。
+  const [headersDialogOpen, setHeadersDialogOpen] = useState(false);
+  // 删除墓碑：本会话内删除的模型在拉取选择器中标「已删除」并禁止重添。
+  const [deletedIds] = useState(() => readDeletedModelIds(providerId));
+  const [fetchDialogOpen, setFetchDialogOpen] = useState(false);
+  const [fetchedModels, setFetchedModels] = useState<{ id: string; visionGuess: boolean }[] | null>(
+    null,
+  );
+  const [fetching, setFetching] = useState(false);
+  const modelhubAvailable = platform?.modelhubFetchModels != null;
+  const modelhubUsable =
+    modelhubAvailable && modelhubEndpoint != null && modelhubEndpoint.baseUrl.trim().length > 0;
+
+  const resolveModelhubDialect = useCallback(() => {
+    // 协议 dialect：anthropic-messages → anthropic；其余（含 responses）按 openai-compatible。
+    return String(modelhubEndpoint?.apiType ?? "").includes("anthropic")
+      ? "anthropic"
+      : "openai-compatible";
+  }, [modelhubEndpoint?.apiType]);
+
+  const handleFetchModels = useCallback(async () => {
+    if (!platform?.modelhubFetchModels || !modelhubEndpoint) return;
+    setFetching(true);
+    try {
+      const result = await platform.modelhubFetchModels({
+        baseUrl: modelhubEndpoint.baseUrl,
+        ...(modelhubEndpoint.apiKey ? { apiKey: modelhubEndpoint.apiKey } : {}),
+        dialect: resolveModelhubDialect(),
+      });
+      if (!result.ok || !result.models) {
+        toast(
+          intl.formatMessage(
+            { id: "settings.modelhub.fetch.failed" },
+            { error: result.error ?? "" },
+          ),
+        );
+        return;
+      }
+      if (result.models.length === 0) {
+        toast(intl.formatMessage({ id: "settings.modelhub.fetch.empty" }));
+        return;
+      }
+      setFetchedModels(result.models);
+      setFetchDialogOpen(true);
+    } catch (error) {
+      toast(
+        intl.formatMessage(
+          { id: "settings.modelhub.fetch.failed" },
+          { error: error instanceof Error ? error.message : String(error) },
+        ),
+      );
+    } finally {
+      setFetching(false);
+    }
+  }, [intl, modelhubEndpoint, platform, resolveModelhubDialect]);
+
+  const handleProbeVision = useCallback(
+    async (modelId: string): Promise<boolean | null> => {
+      if (!platform?.modelhubProbeVision || !modelhubEndpoint) return null;
+      const result = await platform.modelhubProbeVision({
+        baseUrl: modelhubEndpoint.baseUrl,
+        ...(modelhubEndpoint.apiKey ? { apiKey: modelhubEndpoint.apiKey } : {}),
+        model: modelId,
+        dialect: resolveModelhubDialect(),
+      });
+      return result.ok ? (result.vision ?? null) : null;
+    },
+    [modelhubEndpoint, platform, resolveModelhubDialect],
+  );
+
+  const handleConfirmFetchedModels = useCallback(
+    async (selected: { id: string; vision: boolean }[]) => {
+      const key = (value: string) => value.trim().toLowerCase();
+      const existingSet = new Set(models.map((model) => key(model.modelId)));
+      for (const id of deletedIds) existingSet.add(key(id));
+      let added = 0;
+      const addedIds: string[] = [];
+      for (const item of selected) {
+        if (existingSet.has(key(item.id))) continue;
+        try {
+          // 与「添加模型」弹窗的提交产物同形：推荐配置由服务端解析，
+          // 视觉探测结果通过 metadata 弹窗继续编辑，不在这里伪造 properties。
+          await onAddModel({
+            ...createEmptyModel(),
+            modelId: item.id,
+            personalConfig: {},
+            useRecommendedConfig: true,
+          });
+          added += 1;
+          addedIds.push(item.id);
+          existingSet.add(key(item.id));
+        } catch (error) {
+          toast(
+            intl.formatMessage(
+              { id: "settings.modelhub.fetch.addFailed" },
+              { model: item.id, error: error instanceof Error ? error.message : String(error) },
+            ),
+          );
+        }
+      }
+      // 拉取成功后按名称自然排序（与补丁「已按名称自动排序」一致）。
+      if (added > 0 && onReorderModelIds) {
+        const merged = [...models.map((model) => model.modelId), ...addedIds];
+        const natural = [...new Set(merged)].sort((a, b) =>
+          String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }),
+        );
+        if (JSON.stringify(natural) !== JSON.stringify(models.map((model) => model.modelId))) {
+          onReorderModelIds(natural);
+        }
+      }
+      toast(intl.formatMessage({ id: "settings.modelhub.fetch.done" }, { count: added }));
+    },
+    [intl, models, onAddModel, onReorderModelIds],
+  );
+
   return (
     <div>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
         <span className="text-ui-base text-foreground-subtle">
           {intl.formatMessage({ id: "settings.modelProvider.models" })}
         </span>
-        <Button
-          type="button"
-          variant="secondary"
-          size="default"
-          className="rounded-lg"
-          data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
-          onClick={openAddDialog}
-        >
-          <Plus data-icon="inline-start" aria-hidden="true" />
-          {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
-        </Button>
+        <div className="flex items-center gap-2">
+          {onSaveProviderHeaders ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="default"
+              className="rounded-lg"
+              data-testid="v4-modelhub-headers-button"
+              onClick={() => setHeadersDialogOpen(true)}
+            >
+              {intl.formatMessage({ id: "settings.modelhub.headers.action" })}
+            </Button>
+          ) : null}
+          {modelhubUsable ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="default"
+              className="rounded-lg"
+              data-testid="v4-modelhub-fetch-button"
+              disabled={fetching}
+              onClick={() => void handleFetchModels()}
+            >
+              {intl.formatMessage({ id: "settings.modelhub.fetch.action" })}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            className="rounded-lg"
+            data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
+            onClick={openAddDialog}
+          >
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
+          </Button>
+        </div>
       </div>
+      <ModelhubHeadersDialog
+        open={headersDialogOpen}
+        onOpenChange={setHeadersDialogOpen}
+        currentHeaders={providerHeaders ?? {}}
+        onApply={(headers) => {
+          void onSaveProviderHeaders?.(headers).catch((error) => {
+            toast(
+              intl.formatMessage(
+                { id: "settings.modelhub.headers.failed" },
+                { error: error instanceof Error ? error.message : String(error) },
+              ),
+            );
+          });
+        }}
+      />
+      <ModelhubModelPickerDialog
+        open={fetchDialogOpen}
+        onOpenChange={setFetchDialogOpen}
+        models={fetchedModels ?? []}
+        existingIds={models.map((model) => model.modelId)}
+        deletedIds={[...deletedIds]}
+        onProbeVision={modelhubAvailable ? (modelId) => handleProbeVision(modelId) : undefined}
+        onConfirm={(selected) => void handleConfirmFetchedModels(selected)}
+      />
       {models.length > 0 ? (
         <div className="overflow-hidden rounded-lg border border-input-border bg-input">
           <SortableProviderModelList

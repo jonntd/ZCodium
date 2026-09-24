@@ -23,6 +23,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
 } from "react";
@@ -50,6 +51,7 @@ import type {
 } from "@zcode/shared/zcode-protocol-v4";
 import {
   ArrowUpIcon,
+  ChevronsRightIcon,
   ClipboardPenLineIcon,
   InfoIcon,
   RotateCcwIcon,
@@ -85,6 +87,10 @@ import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
 import { usePromptEditorDragState } from "@/prompt-editor/usePromptEditorDragState.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { advanceComposerDraftRevision } from "@/v4/composer/composerDraftRevision.js";
+import { ComposerContextMeter } from "@/v4/composer/ComposerContextMeter.js";
+import { ComposerEnhanceButton } from "@/v4/composer/ComposerEnhanceButton.js";
+import { ComposerStatsRow } from "@/v4/composer/ComposerStatsRow.js";
+import "@/v4/composer/composerStats.css";
 import type { AppSlashCommand } from "@/slashCommandHelpers.js";
 import { useOptionalServices } from "@/hooks/useServices.js";
 import { logger } from "@/logger.js";
@@ -1423,6 +1429,49 @@ function ConversationComposerImpl({
     [appleKeyboardPlatform, modifiedEnterReversesDelivery],
   );
 
+  // ── 继续按钮（zcode-patcher --continue-btn 原生版）──
+  // 把「继续」追加到当前草稿（已有草稿则空格拼接，不丢原文）后，走与原生发送按钮
+  // 完全相同的 submit 通路；生成中排队、权限锁定等状态全部交给应用自身判断。
+  const handleReplaceComposerDraft = useCallback(
+    (next: string) => {
+      inputApiRef.current?.setText(next);
+      updateText(next);
+      scheduleDraftPersist();
+    },
+    [scheduleDraftPersist, updateText],
+  );
+  const handleContinue = useCallback(() => {
+    const draft = textRef.current.trim();
+    const continueText = intl.formatMessage({ id: "chat.composer.continue.text" });
+    const next = draft ? `${draft} ${continueText}` : continueText;
+    handleReplaceComposerDraft(next);
+    void submit();
+  }, [handleReplaceComposerDraft, intl, submit]);
+
+  // ✨增强 run 注册面：按钮挂载后把自己 run 递上来，Ctrl+/ 快捷键经此触发。
+  const enhanceRunRef = useRef<(() => void) | null>(null);
+  const handleRegisterEnhanceRun = useCallback((run: (() => void) | null) => {
+    enhanceRunRef.current = run;
+  }, []);
+
+  // 快捷键：Cmd/Ctrl+Shift+J = 继续发送；Ctrl+/ = 增强草稿（与补丁一致）。
+  // 仅当焦点在 composer 内时事件才会从这里冒泡，无需额外判定输入框聚焦状态。
+  const handleComposerKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.defaultPrevented || event.repeat) return;
+      if (event.key === "/" && event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        enhanceRunRef.current?.();
+        return;
+      }
+      if (event.key !== "j" && event.key !== "J") return;
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      handleContinue();
+    },
+    [handleContinue],
+  );
+
   // ── 「加入对话」全局事件（workspace file tree 右键/按钮）→ mention 插入 ──
   useEffect(() => {
     if (!listenAddToChatEvents || typeof window === "undefined") {
@@ -1950,8 +1999,10 @@ function ConversationComposerImpl({
     ],
   );
 
-  // 左下：模式选择 + CUA 入口 + 当前 session 后台任务入口。followupMode 由 app 设置页同步到 CLI，
-  // 不在 composer 暴露局部开关；后台入口只消费同一 snapshot，不维护第二份任务状态。
+  // 左下：模式选择 + ✨增强 + 继续 + CUA 入口 + 后台任务入口 + 最近一轮统计胶囊。
+  // followupMode 由 app 设置页同步到 CLI，不在 composer 暴露局部开关；后台入口
+  // 只消费同一 snapshot，不维护第二份任务状态。
+  const continueLabel = intl.formatMessage({ id: "chat.composer.continue.label" });
   const leadingActionsNode = useMemo(
     () => (
       <>
@@ -1965,6 +2016,34 @@ function ConversationComposerImpl({
           onConfigPickerOpenChange={handleConfigPickerOpenChange}
           onSwitchMode={onSwitchMode}
         />
+        <ComposerEnhanceButton
+          draftText={text}
+          onReplaceDraft={handleReplaceComposerDraft}
+          disabled={disabled}
+          currentProviderId={
+            draftConfig?.modelSelection?.providerId ??
+            snapshot?.config.modelSelection?.providerId ??
+            null
+          }
+          currentModelId={
+            draftConfig?.modelSelection?.modelId ?? snapshot?.config.modelSelection?.modelId ?? null
+          }
+          onRegisterRun={handleRegisterEnhanceRun}
+        />
+        <ControlHintTooltip title={intl.formatMessage({ id: "chat.composer.continue.tooltip" })}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="default"
+            data-testid="v4-composer-continue-button"
+            aria-label={continueLabel}
+            disabled={disabled}
+            onClick={handleContinue}
+            className="h-7 w-fit justify-center rounded-lg px-1.5 py-1.5 text-ui-base"
+          >
+            <ChevronsRightIcon className="ml-1 size-4 shrink-0" aria-hidden />
+          </Button>
+        </ControlHintTooltip>
         {/* 附件画廊重构曾整段覆盖 leadingActions，误删 CUA 常驻入口。
             入口自身继续负责平台、远程与设置可见性，不在 composer 重复判定。 */}
         <V4ComposerCuaEntry
@@ -1983,17 +2062,22 @@ function ConversationComposerImpl({
     ),
     [
       activeConfigPicker,
+      backgroundWorkOpenTarget,
       canStop,
+      continueLabel,
       disabled,
       draftConfig,
       handleConfigPickerOpenChange,
-      backgroundWorkOpenTarget,
+      handleContinue,
+      handleReplaceComposerDraft,
+      intl,
       onOpenRunningBackgroundWorks,
       onSwitchMode,
       provider,
       remoteSessionId,
       runningSubagentCount,
-      snapshot?.backgroundWorks,
+      snapshot,
+      text,
       workspaceIdentity,
       workspacePath,
     ],
@@ -2016,6 +2100,7 @@ function ConversationComposerImpl({
       data-input-routing={mode}
       aria-hidden={isBlockedByInteraction ? true : undefined}
       style={isBlockedByInteraction ? { display: "none" } : undefined}
+      onKeyDownCapture={handleComposerKeyDown}
       className={cn(
         "chat-composer-region z-20 w-full shrink-0 @container/composer",
         centered && "max-w-2xl",
@@ -2105,6 +2190,10 @@ function ConversationComposerImpl({
           onWhiteboardMentionSelected={attachmentsApi.handleWhiteboardMentionSelected}
           onPaste={attachmentsApi.handlePaste}
         />
+        <div className="composer-stats-root" data-composer-stats>
+          <ComposerStatsRow snapshot={snapshot} />
+          <ComposerContextMeter snapshot={snapshot} />
+        </div>
         {attachmentsApi.attachmentError ? (
           <p className="flex items-start gap-2 p-3 text-ui-base text-warning">
             <InfoIcon className="mt-0.5 size-4 shrink-0" />

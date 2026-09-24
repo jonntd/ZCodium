@@ -99,6 +99,24 @@ declare global {
       printPageToPdf?(): Promise<import("@zcode/shared").PrintPageToPdfResult>;
       /** 从系统拖拽/文件输入得到的 Web File 解析真实本地路径 */
       getPathForFile?(file: File): string | null;
+      /** 长文本粘贴落盘为宿主本地附件（desktopPlatform.createTempTextAttachment） */
+      createTempTextAttachment?(
+        payload: import("@zcode/shared").CreateTempTextAttachmentRequest,
+      ): Promise<import("@zcode/shared").CreateTempTextAttachmentResult>;
+      /** 拉取自定义渠道端点的模型列表（modelhub，main 侧绕过 CORS） */
+      modelhubFetchModels?(
+        payload: import("@zcode/shared").ModelhubFetchModelsRequest,
+      ): Promise<import("@zcode/shared").ModelhubFetchModelsResult>;
+      /** 探测模型视觉能力（modelhub） */
+      modelhubProbeVision?(
+        payload: import("@zcode/shared").ModelhubProbeVisionRequest,
+      ): Promise<import("@zcode/shared").ModelhubProbeVisionResult>;
+      /** 按用户渠道配置改写提示词草稿（增强按钮） */
+      enhancePromptDraft?(
+        payload: import("@zcode/shared").EnhancePromptDraftRequest,
+      ): Promise<import("@zcode/shared").EnhancePromptDraftResult>;
+      /** 列出可用于提示词增强的渠道与模型 */
+      enhanceListModels?(): Promise<import("@zcode/shared").EnhanceListModelsResult>;
       /** 订阅当前窗口内远程连接过程日志，返回 disposer */
       onRemoteConnectionLog(handler: (entry: RemoteConnectionRuntimeLog) => void): () => void;
       /** 订阅远程 workspace session 关闭事件，返回 disposer */

@@ -12,13 +12,10 @@ import type { McpUnavailableNotice } from "@/v4/mcpUnavailableBannerNotice.js";
 import {
   allBucketsExhausted,
   bucketMatchesModel,
-  bucketRemainingRatio,
-  bucketReminderKey,
   getActiveModelBuckets,
 } from "@/v4/startPlanQuotaBuckets.js";
 
 export type SessionQuotaBannerKind =
-  | "model-very-low"
   | "model-exhausted"
   | "daily-exhausted"
   | "concurrent-limit"
@@ -38,12 +35,6 @@ export interface SessionQuotaBannerState {
   mcpServerName: string | null;
   /** 官方 Server MCP 提示专用：产生该事实的 tool row，参与去重键。 */
   mcpNoticeRowId: number | null;
-  /** 仅低额度提醒携带稳定桶周期键；不影响其他业务错误关闭。 */
-  reminderKey?: string;
-  reminderExpiresAt?: number;
-  /** 与桶有效性一致的快照时间，不能换算为设备时钟。 */
-  reminderReferenceTime?: number;
-  quotaPeriod?: string;
   remainingTokens: number | null;
   remainingPercent: number | null;
   dismissible: boolean;
@@ -87,14 +78,18 @@ function normalizeProviderLimitedBannerMessage(message: string | null | undefine
 }
 
 /**
- * 额度业务错误保持原优先级；Start Plan 低额度按桶提醒，耗尽按全部有效桶判断。
+ * 额度业务错误保持原优先级；Start Plan 耗尽按全部有效桶判断。
+ *
+ * 旧版「剩余 ≤10% 弹 model-very-low 升级提醒」已按 zcode-patcher「去额度骚扰横幅」
+ * 的语义整体移除：低余额不属于需要行动的阻断状态，仅在剩一半时就开始催升级。
+ * 额度耗尽（model-exhausted / daily-exhausted）、并发受限、供应商受限与 MCP
+ * 通知等真实故障提示全部保留。
  */
 export function buildSessionQuotaBannerState(params: {
   activeProviderId: string | null;
   snapshot: UsageEntitlementSnapshot | null;
   modelId: string | null;
   serverQuotaExhausted?: boolean;
-  isReminderHidden?: (key: string, referenceTime: number) => boolean;
   serverConcurrentLimited?: boolean;
   serverConcurrentLimitBusinessCode?: "3008" | "3009" | "3010";
   serverConcurrentLimitReason?: StartPlanConcurrentLimitBannerReason;
@@ -208,7 +203,6 @@ export function buildSessionQuotaBannerState(params: {
     return HIDDEN_SESSION_QUOTA_BANNER_STATE;
   }
 
-  const referenceTime = params.snapshot.serverTime ?? params.snapshot.generatedAt;
   const buckets = getActiveModelBuckets(params.snapshot);
   if (allBucketsExhausted(buckets)) {
     return {
@@ -238,32 +232,8 @@ export function buildSessionQuotaBannerState(params: {
       priority: 40,
     };
   }
-  for (const bucket of modelBuckets) {
-    const ratio = bucketRemainingRatio(bucket);
-    const key = bucketReminderKey(bucket);
-    if (
-      ratio === null ||
-      ratio <= 0 ||
-      ratio > 0.1 ||
-      !key ||
-      params.isReminderHidden?.(key, referenceTime)
-    )
-      continue;
-    return {
-      ...HIDDEN_SESSION_QUOTA_BANNER_STATE,
-      visible: true,
-      kind: "model-very-low",
-      modelName,
-      remainingTokens: bucket.remaining ?? null,
-      remainingPercent: ratio * 100,
-      reminderKey: key,
-      reminderReferenceTime: referenceTime,
-      reminderExpiresAt: Math.min(bucket.periodEnd!, bucket.nextResetTime ?? Infinity),
-      quotaPeriod: bucket.period,
-      dismissible: true,
-      priority: 30,
-    };
-  }
+  // 旧版在此遍历 modelBuckets、按 ratio≤0.1 产出 model-very-low 升级提醒；
+  // 该提醒档已随「去额度骚扰横幅」语义移除，直接隐藏（见函数注释）。
   return HIDDEN_SESSION_QUOTA_BANNER_STATE;
 }
 
@@ -272,7 +242,6 @@ export function buildSessionQuotaBannerDismissKey(
   serverErrorKey?: string | null,
 ): string | null {
   if (!state.visible || !state.kind) return null;
-  if (state.reminderKey) return state.reminderKey;
   return [
     state.kind,
     state.concurrentLimitBusinessCode ?? "",

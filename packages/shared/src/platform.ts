@@ -261,6 +261,86 @@ export interface SaveFileResult {
   success: boolean;
 }
 
+/** zcode-patcher 模型拉取（modelhub）：请求渠道端点返回的模型列表。 */
+export interface ModelhubFetchModelsRequest {
+  baseUrl: string;
+  apiKey?: string;
+  headers?: Record<string, string>;
+  /** "anthropic" | "gemini" | "openai-compatible"（缺省按 openai-compatible 处理） */
+  dialect?: string;
+}
+
+export interface ModelhubModelSummary {
+  id: string;
+  /** 基于模型名的视觉能力猜测；准确判定走 probeVision。 */
+  visionGuess: boolean;
+}
+
+export interface ModelhubFetchModelsResult {
+  ok: boolean;
+  models?: ModelhubModelSummary[];
+  error?: string;
+}
+
+/** zcode-patcher 视觉探测：向渠道发送 1x1 像素图片，按响应判断模型是否支持图像输入。 */
+export interface ModelhubProbeVisionRequest {
+  baseUrl: string;
+  apiKey?: string;
+  model: string;
+  headers?: Record<string, string>;
+  dialect?: string;
+}
+
+export interface ModelhubProbeVisionResult {
+  ok: boolean;
+  vision?: boolean;
+  detail?: string;
+  error?: string;
+  status?: number;
+}
+
+/** zcode-patcher 提示词增强：main 进程按用户已配置的渠道改写 composer 草稿。 */
+export interface EnhancePromptDraftRequest {
+  text: string;
+  /** 指定渠道 id + 模型 id；缺省时 main 侧按评分选择当前可用渠道 */
+  channel?: string;
+  model?: string;
+}
+
+export interface EnhancePromptDraftResult {
+  ok: boolean;
+  text?: string;
+  model?: string;
+  channel?: string;
+  error?: string;
+  /** 独立链路命中：输入不适合改写，text 为原文透传（渲染层保留草稿并提示）。 */
+  unchanged?: boolean;
+}
+
+export interface EnhanceListModelEntry {
+  id: string;
+  priority: number;
+}
+
+export interface EnhanceListModelsChannel {
+  id: string;
+  /** 渠道显示名（config provider.name）；UI 用它替代裸 id。 */
+  name: string;
+  kind: string;
+  score: number;
+  selected: boolean;
+  hasKey: boolean;
+  models: EnhanceListModelEntry[];
+}
+
+export interface EnhanceListModelsResult {
+  ok: boolean;
+  selected: string;
+  channels: EnhanceListModelsChannel[];
+  manual?: { model: string; kind: string } | null;
+  error?: string;
+}
+
 export interface PrintPageToPdfResult {
   success: boolean;
   /** PDF 字节；success 时存在 */
@@ -558,6 +638,24 @@ export interface IPlatformService {
   createTempTextAttachment?(
     payload: CreateTempTextAttachmentRequest,
   ): Promise<CreateTempTextAttachmentResult>;
+
+  /**
+   * 模型拉取（zcode-patcher modelhub 原生版）：由 main 进程请求自定义渠道端点的
+   * /models 列表。必须在 main 侧执行以绕过 renderer 的 CORS 限制；Web 端不实现。
+   */
+  modelhubFetchModels?(payload: ModelhubFetchModelsRequest): Promise<ModelhubFetchModelsResult>;
+
+  /** 模型视觉能力探测（modelhub）：main 进程发送 1x1 图片按响应判定；Web 端不实现。 */
+  modelhubProbeVision?(payload: ModelhubProbeVisionRequest): Promise<ModelhubProbeVisionResult>;
+
+  /**
+   * 提示词增强（zcode-patcher --enhance-btn 原生版）：main 进程读取用户渠道配置与
+   * 凭据，用渠道模型改写 composer 草稿；Web 端不实现。
+   */
+  enhancePromptDraft?(payload: EnhancePromptDraftRequest): Promise<EnhancePromptDraftResult>;
+
+  /** 列出可用于提示词增强的渠道与模型（按可用性评分排序）；Web 端不实现。 */
+  enhanceListModels?(): Promise<EnhanceListModelsResult>;
 
   /** 订阅当前窗口内远程连接过程日志，返回 disposer */
   onRemoteConnectionLog(handler: (entry: RemoteConnectionRuntimeLog) => void): () => void;

@@ -32,6 +32,13 @@ import type {
   EditorInfo,
   CreateTempTextAttachmentRequest,
   CreateTempTextAttachmentResult,
+  ModelhubFetchModelsRequest,
+  ModelhubFetchModelsResult,
+  ModelhubProbeVisionRequest,
+  ModelhubProbeVisionResult,
+  EnhancePromptDraftRequest,
+  EnhancePromptDraftResult,
+  EnhanceListModelsResult,
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,
@@ -155,6 +162,14 @@ export const PlatformChannels = {
   SelectFiles: "zcode:select-files",
   /** Renderer → Main：写入宿主 ~/.zcode 临时文本附件 */
   CreateTempTextAttachment: "zcode:create-temp-text-attachment",
+  /** Renderer → Main：拉取自定义渠道端点的模型列表（modelhub，main 侧绕过 CORS） */
+  ModelhubFetchModels: "zcode:modelhub-fetch-models",
+  /** Renderer → Main：探测模型视觉能力（modelhub，main 侧发送 1x1 图片） */
+  ModelhubProbeVision: "zcode:modelhub-probe-vision",
+  /** Renderer → Main：按用户渠道配置改写提示词草稿（增强按钮） */
+  EnhanceRun: "zcode:enhance-run",
+  /** Renderer → Main：列出可用于提示词增强的渠道与模型 */
+  EnhanceListModels: "zcode:enhance-list-models",
   /** Renderer → Main：通过原生另存为对话框保存文件 */
   SaveFile: "zcode:save-file",
   /** Renderer → Main：用 Chromium 打印引擎把当前页面 print 媒体版面导出为 PDF */
@@ -645,6 +660,22 @@ export interface PlatformChannelMap {
   [PlatformChannels.CreateTempTextAttachment]: {
     request: CreateTempTextAttachmentRequest;
     response: CreateTempTextAttachmentResult;
+  };
+  [PlatformChannels.ModelhubFetchModels]: {
+    request: ModelhubFetchModelsRequest;
+    response: ModelhubFetchModelsResult;
+  };
+  [PlatformChannels.ModelhubProbeVision]: {
+    request: ModelhubProbeVisionRequest;
+    response: ModelhubProbeVisionResult;
+  };
+  [PlatformChannels.EnhanceRun]: {
+    request: EnhancePromptDraftRequest;
+    response: EnhancePromptDraftResult;
+  };
+  [PlatformChannels.EnhanceListModels]: {
+    request: void;
+    response: EnhanceListModelsResult;
   };
   [PlatformChannels.SaveFile]: {
     request: SaveFileRequest;

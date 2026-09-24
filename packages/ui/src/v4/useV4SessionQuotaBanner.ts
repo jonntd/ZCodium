@@ -1,6 +1,6 @@
 import { useProviderSettingsView } from "@/hooks/useProviderSettingsView.js";
 import { buildStartPlanEntitlementOptions } from "@/lib/startPlanEntitlementOptions.js";
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore, useRef } from "react";
 import { BUILTIN_MODEL_PROVIDER_IDS, isStartPlanModelProviderId } from "@zcode/shared";
 import type { IUsageStatsService } from "@zcode/services";
 import type { SessionErrorInfo, SessionPhase } from "@zcode/shared/zcode-protocol-v4";
@@ -24,7 +24,6 @@ import {
 import type { McpUnavailableNotice } from "@/v4/mcpUnavailableBannerNotice.js";
 import { logger } from "@/logger.js";
 import { sessionQuotaBannerDismissalStore } from "@/v4/sessionQuotaBannerDismissalStore.js";
-import { startPlanQuotaReminderStore } from "@/v4/startPlanQuotaReminderStore.js";
 
 function isGlmQuotaBannerProviderId(providerId: string | null): boolean {
   return (
@@ -85,24 +84,12 @@ export function useV4SessionQuotaBanner(params: {
       isStartPlanProvider ? activeProviderId! : "",
     ),
   });
-  const reminderVersion = useSyncExternalStore(
-    startPlanQuotaReminderStore.subscribe,
-    startPlanQuotaReminderStore.getSnapshot,
-    startPlanQuotaReminderStore.getSnapshot,
-  );
-  // 展示实例随任务/模型切换而更新；余额刷新不能生成新实例，否则会立即收起当前提醒。
-  const reminderOwner = useMemo(
-    () => ({ sessionId: params.sessionId, activeProviderId, modelId }),
-    [params.sessionId, activeProviderId, modelId],
-  );
   const state = useMemo(
     () =>
       buildSessionQuotaBannerState({
         activeProviderId,
         snapshot: entitlement.snapshot,
         modelId,
-        isReminderHidden: (key, referenceTime) =>
-          startPlanQuotaReminderStore.isHidden(key, reminderOwner, referenceTime),
         serverQuotaExhausted,
         serverConcurrentLimited,
         ...(concurrentLimitCode ? { serverConcurrentLimitBusinessCode: concurrentLimitCode } : {}),
@@ -123,8 +110,6 @@ export function useV4SessionQuotaBanner(params: {
       }),
     [
       activeProviderId,
-      reminderOwner,
-      reminderVersion,
       concurrentLimitCode,
       entitlement.snapshot,
       modelId,
@@ -141,15 +126,6 @@ export function useV4SessionQuotaBanner(params: {
     state,
     takesOverError ? params.errorKey : null,
   );
-  const previousReminderKeyRef = useRef<string | undefined>(undefined);
-  useEffect(() => {
-    const previousKey = previousReminderKeyRef.current;
-    previousReminderKeyRef.current = state.reminderKey;
-    // 已展示的提醒退出后结束展示实例，避免余额回升再降低时在同一周期重复弹出。
-    if (previousKey && previousKey !== state.reminderKey) {
-      startPlanQuotaReminderStore.dismiss(previousKey);
-    }
-  }, [state.reminderKey]);
   useSyncExternalStore(
     sessionQuotaBannerDismissalStore.subscribe,
     sessionQuotaBannerDismissalStore.getSnapshot,
@@ -225,51 +201,15 @@ export function useV4SessionQuotaBanner(params: {
   }, [activeProviderId, entitlement.refresh, isStartPlanProvider, modelId]);
 
   const dismiss = useCallback(() => {
-    if (state.reminderKey) {
-      // 点击关闭本身证明用户已看到提示，避免可见性回调尚未执行时关闭无效。
-      if (state.reminderExpiresAt !== undefined && state.reminderReferenceTime !== undefined) {
-        startPlanQuotaReminderStore.markShown(
-          state.reminderKey,
-          state.reminderExpiresAt,
-          reminderOwner,
-          state.reminderReferenceTime,
-        );
-      }
-      startPlanQuotaReminderStore.dismiss(state.reminderKey);
-      return;
-    }
     if (!params.sessionId || !dismissKey) return;
     sessionQuotaBannerDismissalStore.dismiss(params.sessionId, dismissKey);
-  }, [
-    dismissKey,
-    params.sessionId,
-    reminderOwner,
-    state.reminderKey,
-    state.reminderExpiresAt,
-    state.reminderReferenceTime,
-  ]);
-
-  const markShown = useCallback(() => {
-    if (
-      state.reminderKey &&
-      state.reminderExpiresAt !== undefined &&
-      state.reminderReferenceTime !== undefined
-    ) {
-      startPlanQuotaReminderStore.markShown(
-        state.reminderKey,
-        state.reminderExpiresAt,
-        reminderOwner,
-        state.reminderReferenceTime,
-      );
-    }
-  }, [reminderOwner, state.reminderExpiresAt, state.reminderKey, state.reminderReferenceTime]);
+  }, [dismissKey, params.sessionId]);
 
   return {
     state,
     dismissKey,
     dismissed,
     dismiss,
-    markShown,
     takesOverError,
     upgradeProviderId:
       terminalPlan || !shouldOfferQuotaBannerUpgrade(state.kind) ? null : upgradeProviderId,

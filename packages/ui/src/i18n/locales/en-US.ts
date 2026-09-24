@@ -879,7 +879,8 @@ const enUS: Record<string, string> = {
   "login.oauth.cancel": "Cancel",
   "login.oauth.retry": "Retry login",
   "login.expired.title": "Your configuration has expired",
-  "login.expired.description": "Your API key configuration is no longer valid. Please set it up again.",
+  "login.expired.description":
+    "Your API key configuration is no longer valid. Please set it up again.",
   "login.expired.action": "Configure again",
   "login.expired.restart": "Confirm and restart",
   "login.useApiKey": "Use API key",
@@ -2351,8 +2352,7 @@ const enUS: Record<string, string> = {
   "settings.officialServices.description":
     "These are Z.AI (ZCode) services. Turning one on connects to Z.AI servers — keep them off unless you need them. Some features load at startup; restart the app after changing these switches.",
   "settings.officialServices.account.title": "Z.AI API configuration",
-  "settings.officialServices.account.desc":
-    "Configure a Z.AI API key to use related capabilities.",
+  "settings.officialServices.account.desc": "Configure a Z.AI API key to use related capabilities.",
   "settings.officialServices.codingPlan.title": "Plan and quota",
   "settings.officialServices.codingPlan.desc": "Check the Z.AI plan, quota and usage.",
   "settings.officialServices.feedback.title": "Z.AI feedback channel",
@@ -2446,8 +2446,7 @@ const enUS: Record<string, string> = {
   "settings.embeddedBrowserAllowInsecureCertificatesSavedHint":
     "Certificate setting saved. Restart the app to take effect.",
   "settings.browser.data.section": "Browser data",
-  "settings.browser.desktopOnly":
-    "Browser data can only be managed in the ZCodium desktop app.",
+  "settings.browser.desktopOnly": "Browser data can only be managed in the ZCodium desktop app.",
   "settings.browser.import.title": "Import Chrome sign-in state",
   "settings.browser.import.description":
     "Bring your Chrome sign-in state into the built-in browser once, so the AI can open sites you are already signed in to and work more smoothly.",
@@ -2645,8 +2644,7 @@ const enUS: Record<string, string> = {
     "MCP authorization was not completed or timed out. Authorize again.",
   "settings.mcp.failure.official_origin_untrusted":
     "The MCP server URL failed the security check. The connection was blocked.",
-  "settings.mcp.failure.not_authenticated":
-    "No API key configured. Please configure one first.",
+  "settings.mcp.failure.not_authenticated": "No API key configured. Please configure one first.",
   "settings.mcp.failure.coding_plan_required":
     "No Coding Plan configured. Configure one in model settings first.",
   "settings.mcp.failure.server_not_found":
@@ -2825,8 +2823,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.startPlan.status.loginRequired": "Configure an API key to view",
   "settings.modelProvider.startPlan.status.expired": "Start Plan expired",
   "settings.modelProvider.startPlan.status.noPlan": "No available Start Plan",
-  "settings.modelProvider.startPlan.status.loginExpired":
-    "API key expired. Configure it again.",
+  "settings.modelProvider.startPlan.status.loginExpired": "API key expired. Configure it again.",
   "settings.modelProvider.startPlan.title": "{provider} - Coding Plan",
   "settings.modelProvider.startPlan.meta.today": "Today",
   "settings.modelProvider.startPlan.meta.tomorrow": "Tomorrow",
@@ -2865,8 +2862,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.codingPlan.status.loginRequired": "Not configured",
   "settings.modelProvider.codingPlan.status.disconnected": "Not connected",
   "settings.modelProvider.codingPlan.status.checking": "Checking",
-  "settings.modelProvider.codingPlan.status.notPurchased":
-    "Not configured",
+  "settings.modelProvider.codingPlan.status.notPurchased": "Not configured",
   "settings.modelProvider.codingPlan.status.purchased": "Subscribed",
   "settings.modelProvider.codingPlan.status.unavailable": "Fetch failed",
   "settings.modelProvider.codingPlan.status.teamExpired":
@@ -2890,7 +2886,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.codingPlan.login": "Configure {provider} API key",
   "settings.modelProvider.codingPlan.browserLogin": "Sign in via browser",
   "settings.modelProvider.codingPlan.browserLoginHint":
-    "Browser sign-in did not complete. Make sure \"Z.AI API configuration\" is enabled under Settings → Z.AI services, then retry and finish the browser authorization.",
+    'Browser sign-in did not complete. Make sure "Z.AI API configuration" is enabled under Settings → Z.AI services, then retry and finish the browser authorization.',
   "settings.modelProvider.codingPlan.connect": "Configure {provider}",
   "settings.modelProvider.codingPlan.disconnect": "Unlink",
   "settings.modelProvider.codingPlan.upgrade": "Configure",
@@ -3015,6 +3011,35 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.modelConfigIncomplete": "Model configuration is incomplete",
   "settings.modelProvider.models": "Model list",
   "settings.modelProvider.modelsEmpty": "No models are configured. Add a model to use it in chat.",
+  "settings.modelhub.fetch.action": "Fetch models",
+  "settings.modelhub.fetch.failed": "Fetch failed: {error}",
+  "settings.modelhub.fetch.empty": "The endpoint returned 0 models",
+  "settings.modelhub.fetch.addFailed": "Failed to add {model}: {error}",
+  "settings.modelhub.fetch.done": "Added {count} models",
+  "settings.modelhub.headers.action": "Headers",
+  "settings.modelhub.headers.title": "Header simulation",
+  "settings.modelhub.headers.hint":
+    "Checked = sent · Unchecked = removed · Applies to this provider only",
+  "settings.modelhub.headers.count": "{checked} / {total} checked",
+  "settings.modelhub.headers.tab.claude": "Claude (claude-cli)",
+  "settings.modelhub.headers.tab.codex": "Codex (codex_cli_rs)",
+  "settings.modelhub.headers.regenerate": "Regenerate",
+  "settings.modelhub.headers.clearAll": "Clear all",
+  "settings.modelhub.headers.apply": "Apply",
+  "settings.modelhub.headers.failed": "Failed to save headers: {error}",
+  "settings.modelhub.pick.deleted": "Deleted",
+  "settings.modelhub.pick.title": "Select models to add",
+  "settings.modelhub.pick.summary": "{selected} / {total} selectable",
+  "settings.modelhub.pick.search": "Search models…",
+  "settings.modelhub.pick.selectAll": "Select all",
+  "settings.modelhub.pick.selectNone": "Select none",
+  "settings.modelhub.pick.probeChecked": "Probe vision (checked)",
+  "settings.modelhub.pick.probeAll": "Probe all",
+  "settings.modelhub.pick.existing": "Already listed",
+  "settings.modelhub.pick.vision": "Vision ✓",
+  "settings.modelhub.pick.text": "Text",
+  "settings.modelhub.pick.empty": "No match",
+  "settings.modelhub.pick.confirm": "Add ({count})",
   "settings.modelProvider.addModel": "Add model",
   "settings.modelProvider.modelId": "Model ID",
   "settings.modelProvider.modelDisplayName": "Display name",
@@ -3079,8 +3104,7 @@ const enUS: Record<string, string> = {
     "From the selected provider tool-usage API: Network Search / Web Reader / Zread call counts.",
   "settings.usage.sourceProvider": "Source: {provider}",
   "settings.usage.billingBanner.title": "{provider} Coding Plan",
-  "settings.usage.billingBanner.description":
-    "Configure the {provider} API key to query usage.",
+  "settings.usage.billingBanner.description": "Configure the {provider} API key to query usage.",
   "settings.usage.billingBanner.compactDescription":
     "Configure the {provider} API key to sync usage.",
   "settings.usage.billingBanner.buy": "Configure Coding Plan",
@@ -3205,8 +3229,7 @@ const enUS: Record<string, string> = {
   "chat.planUsage.titleWithPlan": "{plan} Plan usage",
   "chat.planUsage.providerFallback": "Current provider",
   "chat.planUsage.open": "Details",
-  "chat.planUsage.noPlan":
-    "No active Coding Plan configuration.",
+  "chat.planUsage.noPlan": "No active Coding Plan configuration.",
   "chat.planUsage.contextWindow": "Current context window",
   "chat.planUsage.contextDetail": "{used} / {total}",
   "chat.planUsage.promptPool": "5-hour prompt pool",
@@ -5426,6 +5449,29 @@ const enUS: Record<string, string> = {
     'No ZCodium MCP "{server}" quota. Configure an API key or a Coding Plan to use it.',
   "chat.quota.providerLimited":
     "The current quota or plan limit has been reached. Adjust the plan to continue.",
+  "chat.composer.continue.text": "Continue",
+  "chat.composer.continue.label": 'Fill in "Continue" and send (Cmd/Ctrl+Shift+J)',
+  "chat.composer.continue.tooltip":
+    'Fill in "Continue" and send immediately; appends to an existing draft',
+  "chat.composer.stats.tps": "{tps} tok/s",
+  "chat.composer.stats.cacheHit": "Cache hit {percent}%",
+  "chat.composer.context.aria": "{percent} of context used",
+  "chat.composer.context.used": "of context used",
+  "chat.composer.enhance.label": "Enhance prompt",
+  "chat.composer.enhance.tooltip":
+    "Enhance prompt (click / Ctrl+/ to enhance · menu for model/mode)",
+  "chat.composer.enhance.options": "Enhance options (mode/model)",
+  "chat.composer.enhance.current": "Current enhance target: {target}",
+  "chat.composer.enhance.followCurrent": "Follow current model ({model})",
+  "chat.composer.enhance.channel.auto": "Auto (by channel scoring)",
+  "chat.composer.enhance.badge.current": "★ current",
+  "chat.composer.enhance.badge.noKey": "no key",
+  "chat.composer.enhance.emptyDraft": "Type a prompt to enhance first",
+  "chat.composer.enhance.restoredAuto": "Cleared stale selection ({channel}); back to auto scoring",
+  "chat.composer.enhance.manualHint": "Manual config active: {model} (enhance-config.json)",
+  "chat.composer.enhance.noChannels": "No enabled channels in config.json",
+  "chat.composer.enhance.unchanged": "No enhancement needed - original kept",
+  "chat.composer.enhance.failed": "Enhance failed: {error}",
   "chat.quota.action.upgrade": "Configure",
   "chat.quota.action.renew": "Refresh",
   "chat.quota.action.switchModel": "Switch model",
@@ -5910,8 +5956,7 @@ const enUS: Record<string, string> = {
   "feedback.submit.addScreenshot": "Add screenshot",
   "feedback.submit.removeScreenshot": "Remove",
   "feedback.submit.contact.label": "Contact",
-  "feedback.submit.contact.hint":
-    "Optional; other contact details are fine too.",
+  "feedback.submit.contact.hint": "Optional; other contact details are fine too.",
   "feedback.submit.contact.placeholder": "example@domain.com / other contact",
   "feedback.submit.supplemental.title": "Additional information",
   "feedback.submit.module.label": "Module",

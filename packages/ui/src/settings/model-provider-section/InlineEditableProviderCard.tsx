@@ -28,6 +28,7 @@ import { resolveModelProviderDisplayName } from "./constants.js";
 import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
 import { useIdleTrigger } from "./useIdleTrigger.js";
 import { useOptimisticReorder } from "./useOptimisticReorder.js";
+import { recordDeletedModel } from "./modelhubTombstones.js";
 
 type ProviderNameEditKeyAction = "commit" | "cancel";
 type ProviderDraftCleanupAction = "commit" | "skip-delete";
@@ -673,6 +674,8 @@ export function InlineEditableProviderCard({
         return;
       }
       if (!model.builtin) {
+        // 拉取模型删除墓碑：删除过的模型不再被「拉取模型」列为可添加项。
+        recordDeletedModel(provider.providerId, modelId);
         void runSaveOperation(
           async () => {
             if (!onDeletePersonalModel)
@@ -736,6 +739,27 @@ export function InlineEditableProviderCard({
       });
     },
     [onReorderModelIds, optimisticModelOrder, provider.providerId],
+  );
+
+  // 请求头模拟（modelhub）：把预设勾选结果写入 api.headers 叶子。与连接草稿保存
+  // 同一合并约束——只动 headers 叶子（展开旧 api 保留其它字段），不物化继承字段，
+  // 也不重建整个 api 导致隐藏 headers 丢失。
+  const handleSaveProviderHeaders = useCallback(
+    async (headers: Record<string, string>): Promise<void> => {
+      const headersChanged =
+        JSON.stringify(headers) !== JSON.stringify(provider.config.api?.headers ?? null);
+      if (!headersChanged) return;
+      const api = { ...provider.config.api, headers };
+      await saveProviderWithCleanupGuard({
+        ...provider,
+        config: { ...provider.config, api },
+        personalConfig: {
+          ...provider.personalConfig,
+          api: { ...provider.personalConfig.api, headers },
+        },
+      });
+    },
+    [provider, saveProviderWithCleanupGuard],
   );
 
   const handleDeleteProvider = useCallback(() => {
@@ -854,6 +878,14 @@ export function InlineEditableProviderCard({
           onAddModel={handleAddModel}
           onReorderModelIds={onReorderModelIds ? handleReorderModelIds : undefined}
           settingsRevision={settingsRevision ?? 0}
+          // 拉取模型（modelhub）用当前表单的连接事实；空 baseUrl 时入口自动隐藏。
+          modelhubEndpoint={{
+            apiType: apiFormat,
+            baseUrl: baseUrlValue,
+            apiKey: apiKeyValue,
+          }}
+          providerHeaders={provider.config.api?.headers ?? null}
+          onSaveProviderHeaders={handleSaveProviderHeaders}
         />
       </div>
     </div>

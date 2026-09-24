@@ -9,7 +9,6 @@ import type {
 } from "@/v4/sessionQuotaBannerState.js";
 
 const MESSAGE_IDS: Record<SessionQuotaBannerKind, string> = {
-  "model-very-low": "chat.quota.startPlan.modelVeryLow",
   "model-exhausted": "chat.quota.startPlan.modelExhausted",
   "daily-exhausted": "chat.quota.startPlan.dailyExhausted",
   "concurrent-limit": "chat.quota.startPlan.concurrentLimit",
@@ -19,13 +18,6 @@ const MESSAGE_IDS: Record<SessionQuotaBannerKind, string> = {
 };
 
 function resolveMessageId(state: SessionQuotaBannerState): string {
-  if (state.kind === "model-very-low") {
-    return state.quotaPeriod === "daily"
-      ? "chat.quota.startPlan.bucketDailyLow"
-      : state.quotaPeriod === "one_time"
-        ? "chat.quota.startPlan.bucketActivityLow"
-        : "chat.quota.startPlan.modelVeryLow";
-  }
   if (state.kind === "concurrent-limit") {
     return state.concurrentLimitReason === "retry-exhausted-busy"
       ? "chat.quota.startPlan.concurrentLimit.retryExhausted"

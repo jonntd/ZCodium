@@ -4232,7 +4232,6 @@ export function SessionPane({
       (!projectedComposerError || quotaBanner.takesOverError || quotaBanner.state.blocksSubmit) ? (
         <ConversationQuotaBanner
           state={quotaBanner.state}
-          onShown={quotaBanner.markShown}
           upgradeActionLabelId={quotaBanner.upgradeActionLabelId}
           onUpgrade={
             quotaBanner.upgradeProviderId && codingPlanUpgradeDialog
