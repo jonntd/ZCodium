@@ -1,6 +1,11 @@
 // Composer 下方统计行（1:1 移植自 deepseek-harness
 // packages/client/ui-chat/src/client/chat/StatsPills.tsx 的 compact 形态：
-// 「⚡ X tok/s」「🗄 缓存命中 X%」两个纯读数 pill，composer 下方居中）。
+// 「⚡ X tok/s」「🗄 缓存命中 X%」与上下文占用环三个纯读数，composer 下方居中）。
+//
+// 整行可见性唯一所有者（spec §5，2026-09 用户规则）：三个读数作为一个整体进退场
+// ——任一读数有真实数据即整行常驻、三者一起渲染，缺数据的以 0 占位原位等待更新，
+// 不得逐个跳入造成多次布局跳动；全部无数据返回 null，整行经 :empty 退场。
+// ContextMeter 在本组件内渲染，被挂载即出读数，不再独立决定可见性。
 //
 // 数据契约差异（deepseek 用 durable sessionStats 投影的逐步 decode 计时；
 // 本仓库 snapshot 无逐请求 timing，速度改由最近一轮推导，口径见 turnStats.ts）：
@@ -19,6 +24,7 @@ import {
   type TurnStats,
 } from "@/v4/composer/turnStats.js";
 import { formatCacheHitPercent } from "@/v4/composer/cacheHitPercent.js";
+import { ComposerContextMeter, contextOccupancy } from "@/v4/composer/ComposerContextMeter.js";
 
 /** deepseek StatsPills 的窗口折叠兜底在本仓库的对应物：最近一轮的 decode 读数。 */
 function resolveTurnSpeed(
@@ -55,7 +61,8 @@ function resolveTurnSpeed(
   // 结束轮：优先冻结流式期间最后的滑动窗口速度——全轮均值（endedAt − 首内容行）
   // 的分母包含工具执行时间（deepseek 的 decode 计时不含），agentic 长轮会被低估到
   // <1 tok/s，读数会在结算瞬间消失；冻结值是真实测到的文本生成速度，保持连续。
-  // 仅冷打开（本轮从未流式观测过）才用全轮均值估算，<1 tok/s 视为噪声隐藏。
+  // 仅冷打开（本轮从未流式观测过）才用全轮均值估算，<1 tok/s 视为噪声不采用
+  // （整行在场时以 0 占位）。
   if (lastTpsRef.current != null) return lastTpsRef.current;
   if (stats.endedAt != null && stats.firstContentAt != null) {
     const decodeMs = stats.endedAt - stats.firstContentAt;
@@ -75,7 +82,9 @@ function ComposerStatsRowImpl({ snapshot }: { snapshot: ConversationSnapshot | n
     [snapshot?.rows.window],
   );
   const cumulative = snapshot?.usage.cumulative;
-  // deepseek hasTokens 门槛：无任何计费 token（如全部请求失败）不显示用量读数。
+  // deepseek hasTokens 门槛原语义是「无任何计费 token（如全部请求失败）不显示用量
+  // 读数」；整行同进退（spec §5）后该门槛只决定取真实值还是 0 占位——全部请求
+  // 失败时缓存命中显示 0%，读数不再跳入跳出。
   const hasTokens =
     cumulative != null && (cumulative.inputTokens > 0 || cumulative.outputTokens > 0);
   const cacheHit =
@@ -111,24 +120,27 @@ function ComposerStatsRowImpl({ snapshot }: { snapshot: ConversationSnapshot | n
     speed = resolveTurnSpeed(stats, windowRef, lastTpsRef);
   }
 
-  if (speed === null && cacheHit === null) return null;
+  // 整行可见性单一门槛（spec §5）：速度/缓存/上下文三个读数作为一个整体进退场。
+  // 任一读数有真实数据即整行常驻，三个 pill 一起渲染，缺数据的以 0 占位（速度
+  // `0 tok/s`、缓存 `缓存命中 0%`、占用环 `0%`），数据到位后原位更新——避免
+  // 首轮响应期间三个读数逐个跳入的布局跳动。全部无数据（如新会话未发送）返回
+  // null，根容器经 `.composer-stats-root:empty` 整行退场不占位。
+  const hasContext = contextOccupancy(snapshot?.usage.contextWindow ?? null) !== null;
+  if (speed === null && cacheHit === null && !hasContext) return null;
   return (
     <>
-      {speed !== null && (
-        <span className="composer-stats-pill" data-testid="v4-composer-speed-pill">
-          <GaugeIcon aria-hidden />
-          {intl.formatMessage(
-            { id: "chat.composer.stats.tps" },
-            { tps: formatTokensPerSecond(speed) },
-          )}
-        </span>
-      )}
-      {cacheHit !== null && (
-        <span className="composer-stats-pill" data-testid="v4-composer-cache-pill">
-          <DatabaseIcon aria-hidden />
-          {intl.formatMessage({ id: "chat.composer.stats.cacheHit" }, { percent: cacheHit })}
-        </span>
-      )}
+      <span className="composer-stats-pill" data-testid="v4-composer-speed-pill">
+        <GaugeIcon aria-hidden />
+        {intl.formatMessage(
+          { id: "chat.composer.stats.tps" },
+          { tps: formatTokensPerSecond(speed ?? 0) },
+        )}
+      </span>
+      <span className="composer-stats-pill" data-testid="v4-composer-cache-pill">
+        <DatabaseIcon aria-hidden />
+        {intl.formatMessage({ id: "chat.composer.stats.cacheHit" }, { percent: cacheHit ?? "0" })}
+      </span>
+      <ComposerContextMeter snapshot={snapshot} />
     </>
   );
 }

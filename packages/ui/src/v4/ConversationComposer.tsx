@@ -87,7 +87,6 @@ import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
 import { usePromptEditorDragState } from "@/prompt-editor/usePromptEditorDragState.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { advanceComposerDraftRevision } from "@/v4/composer/composerDraftRevision.js";
-import { ComposerContextMeter } from "@/v4/composer/ComposerContextMeter.js";
 import { ComposerEnhanceButton } from "@/v4/composer/ComposerEnhanceButton.js";
 import { ComposerStatsRow } from "@/v4/composer/ComposerStatsRow.js";
 import "@/v4/composer/composerStats.css";
@@ -2195,10 +2194,11 @@ function ConversationComposerImpl({
         />
         <div className="composer-stats-root" data-composer-stats>
           {/* key=sessionId：composer 本身跨会话复用（SessionPane 用常量 key），
-              统计行的滑动窗口/基线/冻结速度 refs 必须随会话整体重挂载重置，
-              否则切换会话后的首帧会显示上一会话的速度（spec §5 数据所有权）。 */}
+              统计行（速度/缓存/上下文占用环三个读数，ContextMeter 已并入
+              ComposerStatsRow）的滑动窗口/基线/冻结速度 refs 必须随会话整体
+              重挂载重置，否则切换会话后的首帧会显示上一会话的速度
+              （spec §5 数据所有权）。 */}
           <ComposerStatsRow key={snapshot?.sessionId} snapshot={snapshot} />
-          <ComposerContextMeter snapshot={snapshot} />
         </div>
         {attachmentsApi.attachmentError ? (
           <p className="flex items-start gap-2 p-3 text-ui-base text-warning">

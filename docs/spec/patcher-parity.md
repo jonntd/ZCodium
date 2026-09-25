@@ -13,7 +13,7 @@
 | `--usage-chart` 用量页去截断    | `packages/ui/src/settings/usage-stats/`                                                                                | 实现                                                          |
 | `--menu-width` 模型菜单加宽     | `packages/ui/src/ModelConfigSelect.tsx` 供应商子菜单默认宽度                                                           | 已原生（`w-max` 自适应 + Radix 视口钳制），无改写点           |
 | `--continue-btn` 继续按钮       | `packages/ui/src/v4/ConversationComposer.tsx`                                                                          | 实现                                                          |
-| `--tps-footer` TPS 统计栏       | `packages/ui/src/v4/composer/TurnStatsPill.tsx` + `turnStats.ts`                                                       | 实现                                                          |
+| `--tps-footer` TPS 统计栏       | `packages/ui/src/v4/composer/ComposerStatsRow.tsx`（含 ContextMeter）+ `turnStats.ts`                                  | 实现                                                          |
 | `--modelhub` 模型拉取           | 平台 IPC（shared/desktop）+ `ProviderCardSections.tsx` + `ModelhubModelPickerDialog.tsx`                               | 实现（删除持久化除外，见 §8）                                 |
 | `--enhance-btn` 增强提示词按钮  | 平台 IPC + `packages/desktop/src/main/enhanceService.ts`（模板/配置分别在 `enhanceTemplates.ts` / `enhanceConfig.ts`） | 实现                                                          |
 | `--quota-banner` 去额度骚扰横幅 | `packages/ui/src/v4/sessionQuotaBannerState.ts`                                                                        | 实现                                                          |
@@ -54,8 +54,16 @@
 
 - **展示**：composer 输入区下方居中一行（1:1 移植 deepseek-harness 的 StatsPills
   compact 形态 + ContextMeter）：`⚡ X tok/s`、`🗄 缓存命中 X%`、上下文占用环 `X%`。
-  全部为纯读数 pill（12/20 字号、tertiary 层、hover 反白）；无数据时逐项退场，
-  整行为空不占位。
+  全部为纯读数 pill（12/20 字号、tertiary 层、hover 反白）。
+- **整行可见性单一门槛（2026-09 用户规则）**：三个读数作为一个整体进退场——任一
+  读数有真实数据（速度读数 / 计费 token / 已知 contextWindow）即整行常驻，三者
+  **一起出现**，缺数据的读数以 0 占位（`0 tok/s` / `缓存命中 0%` / `0%`），数据
+  到位后原位更新，不得逐个跳入造成多次布局跳动；全部无数据（如新会话未发送）时
+  整行退场不占位（沿用 `:empty`）。可见性唯一所有者是 ComposerStatsRow——速度/
+  缓存/上下文在同一组件内统一裁决进出，ContextMeter 作为其子节点被挂载即渲染，
+  不再独立决定可见性；上下文展开面板仍以真实 `usage.contextWindow`（非 null）为
+  前提，容量未知（首个 ModelComplete / ModelSelected 之前）时点击不展开，避免
+  `~0 / 0` 的无意义读数。
 - **数据所有权**：唯一事实源是 conversation projection snapshot（rows + usage）。
   组件不落 store；refs 仅保存跨帧派生量（4s 滑动窗口样本、cumulative 基线、最近
   速度）。换会话通过 `key={snapshot?.sessionId}` 整体重挂载重置（bugfix：曾用
@@ -67,8 +75,9 @@
     长 agentic 轮的 header 被滚出 rows 窗口时统计不得消失；
   - 轮结算时冻结流式期间最后的滑动窗口速度作为终值，不用全轮均值重算（其分母
     含工具执行时间，会把 agentic 长轮低估到 <1 tok/s）；仅冷打开（本轮从未流式
-    观测）才用全轮均值估算，且 <1 tok/s 视为噪声隐藏；
-  - 轮开始的最初 ~1s 窗口未积累时无读数，属预期。
+    观测）才用全轮均值估算，且 <1 tok/s 视为噪声不采用（整行在场时以 0 占位）；
+  - 轮开始的最初 ~1s 窗口未积累时速度读数为 0 占位（整行若因缓存/上下文数据
+    已在场则保持显示），属预期。
 - **口径**：
   - 速度 = deepseek 的 decode-throughput 语义（decodeTokens ÷ decode 秒）。deepseek
     用 durable sessionStats 投影的逐步计时；本仓库 snapshot 无逐请求 timing，映射为
@@ -77,7 +86,8 @@
   - 缓存命中 = 1:1 移植 deepseek `formatCacheHitPercent`（`cacheHitPercent.ts`）：
     部分命中不进位成 100%，贴近 100% 自动升位到 99.9x 保持诚实；分子分母映射到
     `usage.cumulative`（inputTokens 为含缓存读写的总 prompt）。
-    防御性钳制（bugfix）：`cacheRead ≥ input` 按满命中显示 100，`input ≤ 0` 不显示。
+    防御性钳制（bugfix）：`cacheRead ≥ input` 按满命中显示 100，`input ≤ 0`
+    按 0 占位（整行退场时该 pill 随行隐藏）。
     第三方中转（modelhub 引入的任意 OpenAI 兼容端点）可能按 Anthropic 口径上报
     「input 不含 cache_read」，导致 cacheRead 超过 input；此时 99.9x 升位循环的
     差值为负、永不终止——渲染主线程死循环，整个窗口冻结，必须在入口钳制。

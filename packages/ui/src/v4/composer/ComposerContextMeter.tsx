@@ -3,6 +3,11 @@
 // context-occupancy.ts：14px viewBox 圆环 + 百分比读数，点击展开面板显示
 // 标题句、~used / window 读数与占用条）。
 //
+// 可见性由父组件 ComposerStatsRow 统一裁决（spec §5）：本组件被挂载即渲染读数，
+// 容量未知（usage.contextWindow 为 null，如新会话首个 ModelComplete 之前）时以
+// 0% 占位、环不画进度弧；展开面板仍以真实 contextWindow 为前提，点击不展开，
+// 避免 ~0 / 0 的无意义读数。
+//
 // 数据契约差异：deepseek 的 contextPressure/contextBreakdown 投影在本仓库对应
 // usage.contextWindow（usedTokens/maxTokens）；breakdown 为 chars 计数而非 token，
 // 因此面板走 deepseek 的「无 breakdown」路径（单色占用条），不做 chars 冒充 token。
@@ -43,7 +48,11 @@ interface ContextOccupancy {
   contextWindow: number;
 }
 
-function contextOccupancy(
+/**
+ * 已知容量（maxTokens > 0）才返回读数；null = 容量未知，读数按 0% 占位。
+ * ComposerStatsRow 的整行可见性门槛复用同一判定，不另写第二份口径。
+ */
+export function contextOccupancy(
   pressure: { usedTokens: number; maxTokens: number } | null | undefined,
 ): ContextOccupancy | null {
   if (!pressure || pressure.maxTokens <= 0) return null;
@@ -122,7 +131,30 @@ export function ComposerContextMeter({ snapshot }: { snapshot: ConversationSnaps
     };
   }, [available, open]);
 
-  if (context === null) return null;
+  if (context === null) {
+    // 容量未知（spec §5）：整行已由父组件裁决在场，这里渲染 0% 占位并禁用展开
+    // （点击不 setOpen，避免 ~0 / 0 的无意义面板）；数据到位后原位更新。
+    return (
+      <span ref={rootRef} className="context-meter-root">
+        <ControlHintTooltip
+          standalone
+          title={intl.formatMessage({ id: "chat.composer.context.aria" }, { percent: "0%" })}
+        >
+          <button
+            type="button"
+            className="context-meter-trigger"
+            data-testid="v4-composer-context-meter"
+            aria-label={intl.formatMessage({ id: "chat.composer.context.aria" }, { percent: "0%" })}
+          >
+            <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden>
+              <circle className="context-meter-track" cx="7" cy="7" r={RADIUS} />
+            </svg>
+            <span>0%</span>
+          </button>
+        </ControlHintTooltip>
+      </span>
+    );
+  }
   const percent = context.percent;
   const reading = `${percent}%`;
   const [headBefore = "", headAfter = ""] = intl
@@ -152,14 +184,18 @@ export function ComposerContextMeter({ snapshot }: { snapshot: ConversationSnaps
         >
           <svg viewBox="0 0 14 14" width="14" height="14" aria-hidden>
             <circle className="context-meter-track" cx="7" cy="7" r={RADIUS} />
-            <circle
-              className="context-meter-fill"
-              cx="7"
-              cy="7"
-              r={RADIUS}
-              strokeDasharray={`${(CIRCUMFERENCE * percent) / 100} ${CIRCUMFERENCE}`}
-              transform="rotate(-90 7 7)"
-            />
+            {/* 0% 时不画进度弧：stroke-linecap round 会把 0 长度 dash 渲染成
+                顶部圆点，看起来像脏点而非空环。 */}
+            {percent > 0 && (
+              <circle
+                className="context-meter-fill"
+                cx="7"
+                cy="7"
+                r={RADIUS}
+                strokeDasharray={`${(CIRCUMFERENCE * percent) / 100} ${CIRCUMFERENCE}`}
+                transform="rotate(-90 7 7)"
+              />
+            )}
           </svg>
           <span>{reading}</span>
         </button>
