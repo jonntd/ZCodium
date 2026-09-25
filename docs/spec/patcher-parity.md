@@ -46,7 +46,9 @@
 - **所有权**：草稿事实源仍是 composer 的 `textRef`/Lexical 编辑器与 composerDraftStore；
   按钮不维护第二份草稿状态。生成中排队、权限锁定、CommandInbox admission 全部交给
   应用自身判断，按钮不做额外守卫。
-- **快捷键**：Cmd/Ctrl+Shift+J，仅在焦点位于 composer 内时生效（事件冒泡天然限定作用域）。
+- **快捷键**：Cmd/Ctrl+Shift+J，仅在焦点位于 composer 内时生效（事件冒泡天然限定
+  作用域）；composer `disabled` 期间不生效——与按钮本体同一门槛，键盘不得绕过
+  队列认领等禁用态（bugfix：曾只在按钮上设 disabled，快捷键路径未判）。
 
 ## 5. TPS 统计栏（--tps-footer → deepseek-harness StatsPills 形态）
 
@@ -56,7 +58,10 @@
   整行为空不占位。
 - **数据所有权**：唯一事实源是 conversation projection snapshot（rows + usage）。
   组件不落 store；refs 仅保存跨帧派生量（4s 滑动窗口样本、cumulative 基线、最近
-  速度），换会话/换轮即重置。
+  速度）。换会话通过 `key={snapshot?.sessionId}` 整体重挂载重置（bugfix：曾用
+  sessionId useEffect 重置 refs——effect 晚于渲染执行，切换会话后的首帧仍会读到
+  上一会话冻结的速度，且重置后不触发重渲，静默历史会话上错误读数会一直挂着）；
+  换轮由 turnId 不匹配自然重置。
 - **稳定性规则**（防读数闪烁）：
   - 当前轮按「窗口最后一行所属 product turnId」定位，不依赖 turnHeader 在场——
     长 agentic 轮的 header 被滚出 rows 窗口时统计不得消失；
@@ -72,6 +77,10 @@
   - 缓存命中 = 1:1 移植 deepseek `formatCacheHitPercent`（`cacheHitPercent.ts`）：
     部分命中不进位成 100%，贴近 100% 自动升位到 99.9x 保持诚实；分子分母映射到
     `usage.cumulative`（inputTokens 为含缓存读写的总 prompt）。
+    防御性钳制（bugfix）：`cacheRead ≥ input` 按满命中显示 100，`input ≤ 0` 不显示。
+    第三方中转（modelhub 引入的任意 OpenAI 兼容端点）可能按 Anthropic 口径上报
+    「input 不含 cache_read」，导致 cacheRead 超过 input；此时 99.9x 升位循环的
+    差值为负、永不终止——渲染主线程死循环，整个窗口冻结，必须在入口钳制。
   - 上下文占用 = 1:1 移植 deepseek `contextOccupancy`：`usedTokens/maxTokens` 取整
     百分比、封顶 100；环为 14px viewBox / 2px 描边 / rotate(-90)，点击展开面板显示
     「上下文已用 X%」标题句、`~used / window` 读数与占用条（本仓库 breakdown 为
@@ -107,14 +116,27 @@
   「自动（跟随渠道评分与 priority）」恢复评分链。选择持久化在 localStorage，与补丁
   同键（zcode-enhance-mode / zcode-enhance-model），升级迁移无缝；指定的渠道失效时
   自动清除并回退评分链。空草稿点击给出提示 toast；任何失败只 toast 不阻塞 composer。
+  Ctrl+/ 快捷键与按钮同一 `disabled` 门槛，禁用态不得绕过。
+- **渠道列表获取**：首次展开菜单时拉取 `enhanceListModels`；**失败结果不缓存**
+  （bugfix：曾把 ok:false 也写进缓存，一次瞬时失败后菜单在整个组件生命周期内
+  只剩「跟随/自动」，无法自愈），下次展开重试；「无凭据」徽标按渠道判定——
+  渠道自有 apiKey 或自身 `oauth:<id>:access_token` 存在才算有凭据（bugfix：曾
+  存在任一 oauth token 就给全部渠道打 hasKey，徽标失真；oauth 凭据键名为明文，
+  按键名判断无需解密）。
 - **优先级**：菜单指定 > enhance-config.json 手动配置 > 渠道评分（与补丁一致）。
 - **平台边界**：`IPlatformService.enhancePromptDraft/enhanceListModels` 为可选方法；
-  仅 Desktop 实现（preload bridge → `zcode:enhance-run` / `zcode:enhance-list-models`），
-  Web 提供显式拒绝的 no-op，平台不支持时按钮不渲染。
+  仅 Desktop 实现（preload bridge → `zcode:enhance-run` / `zcode:enhance-list-models`）。
+  Web 端**保持未实现**（undefined，bugfix：曾以显式拒绝 no-op 实现，导致
+  `platform.xxx?.` 探测失效、按钮在 Web 上渲染出来后点击才报错）——UI 以
+  `platform.xxx? != null` 探测可用性，平台不支持时按钮不渲染。
 - **main 侧所有权**：`enhanceConfig.ts` 是渠道/凭据读取的唯一入口（`~/.zcode/v2` 的
   config/setting/credentials + 可选 `~/.zcode/enhance-config.json`）；凭据解密仅在
   main 内存中进行，不写日志、不回传 renderer。`enhanceTemplates.ts` 持有与补丁逐字
-  一致的模板文案——模板直接决定增强质量，禁止随意改写。
+  一致的模板文案——模板直接决定增强质量，禁止随意改写。当前选中渠道解析
+  （`resolveSelectedProviderId`）：先按「值逐段剥前缀」精确匹配
+  （`coding-plan:builtin:x` → `builtin:x`），再按冒号分段整体包含兜底——
+  `team-plan:builtin:x:prod:proj` 这类把 provider id 嵌在中间的值逐段剥离永远
+  剥不到完整 id（bugfix），兜底只认冒号定界的完整段，不匹配段内子串。
 - **失败语义**：任何异常只 toast，不阻塞 composer；草稿仅在拿到非空改写结果后才替换。
 
 ## 7. 模型拉取 modelhub（--modelhub）
@@ -138,8 +160,10 @@
 - **删除持久化**（`modelhubTombstones.ts`）：删除 Personal 模型时按渠道记录墓碑
   （localStorage `zcode-modelhub-deleted:v1`，单渠道 200 上限）；「拉取模型」确认
   时跳过墓碑命中的 id，选择器中显示「已删除」并禁选——删除过的模型不会复活。
-  与补丁写配置文件 tombstone 不同，落 localStorage：拉取去重是 UI 行为，不动
-  provider 配置 schema。
+  墓碑在每次读取时现读 localStorage（随 `models` 引用变化重新读取；
+  bugfix：曾以 useState 初值只读一次，同一卡片挂载期间删除的模型在随后的
+  拉取选择器里仍可作为新模型勾选）。与补丁写配置文件 tombstone 不同，落
+  localStorage：拉取去重是 UI 行为，不动 provider 配置 schema。
 
 ## 8. 去额度骚扰横幅（--quota-banner）
 

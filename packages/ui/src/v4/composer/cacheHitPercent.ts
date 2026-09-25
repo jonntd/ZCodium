@@ -47,9 +47,14 @@ export function formatCacheHitPercent(
   promptTokens: number,
   decimalPlaces: 0 | 1 = 0,
 ): string | null {
-  if (promptTokens === 0) return null;
+  if (promptTokens <= 0) return null;
+  // 异常上报钳制（bugfix）：cacheRead 是 prompt 的子集，不可能超过总 prompt。
+  // 第三方中转（modelhub 引入的任意 OpenAI 兼容端点）可能按 Anthropic 口径上报
+  // 「input 不含 cache_read」，此时下方 missedInputTokens 为负、scaledDoubleGap
+  // 恒为负，`while (scaledDoubleGap <= denominatorTens)` 永不退出——渲染主线程
+  // 死循环，整个窗口冻结（审核实测复现）。超界按满命中处理，负数 input 不显示。
+  if (cacheReadTokens >= promptTokens) return "100";
   const missedInputTokens = promptTokens - cacheReadTokens;
-  if (missedInputTokens === 0) return "100";
 
   const roundedUnits = roundedPercentUnits(cacheReadTokens, promptTokens, decimalPlaces);
   const fullHitUnits = decimalPlaces === 0 ? 100 : 1_000;

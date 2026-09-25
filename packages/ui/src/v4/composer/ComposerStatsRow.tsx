@@ -8,7 +8,7 @@
 //   - 结束轮 = out ÷（endedAt − 首内容行 createdAt）
 // 缓存命中与 deepseek 同一算法（formatCacheHitPercent：部分命中不进位成 100%），
 // 分子/分母映射到本仓库 usage.cumulative（inputTokens 已含缓存读写的总 prompt）。
-import { memo, useEffect, useMemo, useRef } from "react";
+import { memo, useMemo, useRef } from "react";
 import { DatabaseIcon, GaugeIcon } from "lucide-react";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -84,15 +84,13 @@ function ComposerStatsRowImpl({ snapshot }: { snapshot: ConversationSnapshot | n
       : null;
 
   // 流式窗口与结束轮 precise out 基线：仅跨帧瞬时量，不入 store。
+  // 换会话即整体重挂载（调用方 key={snapshot?.sessionId}，见 spec §5）：旧会话的
+  // 窗口/基线/冻结速度不能泄漏到新会话。不用 sessionId useEffect 重置——effect
+  // 晚于渲染执行，切换后的首帧仍会读到上一会话的 lastTpsRef，且重置后不触发
+  // 重渲，静默历史会话上错误读数会一直挂着（bugfix）。
   const windowRef = useRef<{ turnId: string; samples: [number, number][] } | null>(null);
   const baselineRef = useRef<{ turnId: string; baseline: number } | null>(null);
   const lastTpsRef = useRef<number | null>(null);
-  useEffect(() => {
-    // 换会话即重置：旧轮的窗口/基线不能泄漏到新会话。
-    windowRef.current = null;
-    baselineRef.current = null;
-    lastTpsRef.current = null;
-  }, [snapshot?.sessionId]);
 
   // 结束轮 out：precise（cumulative 基线差）与内容估算取大，写回 stats 供速度计算。
   // 基线必须在流式期间就按 turnId 登记——若等轮完成才登记，基线会包含本轮自己的

@@ -1,6 +1,7 @@
 /* eslint-disable max-lines -- 模型供应商卡片仍在迁移期集中维护多个紧耦合区块，后续拆分时再移除。 */
 import {
   useCallback,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -483,7 +484,11 @@ export function ProviderModelsSection({
   // onAddModel 通路逐个落库（useRecommendedConfig=true，推荐配置由服务端解析）。
   const [headersDialogOpen, setHeadersDialogOpen] = useState(false);
   // 删除墓碑：本会话内删除的模型在拉取选择器中标「已删除」并禁止重添。
-  const [deletedIds] = useState(() => readDeletedModelIds(providerId));
+  // 每次读取现读 localStorage（bugfix：曾用 useState 初值只读一次，墓碑由
+  // InlineEditableProviderCard 的删除回调写入，同一卡片挂载期间删除的模型在
+  // 随后的拉取选择器里仍可作为新模型勾选）。依赖 models——增删模型都会改变
+  // models 引用，触发重读；key=providerId 保证换供应商时重挂载重读。
+  const deletedIds = useMemo(() => readDeletedModelIds(providerId), [providerId, models]);
   const [fetchDialogOpen, setFetchDialogOpen] = useState(false);
   const [fetchedModels, setFetchedModels] = useState<{ id: string; visionGuess: boolean }[] | null>(
     null,
@@ -592,7 +597,7 @@ export function ProviderModelsSection({
       }
       toast(intl.formatMessage({ id: "settings.modelhub.fetch.done" }, { count: added }));
     },
-    [intl, models, onAddModel, onReorderModelIds],
+    [deletedIds, intl, models, onAddModel, onReorderModelIds],
   );
 
   return (

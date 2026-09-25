@@ -110,21 +110,11 @@ function createWebPlatform(): IPlatformService {
     getPathForFile: () => null,
     createTempTextAttachment: () =>
       Promise.reject(new Error("Temporary text attachments require a desktop host")),
-    // modelhub / enhance 都在桌面 main 进程读取本机配置并直连渠道端点，Web 端不可用；
-    // UI 层用 `platform.xxx?.` 探测，这里显式拒绝以保持 IPlatformService 完整实现。
-    modelhubFetchModels: () =>
-      Promise.resolve({ ok: false, error: "Model hub requires a desktop host" }),
-    modelhubProbeVision: () =>
-      Promise.resolve({ ok: false, error: "Model hub requires a desktop host" }),
-    enhancePromptDraft: () =>
-      Promise.resolve({ ok: false, error: "Prompt enhancement requires a desktop host" }),
-    enhanceListModels: () =>
-      Promise.resolve({
-        ok: false,
-        selected: "",
-        channels: [],
-        error: "Prompt enhancement requires a desktop host",
-      }),
+    // modelhub / enhance 都在桌面 main 进程读取本机配置并直连渠道端点，Web 端不可用。
+    // 这四个能力在 IPlatformService 上是可选方法，Web 端保持未实现（undefined）：
+    // UI 层用 `platform.xxx? != null` 探测可用性来决定按钮是否渲染（bugfix：曾以
+    // 显式拒绝 no-op 实现，探测失效导致按钮在 Web 上渲染出来、点击才报错）。
+    // 调用点均有空值守卫（ProviderCardSections / ComposerEnhanceButton），不会 NPE。
     onRemoteConnectionLog: () => () => {},
     onRemoteSessionClosed: () => () => {},
     onBotRemoteWorkspaceReconnected: () => () => {},

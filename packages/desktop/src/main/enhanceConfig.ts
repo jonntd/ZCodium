@@ -78,12 +78,23 @@ function decryptCredentials(credRaw: JsonObject): Record<string, string> {
   return cred;
 }
 
+/** 值是否把 id 作为冒号定界的完整段包含在内；不匹配段内子串，避免短 id 误命中。 */
+function valueContainsSegment(value: string, id: string): boolean {
+  return (
+    value === id ||
+    value.startsWith(`${id}:`) ||
+    value.endsWith(`:${id}`) ||
+    value.includes(`:${id}:`)
+  );
+}
+
 /** 渠道选择：与补丁评分一致（有 apiKey +2 / baseURL +1 / 非内置 +1 / 当前选中 +10）。 */
 export function resolveSelectedProviderId(cfg: JsonObject, st: JsonObject): string | null {
   const providers = (cfg.provider ?? {}) as Record<string, JsonObject | null>;
   const selectedKeys = (st.modelProviderFamilySelectedKeys ?? {}) as Record<string, unknown>;
-  for (const key of Object.keys(selectedKeys)) {
-    const value = String(selectedKeys[key] ?? "");
+  const values = Object.keys(selectedKeys).map((key) => String(selectedKeys[key] ?? ""));
+  // 精确优先：值本身或逐段剥前缀的后缀命中（coding-plan:builtin:x → builtin:x → x）。
+  for (const value of values) {
     const candidates = [value];
     let rest = value;
     while (rest.includes(":")) {
@@ -92,6 +103,13 @@ export function resolveSelectedProviderId(cfg: JsonObject, st: JsonObject): stri
     }
     for (const candidate of candidates) {
       if (providers[candidate]) return candidate;
+    }
+  }
+  // 嵌入兜底（bugfix）：team-plan:builtin:x:prod:proj 这类值把 provider id 嵌在
+  // 中间，逐段剥前缀永远剥不到完整 id；按冒号定界的完整段包含匹配。
+  for (const value of values) {
+    for (const candidate of Object.keys(providers)) {
+      if (candidate && valueContainsSegment(value, candidate)) return candidate;
     }
   }
   return null;

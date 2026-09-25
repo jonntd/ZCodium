@@ -41,8 +41,11 @@ export async function enhanceListModels(): Promise<EnhanceListModelsResult> {
     const { cfg, st, credRaw, manualCfg } = loadConfigBundle();
     const providers = (cfg.provider ?? {}) as Record<string, JsonObject | null>;
     const selectedId = resolveSelectedProviderId(cfg, st);
-    const hasOauth = Object.keys(credRaw).some(
-      (key) => key.startsWith("oauth:") && key.endsWith(":access_token"),
+    // oauth access_token 的键名是明文（只有值加密），按键名判断无需解密。
+    const oauthAccessKeys = new Set(
+      Object.keys(credRaw).filter(
+        (key) => key.startsWith("oauth:") && key.endsWith(":access_token"),
+      ),
     );
     const channels = Object.keys(providers)
       .filter(
@@ -57,8 +60,13 @@ export async function enhanceListModels(): Promise<EnhanceListModelsResult> {
         if (String(options.baseURL ?? "").trim()) score += 1;
         if (!String(id).startsWith("builtin:")) score += 1;
         if (id === selectedId) score += 10;
+        // hasKey 按渠道判定（bugfix：曾存在任一 oauth token 就给全部渠道打 true，
+        // 徽标失真）：渠道自有 apiKey，或该渠道自己的 oauth:<id>:access_token 在场。
+        // enhancePromptDraft 里的 oauthTokens[0] 跨渠道兜底只是尝试性 fallback
+        // （token 跨供应商基本无效），徽标不为其背书。
         const hasKey =
-          Boolean(String(options.apiKey ?? asString(provider.apiKey)).trim()) || hasOauth;
+          Boolean(String(options.apiKey ?? asString(provider.apiKey)).trim()) ||
+          oauthAccessKeys.has(`oauth:${id}:access_token`);
         return {
           id,
           name: String(provider.name ?? "").trim() || id,

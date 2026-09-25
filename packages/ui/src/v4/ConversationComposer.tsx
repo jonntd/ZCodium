@@ -1459,6 +1459,9 @@ function ConversationComposerImpl({
   const handleComposerKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
       if (event.defaultPrevented || event.repeat) return;
+      // composer disabled（队列认领等待 ACK 等）与按钮 disabled 同一门槛：
+      // 键盘快捷键不得绕过禁用态（bugfix：按钮设了 disabled，快捷键路径漏判）。
+      if (disabled) return;
       if (event.key === "/" && event.ctrlKey && !event.metaKey && !event.altKey) {
         event.preventDefault();
         enhanceRunRef.current?.();
@@ -1469,7 +1472,7 @@ function ConversationComposerImpl({
       event.preventDefault();
       handleContinue();
     },
-    [handleContinue],
+    [disabled, handleContinue],
   );
 
   // ── 「加入对话」全局事件（workspace file tree 右键/按钮）→ mention 插入 ──
@@ -2191,7 +2194,10 @@ function ConversationComposerImpl({
           onPaste={attachmentsApi.handlePaste}
         />
         <div className="composer-stats-root" data-composer-stats>
-          <ComposerStatsRow snapshot={snapshot} />
+          {/* key=sessionId：composer 本身跨会话复用（SessionPane 用常量 key），
+              统计行的滑动窗口/基线/冻结速度 refs 必须随会话整体重挂载重置，
+              否则切换会话后的首帧会显示上一会话的速度（spec §5 数据所有权）。 */}
+          <ComposerStatsRow key={snapshot?.sessionId} snapshot={snapshot} />
           <ComposerContextMeter snapshot={snapshot} />
         </div>
         {attachmentsApi.attachmentError ? (

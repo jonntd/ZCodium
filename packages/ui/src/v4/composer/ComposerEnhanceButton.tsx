@@ -169,7 +169,10 @@ function ComposerEnhanceButtonImpl(props: {
       void platform
         .enhanceListModels()
         .then((result) => {
-          channelsRef.current = result;
+          // 失败结果不进缓存（bugfix）：channelsRef 只在 ok 时落值，否则一次
+          // 瞬时失败后菜单在整个组件生命周期内只剩「跟随/自动」，无法自愈；
+          // 置空让下次展开重试。
+          channelsRef.current = result.ok ? result : null;
           setChannels(result);
           // 指定的渠道已失效（被删/禁用/官方渠道）→ 清掉恢复自动评分链（与补丁一致）。
           const sel = selectionRef.current;

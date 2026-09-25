@@ -151,3 +151,16 @@ test("formatCacheHitPercent：部分命中不进位成 100%（99.9x 升位保持
   // 更贴近 1 的比例升到更多位
   assert.equal(formatCacheHitPercent(999999, 1000000), "99.9999");
 });
+
+test("formatCacheHitPercent：异常上报（cacheRead 超过总 input）钳制为 100，不死循环", () => {
+  // bugfix 回归：第三方中转可能按 Anthropic 口径上报「input 不含 cache_read」，
+  // 此时 missedInputTokens 为负、99.9x 升位 while 循环永不退出，冻结渲染主线程
+  // （审核时用纯 Node 复刻实测：formatCacheHitPercent(1200, 1000) 挂死 CPU）。
+  assert.equal(formatCacheHitPercent(1200, 1000), "100");
+  assert.equal(formatCacheHitPercent(50000, 10), "100");
+});
+
+test("formatCacheHitPercent：负数/零 input 不显示读数", () => {
+  assert.equal(formatCacheHitPercent(5, -10), null);
+  assert.equal(formatCacheHitPercent(0, 0), null);
+});
