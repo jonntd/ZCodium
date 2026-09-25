@@ -273,8 +273,10 @@ jobs:
             packages/desktop/dist/${{ matrix.glob }}
             packages/desktop/dist/latest*.yml
             packages/desktop/dist/*.zip
-            packages/desktop/dist/*.blockmap
           )
+          # 不上传 *.blockmap：它只服务 electron-updater 差量更新加速，无其他消费方；
+          # 缺失时更新器自动回退整包下载。latest*.yml（更新 feed）、mac zip（mac 更新
+          # 载荷，dmg 仅首次安装）与主安装包一样有运行时依赖，不能省。
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::no desktop assets matched in packages/desktop/dist"
             exit 1
