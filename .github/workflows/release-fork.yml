@@ -1,0 +1,310 @@
+# fork 专用 Release：构建 CLI + 桌面客户端并发布到本仓库 Releases。
+# 由 release.yml 精简而来，只保留构建/上传/发布，去掉上游审计与组织仓库逻辑。
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号：3.14.0（勾选预发布=自动生成 3.14.0-audit.<当天日期>，同日重复构建自动加 .2/.3；不勾选=正式版 v3.14.0）；也可直接填完整日期形式 3.14.0-audit.20260922[.2]"
+        required: true
+        type: string
+      prerelease:
+        description: "预发布（audit 日期式版本）；不勾选则发布正式版（干净版本号，成为 GitHub Latest）"
+        required: false
+        type: boolean
+        default: false
+      build_artifacts:
+        description: "构建 CLI 发行包和桌面客户端并上传到 Release；全部上传成功后才发布（失败则保持 draft）"
+        required: false
+        type: boolean
+        default: true
+      keep_draft:
+        description: "保持 draft 不公开（测试用；勾选后即使全部成功也不发布）"
+        required: false
+        type: boolean
+        default: false
+      notice:
+        description: "插入 Release 说明顶部的警示文本（可选，支持多行）"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.validate.outputs.tag }}
+      version: ${{ steps.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        id: validate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y%m%d)"
+          if printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' && [ "$PRERELEASE" != "true" ]; then
+            TAG="v$VERSION"
+            if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+              echo "::error::Tag $TAG already exists"
+              exit 1
+            fi
+          elif printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            BASE="$VERSION-audit.$DATE"
+            TAG="v$BASE"
+            if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+              SEQ=2
+              while git ls-remote --tags origin "refs/tags/v$BASE.$SEQ" | grep -q .; do
+                SEQ=$((SEQ + 1))
+              done
+              TAG="v$BASE.$SEQ"
+            fi
+          elif printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-audit\.[0-9]{8}(\.[0-9]+)?$'; then
+            TAG="v$VERSION"
+            if git ls-remote --tags origin "refs/tags/$TAG" | grep -q .; then
+              echo "::error::Tag $TAG already exists; pass the base version (e.g. 3.14.0) to auto-sequence, or pick another date/suffix"
+              exit 1
+            fi
+          else
+            echo "::error::Invalid version \"$VERSION\". Use 3.14.0 (pre-release: date and same-day sequence are appended; stable: v3.14.0) or the full form 3.14.0-audit.20260922[.2]"
+            exit 1
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG already exists"
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.validate.outputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          NOTICE: ${{ inputs.notice }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          cat > /tmp/release-notes.md <<'NOTES'
+          # ZCodium <VERSION>
+
+          ## English
+
+          ### Install
+
+          - **macOS (.dmg)**: download `ZCodium-<VERSION>-mac-arm64.dmg` (Apple Silicon) or `ZCodium-<VERSION>-mac-x64.dmg` (Intel), open it, drag ZCodium into Applications. The app is not signed by ZCode, so Gatekeeper blocks the first launch - this system block is macOS only. Allow it once with the command below (enter your login password when asked; the command launches the app and exits immediately):
+
+            ```bash
+            sudo /usr/bin/xattr -rd com.apple.quarantine "/Applications/ZCodium.app" && open -a "ZCodium"
+            ```
+
+            You can also right-click (Control-click) the app in Finder -> Open -> Open.
+          - **Windows (.exe)**: run `ZCodium-<VERSION>-win-x64.exe`. The installer is not signed by ZCode, so SmartScreen shows a warning - a warning, not a system block; click **More info** -> **Run anyway**.
+          - **Linux x64 (.AppImage)**: `chmod +x ZCodium-<VERSION>-linux-x86_64.AppImage && ./ZCodium-<VERSION>-linux-x86_64.AppImage`.
+          - **Linux arm64 (.AppImage)**: `chmod +x ZCodium-<VERSION>-linux-arm64.AppImage && ./ZCodium-<VERSION>-linux-arm64.AppImage`.
+          - **CLI (.tar.gz)**: requires Node.js 24. Extract and run:
+
+            ```bash
+            tar -xzf zcodium-<VERSION>.tar.gz
+            cd zcodium
+            ./install.sh        # installs the zcode command into ~/.zcode/runtime
+            zcode --help        # or run: node bin/zcode.mjs --help
+            ```
+
+          ## 中文
+
+          ### 安装说明
+
+          - **macOS（.dmg）**：按机型下载 `ZCodium-<VERSION>-mac-arm64.dmg`（Apple Silicon）或 `ZCodium-<VERSION>-mac-x64.dmg`（Intel），打开后把 ZCodium 拖进"应用程序"。没有 ZCode 官方签名，Gatekeeper 会拦截首次打开。放行一次：
+
+            ```bash
+            sudo /usr/bin/xattr -rd com.apple.quarantine "/Applications/ZCodium.app" && open -a "ZCodium"
+            ```
+
+            也可以在"访达"里右键（Control-点击）应用 -> 打开 -> 弹窗里点击"打开"。
+          - **Windows（.exe）**：运行 `ZCodium-<VERSION>-win-x64.exe`。没有 ZCode 官方签名，SmartScreen 会显示警告——只是警告，点"**更多信息**" -> "**仍要运行**"。
+          - **Linux x64（.AppImage）**：`chmod +x ZCodium-<VERSION>-linux-x86_64.AppImage && ./ZCodium-<VERSION>-linux-x86_64.AppImage`.
+          - **Linux arm64（.AppImage）**：`chmod +x ZCodium-<VERSION>-linux-arm64.AppImage && ./ZCodium-<VERSION>-linux-arm64.AppImage`.
+
+          ## Downloads / 产物
+
+          - macOS Apple Silicon: `ZCodium-<VERSION>-mac-arm64.dmg` / `.zip`
+          - macOS Intel: `ZCodium-<VERSION>-mac-x64.dmg` / `.zip`
+          - Windows x64: `ZCodium-<VERSION>-win-x64.exe`
+          - Linux x64: `ZCodium-<VERSION>-linux-x86_64.AppImage`
+          - Linux arm64: `ZCodium-<VERSION>-linux-arm64.AppImage`
+          - CLI: `zcodium-<VERSION>.tar.gz`
+          - Checksums: `sha256.txt`
+          - Update metadata: `latest*.yml`, `latest.json`
+          NOTES
+          sed -i "s/<VERSION>/${TAG#v}/g" /tmp/release-notes.md
+          args=(--draft --title "$TAG" --notes-file /tmp/release-notes.md)
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$TAG" "${args[@]}"
+
+  build:
+    needs: release
+    if: ${{ inputs.build_artifacts }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build ZCode CLI distribution
+        env:
+          ZCODE_DIST_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ needs.release.outputs.tag }}/
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          pnpm build:zcode -- --version "${RELEASE_TAG#v}"
+
+      - name: Upload assets to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3; do
+            if gh release upload "$TAG" \
+              dist/zcode/releases/*/zcodium-*.tar.gz \
+              dist/zcode/releases/*/sha256.txt \
+              dist/zcode/install.sh \
+              dist/zcode/latest.json \
+              --clobber; then
+              exit 0
+            fi
+            echo "::warning::gh release upload failed (attempt $attempt/3), retrying in 10s"
+            sleep 10
+          done
+          echo "::error::gh release upload failed after 3 attempts"
+          exit 1
+
+  desktop:
+    needs: release
+    if: ${{ inputs.build_artifacts }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: mac
+            arch: arm64
+            glob: "*.dmg"
+          - runner: macos-15-intel
+            target: mac
+            arch: x64
+            glob: "*.dmg"
+          - runner: windows-latest
+            target: win
+            arch: x64
+            glob: "*.exe"
+          - runner: ubuntu-latest
+            target: linux
+            arch: x64
+            glob: "*.AppImage"
+          - runner: ubuntu-24.04-arm
+            target: linux
+            arch: arm64
+            glob: "*.AppImage"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Bundle desktop app
+        env:
+          ZCODE_ENV: production
+          ZCODE_APP_VERSION: ${{ needs.release.outputs.version }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: pnpm bundle:desktop -- --os ${{ matrix.target }} --arch ${{ matrix.arch }}
+
+      - name: Upload desktop asset to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ls -la packages/desktop/dist/
+          shopt -s nullglob
+          files=(
+            packages/desktop/dist/${{ matrix.glob }}
+            packages/desktop/dist/latest*.yml
+            packages/desktop/dist/*.zip
+            packages/desktop/dist/*.blockmap
+          )
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "::error::no desktop assets matched in packages/desktop/dist"
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            if gh release upload "$TAG" "${files[@]}" --clobber; then
+              exit 0
+            fi
+            echo "::warning::gh release upload failed (attempt $attempt/3), retrying in 10s"
+            sleep 10
+          done
+          echo "::error::gh release upload failed after 3 attempts"
+          exit 1
+
+  publish:
+    needs: [release, build, desktop]
+    if: ${{ always() && inputs.keep_draft != true && needs.release.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          args=(--draft=false --repo "$GITHUB_REPOSITORY")
+          if [ "$PRERELEASE" = "true" ]; then
+            args+=(--prerelease)
+          else
+            args+=(--latest)
+          fi
+          gh release edit "$TAG" "${args[@]}"
