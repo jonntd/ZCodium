@@ -197,9 +197,6 @@ jobs:
           for attempt in 1 2 3; do
             if gh release upload "$TAG" \
               dist/zcode/releases/*/zcodium-*.tar.gz \
-              dist/zcode/releases/*/sha256.txt \
-              dist/zcode/install.sh \
-              dist/zcode/latest.json \
               --clobber; then
               exit 0
             fi
@@ -271,12 +268,12 @@ jobs:
           shopt -s nullglob
           files=(
             packages/desktop/dist/${{ matrix.glob }}
-            packages/desktop/dist/latest*.yml
             packages/desktop/dist/*.zip
           )
-          # 不上传 *.blockmap：它只服务 electron-updater 差量更新加速，无其他消费方；
-          # 缺失时更新器自动回退整包下载。latest*.yml（更新 feed）、mac zip（mac 更新
-          # 载荷，dmg 仅首次安装）与主安装包一样有运行时依赖，不能省。
+          # 只上传安装包与 mac 更新用 zip；不上传 *.blockmap（仅差量更新加速）与
+          # latest*.yml（electron-updater feed）——本仓库不走应用内自动更新，
+          # 更新一律手动下载安装包。CLI 侧同理只保留 tar.gz，不再上传
+          # install.sh / latest.json / sha256.txt。
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::no desktop assets matched in packages/desktop/dist"
             exit 1
