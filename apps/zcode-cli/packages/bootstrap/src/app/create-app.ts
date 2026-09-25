@@ -993,6 +993,12 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         workspaceHookRuntimeSecurity?.reloadTrust() ?? Promise.resolve(),
       setModelIoFullRetentionEnabled: (enabled) =>
         modelAdapter.setModelIoFullRetentionEnabled(enabled),
+      updateDeleteProtection: (preferences) => {
+        // runtimeConfig 被 workflow child 等懒创建路径共享；主 runtime 已克隆 config，
+        // 必须双写：runtimeConfig 面向未来 runtime，updateConfig 面向活 runtime。
+        runtimeConfig.deleteProtection = preferences;
+        getRuntime().updateConfig({ deleteProtection: preferences });
+      },
       readToolResultArtifact: (uri) =>
         artifactStore.readToolResultArtifact({ uri, trace: traceContext }),
       // wire/staging 全程是 decoded chunk；只有完整 checksum commit 后才在

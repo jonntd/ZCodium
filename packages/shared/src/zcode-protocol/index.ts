@@ -1700,11 +1700,24 @@ export const DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY = "preflight-v1" as con
 export const zcodeModelContextBudgetStrategySchema = z.enum(["legacy", "preflight-v1"]);
 export type ZCodeModelContextBudgetStrategy = z.infer<typeof zcodeModelContextBudgetStrategySchema>;
 
+/** 删除保护偏好：独立方法承载，旧 CLI 对未知方法按 method-not-found 降级（与 model-io 同模式）。 */
+export const zcodeDeleteProtectionPreferencesSchema = z
+  .object({
+    deleteProtectionEnabled: z.boolean(),
+    batchDeleteApprovalThreshold: z.number().int().min(1).max(10000),
+  })
+  .strict();
+export type ZCodeDeleteProtectionPreferences = z.infer<
+  typeof zcodeDeleteProtectionPreferencesSchema
+>;
+
 export const zcodeSessionRuntimePreferencesResultSchema = z
   .object({
     nativeSearchEnhancementsEnabled: z.boolean(),
     memoryEnabled: z.boolean().default(false),
     askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
+    // 兼容旧 Host：缺省按删除保护默认值（开启 + 阈值 50）处理。
+    deleteProtection: zcodeDeleteProtectionPreferencesSchema.optional(),
     integratedTerminalShell: integratedTerminalShellSelectionSchema.optional(),
     // 兼容旧 Host：缺少字段时在协议解析边界使用当前默认策略。
     modelContextBudgetStrategy: zcodeModelContextBudgetStrategySchema.default(
@@ -2232,6 +2245,28 @@ export const zcodeWorkspaceUpdateModelIoPreferencesResultSchema = z
   .strict();
 export type ZCodeWorkspaceUpdateModelIoPreferencesResult = z.infer<
   typeof zcodeWorkspaceUpdateModelIoPreferencesResultSchema
+>;
+
+export const zcodeWorkspaceUpdateDeleteProtectionPreferencesParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    preferences: zcodeDeleteProtectionPreferencesSchema,
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateDeleteProtectionPreferencesParams = z.infer<
+  typeof zcodeWorkspaceUpdateDeleteProtectionPreferencesParamsSchema
+>;
+
+export const zcodeWorkspaceUpdateDeleteProtectionPreferencesResultSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    deleteProtectionEnabled: z.boolean(),
+    batchDeleteApprovalThreshold: z.number().int().min(1).max(10000),
+    updatedSessionCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateDeleteProtectionPreferencesResult = z.infer<
+  typeof zcodeWorkspaceUpdateDeleteProtectionPreferencesResultSchema
 >;
 
 export const zcodeWorkspaceUpdateOffPeakToolPolicyParamsSchema = z
@@ -3603,6 +3638,8 @@ export const zcodeProtocolMethods = {
   providerUpdateAccountConfig: "provider/updateAccountConfig",
   workspaceUpdateInteractionPreferences: "workspace/updateInteractionPreferences",
   workspaceUpdateModelIoPreferences: "workspace/updateModelIoPreferences",
+  // 删除保护/批量删除审批：独立方法 = 旧 CLI method-not-found 时 host 静默降级。
+  workspaceUpdateDeleteProtectionPreferences: "workspace/updateDeleteProtectionPreferences",
   // Off-Peak 工具面门禁是 workspace 级事实（灰度 + 本地/远程），由 host 在 agent 就绪时同步；
   // CLI 对 legacy create/resume 与 v4 冷恢复统一读取。旧 CLI method-not-found → host 降级忽略。
   workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",

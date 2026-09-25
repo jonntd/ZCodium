@@ -551,6 +551,10 @@ export type ZCodeAgentServiceEvent =
 export interface ZCodeAgentAppRuntimePreferences {
   askUserQuestionAutoResolutionEnabled: boolean;
   modelIoFullRetentionEnabled?: boolean;
+  /** 删除保护：Agent 删除文件优先移入系统废纸篓/回收站；缺省 true（fail-safe）。 */
+  deleteProtectionEnabled?: boolean;
+  /** 单条命令删除目标数达到该值时需要审批；缺省 50。 */
+  batchDeleteApprovalThreshold?: number;
 }
 
 export interface ZCodeAgentLocalRuntimeChildProcesses {

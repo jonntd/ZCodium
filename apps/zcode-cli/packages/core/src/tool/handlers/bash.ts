@@ -43,6 +43,7 @@ import { supportsBashBackgroundLifecycle } from "./bash-background-lifecycle.js"
 import { isBashAutoBackgroundEligible } from "./bash-background-policy.js";
 import { resolveBashPermissionRulePolicy } from "./bash-command-permission-policy.js";
 import { decideBashCwdPolicy } from "./bash-cwd-policy.js";
+import { evaluateBashDeleteProtection } from "./bash-delete-protection.js";
 import { readStringProperty } from "./bash-metadata.js";
 import { formatBashModelContent, formatPersistedBashModelContent } from "./bash-model-content.js";
 import {
@@ -79,17 +80,44 @@ function resolveBashPermissionCapability(
   context?: ToolRuntimePermissionCapabilityContext,
 ): ToolRuntimePermissionCapability | undefined {
   const command = readStringProperty(input, "command");
-  if (!command || !isRuntimeReadOnlyBashCommand(command, context)) return undefined;
-  return {
-    destructive: false,
-    needsApproval: false,
-    readOnly: true,
-    riskLevel: "low" as const,
-    sideEffectScope: "none" as const,
-    permission: {
+  if (!command) return undefined;
+  if (isRuntimeReadOnlyBashCommand(command, context)) {
+    return {
+      destructive: false,
       needsApproval: false,
+      readOnly: true,
       riskLevel: "low" as const,
       sideEffectScope: "none" as const,
+      permission: {
+        needsApproval: false,
+        riskLevel: "low" as const,
+        sideEffectScope: "none" as const,
+      },
+    };
+  }
+  // 批量删除审批（docs/spec/delete-protection.md §4.2）：达到阈值或数量不可知的删除
+  // 自报 alwaysAsk——ask 压过 yolo/plan/allow 规则，仍尊重 deny 与会话级 allow。
+  const deleteEvaluation = evaluateBashDeleteProtection({
+    command,
+    deleteProtection: context?.deleteProtection,
+  });
+  if (!deleteEvaluation.requiresApproval) return undefined;
+  const threshold = context?.deleteProtection?.batchDeleteApprovalThreshold ?? 50;
+  const askReason =
+    deleteEvaluation.deleteOperandCount === undefined
+      ? `Batch delete approval: the number of files this command deletes cannot be determined reliably (threshold ${threshold}); approval is required`
+      : `Batch delete approval: this command deletes ${deleteEvaluation.deleteOperandCount} file(s), reaching the threshold of ${threshold}`;
+  return {
+    alwaysAsk: true,
+    askReason,
+    destructive: true,
+    needsApproval: true,
+    riskLevel: "high" as const,
+    sideEffectScope: "system" as const,
+    permission: {
+      needsApproval: true,
+      riskLevel: "high" as const,
+      sideEffectScope: "system" as const,
     },
   };
 }
@@ -417,6 +445,10 @@ function createExecutionRequest(
       workspaceRoot: context.workspaceRoot,
     }),
     ...(bashPrelude ? { bashPrelude } : {}),
+    // 删除保护开启时声明 prelude 意图；方言门槛（posix/git-bash）由执行适配层把关。
+    ...(context.deleteProtection?.deleteProtectionEnabled
+      ? { bashDeleteProtectionPrelude: { kind: "delete-protection" } as const }
+      : {}),
     captureCwdAfterSuccess: input.run_in_background ? undefined : true,
     timeoutMs: resolveBashTimeoutMs(input.timeout, timeoutPolicy),
     outputLimit: {

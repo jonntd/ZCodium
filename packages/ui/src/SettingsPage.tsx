@@ -654,6 +654,14 @@ export function SettingsPage({
   const nativeSearchEnhancementsEnabled = sharedSettings?.nativeSearchEnhancementsEnabled !== false;
   const askUserQuestionAutoResolutionEnabled =
     sharedSettings?.askUserQuestionAutoResolutionEnabled !== false;
+  const deleteProtectionEnabled = sharedSettings?.deleteProtectionEnabled !== false;
+  // 显示侧守卫与持久层 schema（1..10000）对齐，越界的存量值回退默认 50。
+  const batchDeleteApprovalThreshold =
+    typeof sharedSettings?.batchDeleteApprovalThreshold === "number" &&
+    sharedSettings.batchDeleteApprovalThreshold >= 1 &&
+    sharedSettings.batchDeleteApprovalThreshold <= 10000
+      ? sharedSettings.batchDeleteApprovalThreshold
+      : 50;
   const modelIoFullRetentionEnabled = sharedSettings?.modelIoFullRetentionEnabled === true;
   const [dataBaseDir, setDataBaseDir] = useState("");
   const [terminalInheritSystemProfile, setTerminalInheritSystemProfile] = useState(true);
@@ -840,6 +848,18 @@ export function SettingsPage({
   const handleModelIoFullRetentionEnabledChange = useCallback(
     async (enabled: boolean) => {
       await updateSharedSettings({ modelIoFullRetentionEnabled: enabled });
+    },
+    [updateSharedSettings],
+  );
+  const handleDeleteProtectionEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      await updateSharedSettings({ deleteProtectionEnabled: enabled });
+    },
+    [updateSharedSettings],
+  );
+  const handleBatchDeleteApprovalThresholdChange = useCallback(
+    async (threshold: number) => {
+      await updateSharedSettings({ batchDeleteApprovalThreshold: threshold });
     },
     [updateSharedSettings],
   );
@@ -1392,6 +1412,8 @@ export function SettingsPage({
                             askUserQuestionAutoResolutionEnabled={
                               askUserQuestionAutoResolutionEnabled
                             }
+                            deleteProtectionEnabled={deleteProtectionEnabled}
+                            batchDeleteApprovalThreshold={batchDeleteApprovalThreshold}
                             modelIoFullRetentionEnabled={modelIoFullRetentionEnabled}
                             onDataBaseDirChange={handleDataBaseDirChange}
                             onSelectDataBaseDir={selectDirectory}
@@ -1438,6 +1460,10 @@ export function SettingsPage({
                             onZCodeInteractionBehaviorChange={handleZCodeInteractionBehaviorChange}
                             onAskUserQuestionAutoResolutionEnabledChange={
                               handleAskUserQuestionAutoResolutionEnabledChange
+                            }
+                            onDeleteProtectionEnabledChange={handleDeleteProtectionEnabledChange}
+                            onBatchDeleteApprovalThresholdChange={
+                              handleBatchDeleteApprovalThresholdChange
                             }
                             onOpenOnboardingDialog={() => requestOnboardingDialog()}
                           />

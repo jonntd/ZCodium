@@ -35,6 +35,8 @@ const nonEmptyStringSchema = z.string().trim().min(1);
 export const localeSchema = z.enum(["zh-CN", "en-US"]);
 const localePreferenceSchema = z.enum(["system", "zh-CN", "en-US"]);
 const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
+/** 批量删除审批阈值；与 zcode-protocol 的 deleteProtectionPreferencesSchema 保持同一量程。 */
+const batchDeleteApprovalThresholdSchema = z.number().int().min(1).max(10000);
 const electronReleaseChannelSchema = z.enum(["stable", "preview"]);
 const desktopZoomLevelSchema = z.number().int().min(-3).max(5);
 const desktopWindowSizeSchema = z.object({
@@ -463,6 +465,9 @@ const appSettingsObjectSchema = z.object({
   toolGroupingChangesEnabled: z.boolean().default(false),
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.default("queue"),
   askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
+  // 删除保护默认开启：Agent 删除文件优先移入系统废纸篓/回收站，行为可恢复。
+  deleteProtectionEnabled: z.boolean().default(true),
+  batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.default(50),
   modelIoFullRetentionEnabled: z.boolean().default(false),
   startPlanRecommendationDismissed: z.boolean().default(false),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.default({}),
@@ -535,6 +540,8 @@ export const appSettingsPatchSchema = z.object({
   toolGroupingChangesEnabled: z.boolean().optional(),
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.optional(),
   askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
+  deleteProtectionEnabled: z.boolean().optional(),
+  batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
   startPlanRecommendationDismissed: z.boolean().optional(),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.optional(),

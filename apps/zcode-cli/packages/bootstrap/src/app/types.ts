@@ -612,6 +612,11 @@ export interface ZCodeApp {
     traceId: TraceContext["traceId"];
   }>;
   setModelIoFullRetentionEnabled?(enabled: boolean): void;
+  /** 删除保护偏好实时更新：写主 runtime config，下一次 Bash 权限判定/执行即生效。 */
+  updateDeleteProtection?(preferences: {
+    deleteProtectionEnabled: boolean;
+    batchDeleteApprovalThreshold: number;
+  }): void;
   setModel(
     modelId: string | ModelSelection,
     options?: {

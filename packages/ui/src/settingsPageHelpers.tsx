@@ -81,6 +81,8 @@ export function GeneralSectionContent({
   toolGroupingChangesEnabled,
   zcodeInteractionBehavior,
   askUserQuestionAutoResolutionEnabled = true,
+  deleteProtectionEnabled = true,
+  batchDeleteApprovalThreshold = 50,
   modelIoFullRetentionEnabled = false,
   onDataBaseDirChange,
   onSelectDataBaseDir,
@@ -105,6 +107,8 @@ export function GeneralSectionContent({
   onToolGroupingChangesEnabledChange,
   onZCodeInteractionBehaviorChange,
   onAskUserQuestionAutoResolutionEnabledChange = async () => {},
+  onDeleteProtectionEnabledChange = async () => {},
+  onBatchDeleteApprovalThresholdChange = async () => {},
   onModelIoFullRetentionEnabledChange = async () => {},
   onOpenOnboardingDialog,
 }: {
@@ -144,6 +148,8 @@ export function GeneralSectionContent({
   toolGroupingChangesEnabled: boolean;
   zcodeInteractionBehavior: ZCodeInteractionBehavior;
   askUserQuestionAutoResolutionEnabled?: boolean;
+  deleteProtectionEnabled?: boolean;
+  batchDeleteApprovalThreshold?: number;
   modelIoFullRetentionEnabled?: boolean;
   onDataBaseDirChange: (dir: string) => Promise<void>;
   onSelectDataBaseDir: () => Promise<string | null>;
@@ -168,6 +174,8 @@ export function GeneralSectionContent({
   onToolGroupingChangesEnabledChange: (enabled: boolean) => Promise<void>;
   onZCodeInteractionBehaviorChange: (behavior: ZCodeInteractionBehavior) => Promise<void>;
   onAskUserQuestionAutoResolutionEnabledChange?: (enabled: boolean) => Promise<void>;
+  onDeleteProtectionEnabledChange?: (enabled: boolean) => Promise<void>;
+  onBatchDeleteApprovalThresholdChange?: (threshold: number) => Promise<void>;
   onModelIoFullRetentionEnabledChange?: (enabled: boolean) => Promise<void>;
   onOpenOnboardingDialog: () => void;
 }) {
@@ -275,6 +283,41 @@ export function GeneralSectionContent({
   const handleHttpProxyCaCertPathSave = useCallback(async () => {
     await onHttpProxyCaCertPathChange(normalizedHttpProxyCaCertPath);
   }, [normalizedHttpProxyCaCertPath, onHttpProxyCaCertPathChange]);
+
+  // 批量删除审批阈值：输入框允许暂时性非法草稿（清空、打字中间态），
+  // 提交（失焦/回车）时才归一为合法整数；非法值回退默认 50。
+  const [localBatchDeleteThreshold, setLocalBatchDeleteThreshold] = useState(
+    String(batchDeleteApprovalThreshold),
+  );
+
+  useEffect(() => {
+    setLocalBatchDeleteThreshold(String(batchDeleteApprovalThreshold));
+  }, [batchDeleteApprovalThreshold]);
+
+  const parsedBatchDeleteThreshold = Number.parseInt(localBatchDeleteThreshold.trim(), 10);
+  // 修复：持久层 schema（validationAppSettings）限制阈值为 1..10000，
+  // UI 校验需与其对齐；否则超上限值会通过 UI 提交后被 zod 拒绝，
+  // 输入框停留在无效草稿上且没有任何反馈。
+  const isBatchDeleteThresholdValid =
+    Number.isInteger(parsedBatchDeleteThreshold) &&
+    parsedBatchDeleteThreshold >= 1 &&
+    parsedBatchDeleteThreshold <= 10000;
+  const isBatchDeleteThresholdDirty = parsedBatchDeleteThreshold !== batchDeleteApprovalThreshold;
+
+  const handleBatchDeleteThresholdSave = useCallback(async () => {
+    if (!isBatchDeleteThresholdValid) {
+      setLocalBatchDeleteThreshold(String(batchDeleteApprovalThreshold));
+      return;
+    }
+    if (!isBatchDeleteThresholdDirty) return;
+    await onBatchDeleteApprovalThresholdChange(parsedBatchDeleteThreshold);
+  }, [
+    batchDeleteApprovalThreshold,
+    isBatchDeleteThresholdDirty,
+    isBatchDeleteThresholdValid,
+    onBatchDeleteApprovalThresholdChange,
+    parsedBatchDeleteThreshold,
+  ]);
 
   return (
     <div className="space-y-4">
@@ -804,6 +847,53 @@ export function GeneralSectionContent({
               onCheckedChange={(checked) => {
                 void onToolGroupingChangesEnabledChange(checked);
               }}
+            />
+          }
+        />
+      </SettingsGroupCard>
+
+      <SettingsGroupCard>
+        <SettingsRow
+          label={intl.formatMessage({ id: "settings.deleteProtection" })}
+          description={intl.formatMessage({ id: "settings.deleteProtectionDescription" })}
+          control={
+            <Switch
+              aria-label={intl.formatMessage({ id: "settings.deleteProtection" })}
+              checked={deleteProtectionEnabled}
+              onCheckedChange={(checked) => {
+                void onDeleteProtectionEnabledChange(checked);
+              }}
+            />
+          }
+        />
+        {/* 批量删除审批是删除保护的子策略：保护关闭时阈值不生效，输入随开关一起禁用。 */}
+        <SettingsRow
+          label={intl.formatMessage({ id: "settings.batchDeleteApproval" })}
+          description={
+            <>
+              <div>{intl.formatMessage({ id: "settings.batchDeleteApprovalRequirement" })}</div>
+              <div>{intl.formatMessage({ id: "settings.batchDeleteApprovalDescription" })}</div>
+            </>
+          }
+          control={
+            <Input
+              size="lg"
+              inputMode="numeric"
+              aria-label={intl.formatMessage({ id: "settings.batchDeleteApproval" })}
+              value={localBatchDeleteThreshold}
+              disabled={!deleteProtectionEnabled}
+              onChange={(event) => {
+                setLocalBatchDeleteThreshold(event.currentTarget.value);
+              }}
+              onBlur={() => {
+                void handleBatchDeleteThresholdSave();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  void handleBatchDeleteThresholdSave();
+                }
+              }}
+              className="w-24 text-right"
             />
           }
         />

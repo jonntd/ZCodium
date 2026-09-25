@@ -105,6 +105,15 @@ export interface ExecutionEmbeddedSearchPrelude {
   findAndGrepEnabled?: boolean;
 }
 
+/**
+ * 删除保护 prelude（仅 Bash 工具使用）：让执行适配层在 POSIX shell 里定义
+ * rm/rmdir/unlink 函数，把删除目标移入系统废纸篓/回收站。禁止来自用户 hooks
+ * 或通用命令执行路径。
+ */
+export interface ExecutionDeleteProtectionPrelude {
+  kind: "delete-protection";
+}
+
 export interface ExecutionSandboxPolicy {
   enabled: boolean;
   profile?: string;
@@ -141,6 +150,11 @@ export interface ExecutionRequest {
    * user hooks or generic command runners.
    */
   bashPrelude?: ExecutionEmbeddedSearchPrelude;
+  /**
+   * Internal Bash delete-protection prelude used by the Bash tool only. Must never be
+   * accepted from user hooks or generic command runners.
+   */
+  bashDeleteProtectionPrelude?: ExecutionDeleteProtectionPrelude;
   /**
    * Internal state capture. Defaults to false and must only be enabled by the Bash tool for
    * foreground executions. This must not be used for hooks or generic shell commands.

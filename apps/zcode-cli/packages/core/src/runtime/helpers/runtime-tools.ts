@@ -182,6 +182,8 @@ function createRuntimeToolExecutor(
     pdfDocumentPort: deps.pdfDocumentPort,
     embeddedSearchBackend: runtime.config.embeddedSearchBackend,
     nativeSearchEnhancementsEnabled: runtime.config.nativeSearchEnhancementsEnabled,
+    // 删除保护偏好读 live config：bootstrap 经 updateConfig 更新后，下一次权限判定/执行即生效。
+    getDeleteProtection: () => runtime.config.deleteProtection,
     skillPort: deps.skillPort,
     subagentPort: runtime.subagentPort,
     coordinatorResponsePort: deps.coordinatorResponsePort,

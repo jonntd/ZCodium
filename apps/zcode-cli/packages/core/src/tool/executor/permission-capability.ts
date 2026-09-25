@@ -45,5 +45,7 @@ export function resolveRuntimePermissionContext(
     runtimeScope: deps.runtimeScope,
     workingDirectory: deps.getWorkingDirectory(),
     workspaceRoot: deps.getWorkspaceRoot(),
+    // 删除保护按 getter 实时读取：设置变更对下一次权限判定立即生效。
+    deleteProtection: deps.getDeleteProtection?.(),
   };
 }

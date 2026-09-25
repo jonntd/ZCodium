@@ -43,6 +43,7 @@ export class ToolExecutorImpl implements ToolExecutor {
       model: options.model,
       embeddedSearchBackend: options.embeddedSearchBackend,
       nativeSearchEnhancementsEnabled: options.nativeSearchEnhancementsEnabled,
+      getDeleteProtection: options.getDeleteProtection,
       skillPort: options.skillPort,
       subagentPort: options.subagentPort,
       coordinatorResponsePort: options.coordinatorResponsePort,

@@ -269,6 +269,15 @@ export function createRemoteWorkspaceServiceCollection(params: {
               nativeSearchEnhancementsEnabled: settings.nativeSearchEnhancementsEnabled !== false,
               memoryEnabled: settings.memoryEnabled === true,
               modelContextBudgetStrategy,
+              // 删除保护与本地 Host 同源：缺省开启 + 阈值 50（fail-safe）。
+              deleteProtection: {
+                deleteProtectionEnabled: settings.deleteProtectionEnabled !== false,
+                batchDeleteApprovalThreshold:
+                  typeof settings.batchDeleteApprovalThreshold === "number" &&
+                  settings.batchDeleteApprovalThreshold >= 1
+                    ? settings.batchDeleteApprovalThreshold
+                    : 50,
+              },
               // remote workspace 与本地 Host 保持同一 scope 边界，首次执行不得再次等待 client config。
               ...(request.scope === "user-execution" && settings.integratedTerminalShell
                 ? { integratedTerminalShell: settings.integratedTerminalShell }

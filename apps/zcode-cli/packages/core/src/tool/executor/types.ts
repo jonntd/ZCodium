@@ -44,6 +44,7 @@ import type {
   ReadFileStateMap,
   ToolBatchEvent,
   BackgroundTaskControlPort,
+  ToolDeleteProtectionPreferences,
   ToolExecutionResult,
   ToolRuntimeScope,
 } from "../types.js";
@@ -97,6 +98,8 @@ export interface ToolExecutorOptions {
   model?: Model;
   embeddedSearchBackend?: EmbeddedSearchBackend;
   nativeSearchEnhancementsEnabled?: boolean;
+  /** 删除保护偏好 getter；缺席视为关闭。getter 形态保证设置变更对下一次工具调用生效。 */
+  getDeleteProtection?: () => ToolDeleteProtectionPreferences | undefined;
   skillPort?: SkillPort;
   subagentPort?: SubagentPort;
   coordinatorResponsePort?: CoordinatorResponsePort;
@@ -203,6 +206,8 @@ export interface ToolExecutorDeps {
   model?: Model;
   embeddedSearchBackend?: EmbeddedSearchBackend;
   nativeSearchEnhancementsEnabled?: boolean;
+  /** 删除保护偏好 getter；缺席视为关闭。 */
+  getDeleteProtection?: () => ToolDeleteProtectionPreferences | undefined;
   skillPort?: SkillPort;
   subagentPort?: SubagentPort;
   coordinatorResponsePort?: CoordinatorResponsePort;

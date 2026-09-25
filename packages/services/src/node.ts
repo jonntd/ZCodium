@@ -2244,6 +2244,15 @@ export function createLocalServices(options: {
               nativeSearchEnhancementsEnabled: settings.nativeSearchEnhancementsEnabled !== false,
               memoryEnabled: settings.memoryEnabled === true,
               modelContextBudgetStrategy,
+              // 删除保护跟随 App 全局设置；缺省开启 + 阈值 50（fail-safe）。
+              deleteProtection: {
+                deleteProtectionEnabled: settings.deleteProtectionEnabled !== false,
+                batchDeleteApprovalThreshold:
+                  typeof settings.batchDeleteApprovalThreshold === "number" &&
+                  settings.batchDeleteApprovalThreshold >= 1
+                    ? settings.batchDeleteApprovalThreshold
+                    : 50,
+              },
               // user-execution 只消费 Shell；共享默认策略是统一 result schema 的兼容占位，
               // 不会覆盖 runtime-materialization 阶段已经固定的 strategy。
               ...(scope === "user-execution" && settings.integratedTerminalShell

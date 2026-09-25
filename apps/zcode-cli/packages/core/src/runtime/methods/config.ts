@@ -47,7 +47,10 @@ export async function setExecutionState(
 
 export function updateConfig(
   this: AgentRuntimeInternal,
-  patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
+  patch: Pick<
+    AgentRuntimeConfig,
+    "mode" | "planEnabled" | "language" | "outputStyle" | "deleteProtection"
+  >,
 ): void {
   if (patch.mode !== undefined || patch.planEnabled !== undefined) {
     const previous = resolveExecutionState(this.config);
@@ -67,6 +70,10 @@ export function updateConfig(
     if (!this.activeTurn) {
       rebuildContextPrefix(this);
     }
+  }
+  if (patch.deleteProtection !== undefined) {
+    // 删除保护只影响 Bash 执行层（prelude 注入与权限判定），读 live config，无需重建上下文。
+    this.config.deleteProtection = patch.deleteProtection;
   }
 }
 

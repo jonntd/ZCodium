@@ -2259,6 +2259,13 @@ const enUS: Record<string, string> = {
   "settings.modelIoFullRetention": "Keep complete model I/O",
   "settings.modelIoFullRetentionDescription":
     "Keep complete model requests and responses without compression, size limits, or automatic deletion.",
+  "settings.deleteProtection": "Delete Protection",
+  "settings.deleteProtectionDescription":
+    "When enabled, deletions move to the Trash/Recycle Bin first. When disabled, files are deleted permanently.",
+  "settings.batchDeleteApproval": "Batch delete approval",
+  "settings.batchDeleteApprovalRequirement": "Requires Delete Protection",
+  "settings.batchDeleteApprovalDescription":
+    "Approval is required when a single deletion reaches this many files.",
   "settings.performanceMode": "Performance mode",
   "settings.performanceModeDescription": "Simplify rendered output to improve performance.",
   "settings.taskAutoArchive": "Auto-archive old tasks",

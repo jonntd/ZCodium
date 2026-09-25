@@ -115,6 +115,12 @@ import type { WorkspaceHookRuntimeAdmissionPort } from "../hooks/workspace-hook-
 // Agent Runtime
 // -----------------------------------------------
 
+/** 删除保护偏好的 runtime 形状（与 ToolDeleteProtectionPreferences 同构）。 */
+export interface DeleteProtectionRuntimePreferences {
+  deleteProtectionEnabled: boolean;
+  batchDeleteApprovalThreshold: number;
+}
+
 export interface AgentRuntimeConfig {
   /** shared-host CUA request routing metadata; desktop is the safe default. */
   clientMode?: "desktop-continuous" | "web-remote-replayable";
@@ -194,6 +200,11 @@ export interface AgentRuntimeConfig {
   embeddedSearchBackend?: EmbeddedSearchBackend;
   /** 根 Session runtime 创建时固定；false 只关闭 Bash 的 bfs/ugrep prelude。 */
   nativeSearchEnhancementsEnabled?: boolean;
+  /**
+   * 删除保护偏好（docs/spec/delete-protection.md）：Bash 删除移废纸篓 + 批量删除审批。
+   * 由 bootstrap 从 App Runtime Preferences 初始化，并经 updateConfig 实时更新。
+   */
+  deleteProtection?: DeleteProtectionRuntimePreferences;
   memory?: MemoryRuntimeConfig;
   /** 历史恢复允许未绑定；只有完整选择才能创建本轮执行 Model。 */
   modelSelection?: ModelSelection;

@@ -94,6 +94,7 @@ import {
   zcodeWorkspaceHookTrustGrantResultSchema,
   zcodeWorkspaceUpdateInteractionPreferencesResultSchema,
   zcodeWorkspaceUpdateModelIoPreferencesResultSchema,
+  zcodeWorkspaceUpdateDeleteProtectionPreferencesResultSchema,
   zcodeProviderUpdateAccountConfigResultSchema,
   type ZCodeSessionStateSnapshot,
   type ZCodeAutomation,
@@ -1483,6 +1484,23 @@ export function createZCodeAgentService(
           );
         } catch (error) {
           // 新 Host 兼容尚未升级的 CLI：只有 method-not-found 可降级，其他同步失败仍需上抛。
+          if (!isProtocolMethodNotFoundError(error)) throw error;
+        }
+        try {
+          await params.client.request(
+            zcodeProtocolMethods.workspaceUpdateDeleteProtectionPreferences,
+            {
+              workspace: buildWorkspaceRef(params.workspace),
+              preferences: {
+                // 删除保护缺省开启（fail-safe）；阈值缺省 50。
+                deleteProtectionEnabled: params.preferences.deleteProtectionEnabled !== false,
+                batchDeleteApprovalThreshold: params.preferences.batchDeleteApprovalThreshold ?? 50,
+              },
+            },
+            zcodeWorkspaceUpdateDeleteProtectionPreferencesResultSchema,
+          );
+        } catch (error) {
+          // 旧 CLI 不认识该方法：静默降级，保持其系统删除行为。
           if (!isProtocolMethodNotFoundError(error)) throw error;
         }
       });
@@ -3385,6 +3403,14 @@ export function createZCodeAgentService(
       const normalizedPreferences: ZCodeAgentAppRuntimePreferences = {
         ...preferences,
         modelIoFullRetentionEnabled: preferences.modelIoFullRetentionEnabled === true,
+        // 删除保护 fail-safe：缺省开启；阈值非法/缺省回 50。
+        deleteProtectionEnabled: preferences.deleteProtectionEnabled !== false,
+        batchDeleteApprovalThreshold:
+          typeof preferences.batchDeleteApprovalThreshold === "number" &&
+          Number.isInteger(preferences.batchDeleteApprovalThreshold) &&
+          preferences.batchDeleteApprovalThreshold >= 1
+            ? preferences.batchDeleteApprovalThreshold
+            : 50,
       };
       latestAppRuntimePreferences = normalizedPreferences;
       const activeClients = [...activeClientsByWorkspaceKey.values()];

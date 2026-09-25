@@ -293,6 +293,12 @@ function RootInner({
         askUserQuestionAutoResolutionEnabled:
           appSettings.askUserQuestionAutoResolutionEnabled !== false,
         modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
+        deleteProtectionEnabled: appSettings.deleteProtectionEnabled !== false,
+        batchDeleteApprovalThreshold:
+          typeof appSettings.batchDeleteApprovalThreshold === "number" &&
+          appSettings.batchDeleteApprovalThreshold >= 1
+            ? appSettings.batchDeleteApprovalThreshold
+            : 50,
       })
       .catch((error) => {
         logger.warn("[settings] 初始化运行时偏好失败", error);
@@ -302,6 +308,12 @@ function RootInner({
         askUserQuestionAutoResolutionEnabled:
           appSettings.askUserQuestionAutoResolutionEnabled !== false,
         modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
+        deleteProtectionEnabled: appSettings.deleteProtectionEnabled !== false,
+        batchDeleteApprovalThreshold:
+          typeof appSettings.batchDeleteApprovalThreshold === "number" &&
+          appSettings.batchDeleteApprovalThreshold >= 1
+            ? appSettings.batchDeleteApprovalThreshold
+            : 50,
       })
       .catch((error) => {
         logger.warn("[settings] 初始化 Bot 运行时偏好失败", error);
@@ -309,6 +321,8 @@ function RootInner({
   }, [
     appSettings?.askUserQuestionAutoResolutionEnabled,
     appSettings?.modelIoFullRetentionEnabled,
+    appSettings?.deleteProtectionEnabled,
+    appSettings?.batchDeleteApprovalThreshold,
     services.botsService,
     services.zcodeAgentService,
   ]);

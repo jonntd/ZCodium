@@ -47,6 +47,8 @@ export interface PermissionContext {
 export interface PermissionToolCapability {
   allowedInPlanMode?: boolean;
   alwaysAsk?: boolean;
+  /** 工具自报的 ask 原因；alwaysAsk 命中时压过模式级默认文案。 */
+  askReason?: string;
   readOnly?: boolean;
   destructive?: boolean;
   requiresUserInteraction?: boolean;
@@ -387,7 +389,10 @@ export class PermissionService {
       context,
       capability,
       "tool.alwaysAsk",
-      `Tool ${context.toolName} always requires explicit approval`,
+      // askReason 让工具把「为什么必须问」（如批量删除审批的文件数）透传到确认窗；
+      // 缺省维持原有文案，不影响其他 alwaysAsk 工具。
+      capability.askReason ??
+        `Tool ${context.toolName} always requires explicit approval`,
     );
   }
 
@@ -585,6 +590,8 @@ export class PermissionService {
     return {
       allowedInPlanMode: toolCapability?.allowedInPlanMode ?? false,
       alwaysAsk: toolCapability?.permission?.alwaysAsk ?? toolCapability?.alwaysAsk ?? false,
+      // askReason 是运行时能力（tool/types.ts）自报的动态原因；契约级 ToolPermissionSpec 不携带。
+      askReason: toolCapability?.askReason,
       readOnly: toolCapability?.readOnly ?? this.isReadOnlyTool(context.toolName),
       destructive: toolCapability?.destructive ?? this.isDestructiveTool(context.toolName),
       requiresUserInteraction:
@@ -658,6 +665,7 @@ export class PermissionService {
 interface ResolvedPermissionCapability {
   allowedInPlanMode: boolean;
   alwaysAsk: boolean;
+  askReason?: string;
   readOnly: boolean;
   destructive: boolean;
   requiresUserInteraction: boolean;

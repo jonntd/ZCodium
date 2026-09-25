@@ -7,6 +7,8 @@ export const appRuntimePreferencesChangedBroadcastPayloadSchema = z
   .object({
     askUserQuestionAutoResolutionEnabled: z.boolean(),
     modelIoFullRetentionEnabled: z.boolean().default(false),
+    deleteProtectionEnabled: z.boolean().default(true),
+    batchDeleteApprovalThreshold: z.number().int().min(1).max(10000).default(50),
   })
   .strict();
 

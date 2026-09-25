@@ -2120,6 +2120,11 @@ const zhCN: Record<string, string> = {
   "settings.modelIoFullRetention": "完整保留模型 I/O",
   "settings.modelIoFullRetentionDescription":
     "保留完整的模型请求和响应，不自动压缩、限制大小或删除旧记录。",
+  "settings.deleteProtection": "删除保护",
+  "settings.deleteProtectionDescription": "开启后优先移到废纸篓/回收站，关闭后按系统删除。",
+  "settings.batchDeleteApproval": "批量删除审批",
+  "settings.batchDeleteApprovalRequirement": "需开启删除保护",
+  "settings.batchDeleteApprovalDescription": "一次删除达到该数量时需要审批。",
   "settings.performanceMode": "性能模式",
   "settings.performanceModeDescription": "精简渲染输出，提高性能。",
   "settings.taskAutoArchive": "自动归档旧任务",

@@ -183,6 +183,8 @@ export interface ToolExecutionContext {
   recordSkillTelemetryMetadata?: (metadata: SkillTelemetryMetadata) => void;
   bashShellSelection?: ExecutionShellSelection;
   embeddedSearch?: ToolEmbeddedSearchContext;
+  /** 删除保护偏好；缺席/关闭时 Bash 不注入删除保护 prelude，也不做批量审批判定。 */
+  deleteProtection?: ToolDeleteProtectionPreferences;
   setWorkingDirectory?: (cwd: string) => Promise<void> | void;
   workingDirectory: string;
   workspaceRoot: string;
@@ -383,6 +385,9 @@ export interface ToolPersistedModelContentInput {
 
 export interface ToolRuntimePermissionCapability {
   allowedInPlanMode?: boolean;
+  alwaysAsk?: boolean;
+  /** alwaysAsk 命中时优先展示的原因（批量删除审批用）；缺省沿用 PermissionService 的模式级文案。 */
+  askReason?: string;
   destructive?: boolean;
   needsApproval?: boolean;
   readOnly?: boolean;
@@ -392,10 +397,20 @@ export interface ToolRuntimePermissionCapability {
   permission?: Partial<ToolContractDeclaration["permission"]>;
 }
 
+/**
+ * 删除保护偏好（docs/spec/delete-protection.md）。协议类型
+ * ZCodeDeleteProtectionPreferences（@zcode/shared）在 bootstrap 边界转换为本形状。
+ */
+export interface ToolDeleteProtectionPreferences {
+  deleteProtectionEnabled: boolean;
+  batchDeleteApprovalThreshold: number;
+}
+
 export interface ToolRuntimePermissionCapabilityContext {
   runtimeScope?: ToolRuntimeScope;
   workingDirectory?: string;
   workspaceRoot?: string;
+  deleteProtection?: ToolDeleteProtectionPreferences;
 }
 
 export interface ToolExecutionModelContext {

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { windowsPathToGitBashPath } from "@zcode/contracts";
 import type { ExecutionRequest, ExecutionShellDialect } from "@zcode/contracts";
 import { buildEmbeddedSearchPreludeContent } from "./embedded-search-prelude.js";
+import { buildDeleteProtectionPreludeContent } from "./delete-protection-prelude.js";
 
 export type StartupShellDialect = ExecutionShellDialect | "legacy-shell";
 
@@ -47,18 +48,30 @@ export function applyBashSourcesToExecutionRequest(
   const embeddedPreludeContent = buildEmbeddedSearchPreludeContent(request.bashPrelude, {
     shellDialect: options.shellDialect,
   });
-  const internalScript = embeddedPreludeContent
-    ? {
-        id: "embedded-search-startup",
-        content: embeddedPreludeContent,
-      }
-    : undefined;
-  const materialized = materializeBashInternalSourceScript(internalScript, {
-    rootDir: options.rootDir,
-    sessionId: options.sessionId,
-    shellDialect: options.shellDialect,
+  const deleteProtectionPreludeContent = buildDeleteProtectionPreludeContent(
+    request.bashDeleteProtectionPrelude,
+    {
+      shellDialect: options.shellDialect,
+    },
+  );
+  // 两个内部 prelude 各自物化为独立 source 脚本：内容 hash 独立，避免一边变化
+  // 把另一边的缓存脚本也判为失效。
+  const internalScripts: BashInternalScriptContent[] = [];
+  if (embeddedPreludeContent) {
+    internalScripts.push({ id: "embedded-search-startup", content: embeddedPreludeContent });
+  }
+  if (deleteProtectionPreludeContent) {
+    internalScripts.push({ id: "delete-protection-startup", content: deleteProtectionPreludeContent });
+  }
+  const materializedScripts = internalScripts.flatMap((script) => {
+    const materialized = materializeBashInternalSourceScript(script, {
+      rootDir: options.rootDir,
+      sessionId: options.sessionId,
+      shellDialect: options.shellDialect,
+    });
+    return materialized ? [materialized] : [];
   });
-  const sources = [...(options.leadingSources ?? []), ...(materialized ? [materialized] : [])];
+  const sources = [...(options.leadingSources ?? []), ...materializedScripts];
   const command = applyBashSourceScripts(request.command.command, sources);
   if (command === request.command.command) return request;
 

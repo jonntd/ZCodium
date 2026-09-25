@@ -321,6 +321,12 @@ export function createBotRemoteWorkspaceService(params: {
             askUserQuestionAutoResolutionEnabled:
               settings.askUserQuestionAutoResolutionEnabled !== false,
             modelIoFullRetentionEnabled: settings.modelIoFullRetentionEnabled === true,
+            deleteProtectionEnabled: settings.deleteProtectionEnabled !== false,
+            batchDeleteApprovalThreshold:
+              typeof settings.batchDeleteApprovalThreshold === "number" &&
+              settings.batchDeleteApprovalThreshold >= 1
+                ? settings.batchDeleteApprovalThreshold
+                : 50,
           }));
       await services.zcodeAgentService.syncAppRuntimePreferences(preferences);
       if (revision === appRuntimePreferencesRevision) {

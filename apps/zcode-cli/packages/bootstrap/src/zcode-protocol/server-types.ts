@@ -18,6 +18,7 @@ import {
   type ZCodeAutomationBotDeliveryTarget,
   type ZCodeDeliveryKind,
   type ModelSelection,
+  type ZCodeDeleteProtectionPreferences,
   type ZCodeModelContextBudgetStrategy,
   type ZCodeProtocolMessage,
   type ZCodeProtocolMethod,
@@ -85,6 +86,8 @@ export interface ZCodeProtocolSessionRecord {
   memoryEnabled: boolean;
   nativeSearchEnhancementsEnabled: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
+  /** 会话创建时固化的删除保护偏好；偏好更新方法会覆盖。 */
+  deleteProtection: ZCodeDeleteProtectionPreferences;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
   /**
@@ -132,6 +135,9 @@ export interface ZCodeProtocolAgentServerContext {
   appRuntimePreferences: {
     askUserQuestionAutoResolutionEnabled: boolean;
     modelIoFullRetentionEnabled: boolean;
+    /** 删除保护（移废纸篓 + 批量删除审批）；缺省 true / 50，fail-safe。 */
+    deleteProtectionEnabled: boolean;
+    batchDeleteApprovalThreshold: number;
     /** host 同步的 Off-Peak 工具面门禁；缺省 false（fail-closed），供 v4 冷恢复等无 host 参数的路径读取。 */
     offPeakToolEnabled: boolean;
     /**

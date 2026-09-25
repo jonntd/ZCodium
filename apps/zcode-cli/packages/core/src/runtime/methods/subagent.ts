@@ -281,6 +281,8 @@ export function createDefaultSubagentPort(
           toolDisallowlist: this.config.toolDisallowlist,
           embeddedSearchBackend: this.config.embeddedSearchBackend,
           nativeSearchEnhancementsEnabled: this.config.nativeSearchEnhancementsEnabled,
+          // 删除保护结构性继承：子代理绕过它等于绕过移废纸篓/批量审批。
+          deleteProtection: this.config.deleteProtection,
           subagents: {
             backgroundBashMaxMs: this.config.subagents?.backgroundBashMaxMs,
             enabled: false,

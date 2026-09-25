@@ -66,7 +66,7 @@ import type {
 
 export interface AgentRuntimeCoreMethods {
   updateConfig(
-    patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle">,
+    patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle" | "deleteProtection">,
   ): void;
   initializeSessionShellEnvironmentIfNeeded(
     selection: ExecutionShellSelection | (() => ExecutionShellSelection),

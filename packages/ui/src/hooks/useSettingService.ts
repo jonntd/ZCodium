@@ -144,7 +144,9 @@ export function useSettings() {
       await refresh();
       if (
         typeof patch.askUserQuestionAutoResolutionEnabled === "boolean" ||
-        typeof patch.modelIoFullRetentionEnabled === "boolean"
+        typeof patch.modelIoFullRetentionEnabled === "boolean" ||
+        typeof patch.deleteProtectionEnabled === "boolean" ||
+        typeof patch.batchDeleteApprovalThreshold === "number"
       ) {
         const preferences = {
           askUserQuestionAutoResolutionEnabled:
@@ -153,6 +155,13 @@ export function useSettings() {
           modelIoFullRetentionEnabled:
             patch.modelIoFullRetentionEnabled ??
             settingsStore.snapshot.settings?.modelIoFullRetentionEnabled === true,
+          deleteProtectionEnabled:
+            patch.deleteProtectionEnabled ??
+            settingsStore.snapshot.settings?.deleteProtectionEnabled !== false,
+          batchDeleteApprovalThreshold:
+            patch.batchDeleteApprovalThreshold ??
+            settingsStore.snapshot.settings?.batchDeleteApprovalThreshold ??
+            50,
         };
         const syncResults = await Promise.allSettled([
           zcodeAgentService.syncAppRuntimePreferences(preferences),

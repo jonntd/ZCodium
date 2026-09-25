@@ -76,6 +76,7 @@ import {
   type ZCodeSessionRuntimePreferencesScope,
   type ZCodeSessionRuntimePreferencesResult,
   type ZCodeModelContextBudgetStrategy,
+  type ZCodeDeleteProtectionPreferences,
   type ZCodeProtocolTrace,
   type ZCodeSessionEvent,
   type ZCodeSessionHistoryTarget,
@@ -144,6 +145,8 @@ interface SessionStartupPreferences {
   memoryEnabled: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
   nativeSearchEnhancementsEnabled: boolean;
+  /** 删除保护偏好；Host 缺省（旧 Host）时按默认值开启 + 阈值 50。 */
+  deleteProtection: ZCodeDeleteProtectionPreferences;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
 }
 
@@ -3225,6 +3228,8 @@ async function requestSessionRuntimePreferences(
         memoryEnabled: false,
         modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
         nativeSearchEnhancementsEnabled: true,
+        // 旧 Host 不携带删除保护：按默认值（开启 + 阈值 50）处理，fail-safe。
+        deleteProtection: { deleteProtectionEnabled: true, batchDeleteApprovalThreshold: 50 },
       };
     }
     throw error;
@@ -3243,6 +3248,8 @@ async function resolveSessionStartupPreferences(
       memoryEnabled: source.parent.memoryEnabled,
       modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
       nativeSearchEnhancementsEnabled: source.parent.nativeSearchEnhancementsEnabled,
+      // 删除保护结构性继承：child 绕过它等于绕过移废纸篓/批量审批。
+      deleteProtection: source.parent.deleteProtection,
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3261,6 +3268,12 @@ async function resolveSessionStartupPreferences(
     memoryEnabled: runtimePreferences.memoryEnabled,
     modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     nativeSearchEnhancementsEnabled: runtimePreferences.nativeSearchEnhancementsEnabled,
+    // 旧 Host 缺省 deleteProtection 字段：zod optional 解析为 undefined，按默认值处理。
+    deleteProtection:
+      runtimePreferences.deleteProtection ?? {
+        deleteProtectionEnabled: true,
+        batchDeleteApprovalThreshold: 50,
+      },
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
         context,
@@ -3351,6 +3364,8 @@ async function createRecord(
       toolDisallowlist: "toolDenylist" in params ? params.toolDenylist : undefined,
       nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
+      // 删除保护（移废纸篓 prelude + 批量删除审批）从 App 偏好落到 session runtime。
+      deleteProtection: startupPreferences.deleteProtection,
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
       // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
       ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
@@ -3412,6 +3427,7 @@ async function createRecord(
     memoryEnabled: startupPreferences.memoryEnabled,
     modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
     nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
+    deleteProtection: startupPreferences.deleteProtection,
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),
