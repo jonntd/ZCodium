@@ -1,0 +1,29 @@
+# 推送到任意分支时自动编译（typecheck）。
+# 只做编译验证，不触发发布；产物构建仍由 release.yml 手动触发。
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  compile:
+    if: github.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Compile
+        run: pnpm typecheck
