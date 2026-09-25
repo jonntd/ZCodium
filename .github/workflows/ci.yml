@@ -27,3 +27,6 @@ jobs:
 
       - name: Compile
         run: pnpm typecheck
+
+      - name: Lint
+        run: pnpm lint
