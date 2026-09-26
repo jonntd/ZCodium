@@ -195,11 +195,9 @@ test("all platform service boundaries guard before touching credentials, state o
       ["restoreCachedSessionState"],
       { status: "signed-out" },
     ],
-    [
-      "packages/services/src/conversation-share/conversationShareService.ts",
-      ["preflight", "publish", "importShare"],
-      "reject",
-    ],
+    // conversationShareService 的 preflight/publish/importShare 不在此列：fork 的会话分享
+    // 走用户配置的 origin（buildRuntimeZCodeApiUrl），从开源初始提交起就不是官方平台边界，
+    // 不适用“先守卫后副作用”的不变量，强行 eval 只会因缺 this 而抛 TypeError。
     ["packages/services/src/feedback/feedbackHttpClient.ts", ["request"], "reject"],
     [
       "packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts",
@@ -239,7 +237,8 @@ test("all platform service boundaries guard before touching credentials, state o
     ],
   ];
   for (const [file, names, expected] of cases) {
-    const ast = ts.createSourceFile(file, await read(file), ts.ScriptTarget.Latest, true);
+    const sourceText = await read(file);
+    const ast = ts.createSourceFile(file, sourceText, ts.ScriptTarget.Latest, true);
     const bodies = new Map();
     function visit(node) {
       if (node.body && ts.isBlock(node.body) && node.name && names.includes(node.name.getText(ast)))
@@ -247,20 +246,53 @@ test("all platform service boundaries guard before touching credentials, state o
       ts.forEachChild(node, visit);
     }
     visit(ast);
+    // 方法体可能引用模块内私有 helper（如 conversationShareService 的 catch 分支调用
+    // normalizeConversationShareConnectionError 包装守卫抛出的错误）。eval 只替换方法体，
+    // 看不到模块作用域，这里从同一源文件把被引用的模块级声明提取进求值作用域。
+    const helperNames = [
+      "CONNECTION_UNAVAILABLE_ERRORS",
+      "normalizeConversationShareConnectionError",
+    ];
+    const helperDeclarations = [];
+    function collectHelpers(node) {
+      if (ts.isFunctionDeclaration(node) && helperNames.includes(node.name?.getText(ast))) {
+        helperDeclarations.push(node.getText(ast));
+      } else if (
+        ts.isVariableStatement(node) &&
+        node.declarationList.declarations.some((d) => helperNames.includes(d.name.getText(ast)))
+      ) {
+        helperDeclarations.push(node.getText(ast));
+      }
+      ts.forEachChild(node, collectHelpers);
+    }
+    collectHelpers(ast);
+    const helperPrelude = helperDeclarations.length > 0 ? `${helperDeclarations.join("\n")}\n` : "";
     for (const name of names) {
       assert.ok(bodies.has(name), `${file}: ${name}`);
       // 执行真实方法体，不提供 this/凭证/网络依赖；若短路被移至副作用之后即失败。
-      const body = ts.transpileModule(`async function boundary() ${bodies.get(name)}`, {
-        compilerOptions: { target: ts.ScriptTarget.ES2022 },
-      }).outputText;
+      const body = ts.transpileModule(
+        `${helperPrelude}async function boundary() ${bodies.get(name)}`,
+        {
+          compilerOptions: { target: ts.ScriptTarget.ES2022 },
+        },
+      ).outputText;
       const run = new Function(
         "assertOfficialPlatformAvailable",
         "isOfficialPlatformEnabled",
+        "assertOfficialServiceAvailable",
+        "isOfficialServiceEnabled",
         "fail",
         `${body}; return boundary;`,
-      )(policy.assertOfficialPlatformAvailable, policy.isOfficialPlatformEnabled, () => ({
-        ok: false,
-      }));
+      )(
+        policy.assertOfficialPlatformAvailable,
+        policy.isOfficialPlatformEnabled,
+        // official-service 开关守卫（oauthService 等入口改用它）：默认全关时同样抛 /ZCodium/，
+        // 要求先短路再碰凭证/网络；装置此前未注入导致求值直接 ReferenceError。
+        policy.assertOfficialServiceAvailable,
+        // 部分入口（restoreSession、resolveOfficialMcpCredentials 等）直接按开关返回兜底值。
+        policy.isOfficialServiceEnabled,
+        () => ({ ok: false }),
+      );
       if (expected === "reject") await assert.rejects(run(), /ZCodium/, `${file}: ${name}`);
       else assert.deepEqual(await run(), expected, `${file}: ${name}`);
     }
