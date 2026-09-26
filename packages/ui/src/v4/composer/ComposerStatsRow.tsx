@@ -75,7 +75,14 @@ function resolveTurnSpeed(
   return null;
 }
 
-function ComposerStatsRowImpl({ snapshot }: { snapshot: ConversationSnapshot | null }) {
+function ComposerStatsRowImpl({
+  snapshot,
+  draftMode = false,
+}: {
+  snapshot: ConversationSnapshot | null;
+  /** 新建任务草稿态（尚未发出第一条消息）：整行强制退场，见可见性门槛注释。 */
+  draftMode?: boolean;
+}) {
   const { intl } = useZCodeIntl();
   const stats = useMemo(
     () => resolveLatestTurnStats(snapshot?.rows.window ?? []),
@@ -120,13 +127,21 @@ function ComposerStatsRowImpl({ snapshot }: { snapshot: ConversationSnapshot | n
     speed = resolveTurnSpeed(stats, windowRef, lastTpsRef);
   }
 
-  // 整行可见性单一门槛（spec §5）：速度/缓存/上下文三个读数作为一个整体进退场。
-  // 任一读数有真实数据即整行常驻，三个 pill 一起渲染，缺数据的以 0 占位（速度
-  // `0 tok/s`、缓存 `缓存命中 0%`、占用环 `0%`），数据到位后原位更新——避免
-  // 首轮响应期间三个读数逐个跳入的布局跳动。全部无数据（如新会话未发送）返回
-  // null，根容器经 `.composer-stats-root:empty` 整行退场不占位。
+  // 整行可见性单一门槛（spec §5）：速度/缓存/上下文三个读数作为一个整体进退场，
+  // 任一读数有真实数据即整行常驻，缺数据的以 0 占位，数据到位后原位更新——避免
+  // 首轮响应期间三个读数逐个跳入的布局跳动。全部无数据返回 null，根容器经
+  // `.composer-stats-root:empty` 整行退场不占位。
+  // 整行可见性单一门槛（spec §5）：速度/缓存/上下文三个读数作为一个整体进退场，
+  // 任一读数有真实数据（速度 / 计费 token / 已知 contextWindow）即整行常驻，缺
+  // 数据的以 0 占位，数据到位后原位更新——避免首轮响应期间逐个跳入的布局跳动。
+  // 全部无数据返回 null，根容器经 `.composer-stats-root:empty` 整行退场不占位。
+  // 2026-09-26 用户规则补充：新建任务草稿态（未发出第一条消息）无条件退场——
+  // 草稿视图的投影可能携带预创建会话/上一会话的遗留用量（cumulative、
+  // contextWindow 均非 0），任何按数据召唤的规则都会让新任务页带出一行无意义
+  // 读数；发送首条消息后 draftMode 翻转，整行按正常门槛出现。非草稿视图（含
+  // 重启后打开的历史会话）不受影响——已知 contextWindow 即显示占用读数。
   const hasContext = contextOccupancy(snapshot?.usage.contextWindow ?? null) !== null;
-  if (speed === null && cacheHit === null && !hasContext) return null;
+  if (draftMode || (speed === null && cacheHit === null && !hasContext)) return null;
   return (
     <>
       <span className="composer-stats-pill" data-testid="v4-composer-speed-pill">

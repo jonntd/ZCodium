@@ -2198,7 +2198,7 @@ function ConversationComposerImpl({
               ComposerStatsRow）的滑动窗口/基线/冻结速度 refs 必须随会话整体
               重挂载重置，否则切换会话后的首帧会显示上一会话的速度
               （spec §5 数据所有权）。 */}
-          <ComposerStatsRow key={snapshot?.sessionId} snapshot={snapshot} />
+          <ComposerStatsRow key={snapshot?.sessionId} snapshot={snapshot} draftMode={draftMode} />
         </div>
         {attachmentsApi.attachmentError ? (
           <p className="flex items-start gap-2 p-3 text-ui-base text-warning">

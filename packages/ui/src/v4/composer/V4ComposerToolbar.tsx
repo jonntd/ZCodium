@@ -996,16 +996,22 @@ function V4ComposerModelControlsImpl({
         data-usage-max={usage?.contextWindow?.maxTokens ?? ""}
         className="hidden"
       />
-      <ChatContextUsage
-        codingPlanUsageRemaining={codingPlanUsageRemaining}
-        taskUsage={taskUsage}
-        startPlanBalance={contextStartPlanBalance}
-        selectedProvider={displayProvider}
-        intl={intl}
-        locale={locale}
-        onSendCompressionCommand={onSendCompressionCommand}
-        compressionDisabled={disabled || recoveryPending}
-      />
+      {/* 上下文占用读数唯一展示位是下方统计行的 ComposerContextMeter（spec §5，
+          2026-09-26 用户规则）。ChatContextUsage 只有在承载非重复职能——Coding Plan
+          剩余额度 / Start Plan 今日余额的 hover 面板锚点——时才挂载；自定义渠道等
+          无额度内容的会话不再渲染第二个占用环，避免与统计行功能重复。 */}
+      {codingPlanUsageRemaining || contextStartPlanBalance ? (
+        <ChatContextUsage
+          codingPlanUsageRemaining={codingPlanUsageRemaining}
+          taskUsage={taskUsage}
+          startPlanBalance={contextStartPlanBalance}
+          selectedProvider={displayProvider}
+          intl={intl}
+          locale={locale}
+          onSendCompressionCommand={onSendCompressionCommand}
+          compressionDisabled={disabled || recoveryPending}
+        />
+      ) : null}
       {modelSelectionState.status === "error" && modelSelectionReload ? (
         <Button
           type="button"

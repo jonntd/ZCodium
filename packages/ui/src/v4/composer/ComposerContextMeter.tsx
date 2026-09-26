@@ -3,6 +3,10 @@
 // context-occupancy.ts：14px viewBox 圆环 + 百分比读数，点击展开面板显示
 // 标题句、~used / window 读数与占用条）。
 //
+// 2026-09-26 收口（spec §5）：原工具条 ChatContextUsage 面板的占用明细
+// （breakdown，按来源估算的字符占比）与平均缓存命中率并入本展开面板——
+// 工具条触发器是「移动」到统计行而非删除，功能随面板一并保留。
+//
 // 可见性由父组件 ComposerStatsRow 统一裁决（spec §5）：本组件被挂载即渲染读数，
 // 容量未知（usage.contextWindow 为 null，如新会话首个 ModelComplete 之前）时以
 // 0% 占位、环不画进度弧；展开面板仍以真实 contextWindow 为前提，点击不展开，
@@ -11,11 +15,17 @@
 // 数据契约差异：deepseek 的 contextPressure/contextBreakdown 投影在本仓库对应
 // usage.contextWindow（usedTokens/maxTokens）；breakdown 为 chars 计数而非 token，
 // 因此面板走 deepseek 的「无 breakdown」路径（单色占用条），不做 chars 冒充 token。
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import {
+  BREAKDOWN_SOURCE_LABEL_ID,
+  buildContextUsageBreakdownSegments,
+  formatContextCacheHitRateLabel,
+  getBreakdownToneStyle,
+} from "@/chat-input-toolbar/contextUsage.js";
 
 /** Ring geometry: 14px viewBox, 2px stroke. */
 const RADIUS = 5.5;
@@ -64,7 +74,7 @@ export function contextOccupancy(
 }
 
 export function ComposerContextMeter({ snapshot }: { snapshot: ConversationSnapshot | null }) {
-  const { intl } = useZCodeIntl();
+  const { intl, locale } = useZCodeIntl();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLSpanElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -130,6 +140,25 @@ export function ComposerContextMeter({ snapshot }: { snapshot: ConversationSnaps
       document.removeEventListener("pointerdown", onPointerDown, true);
     };
   }, [available, open]);
+
+  // 2026-09-26 收口（spec §5）：工具条面板的占用明细与缓存命中率并入本面板，
+  // 数据源同为 usage.contextWindow 的可选字段；全部为派生量，不落 store。
+  const contextWindow = snapshot?.usage.contextWindow ?? null;
+  const breakdownSegments = useMemo(
+    () => buildContextUsageBreakdownSegments(contextWindow?.breakdown),
+    [contextWindow?.breakdown],
+  );
+  const cacheHitRateLabel = useMemo(
+    () =>
+      formatContextCacheHitRateLabel(contextWindow?.cache?.hitRate, locale, {
+        showBelowThreshold: import.meta.env.DEV,
+      }),
+    [contextWindow?.cache?.hitRate, locale],
+  );
+  const percentFormatter = useMemo(
+    () => new Intl.NumberFormat(locale, { maximumFractionDigits: 1, style: "percent" }),
+    [locale],
+  );
 
   if (context === null) {
     // 容量未知（spec §5）：整行已由父组件裁决在场，这里渲染 0% 占位并禁用展开
@@ -222,6 +251,44 @@ export function ComposerContextMeter({ snapshot }: { snapshot: ConversationSnaps
             <div className="context-meter-bar">
               <div className="context-meter-segment" style={{ width: `${percent}%` }} />
             </div>
+            {/* 2026-09-26 自工具条 ChatContextUsage 面板并入：占用明细（按来源
+                字符占比）与平均缓存命中率，功能随触发器一并「移动」到统计行。 */}
+            {breakdownSegments.length > 0 ? (
+              <div
+                aria-label={intl.formatMessage({ id: "chat.contextUsage.breakdown" })}
+                className="context-meter-breakdown"
+              >
+                {breakdownSegments.map((segment, index) => (
+                  <div className="context-meter-breakdown-row" key={segment.source}>
+                    <span
+                      aria-hidden="true"
+                      className="context-meter-breakdown-dot"
+                      style={getBreakdownToneStyle(index)}
+                    />
+                    <span className="context-meter-breakdown-label">
+                      {intl.formatMessage({ id: BREAKDOWN_SOURCE_LABEL_ID[segment.source] })}
+                    </span>
+                    <span className="context-meter-breakdown-value">
+                      {percentFormatter.format(segment.percent)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {cacheHitRateLabel ? (
+              <div
+                className={
+                  breakdownSegments.length > 0
+                    ? "context-meter-cache-row context-meter-cache-row-divided"
+                    : "context-meter-cache-row"
+                }
+              >
+                <span className="context-meter-breakdown-label">
+                  {intl.formatMessage({ id: "chat.contextUsage.cacheHitRate" })}
+                </span>
+                <span className="context-meter-breakdown-value">{cacheHitRateLabel}</span>
+              </div>
+            ) : null}
           </div>,
           document.body,
         )}

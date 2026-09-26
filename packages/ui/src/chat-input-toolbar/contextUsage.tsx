@@ -114,7 +114,7 @@ function formatContextUsageSummary({
   )} (${percentageFormatter.format(percent)})`;
 }
 
-function formatContextCacheHitRateLabel(
+export function formatContextCacheHitRateLabel(
   hitRate: number | null | undefined,
   locale: string,
   options: { showBelowThreshold?: boolean } = {},
@@ -135,7 +135,7 @@ function formatContextCacheHitRateLabel(
   }).format(Math.max(0, hitRate));
 }
 
-function getBreakdownToneStyle(index: number): CSSProperties {
+export function getBreakdownToneStyle(index: number): CSSProperties {
   return {
     backgroundColor:
       CONTEXT_PROGRESS_TONE_COLORS[Math.min(index, CONTEXT_PROGRESS_TONE_COLORS.length - 1)] ??
@@ -143,7 +143,7 @@ function getBreakdownToneStyle(index: number): CSSProperties {
   };
 }
 
-const BREAKDOWN_SOURCE_LABEL_ID: Record<ContextUsageBreakdownSource, string> = {
+export const BREAKDOWN_SOURCE_LABEL_ID: Record<ContextUsageBreakdownSource, string> = {
   messages: "chat.contextUsage.breakdown.messages",
   system_prompt: "chat.contextUsage.breakdown.systemPrompt",
   meta_user_context: "chat.contextUsage.breakdown.metaUserContext",
@@ -163,7 +163,7 @@ const BREAKDOWN_SOURCE_ORDER: Record<ContextUsageBreakdownSource, number> = {
   mcp_tool_schemas: 6,
 };
 
-function buildContextUsageBreakdownSegments(
+export function buildContextUsageBreakdownSegments(
   breakdown: readonly ZCodeContextUsageBreakdownItem[] | undefined,
 ): ContextUsageBreakdownSegment[] {
   const charsBySource = new Map<ContextUsageBreakdownSource, number>();
