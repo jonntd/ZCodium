@@ -9,6 +9,7 @@ import { loadBuiltinProviderConfig } from "../../scripts/builtin-provider-config
 import { noticesFileName, stageElectronNotices } from "../../scripts/third-party-notices.mjs";
 import { resolveNativeSearchReleasePlan } from "../../scripts/native-search-tools-config.mjs";
 import { getBuildMetadata } from "./scripts/build-metadata.mjs";
+import { resolveUpdateFeedTarget } from "./scripts/update-feed-target.mjs";
 import { collectRuntimeModuleClosureEntries } from "./scripts/runtime-dependency-closure.mjs";
 import {
   resolvePackagedNodePtyPrebuildPath,
@@ -69,6 +70,9 @@ import {
 } from "./scripts/patch-nsis-install-section.mjs";
 
 const buildMetadata = getBuildMetadata();
+// 更新源仓库坐标与 tsup define 注入同源（update-feed-target.mjs）；publish 只用于生成
+// app-update.yml 与 latest*.yml 元数据，真正发布由 CI 的 gh release upload 完成。
+const updateFeedTarget = resolveUpdateFeedTarget();
 const targetPlatform = getTargetPlatform();
 const builtinProviderConfig = await loadBuiltinProviderConfig();
 const desktopProductIdentity = resolveDesktopProductIdentity({
@@ -772,10 +776,10 @@ export default {
   },
   detectUpdateChannel: false,
   publish: {
-    // 我们的发布都是 GitHub Pre-release：generic 的 /releases/latest 会 404；
-    // 用 GitHub provider 走 Releases API，运行时配合 allowPrerelease。
+    // 运行时用 GitHub provider 走 Releases API（发布含 Pre-release，generic 的
+    // /releases/latest 会 404），配合 autoUpdater 的 allowPrerelease。
     provider: "github",
-    owner: "ZCodium-project",
-    repo: "ZCodium",
+    owner: updateFeedTarget.owner,
+    repo: updateFeedTarget.repo,
   },
 };

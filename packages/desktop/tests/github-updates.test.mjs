@@ -6,7 +6,10 @@ import { createRequire } from "node:module";
 import { transpileModule, ModuleKind } from "typescript";
 
 const require = createRequire(import.meta.url);
-const feed = "https://github.com/ZCodium-project/ZCodium/releases/latest/download/";
+// 模拟 tsup define 注入的更新源坐标（scripts/update-feed-target.mjs 的默认值）。
+globalThis.__ZCODE_UPDATE_GITHUB_OWNER__ = "jonntd";
+globalThis.__ZCODE_UPDATE_GITHUB_REPO__ = "ZCodium";
+const customFeedUrl = "https://example.invalid/releases/latest/download/";
 async function load(relative, imports = {}) {
   const source = await readFile(new URL(`../src/main/${relative}.ts`, import.meta.url), "utf8");
   const output = transpileModule(source, {
@@ -46,7 +49,7 @@ test("force guard never fetches, blocks or invokes callbacks", async () => {
   );
 });
 
-test("generic feed, overrides, manual check and native download/install remain wired", async () => {
+test("github feed by default, custom feed overrides stay generic, manual check and native download/install remain wired", async () => {
   const updater = new EventEmitter();
   let checks = 0,
     downloads = 0,
@@ -112,7 +115,7 @@ test("generic feed, overrides, manual check and native download/install remain w
     assert.deepEqual(
       module.resolveUpdateFeedSourceFromStartupConfig({
         argv,
-        env: { ZCODE_UPDATE_FEED_URL: feed },
+        env: { ZCODE_UPDATE_FEED_URL: customFeedUrl },
       }),
       { url: "https://example.invalid/cli/" },
     );
@@ -123,9 +126,14 @@ test("generic feed, overrides, manual check and native download/install remain w
     },
   });
   await new Promise(setImmediate);
-  assert.equal(configured.provider, "generic");
-  assert.equal(configured.url, feed);
-  assert.equal(configured.channel, "latest");
+  // 无 updateFeedSource 覆盖时默认配置 github provider：坐标来自构建期注入
+  // （scripts/update-feed-target.mjs 默认 fork 发布仓库），并允许预发布版本。
+  assert.deepEqual(configured, {
+    provider: "github",
+    owner: "jonntd",
+    repo: "ZCodium",
+  });
+  assert.equal(updater.allowPrerelease, true);
   assert.equal(checks, 1);
   module.refreshAutoUpdaterReleaseChannel(true);
   assert.equal(checks, 1);
@@ -147,6 +155,9 @@ test("generic feed, overrides, manual check and native download/install remain w
   assert.equal(installs, 1);
   assert.ok(sent.length > 0);
   await module.initAutoUpdater({ updateFeedSource: { url: "https://example.invalid/custom/" } });
+  // 自定义 feed 覆盖保持 generic provider：测试/开发链路不依赖 GitHub Releases。
+  assert.equal(configured.provider, "generic");
+  assert.equal(configured.channel, "latest");
   assert.equal(configured.url, "https://example.invalid/custom/");
   await module.initAutoUpdater({ enabled: false });
 });
@@ -160,7 +171,7 @@ test("built-in provider reads platform YAML and resolves release assets", async 
   ]) {
     let requested;
     const provider = new GenericProvider(
-      { provider: "generic", url: feed, channel: "latest" },
+      { provider: "generic", url: customFeedUrl, channel: "latest" },
       { isAddNoCacheQuery: false },
       {
         platform,
@@ -173,7 +184,7 @@ test("built-in provider reads platform YAML and resolves release assets", async 
       },
     );
     const info = await provider.getLatestVersion();
-    assert.equal(requested, `${feed}latest${suffix}.yml`);
-    assert.equal(provider.resolveFiles(info)[0].url.href, `${feed}app.zip`);
+    assert.equal(requested, `${customFeedUrl}latest${suffix}.yml`);
+    assert.equal(provider.resolveFiles(info)[0].url.href, `${customFeedUrl}app.zip`);
   }
 });

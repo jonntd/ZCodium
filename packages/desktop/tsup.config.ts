@@ -5,12 +5,15 @@ import { pathToFileURL } from "node:url";
 import { defineConfig } from "tsup";
 import { getBuildMetadata } from "./scripts/build-metadata.mjs";
 import { resolveDesktopProductFlavor } from "./scripts/desktop-product-identity.mjs";
+import { resolveUpdateFeedTarget } from "./scripts/update-feed-target.mjs";
 // tsup 会先打包配置文件；动态加载构建工具，避免其 import.meta.dirname 被重定位到 desktop。
 const { loadBuiltinProviderConfig } = await import(
   pathToFileURL(resolve(import.meta.dirname, "../../scripts/builtin-provider-config.mjs")).href
 );
 
 const buildMetadata = getBuildMetadata();
+// 更新源仓库坐标与 electron-builder publish 配置同源（update-feed-target.mjs），见 spec github-updates.md。
+const updateFeedTarget = resolveUpdateFeedTarget();
 
 // 手动加载 .env 文件，tsup 不像 Vite 会自动读取 .env.*；这些文件只提供链接常量。
 function loadEnvFiles(): Record<string, string> {
@@ -110,6 +113,9 @@ function createSharedDefines() {
     ),
     // 客户端只有一个 CDN 配置，与发布端 OSS 目标列表分离。
     __ZCODE_CDN_BASE_URL__: JSON.stringify(env.ZCODE_CDN_BASE_URL?.trim() || ""),
+    // 桌面更新源仓库坐标（GitHub provider），与 electron-builder publish 配置同源注入。
+    __ZCODE_UPDATE_GITHUB_OWNER__: JSON.stringify(updateFeedTarget.owner),
+    __ZCODE_UPDATE_GITHUB_REPO__: JSON.stringify(updateFeedTarget.repo),
   };
 }
 

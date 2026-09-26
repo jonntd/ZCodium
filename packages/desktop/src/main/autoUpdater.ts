@@ -19,6 +19,24 @@ import semver from "semver";
 import { logger } from "./logger.js";
 const { autoUpdater } = pkg;
 
+// 更新源仓库坐标由 tsup define 注入（见 scripts/update-feed-target.mjs，与 electron-builder
+// publish 配置同源）；缺失说明产物不是经本仓库构建脚本打包，fail-fast 而不是退回上游仓库。
+declare const __ZCODE_UPDATE_GITHUB_OWNER__: string | undefined;
+declare const __ZCODE_UPDATE_GITHUB_REPO__: string | undefined;
+
+function resolveUpdateFeedTargetForRuntime(): { owner: string; repo: string } {
+  const owner =
+    typeof __ZCODE_UPDATE_GITHUB_OWNER__ === "string" ? __ZCODE_UPDATE_GITHUB_OWNER__.trim() : "";
+  const repo =
+    typeof __ZCODE_UPDATE_GITHUB_REPO__ === "string" ? __ZCODE_UPDATE_GITHUB_REPO__.trim() : "";
+  if (!owner || !repo) {
+    throw new Error(
+      "[auto-update] missing build-time update feed target (__ZCODE_UPDATE_GITHUB_OWNER__/__ZCODE_UPDATE_GITHUB_REPO__)",
+    );
+  }
+  return { owner, repo };
+}
+
 export const CHECK_FOR_UPDATE_MENU_ID = "check-for-update";
 const AUTO_UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FEED_URL_ENV = "ZCODE_UPDATE_FEED_URL";
@@ -739,18 +757,24 @@ function applyUpdateProvider(options: InitAutoUpdaterOptions): void {
       channel: "latest",
       useMultipleRangeRequest: false,
     });
-    logger.info(`[auto-update] generic provider (custom feed) url=${redactUpdateFeedUrlForLog(customUrl)}`);
+    logger.info(
+      `[auto-update] generic provider (custom feed) url=${redactUpdateFeedUrlForLog(customUrl)}`,
+    );
     return;
   }
-  // 我们所有发布（audit.x）都是 GitHub Pre-release：generic 的 /releases/latest 会 404。
-  // 这里改用 GitHub provider 走 Releases API（列表包含 Pre-release），并允许预发布版本。
+  // 发布版本包含 GitHub Pre-release：generic 的 /releases/latest 会 404。
+  // 这里用 GitHub provider 走 Releases API，并允许预发布版本；仓库坐标来自构建期注入，
+  // 默认指向 fork 发布仓库（update-feed-target.mjs），不再指向任何上游仓库。
+  const { owner, repo } = resolveUpdateFeedTargetForRuntime();
   autoUpdater.allowPrerelease = true;
   autoUpdater.setFeedURL({
     provider: "github",
-    owner: "ZCodium-project",
-    repo: "ZCodium",
+    owner,
+    repo,
   });
-  logger.info("[auto-update] github provider applied (prereleases allowed)");
+  logger.info(
+    `[auto-update] github provider applied (prereleases allowed) owner=${owner} repo=${repo}`,
+  );
 }
 
 function pickFallbackReleaseNotesMarkdown(

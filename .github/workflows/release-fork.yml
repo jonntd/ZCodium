@@ -278,14 +278,21 @@ jobs:
           set -euo pipefail
           ls -la packages/desktop/dist/
           shopt -s nullglob
+          # mac 两个架构 job 各自生成只含本架构条目的 latest-mac.yml；先重命名再上传，
+          # 避免 --clobber 互相覆盖。publish job 用 merge-mac-update-yml.mjs 合并成
+          # 双架构 latest-mac.yml（MacUpdater 只请求 latest-mac.yml，按 URL 是否含
+          # arm64 过滤条目；单架构列表会让另一架构更新失败或装错架构）。
+          if [ "${{ matrix.target }}" = "mac" ]; then
+            mv packages/desktop/dist/latest-mac.yml "packages/desktop/dist/latest-mac-${{ matrix.arch }}.yml"
+          fi
           files=(
             packages/desktop/dist/${{ matrix.glob }}
             packages/desktop/dist/*.zip
+            packages/desktop/dist/*.blockmap
+            packages/desktop/dist/latest*.yml
           )
-          # 只上传安装包与 mac 更新用 zip；不上传 *.blockmap（仅差量更新加速）与
-          # latest*.yml（electron-updater feed）——本仓库不走应用内自动更新，
-          # 更新一律手动下载安装包。CLI 侧同理只保留 tar.gz，不再上传
-          # install.sh / latest.json / sha256.txt。
+          # 应用内检查更新读取本仓库 Releases：latest*.yml 是 electron-updater 的发现
+          # 元数据，zip 供 macOS 更新安装，blockmap 供差分下载，缺一自动更新就不可用。
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::no desktop assets matched in packages/desktop/dist"
             exit 1
@@ -305,6 +312,24 @@ jobs:
     if: ${{ always() && inputs.keep_draft != true && needs.release.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Merge mac update metadata and upload
+        if: ${{ inputs.build_artifacts }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "latest-mac-arm64.yml" --pattern "latest-mac-x64.yml" --dir "$tmpdir"
+          node packages/desktop/scripts/merge-mac-update-yml.mjs \
+            --out "$tmpdir/latest-mac.yml" \
+            "$tmpdir/latest-mac-arm64.yml" "$tmpdir/latest-mac-x64.yml"
+          # 合并失败保持 draft，由人工排查，避免带残缺更新元数据的版本公开。
+          gh release upload "$TAG" "$tmpdir/latest-mac.yml" --clobber --repo "$GITHUB_REPOSITORY"
+
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
