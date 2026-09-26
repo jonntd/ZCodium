@@ -344,14 +344,11 @@ function ComposerEnhanceButtonImpl(props: {
                 >
                   {entry.models.map((model) => (
                     <DropdownMenuRadioItem key={model.id} value={model.id}>
+                      {/* priority 仅作 main 侧排序元数据；按产品规则不在 UI
+                          显示优先级徽标（spec：patcher-parity §6）。 */}
                       <span className="min-w-0 flex-1 truncate font-mono text-ui-sm">
                         {model.id}
                       </span>
-                      {model.priority > 0 ? (
-                        <span className="mr-5 shrink-0 text-xs text-foreground-subtle">
-                          P{model.priority}
-                        </span>
-                      ) : null}
                     </DropdownMenuRadioItem>
                   ))}
                 </DropdownMenuRadioGroup>
