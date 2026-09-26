@@ -1,6 +1,7 @@
 // 提示词增强的用户级配置访问（zcode-patcher --enhance-btn 原生版）。
-// 读取 ~/.zcode/v2 的 config.json / setting.json / credentials.json 与可选手动渠道
-// ~/.zcode/enhance-config.json，并按补丁同款评分挑选可用渠道。
+// 读取 ~/.zcode/v2 的 config.json / setting.json / credentials.json、个人渠道注册表
+// provider_config.json 与可选手动渠道 ~/.zcode/enhance-config.json，并按补丁同款评分
+// 挑选可用渠道。
 import { createDecipheriv, createHash } from "node:crypto";
 import { platform as osPlatform, homedir, userInfo } from "node:os";
 import { join } from "node:path";
@@ -40,6 +41,66 @@ export function loadConfigBundle(): EnhanceConfigBundle {
     // 可选手动渠道：~/.zcode/enhance-config.json（baseURL/apiKey/model/kind/headers）
     manualCfg: readJsonFile(join(homedir(), ".zcode", "enhance-config.json")),
   };
+}
+
+/**
+ * 个人渠道注册表（2026-09-26 bugfix，spec §6）：增强功能最初按补丁布局只扫
+ * config.json 的 provider 表；架构迁移后自定义渠道的事实源是 provider-node 的
+ * provider_config.json（config.providerConfigRules.providerRules[]），config.json
+ * 只剩 builtin 覆盖——旧口径扫描永远得到 0 个渠道，菜单退化为
+ * 「config.json 里没有启用的渠道」。这里把个人规则规范化成与 config.json provider
+ * 同构的形态（name/kind/options/models），由 enhanceService 合并进列表与评分链路；
+ * 同 id 冲突由调用方以本表覆盖 config.json（当前架构的渠道事实源）。
+ */
+export function loadPersonalProviders(): Record<string, JsonObject> {
+  const raw = readJsonFile(join(userConfigDir(), "provider_config.json"));
+  const rulesWrap = ((raw.config ?? {}) as JsonObject).providerConfigRules ?? {};
+  const rules = (rulesWrap as JsonObject).providerRules;
+  const providers: Record<string, JsonObject> = {};
+  for (const rule of Array.isArray(rules) ? (rules as JsonObject[]) : []) {
+    const providerId = asString(rule.providerId).trim();
+    if (!providerId || rule.enabled === false) continue;
+    const ruleConfig = (rule.config ?? {}) as JsonObject;
+    const access = (ruleConfig.access ?? {}) as JsonObject;
+    const api = (ruleConfig.api ?? {}) as JsonObject;
+    // 增强链路只支持静态 api-key 凭据；oauth 型个人渠道拿不到可复用 token，跳过。
+    const accessType = asString(access.type).trim();
+    if (accessType && accessType !== "api-key") continue;
+    const apiKey = asString(access.apiKey).trim();
+    const baseUrl = asString(api.baseUrl).trim();
+    if (!apiKey || !baseUrl) continue;
+    const apiType = asString(api.type).trim();
+    // 协议分支按 kind.includes("anthropic") 判定，api.type 原文可直接充当；
+    // 菜单徽标只暴露归一后的 anthropic/openai 两类，避免露出内部协议串。
+    const kind = apiType
+      ? apiType.includes("anthropic")
+        ? "anthropic"
+        : "openai"
+      : "anthropic";
+    // modelOrder 首位即最高优先（channelModels 按 priority 降序取 Top3 增强）；
+    // 只在 personalModelIds 出现、未进 order 的模型追加在尾部（priority 0）。
+    const ordered = [...(Array.isArray(ruleConfig.modelOrder) ? ruleConfig.modelOrder : [])];
+    for (const modelId of Array.isArray(ruleConfig.personalModelIds) ? ruleConfig.personalModelIds : []) {
+      if (!ordered.includes(modelId)) ordered.push(modelId);
+    }
+    const models: JsonObject = {};
+    ordered.forEach((entry, index) => {
+      const modelId = asString(entry).trim();
+      if (!modelId || models[modelId]) return;
+      models[modelId] = { zcode: { priority: ordered.length - index } };
+    });
+    providers[providerId] = {
+      name: asString(rule.providerName).trim() || providerId,
+      kind,
+      options: {
+        apiKey,
+        baseURL: baseUrl,
+        ...(api.headers && typeof api.headers === "object" ? { headers: api.headers } : {}),
+      },
+      models,
+    };
+  }
+  return providers;
 }
 
 /** 解密 enc:v1: 前缀的凭据（aes-256-gcm，密钥=fallback secret 的 sha256），与

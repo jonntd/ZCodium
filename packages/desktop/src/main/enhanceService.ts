@@ -1,11 +1,13 @@
 // 提示词增强服务（zcode-patcher --enhance-btn 原生版）。
-// main 进程读取用户级渠道配置（~/.zcode/v2/config.json + setting.json + credentials.json），
-// 按可用性评分挑选渠道/模型，直接调用渠道 API 改写 composer 草稿。
+// main 进程读取用户级渠道配置（~/.zcode/v2 的 config.json + provider_config.json
+// 个人渠道注册表 + setting.json + credentials.json），按可用性评分挑选渠道/模型，
+// 直接调用渠道 API 改写 composer 草稿。
 // 与补丁载荷 ENH_MAIN_HANDLERS 行为一致：模板文案、渠道评分、重试与降级语义均对齐。
 import {
   asString,
   channelModels,
   loadConfigBundle,
+  loadPersonalProviders,
   resolveSelectedProviderId,
   scoreChannels,
   type JsonObject,
@@ -39,7 +41,13 @@ function extractMarkedResponse(raw: string): string | null {
 export async function enhanceListModels(): Promise<EnhanceListModelsResult> {
   try {
     const { cfg, st, credRaw, manualCfg } = loadConfigBundle();
-    const providers = (cfg.provider ?? {}) as Record<string, JsonObject | null>;
+    // 渠道事实源合并（spec §6，2026-09-26 bugfix）：自定义渠道的真实注册表是
+    // provider_config.json 的个人规则；config.json 只剩 builtin 覆盖。个人渠道
+    // 为当前架构事实源，同 id 冲突时覆盖 config.json 条目。
+    const providers = {
+      ...((cfg.provider ?? {}) as Record<string, JsonObject | null>),
+      ...loadPersonalProviders(),
+    };
     const selectedId = resolveSelectedProviderId(cfg, st);
     // oauth access_token 的键名是明文（只有值加密），按键名判断无需解密。
     const oauthAccessKeys = new Set(
@@ -119,7 +127,16 @@ export async function enhancePromptDraft(payload: {
     const maxTok = 4096;
 
     const { cfg, st, credRaw, manualCfg } = loadConfigBundle();
-    const { oauthTokens, active, scored } = scoreChannels(cfg, st, credRaw);
+    // 与列表同口径合并个人渠道（spec §6）：评分链与指定渠道查找都基于合并后的
+    // 渠道集，避免「菜单能看到渠道、run 却找不到」的口径分叉。
+    const mergedCfg = {
+      ...cfg,
+      provider: {
+        ...((cfg.provider ?? {}) as Record<string, JsonObject | null>),
+        ...loadPersonalProviders(),
+      },
+    };
+    const { oauthTokens, active, scored } = scoreChannels(mergedCfg, st, credRaw);
     if (
       manualCfg &&
       String(manualCfg.baseURL ?? "").trim() &&
@@ -142,7 +159,7 @@ export async function enhancePromptDraft(payload: {
     const wantChannel = String(payload?.channel ?? "").trim();
     const wantModel = String(payload?.model ?? "").trim();
     if (wantModel && !(wantChannel && String(wantChannel).startsWith("builtin:"))) {
-      const providers = (cfg.provider ?? {}) as Record<string, JsonObject | null>;
+      const providers = (mergedCfg.provider ?? {}) as Record<string, JsonObject | null>;
       // 渠道 id 命中优先；composer 传来的可能是显示名而非 id，此时按模型 id 在
       // 启用渠道中兜底定位（当前模型是最可靠的增强目标）。
       const direct = wantChannel ? providers[wantChannel] : undefined;
