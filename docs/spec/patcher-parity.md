@@ -55,15 +55,32 @@
 - **展示**：composer 输入区下方居中一行（1:1 移植 deepseek-harness 的 StatsPills
   compact 形态 + ContextMeter）：`⚡ X tok/s`、`🗄 缓存命中 X%`、上下文占用环 `X%`。
   全部为纯读数 pill（12/20 字号、tertiary 层、hover 反白）。
-- **整行可见性单一门槛（2026-09 用户规则）**：三个读数作为一个整体进退场——任一
-  读数有真实数据（速度读数 / 计费 token / 已知 contextWindow）即整行常驻，三者
-  **一起出现**，缺数据的读数以 0 占位（`0 tok/s` / `缓存命中 0%` / `0%`），数据
-  到位后原位更新，不得逐个跳入造成多次布局跳动；全部无数据（如新会话未发送）时
-  整行退场不占位（沿用 `:empty`）。可见性唯一所有者是 ComposerStatsRow——速度/
-  缓存/上下文在同一组件内统一裁决进出，ContextMeter 作为其子节点被挂载即渲染，
-  不再独立决定可见性；上下文展开面板仍以真实 `usage.contextWindow`（非 null）为
-  前提，容量未知（首个 ModelComplete / ModelSelected 之前）时点击不展开，避免
-  `~0 / 0` 的无意义读数。
+- **整行可见性单一门槛（2026-09 用户规则，2026-09-26 修订）**：三个读数作为一个
+  整体进退场——速度或计费 token 任一有真实数据即整行常驻，三者**一起出现**，缺
+  数据的读数以 0 占位（`0 tok/s` / `缓存命中 0%` / `0%`），数据到位后原位更新，
+  不得逐个跳入造成多次布局跳动。**上下文占用不独立召唤整行**：新建任务视图的
+  预创建会话会把系统提示词占用记进 `contextWindow`（`usedTokens > 0`），若允许
+  占用单独召唤整行，未发送任何消息的新任务会带着 `0 tok/s / 缓存命中 0%` 常驻
+  （2026-09-26 用户规则：默认隐藏，发送后才出现）；占用环只在整行因速度/计费
+  token 在场时随行渲染——历史会话的 cumulative 必然 >0，打开即见占用读数，不受
+  影响。全部无数据时整行退场不占位（沿用 `:empty`）。**新建任务草稿态（未发出
+  第一条消息）整行无条件退场**（`draftMode` 门控）：草稿视图的投影可能携带预创建
+  会话的预热用量或上一会话遗留读数（cumulative/contextWindow 均非 0），任何
+  「按数据召唤」的规则都会让新任务页带出一行无意义的 0/遗留读数——发送首条消息
+  后 draftMode 翻转，整行按正常门槛出现。非草稿视图（含应用重启后打开的历史
+  会话：projection 重启后 cumulative 归零、contextWindow 仍在）不受影响，保持
+  原有「任一读数在场即显示」。可见性唯一所有者是
+  ComposerStatsRow——速度/缓存/上下文在同一组件内统一裁决进出，ContextMeter 作为
+  其子节点被挂载即渲染，不再独立决定可见性；上下文展开面板仍以真实
+  `usage.contextWindow`（非 null）为前提，容量未知（首个 ModelComplete /
+  ModelSelected 之前）时点击不展开，避免 `~0 / 0` 的无意义读数。
+- **上下文占用读数唯一展示位（2026-09-26 用户规则）**：统计行的占用环 `X%` 是
+  composer 里唯一的上下文占用读数，工具条不再渲染第二个占用环。原工具条
+  ChatContextUsage 是「移动」而非删除：其触发器职能由统计行占用环接管，其面板
+  内容（占用明细 breakdown 按来源字符占比、平均缓存命中率）并入统计行占用环的
+  展开面板，数据源同为 `usage.contextWindow` 的可选字段（breakdown/cache）；
+  ChatContextUsage 组件仅当承载非重复职能（Coding Plan 剩余额度 / Start Plan
+  今日余额的 hover 面板锚点）时继续在工具条挂载。
 - **数据所有权**：唯一事实源是 conversation projection snapshot（rows + usage）。
   组件不落 store；refs 仅保存跨帧派生量（4s 滑动窗口样本、cumulative 基线、最近
   速度）。换会话通过 `key={snapshot?.sessionId}` 整体重挂载重置（bugfix：曾用
@@ -122,7 +139,8 @@
   Ctrl+/（composer 聚焦时）快捷增强。
 - **模型/模式选择**（对应补丁的右键面板，原生用 ✨ 旁的下拉菜单承载）：
   改写模式「简洁模式（约 800 字符内）/ 创意模式（充分展开）」；增强模型按渠道分组
-  列出全部模型（zcode.priority 降序 + P 优先级徽标），带 ★当前渠道 / 无凭据 徽标；
+  列出全部模型（按 zcode.priority 降序排列；priority 仅是排序元数据，UI 不显示
+  P 优先级徽标——2026-09 用户规则），带 ★当前渠道 / 无凭据 徽标；
   「自动（跟随渠道评分与 priority）」恢复评分链。选择持久化在 localStorage，与补丁
   同键（zcode-enhance-mode / zcode-enhance-model），升级迁移无缝；指定的渠道失效时
   自动清除并回退评分链。空草稿点击给出提示 toast；任何失败只 toast 不阻塞 composer。
@@ -147,6 +165,21 @@
   （`coding-plan:builtin:x` → `builtin:x`），再按冒号分段整体包含兜底——
   `team-plan:builtin:x:prod:proj` 这类把 provider id 嵌在中间的值逐段剥离永远
   剥不到完整 id（bugfix），兜底只认冒号定界的完整段，不匹配段内子串。
+- **渠道数据源合并（2026-09-26 修订）**：个人渠道的实际注册表是 provider-node 的
+  `~/.zcode/v2/provider_config.json`（`config.providerConfigRules.providerRules[]`，
+  含 providerId/providerName/enabled/access.apiKey/api.type/api.baseUrl/api.headers/
+  personalModelIds/modelOrder）；config.json 的 `provider` 表如今只承载 builtin 覆盖，
+  按旧布局只扫 config.json 会得到 0 个渠道（bugfix：菜单退化为「config.json 里没有
+  启用的渠道」）。渠道列表与评分链路必须合并两处：`enhanceConfig.loadPersonalProviders()`
+  把个人规则规范化成与 config.json provider 同构的形态（name=providerName、
+  kind=api.type 归一为 anthropic/openai、options.apiKey/baseURL/headers、
+  models=modelOrder ∪ personalModelIds 按 order 降序 priority），同 id 冲突以
+  provider_config.json 为准（它是当前架构的渠道事实源）；`enabled: false`、无静态
+  apiKey 或无 baseUrl 的规则跳过（oauth 型个人渠道无可复用凭据，不参与增强）。
+  个人规则当前没有落盘的「选中」标记（选中态是会话级配置，不写用户级文件），其
+  `selected` 徽标与 +10 评分不生效——「跟随当前模型」由 composer 显式传
+  channel/model 保证命中，不依赖徽标；渠道 id 使用 providerId（uuid），composer 传
+  显示名时由 run 链路既有「按模型 id 定位渠道」兜底覆盖。
 - **失败语义**：任何异常只 toast，不阻塞 composer；草稿仅在拿到非空改写结果后才替换。
 
 ## 7. 模型拉取 modelhub（--modelhub）
