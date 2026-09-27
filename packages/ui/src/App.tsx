@@ -217,12 +217,15 @@ export function App({
     setBrowserNavigationRequest,
     handleOpenCodeViewer,
     handleOpenCodeViewers,
+    handlePinCodeViewerTab,
     handleOpenBrowserUrl,
     handleToggleBrowser,
     handleOpenBrowserTab,
     handleToggleGit,
     handleOpenGit,
     handleOpenFiles,
+    handleOpenFilesTabPreview,
+    handleCloseFilesTabPreview,
     pendFilesOpenForWorkspace,
     handleOpenTreemapping,
     handleOpenWhiteboard,
@@ -1275,9 +1278,12 @@ export function App({
         handleOpenTerminalTab={handleOpenTerminalTabIfWritable}
         handleToggleGit={handleToggleGitIfWritable}
         handleOpenFiles={handleOpenSidePaneFilesForWorkspace}
+        handleOpenFilesTabPreview={handleOpenFilesTabPreview}
+        handleCloseFilesTabPreview={handleCloseFilesTabPreview}
         handleToggleSidePane={handleToggleSidePane}
         handleOpenBrowserUrl={handleOpenBrowserUrl}
         handleOpenCodeViewer={handleOpenCodeViewerIfWritable}
+        handlePinCodeViewerTab={handlePinCodeViewerTab}
         handleAutoOpenAssistantPptx={handleAutoOpenAssistantPptx}
         handleOpenSubagentSession={handleOpenSubagentSession}
         handleOpenBackgroundBash={handleOpenBackgroundBash}

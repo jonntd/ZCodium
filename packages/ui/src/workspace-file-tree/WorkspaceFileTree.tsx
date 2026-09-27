@@ -74,6 +74,7 @@ import {
   getWorkspaceFileSearchDirectoryRevealPaths,
 } from "@/workspace-file-tree/searchRows.js";
 import type {
+  WorkspaceFileTreeOpenPreviewOptions,
   WorkspaceFileTreeProps,
   WorkspaceFileTreeStickyFolderItem,
 } from "@/workspace-file-tree/types.js";
@@ -98,6 +99,8 @@ export function WorkspaceFileTree({
   onClose,
   onOpenBrowserUrl,
   onOpenPreview,
+  compareBaseline,
+  onCompareWithBaseline,
 }: WorkspaceFileTreeProps) {
   const { intl } = useZCodeIntl();
   const platform = usePlatform();
@@ -260,6 +263,7 @@ export function WorkspaceFileTree({
       openFailed: intl.formatMessage({ id: "workspaceFileTree.openFailed" }),
       openWith: intl.formatMessage({ id: "workspaceFileTree.openWith" }),
       reveal: fileManagerLabel,
+      compareWithCurrent: intl.formatMessage({ id: "workspaceFileTree.compareWithCurrent" }),
     }),
     [fileManagerLabel, intl],
   );
@@ -537,7 +541,7 @@ export function WorkspaceFileTree({
     [handleRevealSearchDirectory, handleToggleDirectory, hasFileSearchQuery],
   );
   const handleOpenPreview = useCallback(
-    (row: WorkspaceFileTreeRow) => {
+    (row: WorkspaceFileTreeRow, options?: WorkspaceFileTreeOpenPreviewOptions) => {
       if (row.type === "directory") {
         handleDirectoryAction(row);
         return;
@@ -552,7 +556,7 @@ export function WorkspaceFileTree({
         // 即使未来有其它入口直接调用预览，也要在父级兜底阻止打开。
         return;
       }
-      onOpenPreview?.(createCodeViewerSourceForWorkspaceFile(row.path));
+      onOpenPreview?.(createCodeViewerSourceForWorkspaceFile(row.path), options);
     },
     [handleDirectoryAction, onOpenPreview, treeData.gitStatusByPath],
   );
@@ -756,6 +760,9 @@ export function WorkspaceFileTree({
             onToggleDirectory={handleToggleDirectory}
             onRevealRow={handleRevealStickyFolderRow}
             onOpenPreview={handleOpenPreview}
+            compareBaseline={compareBaseline}
+            onCompareWithBaseline={onCompareWithBaseline}
+            workspaceRemoteSessionId={workspaceRemoteSessionId}
             onOpenBrowserUrl={onOpenBrowserUrl}
             onKeyDown={handleRowKeyDown}
           />
@@ -786,6 +793,9 @@ export function WorkspaceFileTree({
             onSelect={setSelectedPath}
             onToggleDirectory={handleDirectoryAction}
             onOpenPreview={handleOpenPreview}
+            compareBaseline={compareBaseline}
+            onCompareWithBaseline={onCompareWithBaseline}
+            workspaceRemoteSessionId={workspaceRemoteSessionId}
             onOpenBrowserUrl={onOpenBrowserUrl}
             onKeyDown={handleRowKeyDown}
           />

@@ -1,6 +1,14 @@
 /* eslint-disable max-lines -- Side pane 当前集中承载 tabs、browser/git/code-viewer 内容；完整拆分需按 pane 功能边界继续推进。 */
 import { ServiceProvider } from "@/hooks/useServices.js";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type RefObject,
+} from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import type { IServiceAccessor } from "@zcode/services";
 import {
@@ -38,7 +46,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
-import { ResizableHandle, ResizablePanel } from "@/components/ui/resizable.js";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable.js";
 import { Tabs, TabsContent, TabsList } from "@/components/ui/tabs.js";
 import { SidePaneTabOverview } from "@/app-shell/SidePaneTabOverview.js";
 import { SubagentSessionSidePane } from "@/app-shell/SubagentSessionSidePane.js";
@@ -84,11 +92,16 @@ import {
   type OpenScopedWorkflowArtifactSideTabRequest,
   type OpenScopedWorkflowRunSideTabRequest,
   type OpenBackgroundBashSideTabRequest,
+  type CodeViewerOpenIntent,
+  type FilesSidePaneTab,
   type WorkspaceSidePaneState,
 } from "@/lib/workspaceSidePane.js";
 import { inferMediaPreview, type CodeViewerSource } from "@/lib/codeViewer.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
 import { getVisibleSidePaneTabs } from "@/lib/workspaceSidePane.js";
+import { toast } from "@/components/ui/toast.js";
+import { useWorkspaceFileCompare } from "@/hooks/useWorkspaceFileCompare.js";
+import type { WorkspaceFileTreeRow } from "@/workspace-file-tree/model.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
   BugIcon,
@@ -97,7 +110,9 @@ import {
   GlobeIcon,
   MessageSquareTextIcon,
   PlusIcon,
+  SquareArrowOutUpRightIcon,
   SquareTerminalIcon,
+  XIcon,
   type LucideIcon,
 } from "lucide-react";
 
@@ -118,6 +133,13 @@ const EMPTY_TABS_SCROLL_MASK_EDGES: TabsScrollMaskEdges = {
   left: false,
   right: false,
 };
+
+/** files tab 分栏浏览的树定位信号：从内嵌预览 source 里取文件路径。 */
+function getCodeViewerSourcePath(source: CodeViewerSource): string | null {
+  return "path" in source && typeof source.path === "string" && source.path.length > 0
+    ? source.path
+    : null;
+}
 
 function SuspendedBrowserSidePaneContent({
   tab,
@@ -318,10 +340,13 @@ export function AnimatedSidePanePanel({
   onOpenTerminalTab,
   onOpenReviewTab,
   onOpenFilesTab,
+  onOpenFilesTabPreview,
+  onCloseFilesTabPreview,
   onOpenSelectionSideConversation,
   onRevealGitFileInTree,
   onOpenBrowserUrl,
   onOpenCodeViewer,
+  onPinTab,
   onOpenFileLink,
   onOpenSubagentSession,
   onOpenWorkflowActorSession,
@@ -384,10 +409,14 @@ export function AnimatedSidePanePanel({
   onOpenTerminalTab: () => void;
   onOpenReviewTab: () => void;
   onOpenFilesTab: () => void;
+  /** files tab 分栏浏览：替换内嵌预览栏内容；不切换激活标签（spec §7）。 */
+  onOpenFilesTabPreview: (source: CodeViewerSource) => void;
+  onCloseFilesTabPreview: () => void;
   onOpenSelectionSideConversation: () => void;
   onRevealGitFileInTree?: (path: string) => void;
   onOpenBrowserUrl: (url: string) => void;
-  onOpenCodeViewer: (source: CodeViewerSource) => void;
+  onOpenCodeViewer: (source: CodeViewerSource, options?: { intent?: CodeViewerOpenIntent }) => void;
+  onPinTab: (tabId: string) => void;
   onOpenFileLink?: (target: MessageFileLinkTarget) => void;
   onOpenBackgroundBash?: (request: OpenBackgroundBashSideTabRequest) => void;
   onOpenSubagentSession: (request: OpenScopedSubagentSideTabRequest) => void;
@@ -441,6 +470,43 @@ export function AnimatedSidePanePanel({
       ? activeTab.source.path
       : null;
   }, [tabs, visibleActiveTabId]);
+  // files tab 分栏浏览的内嵌预览源（registry 里 files tab 是单例）；
+  // 同时作为「与当前文件对比」的基线（spec: docs/spec/side-pane-file-preview.md §8）。
+  const filesTabPreviewSource = useMemo(() => {
+    const filesTab = tabs.find((tab): tab is FilesSidePaneTab => tab.type === "files");
+    return filesTab?.previewSource;
+  }, [tabs]);
+  const compareFilesWithBaseline = useWorkspaceFileCompare({
+    services,
+    scope: {
+      workspacePath: workspaceAbsPath,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+      ...(workspaceRemoteSessionId ? { workspaceRemoteSessionId } : {}),
+    },
+  });
+  const handleFilesTabCompareWithBaseline = useCallback(
+    (row: WorkspaceFileTreeRow) => {
+      // 联合类型的属性窄化不会跟随进 async 闭包，先提取为常量。
+      const baselinePath = filesTabPreviewSource?.path;
+      const baselineTitle = filesTabPreviewSource?.title;
+      if (!baselinePath || baselineTitle === undefined) {
+        return;
+      }
+      void (async () => {
+        try {
+          const diffSource = await compareFilesWithBaseline(
+            { path: baselinePath, title: baselineTitle },
+            { path: row.path, title: row.name },
+          );
+          onOpenCodeViewer(diffSource, { intent: "open" });
+        } catch {
+          // 读取失败/二进制/超 256KB：提示后放弃，不开残缺的 diff 标签。
+          toast(intl.formatMessage({ id: "workspaceFileTree.compareFailed" }));
+        }
+      })();
+    },
+    [compareFilesWithBaseline, filesTabPreviewSource, intl, onOpenCodeViewer],
+  );
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const tabsScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const tabsScrollContentRef = useRef<HTMLDivElement | null>(null);
@@ -1041,9 +1107,13 @@ export function AnimatedSidePanePanel({
                                   diffBadgeLabel={intl.formatMessage({
                                     id: "diff.title",
                                   })}
+                                  pinTabLabel={intl.formatMessage({
+                                    id: "sidePane.pinTab",
+                                  })}
                                   isActive={tab.id === visibleActiveTabId}
                                   onActivateTab={onActivateTab}
                                   onCloseTab={onCloseTab}
+                                  onPinTab={onPinTab}
                                   onCloseOtherTabs={onCloseOtherTabs}
                                   onCloseAllTabs={onCloseAllTabs}
                                   canCloseOtherTabs={visibleTabs.length > 1}
@@ -1085,6 +1155,10 @@ export function AnimatedSidePanePanel({
 
                 <div className="relative min-h-0 flex-1 isolate">
                   {tabs.map((tab) => {
+                    // files tab 分栏浏览的内嵌预览源（spec: docs/spec/side-pane-file-preview.md §7）。
+                    // 提前解出常量：联合类型的属性窄化无法跨 JSX 回调保持，
+                    // 动作条按钮的 onClick 需要稳定的非空类型。
+                    const filesPreviewSource = tab.type === "files" ? tab.previewSource : undefined;
                     if (
                       (tab.type === "browser" || tab.type === "browser-use") &&
                       !shouldMountBrowserTabGuest(tab)
@@ -1233,27 +1307,131 @@ export function AnimatedSidePanePanel({
                             })}
                           />
                         ) : tab.type === "files" ? (
-                          <WorkspaceFileTree
-                            workspacePath={workspaceAbsPath}
-                            workspaceIdentity={workspaceIdentity}
-                            workspaceRemoteSessionId={workspaceRemoteSessionId}
-                            canOpenLocalFileManager={isDesktop}
-                            hideBackButton
-                            activePreviewPath={filesActivePreviewPath}
-                            onClose={() => onCloseTab(tab.id)}
-                            onOpenBrowserUrl={isDesktop ? onOpenBrowserUrl : undefined}
-                            onOpenPreview={(source) => {
-                              // 右侧面板内点击文件 → 复用主界面 code-viewer tab 链路，
-                              // 渲染器与主界面同源；source 附加 workspace 作用域，
-                              // 远程 workspace 由正确 host 读取（与左侧文件树同规则）。
-                              onOpenCodeViewer({
-                                ...source,
-                                workspacePath: workspaceAbsPath,
-                                workspaceIdentity,
-                                workspaceRemoteSessionId,
-                              });
-                            }}
-                          />
+                          <ResizablePanelGroup
+                            layoutId="side-pane-files-browse-layout"
+                            panelIds={
+                              filesPreviewSource ? ["files-tree", "files-preview"] : ["files-tree"]
+                            }
+                            className="h-full min-h-0"
+                          >
+                            <ResizablePanel
+                              id="files-tree"
+                              minSize="20%"
+                              defaultSize={filesPreviewSource ? "38%" : "100%"}
+                            >
+                              <WorkspaceFileTree
+                                workspacePath={workspaceAbsPath}
+                                workspaceIdentity={workspaceIdentity}
+                                workspaceRemoteSessionId={workspaceRemoteSessionId}
+                                canOpenLocalFileManager={isDesktop}
+                                hideBackButton
+                                activePreviewPath={
+                                  (filesPreviewSource
+                                    ? getCodeViewerSourcePath(filesPreviewSource)
+                                    : null) ?? filesActivePreviewPath
+                                }
+                                onClose={() => onCloseTab(tab.id)}
+                                onOpenBrowserUrl={isDesktop ? onOpenBrowserUrl : undefined}
+                                onOpenPreview={(source, options) => {
+                                  // source 附加 workspace 作用域：远程 workspace 由正确 host
+                                  // 读取（与左侧文件树同规则）。单击（preview 意图）只替换
+                                  // tab 内嵌预览栏，files tab 保持激活——连续阅读不切换标签；
+                                  // 双击/正式打开（open 意图）走真实 code-viewer 标签转正链路。
+                                  const scopedSource = {
+                                    ...source,
+                                    workspacePath: workspaceAbsPath,
+                                    workspaceIdentity,
+                                    workspaceRemoteSessionId,
+                                  };
+                                  if (options?.intent === "open") {
+                                    onOpenCodeViewer(scopedSource, { intent: "open" });
+                                    return;
+                                  }
+                                  onOpenFilesTabPreview(scopedSource);
+                                }}
+                                compareBaseline={
+                                  filesTabPreviewSource && filesTabPreviewSource.path
+                                    ? {
+                                        path: filesTabPreviewSource.path,
+                                        title: filesTabPreviewSource.title,
+                                      }
+                                    : null
+                                }
+                                onCompareWithBaseline={
+                                  filesTabPreviewSource
+                                    ? handleFilesTabCompareWithBaseline
+                                    : undefined
+                                }
+                              />
+                            </ResizablePanel>
+                            {filesPreviewSource ? (
+                              <>
+                                <ResizableHandle />
+                                <ResizablePanel id="files-preview" minSize="30%">
+                                  <div className="flex h-full min-h-0 flex-col">
+                                    <div className="flex h-8 shrink-0 items-center gap-1 border-b border-border/50 px-2">
+                                      <span className="min-w-0 flex-1 truncate text-ui-xs font-medium text-foreground-subtle">
+                                        {filesPreviewSource.title}
+                                      </span>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        aria-label={intl.formatMessage({
+                                          id: "sidePane.filesPreview.openInTab",
+                                        })}
+                                        title={intl.formatMessage({
+                                          id: "sidePane.filesPreview.openInTab",
+                                        })}
+                                        onClick={() =>
+                                          onOpenCodeViewer(filesPreviewSource, { intent: "open" })
+                                        }
+                                      >
+                                        <SquareArrowOutUpRightIcon className="size-3.5" />
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-xs"
+                                        aria-label={intl.formatMessage({
+                                          id: "sidePane.filesPreview.close",
+                                        })}
+                                        title={intl.formatMessage({
+                                          id: "sidePane.filesPreview.close",
+                                        })}
+                                        onClick={onCloseFilesTabPreview}
+                                      >
+                                        <XIcon className="size-3.5" />
+                                      </Button>
+                                    </div>
+                                    <div className="min-h-0 flex-1">
+                                      <PreviewPane
+                                        markdownSelectionTarget={{
+                                          sessionId: activeTaskId,
+                                          workspaceKey,
+                                        }}
+                                        source={filesPreviewSource}
+                                        onClose={onCloseFilesTabPreview}
+                                        workspacePath={workspaceAbsPath}
+                                        onOpenBrowserUrl={onOpenBrowserUrl}
+                                        onOpenCodeViewer={onOpenCodeViewer}
+                                        renderHeavyContent={shouldRenderPreviewPaneHeavyContent({
+                                          isActiveTab: tab.id === visibleActiveTabId,
+                                          isMediaPreview:
+                                            filesPreviewSource.type === "media" ||
+                                            (filesPreviewSource.type === "file" &&
+                                              inferMediaPreview(filesPreviewSource.path) !== null),
+                                          isResizeSettling: isWindowResizeSettling,
+                                          isSidePaneVisible: isVisible,
+                                          visibleInlineSizePx: sidePaneVisibleInlineSizePx,
+                                        })}
+                                      />
+                                    </div>
+                                  </div>
+                                </ResizablePanel>
+                              </>
+                            ) : null}
+                          </ResizablePanelGroup>
                         ) : tab.type === "git" ? (
                           <GitPane
                             workspacePath={workspaceAbsPath}

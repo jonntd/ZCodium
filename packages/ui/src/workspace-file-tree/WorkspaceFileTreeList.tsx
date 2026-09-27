@@ -15,8 +15,10 @@ import { WorkspaceFileTreeRowView } from "@/workspace-file-tree/WorkspaceFileTre
 import { WORKSPACE_FILE_TREE_VIRTUAL_ROW_HEIGHT_PX } from "@/workspace-file-tree/constants.js";
 import type {
   WorkspaceFileGitStatusLabels,
+  WorkspaceFileTreeCompareBaseline,
   WorkspaceFileTreeContextMenuLabels,
   WorkspaceFileTreeEditorState,
+  WorkspaceFileTreeOpenPreviewOptions,
 } from "@/workspace-file-tree/types.js";
 
 export const WORKSPACE_FILE_TREE_MASK_OFFSET_PROPERTY = "--workspace-file-tree-mask-offset";
@@ -68,6 +70,9 @@ export function WorkspaceFileTreeList({
   onSelect,
   onToggleDirectory,
   onOpenPreview,
+  compareBaseline,
+  onCompareWithBaseline,
+  workspaceRemoteSessionId,
   onOpenBrowserUrl,
   onKeyDown,
 }: {
@@ -90,7 +95,10 @@ export function WorkspaceFileTreeList({
   editorState: WorkspaceFileTreeEditorState;
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
-  onOpenPreview: (row: WorkspaceFileTreeRow) => void;
+  onOpenPreview: (row: WorkspaceFileTreeRow, options?: WorkspaceFileTreeOpenPreviewOptions) => void;
+  compareBaseline?: WorkspaceFileTreeCompareBaseline | null;
+  onCompareWithBaseline?: (row: WorkspaceFileTreeRow) => void;
+  workspaceRemoteSessionId?: string;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
 }) {
@@ -139,6 +147,9 @@ export function WorkspaceFileTreeList({
       onSelect={onSelect}
       onToggleDirectory={onToggleDirectory}
       onOpenPreview={onOpenPreview}
+      compareBaseline={compareBaseline}
+      onCompareWithBaseline={onCompareWithBaseline}
+      workspaceRemoteSessionId={workspaceRemoteSessionId}
       onOpenBrowserUrl={onOpenBrowserUrl}
       onKeyDown={onKeyDown}
     />

@@ -15,6 +15,7 @@ import {
   NotepadTextIcon,
   PackageIcon,
   PaletteIcon,
+  PinIcon,
   SquareTerminalIcon,
   TerminalIcon,
   WaypointsIcon,
@@ -47,11 +48,13 @@ export function SortableSidePaneTabTrigger({
   closeOtherTabsLabel,
   closeAllTabsLabel,
   diffBadgeLabel,
+  pinTabLabel,
   isActive,
   onActivateTab,
   onCloseTab,
   onCloseOtherTabs,
   onCloseAllTabs,
+  onPinTab,
   canCloseOtherTabs,
 }: {
   tab: WorkspaceSidePaneTab;
@@ -61,11 +64,13 @@ export function SortableSidePaneTabTrigger({
   closeOtherTabsLabel: string;
   closeAllTabsLabel: string;
   diffBadgeLabel: string;
+  pinTabLabel: string;
   isActive: boolean;
   onActivateTab: (tabId: string) => void;
   onCloseTab: (tabId: string) => void;
   onCloseOtherTabs: (tabId: string) => void;
   onCloseAllTabs: () => void;
+  onPinTab: (tabId: string) => void;
   canCloseOtherTabs: boolean;
 }) {
   const wasDraggingRef = useRef(false);
@@ -137,6 +142,12 @@ export function SortableSidePaneTabTrigger({
           event.stopPropagation();
           onCloseTab(tab.id);
         }}
+        onDoubleClick={(event) => {
+          // 预览标签双击 = 钉住转正（VS Code 语义）；先到的两次 click 激活无副作用。
+          if (!isPreviewSlotTab(tab)) return;
+          event.preventDefault();
+          onPinTab(tab.id);
+        }}
         className={cn(
           "group relative inline-flex items-center gap-1",
           "flex-[1_1_9.75rem] !h-7 min-w-15 max-w-39 justify-start overflow-hidden rounded-md border px-1.5 pr-2 text-ui-base font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring",
@@ -188,6 +199,16 @@ export function SortableSidePaneTabTrigger({
         <ContextMenuTrigger asChild>{tabTrigger}</ContextMenuTrigger>
       </SidePaneTabTitleTooltip>
       <ContextMenuContent className="w-44">
+        {isPreviewSlotTab(tab) ? (
+          <ContextMenuItem
+            onSelect={() => {
+              onPinTab(tab.id);
+            }}
+          >
+            <PinIcon className="mr-2 size-3.5" />
+            {pinTabLabel}
+          </ContextMenuItem>
+        ) : null}
         <ContextMenuItem onSelect={() => onCloseTab(tab.id)}>{closeTabMenuLabel}</ContextMenuItem>
         <ContextMenuItem disabled={!canCloseOtherTabs} onSelect={() => onCloseOtherTabs(tab.id)}>
           {closeOtherTabsLabel}
@@ -245,7 +266,14 @@ function SidePaneTabItemContent({
       <span className="flex size-4 shrink-0 items-center justify-center">
         <SidePaneTabIcon tab={tab} />
       </span>
-      <span data-side-pane-tab-title="" className="shrink-0 whitespace-nowrap">
+      <span
+        data-side-pane-tab-title=""
+        className={cn(
+          "shrink-0 whitespace-nowrap",
+          // 预览标签标题斜体（VS Code 惯例）：提示这是可被下一次预览替换的临时标签。
+          isPreviewSlotTab(tab) && "italic",
+        )}
+      >
         {title}
       </span>
       {isDiffPreviewTab(tab) ? (
@@ -262,6 +290,11 @@ function isDiffPreviewTab(tab: WorkspaceSidePaneTab): boolean {
     tab.type === "code-viewer" &&
     (tab.source.type === "patch" || tab.source.type === "multi-file-diff")
   );
+}
+
+/** code-viewer 预览标签（文件树单击打开、可被下一次预览替换）；双击/菜单可钉住转正。 */
+function isPreviewSlotTab(tab: WorkspaceSidePaneTab): boolean {
+  return tab.type === "code-viewer" && tab.preview === true;
 }
 
 export function SidePaneTabIcon({ tab }: { tab: WorkspaceSidePaneTab }) {

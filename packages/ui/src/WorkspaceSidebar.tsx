@@ -109,6 +109,7 @@ import {
 import type { Theme } from "@/useTheme.js";
 import type { RemoteConnectionLogEntry } from "@/hooks/useRemoteConnectionLogs.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
+import type { CodeViewerOpenIntent } from "@/lib/workspaceSidePane.js";
 import { WorkspaceFileTree } from "@/WorkspaceFileTree.js";
 import { WorkspaceArchivedTasksFlatSection } from "@/WorkspaceArchivedTasksFlatSection.js";
 import { WorkspaceSidebarFooter } from "@/WorkspaceSidebarFooter.js";
@@ -273,7 +274,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
     expectedUnreadAt?: number,
   ) => void;
   onStartDraftInWorkspace: (targetWorkspacePath: string, targetWorkspaceIdentity?: string) => void;
-  onOpenCodeViewer?: (source: CodeViewerSource) => void;
+  onOpenCodeViewer?: (
+    source: CodeViewerSource,
+    options?: { intent?: CodeViewerOpenIntent },
+  ) => void;
   /** 打开右侧面板文件树 tab；跨工作区切换时序由 App/useAppPanels 处理。 */
   onOpenSidePaneFiles?: (targetWorkspacePath?: string, targetWorkspaceIdentity?: string) => void;
   onOpenBrowserUrl?: (url: string) => void;
@@ -1690,16 +1694,20 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
               activePreviewPath={activePreviewPath}
               onClose={() => setIsFileTreeOpen(false)}
               onOpenBrowserUrl={isDesktop ? onOpenBrowserUrl : undefined}
-              onOpenPreview={(source) => {
+              onOpenPreview={(source, options) => {
                 // 文件树可以查看非当前 workspace 的文件。
                 // 预览 source 携带 workspace 作用域，PreviewPane 才能用正确 host 读取远程文件；
                 // 同时不切换当前 workspace，避免"Add to chat"丢给错误的 composer。
-                onOpenCodeViewer?.({
-                  ...source,
-                  workspacePath: fileTreeTarget.workspacePath,
-                  workspaceIdentity: fileTreeTarget.workspaceIdentity,
-                  workspaceRemoteSessionId: fileTreeTarget.workspaceRemoteSessionId,
-                });
+                // options 透传 preview/open 意图（单击=预览槽，双击=正式打开）。
+                onOpenCodeViewer?.(
+                  {
+                    ...source,
+                    workspacePath: fileTreeTarget.workspacePath,
+                    workspaceIdentity: fileTreeTarget.workspaceIdentity,
+                    workspaceRemoteSessionId: fileTreeTarget.workspaceRemoteSessionId,
+                  },
+                  options,
+                );
               }}
             />
           ) : null}

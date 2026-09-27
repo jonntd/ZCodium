@@ -15,6 +15,12 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.js";
 import { toast } from "@/components/ui/toast.js";
+import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card.js";
+import {
+  HOVER_PREVIEW_CLOSE_DELAY_MS,
+  HOVER_PREVIEW_OPEN_DELAY_MS,
+  WorkspaceFileTreeHoverPreviewBody,
+} from "@/workspace-file-tree/WorkspaceFileTreeHoverPreview.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useFileContextActions } from "@/hooks/useFileContextActions.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -43,7 +49,9 @@ import {
 } from "@/workspace-file-tree/statusStyles.js";
 import type {
   WorkspaceFileGitStatusLabels,
+  WorkspaceFileTreeCompareBaseline,
   WorkspaceFileTreeContextMenuLabels,
+  WorkspaceFileTreeOpenPreviewOptions,
 } from "@/workspace-file-tree/types.js";
 import {
   createWorkspaceFileTreeHtmlBrowserUrl,
@@ -71,6 +79,9 @@ export function WorkspaceFileTreeRowView({
   onSelect,
   onToggleDirectory,
   onOpenPreview,
+  compareBaseline,
+  onCompareWithBaseline,
+  workspaceRemoteSessionId,
   onOpenBrowserUrl,
   onKeyDown,
 }: {
@@ -87,10 +98,13 @@ export function WorkspaceFileTreeRowView({
   remoteTarget?: OpenInEditorRemoteTarget;
   workspacePath: string;
   workspaceIdentity?: string;
+  workspaceRemoteSessionId?: string;
   style: CSSProperties;
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
-  onOpenPreview: (row: WorkspaceFileTreeRow) => void;
+  onOpenPreview: (row: WorkspaceFileTreeRow, options?: WorkspaceFileTreeOpenPreviewOptions) => void;
+  compareBaseline?: WorkspaceFileTreeCompareBaseline | null;
+  onCompareWithBaseline?: (row: WorkspaceFileTreeRow) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
 }) {
@@ -135,10 +149,11 @@ export function WorkspaceFileTreeRowView({
 
   const handleRowClick = (event: MouseEvent<HTMLDivElement>) => {
     onSelect(row.path);
-    if (event.detail > 1) {
-      return;
-    }
     if (isDirectory) {
+      // 目录保持原语义：只有首次点击（detail=1）切换展开，连击不动作，避免连击展开又收起。
+      if (event.detail > 1) {
+        return;
+      }
       onToggleDirectory(row);
       return;
     }
@@ -147,9 +162,9 @@ export function WorkspaceFileTreeRowView({
       // 点击时只保留选中能力，避免继续打开预览导致文件读取失败。
       return;
     }
-    // 文件树单击文件之前只更新选中态，必须双击才打开预览。
-    // 这里让文件和目录都保持“单击执行主要动作”：目录展开，文件预览。
-    onOpenPreview(row);
+    // 文件树单击文件 = 预览（占用可被替换的预览槽，spec: docs/spec/side-pane-file-preview.md）；
+    // 连击（双击 detail>1）= 正式打开，把预览标签转正为普通标签。
+    onOpenPreview(row, { intent: event.detail > 1 ? "open" : "preview" });
   };
   const handleCopyAbsolutePath = async () => {
     await fileActions.copyAbsolutePath({ path: row.path });
@@ -349,50 +364,77 @@ export function WorkspaceFileTreeRowView({
       className={cn(layout === "absolute" ? "absolute left-0 top-0 w-full px-1" : "w-full")}
       style={rowStyle}
     >
-      <ContextMenu>
-        <ContextMenuTrigger asChild>{rowElement}</ContextMenuTrigger>
-        <ContextMenuContent className="w-52">
-          <ContextMenuItem disabled={!canOpenPrimary} onSelect={handleOpenPrimary}>
-            {/* 修复：第一项之前复用了默认外部应用文案，Finder/Explorer 置顶后会显示成“在 Finder 中打开”。
+      {/* 悬停预览（spec: docs/spec/side-pane-file-preview.md §9）：trigger 叠在
+          ContextMenuTrigger 与行 DOM 之间（两层 asChild Slot 组合）；内容随卡片
+          挂载，仅文件行且非拖拽中启用。 */}
+      <HoverCard openDelay={HOVER_PREVIEW_OPEN_DELAY_MS} closeDelay={HOVER_PREVIEW_CLOSE_DELAY_MS}>
+        <ContextMenu>
+          <HoverCardTrigger asChild>
+            <ContextMenuTrigger asChild>{rowElement}</ContextMenuTrigger>
+          </HoverCardTrigger>
+          <ContextMenuContent className="w-52">
+            <ContextMenuItem disabled={!canOpenPrimary} onSelect={handleOpenPrimary}>
+              {/* 修复：第一项之前复用了默认外部应用文案，Finder/Explorer 置顶后会显示成“在 Finder 中打开”。
                 这里改为复用行主动作：文件打开预览，目录走当前行的展开/收起逻辑。 */}
-            {contextMenuLabels.open}
-          </ContextMenuItem>
-          <ContextMenuSub>
-            <ContextMenuSubTrigger disabled={isDeletedFile || installedEditors.length === 0}>
-              {contextMenuLabels.openWith}
-            </ContextMenuSubTrigger>
-            <ContextMenuSubContent className="w-44">
-              {installedEditors.map((editor) => (
-                <ContextMenuItem key={editor.id} onSelect={() => void handleOpenInEditor(editor)}>
-                  {editor.name}
-                </ContextMenuItem>
-              ))}
-            </ContextMenuSubContent>
-          </ContextMenuSub>
-          {canOpenInBrowser ? (
-            <ContextMenuItem onSelect={handleOpenInBrowser}>
-              {contextMenuLabels.openInBrowser}
+              {contextMenuLabels.open}
             </ContextMenuItem>
-          ) : null}
-          <ContextMenuSeparator />
-          <ContextMenuItem
-            disabled={!canRevealInFileManager}
-            onSelect={() => void handleRevealInFileManager()}
-          >
-            {contextMenuLabels.reveal}
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={() => void handleCopyAbsolutePath()}>
-            {contextMenuLabels.copyAbsolutePath}
-          </ContextMenuItem>
-          <ContextMenuItem onSelect={() => void handleCopyRelativePath()}>
-            {contextMenuLabels.copyRelativePath}
-          </ContextMenuItem>
-          <ContextMenuSeparator />
-          <ContextMenuItem onSelect={() => dispatchWorkspaceFileAddToChat(workspaceFilePayload)}>
-            {contextMenuLabels.addToChat}
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
+            <ContextMenuSub>
+              <ContextMenuSubTrigger disabled={isDeletedFile || installedEditors.length === 0}>
+                {contextMenuLabels.openWith}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent className="w-44">
+                {installedEditors.map((editor) => (
+                  <ContextMenuItem key={editor.id} onSelect={() => void handleOpenInEditor(editor)}>
+                    {editor.name}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+            {canOpenInBrowser ? (
+              <ContextMenuItem onSelect={handleOpenInBrowser}>
+                {contextMenuLabels.openInBrowser}
+              </ContextMenuItem>
+            ) : null}
+            {compareBaseline &&
+            onCompareWithBaseline &&
+            !isDirectory &&
+            !isDeletedFile &&
+            row.path !== compareBaseline.path ? (
+              <ContextMenuItem onSelect={() => onCompareWithBaseline(row)}>
+                {contextMenuLabels.compareWithCurrent}
+              </ContextMenuItem>
+            ) : null}
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              disabled={!canRevealInFileManager}
+              onSelect={() => void handleRevealInFileManager()}
+            >
+              {contextMenuLabels.reveal}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void handleCopyAbsolutePath()}>
+              {contextMenuLabels.copyAbsolutePath}
+            </ContextMenuItem>
+            <ContextMenuItem onSelect={() => void handleCopyRelativePath()}>
+              {contextMenuLabels.copyRelativePath}
+            </ContextMenuItem>
+            <ContextMenuSeparator />
+            <ContextMenuItem onSelect={() => dispatchWorkspaceFileAddToChat(workspaceFilePayload)}>
+              {contextMenuLabels.addToChat}
+            </ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+        {!isDirectory && !isDeletedFile && !isDragging ? (
+          <HoverCardContent side="right" align="start" sideOffset={8} className="w-84 p-2.5">
+            <WorkspaceFileTreeHoverPreviewBody
+              path={row.path}
+              title={row.name}
+              workspacePath={workspacePath}
+              workspaceIdentity={workspaceIdentity}
+              workspaceRemoteSessionId={workspaceRemoteSessionId}
+            />
+          </HoverCardContent>
+        ) : null}
+      </HoverCard>
     </div>
   );
 }

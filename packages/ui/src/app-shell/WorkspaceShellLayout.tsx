@@ -305,10 +305,13 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   handleOpenTerminalTab,
   handleToggleGit,
   handleOpenFiles,
+  handleOpenFilesTabPreview,
+  handleCloseFilesTabPreview,
   handleOpenGitReview,
   handleToggleSidePane,
   handleOpenBrowserUrl,
   handleOpenCodeViewer,
+  handlePinCodeViewerTab,
   handleAutoOpenAssistantPptx,
   handleOpenSubagentSession,
   handleOpenBackgroundBash,
@@ -1466,10 +1469,13 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       onOpenTerminalTab={handleOpenTerminalTab}
       onOpenReviewTab={handleToggleGit}
       onOpenFilesTab={handleOpenFiles}
+      onOpenFilesTabPreview={handleOpenFilesTabPreview}
+      onCloseFilesTabPreview={handleCloseFilesTabPreview}
       onOpenSelectionSideConversation={handleOpenSelectionSideConversationLauncher}
       onRevealGitFileInTree={handleRevealGitFileInTree}
       onOpenBrowserUrl={handleOpenBrowserUrl}
       onOpenCodeViewer={handleOpenCodeViewer}
+      onPinTab={handlePinCodeViewerTab}
       onOpenFileLink={handleOpenMarkdownFileLink}
       onOpenBackgroundBash={handleOpenBackgroundBash}
       onOpenSubagentSession={handleOpenSubagentSession}

@@ -241,10 +241,18 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   handleToggleGit: () => void;
   /** 打开右侧面板文件树；带目标工作区时处理跨工作区切换时序，无参打开当前工作区。 */
   handleOpenFiles: (targetWorkspacePath?: string, targetWorkspaceIdentity?: string) => void;
+  /** files tab 分栏浏览：替换内嵌预览栏内容（spec: docs/spec/side-pane-file-preview.md §7）。 */
+  handleOpenFilesTabPreview: (source: CodeViewerSource) => void;
+  handleCloseFilesTabPreview: () => void;
   handleOpenGitReview: (sourceId?: GitChangeSourceId) => void;
   handleToggleSidePane: () => void;
   handleOpenBrowserUrl: (url: string) => void;
-  handleOpenCodeViewer: (source: CodeViewerSource) => void;
+  handleOpenCodeViewer: (
+    source: CodeViewerSource,
+    options?: { intent?: import("@/lib/workspaceSidePane.js").CodeViewerOpenIntent },
+  ) => void;
+  /** 预览标签钉住（转正为普通标签）；仅对 code-viewer 预览标签生效。 */
+  handlePinCodeViewerTab: (tabId: string) => void;
   handleAutoOpenAssistantPptx: (request: AssistantPreviewCardsAutoOpenRequest) => void;
   handleOpenBackgroundBash: (request: OpenBackgroundBashSideTabRequest) => void;
   handleOpenSubagentSession: (request: OpenScopedSubagentSideTabRequest) => void;

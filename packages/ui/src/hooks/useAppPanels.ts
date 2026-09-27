@@ -43,8 +43,12 @@ import {
   BROWSER_USE_OPERATION_INDICATOR_DURATION_MS,
   openCodeViewerSidePane,
   openCodeViewerSidePanes,
+  pinCodeViewerSidePaneTab,
+  type CodeViewerOpenIntent,
   activateGitSidePane,
   activateFilesSidePane,
+  openFilesTabPreview,
+  closeFilesTabPreview,
   getActiveSidePaneTab,
   getVisibleSidePaneTabs,
   sidePaneOwnerKey,
@@ -311,7 +315,24 @@ export function useAppPanels(options: {
     logger.info(
       `[App] 打开右侧面板 mode=files (跨工作区挂起) workspace=${workspaceAbsPath} tabs=${next?.tabs.length ?? 0}`,
     );
-  }, [commitOpenedSidePaneState, revealSidePaneForCurrentOwner, sidePaneMemoryKey, workspaceAbsPath]);
+  }, [
+    commitOpenedSidePaneState,
+    revealSidePaneForCurrentOwner,
+    sidePaneMemoryKey,
+    workspaceAbsPath,
+  ]);
+
+  // files tab 分栏浏览（spec: docs/spec/side-pane-file-preview.md §7）：单击树行只替换
+  // tab 内嵌预览栏，files tab 保持激活——连续阅读不切换标签；真实标签走 intent=open。
+  const handleOpenFilesTabPreview = useCallback(
+    (source: CodeViewerSource) => {
+      commitOpenedSidePaneState((current) => openFilesTabPreview(current, source));
+    },
+    [commitOpenedSidePaneState],
+  );
+  const handleCloseFilesTabPreview = useCallback(() => {
+    commitOpenedSidePaneState(closeFilesTabPreview);
+  }, [commitOpenedSidePaneState]);
 
   useEffect(() => {
     return () => {
@@ -375,20 +396,39 @@ export function useAppPanels(options: {
   }, [activeTaskId, activeWorkspaceKey, commitSidePaneState, sidePaneOwnerId]);
 
   const handleOpenCodeViewer = useCallback(
-    (source: CodeViewerSource) => {
+    (source: CodeViewerSource, options?: { intent?: CodeViewerOpenIntent }) => {
       revealSidePaneForCurrentOwner();
       commitOpenedSidePaneState((current) => {
-        const next = openCodeViewerSidePane(current, source, sidePaneOwnerIdRef.current);
+        const next = openCodeViewerSidePane(
+          current,
+          source,
+          sidePaneOwnerIdRef.current,
+          options?.intent ?? "open",
+        );
         const activeTab = getActiveSidePaneTab(next);
         const activePath =
           activeTab?.type === "code-viewer" ? (activeTab.source.path ?? "none") : "none";
         logger.info(
-          `[App] 切换右侧面板 mode=code-viewer workspace=${workspaceAbsPath} title=${source.title} path=${activePath} tabs=${next.tabs.length}`,
+          `[App] 切换右侧面板 mode=code-viewer intent=${options?.intent ?? "open"} workspace=${workspaceAbsPath} title=${source.title} path=${activePath} tabs=${next.tabs.length}`,
         );
         return next;
       });
     },
     [commitOpenedSidePaneState, revealSidePaneForCurrentOwner, workspaceAbsPath],
+  );
+
+  // 预览标签钉住（tab 条双击/右键菜单）：只改标签身份，不动文件内容与只读门槛。
+  const handlePinCodeViewerTab = useCallback(
+    (tabId: string) => {
+      commitSidePaneState((current) => {
+        const next = pinCodeViewerSidePaneTab(current, tabId);
+        if (next !== current) {
+          logger.info(`[App] 钉住右侧预览标签 tabId=${tabId} tabs=${next?.tabs.length ?? 0}`);
+        }
+        return next;
+      });
+    },
+    [commitSidePaneState],
   );
 
   const handleOpenCodeViewers = useCallback(
@@ -1619,12 +1659,15 @@ export function useAppPanels(options: {
     // 回调
     handleOpenCodeViewer,
     handleOpenCodeViewers,
+    handlePinCodeViewerTab,
     handleOpenBrowserUrl,
     handleToggleBrowser,
     handleOpenBrowserTab,
     handleToggleGit,
     handleOpenGit,
     handleOpenFiles,
+    handleOpenFilesTabPreview,
+    handleCloseFilesTabPreview,
     pendFilesOpenForWorkspace,
     handleOpenTreemapping,
     handleOpenWhiteboard,

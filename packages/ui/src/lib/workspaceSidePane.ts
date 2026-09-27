@@ -43,6 +43,12 @@ export interface FilesSidePaneTab {
   ownerTaskId?: string | null;
   workspaceKey?: string | null;
   openedAt?: number;
+  /**
+   * 分栏浏览模式（spec: docs/spec/side-pane-file-preview.md §7）：内嵌预览栏当前
+   * 展示的文件（含 workspace 作用域）。缺省 = 全宽树。随 tab 持久化进 side pane
+   * memory，跨工作区各记各的；消息内链接等 code-viewer 标签不改变它。
+   */
+  previewSource?: CodeViewerSource;
 }
 
 export interface CodeViewerSidePaneTab {
@@ -53,7 +59,16 @@ export interface CodeViewerSidePaneTab {
   openedAt?: number;
   source: CodeViewerSource;
   sourceKey: string | null;
+  /**
+   * 预览标签（VS Code 语义）：文件树单击打开，可被下一次预览原位替换；
+   * 双击/右键打开/钉住后转正为普通标签（preview=false，id 换回 sourceKey 稳定 id）。
+   * spec: docs/spec/side-pane-file-preview.md
+   */
+  preview?: boolean;
 }
+
+/** 文件树打开 code-viewer 标签的意图：preview=占用可替换预览槽；open=正式打开普通标签。 */
+export type CodeViewerOpenIntent = "preview" | "open";
 
 export type TreemappingSidePaneSource =
   | { kind: "current" }
@@ -1500,30 +1515,116 @@ export function applyBrowserTabResidencyEvent(
   return { ...current, tabs };
 }
 
+/** 预览槽 id 按 owner 隔离：tabs 数组是 workspace 级共享 registry，不同对话各有一张。 */
+export function getCodeViewerPreviewTabId(ownerTaskId?: string | null): string {
+  return `code-viewer:preview:${sidePaneOwnerKey(ownerTaskId)}`;
+}
+
+/**
+ * 预览标签转正：换回按 sourceKey 的稳定 id，后续同文件打开会复用而不是被替换。
+ * 若同源普通标签已存在（预览后消息里又正式打开过），合并到普通标签并移除预览槽，
+ * 避免出现重复 id 的两个标签。
+ */
+function promotePreviewCodeViewerTab(
+  current: WorkspaceSidePaneState,
+  previewTab: CodeViewerSidePaneTab,
+  nextSource: CodeViewerSource,
+): WorkspaceSidePaneState | null {
+  if (!previewTab.sourceKey) {
+    return null;
+  }
+  const stableId = `code-viewer:${previewTab.sourceKey}`;
+  if (current.tabs.some((tab) => tab.id === stableId && tab.id !== previewTab.id)) {
+    return {
+      tabs: current.tabs
+        .filter((tab) => tab.id !== previewTab.id)
+        .map((tab) =>
+          tab.id === stableId && tab.type === "code-viewer" ? { ...tab, source: nextSource } : tab,
+        ),
+      activeTabId: stableId,
+    };
+  }
+  const index = findTabIndexById(current.tabs, previewTab.id);
+  const nextTabs = [...current.tabs];
+  nextTabs[index] = { ...previewTab, source: nextSource, preview: false, id: stableId };
+  return { tabs: nextTabs, activeTabId: stableId };
+}
+
 export function openCodeViewerSidePane(
   current: WorkspaceSidePaneState | null,
   source: CodeViewerSource,
   ownerTaskId?: string | null,
+  intent: CodeViewerOpenIntent = "open",
 ): WorkspaceSidePaneState {
   // 同一个文件/图片在消息里被重复点击时，不能把右侧面板整块替换，
   // 用户刚在别的 pane 里看的内容会直接丢掉。这里按稳定 sourceKey 复用已有 code viewer tab，
   // 既避免重复开一排同名 tab，也能在再次打开时刷新到最新 source。
   const nextTab = createCodeViewerSidePaneTab(source);
-  if (!current || nextTab.sourceKey === null) {
-    return activateSidePaneTab(current, nextTab);
+  const ownerKey = sidePaneOwnerKey(ownerTaskId);
+
+  if (!current) {
+    // 全新状态没有历史标签可复用；preview 意图也直接落预览槽，
+    // 保证空面板的第一次单击就是可替换预览（spec: docs/spec/side-pane-file-preview.md）。
+    const tab =
+      intent === "preview" && nextTab.sourceKey !== null
+        ? { ...nextTab, id: getCodeViewerPreviewTabId(ownerTaskId), preview: true }
+        : nextTab;
+    return activateSidePaneTab(null, tab);
   }
 
-  const ownerKey = sidePaneOwnerKey(ownerTaskId);
-  const matchedTab = current.tabs.find(
-    (tab): tab is CodeViewerSidePaneTab =>
-      tab.type === "code-viewer" &&
-      tab.sourceKey === nextTab.sourceKey &&
-      sidePaneOwnerKey(tab.ownerTaskId) === ownerKey,
-  );
-  return activateSidePaneTab(
-    current,
-    matchedTab ? { ...matchedTab, source: nextTab.source } : nextTab,
-  );
+  const matchedTab =
+    nextTab.sourceKey !== null
+      ? current.tabs.find(
+          (tab): tab is CodeViewerSidePaneTab =>
+            tab.type === "code-viewer" &&
+            tab.sourceKey === nextTab.sourceKey &&
+            sidePaneOwnerKey(tab.ownerTaskId) === ownerKey,
+        )
+      : undefined;
+
+  if (matchedTab) {
+    // intent=open（双击树行/右键打开）命中预览标签时把它转正（VS Code 语义）；
+    // 其余命中（普通标签、preview 单击回访）维持“复用并刷新”。
+    if (intent === "open" && matchedTab.preview) {
+      const promoted = promotePreviewCodeViewerTab(current, matchedTab, nextTab.source);
+      if (promoted) {
+        return promoted;
+      }
+    }
+    return activateSidePaneTab(current, { ...matchedTab, source: nextTab.source });
+  }
+
+  if (intent === "preview" && nextTab.sourceKey !== null) {
+    // 预览槽：同 owner 唯一，浏览其它文件时原位替换 source 并保持槽位，
+    // 不再每个文件追加一个永久标签。
+    const previewTabId = getCodeViewerPreviewTabId(ownerTaskId);
+    const previewTab: CodeViewerSidePaneTab = { ...nextTab, id: previewTabId, preview: true };
+    const previewIndex = findTabIndexById(current.tabs, previewTabId);
+    if (previewIndex < 0) {
+      return activateSidePaneTab(current, previewTab);
+    }
+    const nextTabs = [...current.tabs];
+    nextTabs[previewIndex] = previewTab;
+    return { tabs: nextTabs, activeTabId: previewTabId };
+  }
+
+  return activateSidePaneTab(current, nextTab);
+}
+
+/** 预览标签钉住（转正）；目标不是预览标签或 id 冲突无法转正时原样返回。 */
+export function pinCodeViewerSidePaneTab(
+  current: WorkspaceSidePaneState | null,
+  tabId: string,
+): WorkspaceSidePaneState | null {
+  if (!current) {
+    return current;
+  }
+  const index = findTabIndexById(current.tabs, tabId);
+  const tab = index >= 0 ? current.tabs[index] : null;
+  if (!tab || tab.type !== "code-viewer" || !tab.preview || !tab.sourceKey) {
+    return current;
+  }
+  return promotePreviewCodeViewerTab(current, tab, tab.source) ?? current;
 }
 
 /**
@@ -1581,7 +1682,59 @@ export function activateGitSidePane(
 export function activateFilesSidePane(
   current: WorkspaceSidePaneState | null,
 ): WorkspaceSidePaneState {
+  if (current) {
+    const existing = current.tabs.find(
+      (tab): tab is FilesSidePaneTab => tab.id === "files" && tab.type === "files",
+    );
+    if (existing) {
+      // 单例复用（与 browser 单例同规则）：激活已存在的 files tab 并保留 previewSource
+      // 等用户状态。此前总是创建全新 tab 原位替换——跨工作区经「打开文件面板」按钮
+      // 切回时，memory 恢复出来的内嵌预览会被空 tab 冲掉。
+      return activateSidePaneTab(current, { ...existing });
+    }
+  }
   return activateSidePaneTab(current, createFilesSidePaneTab());
+}
+
+/**
+ * files tab 分栏浏览：设置/替换内嵌预览栏的文件。files tab 不存在时不隐式创建
+ * （浏览入口只存在于 tab 内），也不改变 activeTabId（点击发生在已激活的 files tab 内）。
+ */
+export function openFilesTabPreview(
+  current: WorkspaceSidePaneState | null,
+  source: CodeViewerSource,
+): WorkspaceSidePaneState | null {
+  if (!current) {
+    return current;
+  }
+  const index = current.tabs.findIndex((tab) => tab.id === "files" && tab.type === "files");
+  if (index < 0) {
+    return current;
+  }
+  const nextTabs = [...current.tabs];
+  nextTabs[index] = {
+    ...current.tabs[index],
+    previewSource: normalizeCodeViewerSource(source),
+  } as FilesSidePaneTab;
+  return { ...current, tabs: nextTabs };
+}
+
+/** files tab 分栏浏览：清空内嵌预览栏，回到全宽树；不触碰任何 code-viewer 标签。 */
+export function closeFilesTabPreview(
+  current: WorkspaceSidePaneState | null,
+): WorkspaceSidePaneState | null {
+  if (!current) {
+    return current;
+  }
+  const index = current.tabs.findIndex((tab) => tab.id === "files" && tab.type === "files");
+  const filesTab = index >= 0 ? current.tabs[index] : null;
+  if (!filesTab || filesTab.type !== "files" || filesTab.previewSource === undefined) {
+    return current;
+  }
+  const nextTabs = [...current.tabs];
+  const { previewSource: _removed, ...rest } = filesTab;
+  nextTabs[index] = rest as FilesSidePaneTab;
+  return { ...current, tabs: nextTabs };
 }
 
 export function openWhiteboardSidePane(
