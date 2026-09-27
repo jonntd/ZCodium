@@ -239,6 +239,8 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   handleOpenDeveloperTools: () => void;
   handleOpenTerminalTab: () => void;
   handleToggleGit: () => void;
+  /** 打开右侧面板文件树；带目标工作区时处理跨工作区切换时序，无参打开当前工作区。 */
+  handleOpenFiles: (targetWorkspacePath?: string, targetWorkspaceIdentity?: string) => void;
   handleOpenGitReview: (sourceId?: GitChangeSourceId) => void;
   handleToggleSidePane: () => void;
   handleOpenBrowserUrl: (url: string) => void;

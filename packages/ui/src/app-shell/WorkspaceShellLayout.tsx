@@ -304,6 +304,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
   handleOpenDeveloperTools,
   handleOpenTerminalTab,
   handleToggleGit,
+  handleOpenFiles,
   handleOpenGitReview,
   handleToggleSidePane,
   handleOpenBrowserUrl,
@@ -1464,6 +1465,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
       onOpenDeveloperTools={handleOpenDeveloperTools}
       onOpenTerminalTab={handleOpenTerminalTab}
       onOpenReviewTab={handleToggleGit}
+      onOpenFilesTab={handleOpenFiles}
       onOpenSelectionSideConversation={handleOpenSelectionSideConversationLauncher}
       onRevealGitFileInTree={handleRevealGitFileInTree}
       onOpenBrowserUrl={handleOpenBrowserUrl}
@@ -1564,6 +1566,7 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                     onSelectTask={handleSelectTaskInChat}
                     onStartDraftInWorkspace={handleCreateProjectDraft}
                     onOpenCodeViewer={handleOpenCodeViewer}
+                    onOpenSidePaneFiles={handleOpenFiles}
                     onOpenBrowserUrl={handleOpenBrowserUrl}
                     fileTreeOpenRequest={fileTreeOpenRequest}
                     onCreateTask={handleCreateTaskInChat}

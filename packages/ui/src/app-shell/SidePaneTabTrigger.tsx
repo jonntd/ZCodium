@@ -8,6 +8,7 @@ import {
   BugIcon,
   FileCode2Icon,
   FileDiffIcon,
+  FolderOpenIcon,
   MapIcon,
   MessageSquareTextIcon,
   ListTreeIcon,
@@ -312,6 +313,10 @@ export function SidePaneTabIcon({ tab }: { tab: WorkspaceSidePaneTab }) {
     return <FileDiffIcon className="size-3.5" />;
   }
 
+  if (tab.type === "files") {
+    return <FolderOpenIcon className="size-3.5" />;
+  }
+
   if (tab.type === "treemapping") {
     return <MapIcon className="size-3.5" />;
   }
@@ -518,6 +523,10 @@ export function getSidePaneTabTitle(
 
   if (tab.type === "git") {
     return formatMessage({ id: "sidePane.review" });
+  }
+
+  if (tab.type === "files") {
+    return formatMessage({ id: "sidePane.files" });
   }
 
   if (tab.type === "treemapping") {

@@ -60,6 +60,7 @@ import { cn } from "@/components/lib/utils.js";
 import {
   TID_WORKSPACE_CLOSE,
   TID_WORKSPACE_FILE_TREE_BUTTON,
+  TID_WORKSPACE_SIDE_PANE_FILES_BUTTON,
   TID_WORKSPACE_ITEM,
   testId,
 } from "@zcode/shared";
@@ -147,6 +148,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   reconnectingRemoteWorkspaceLogsByWorkspaceKey,
   onReconnectRemoteWorkspace,
   onOpenFileTree,
+  onOpenSidePaneFiles,
   itemRef,
   itemStyle,
   sortableBindings,
@@ -181,6 +183,8 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
     workspaceIdentity?: string;
     workspaceRemoteSessionId?: string;
   }) => void;
+  /** 打开右侧面板的文件树 tab；由父级处理“先激活工作区再打开”的时序。 */
+  onOpenSidePaneFiles?: (tab: WorkspaceTabState) => void;
   itemRef?: (node: HTMLLIElement | null) => void;
   itemStyle?: CSSProperties;
   sortableBindings?: SortableBindings;
@@ -244,6 +248,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   );
   const showReconnectAction = Boolean(isDisconnectedRemoteWorkspace);
   const showFileTreeAction = Boolean(onOpenFileTree && !isDisconnectedRemoteWorkspace);
+  const showSidePaneFilesAction = Boolean(onOpenSidePaneFiles && !isDisconnectedRemoteWorkspace);
   const showRemoteSkillSyncAction = shouldShowRemoteSyncActions({
     remoteSessionId: tab.remoteSessionId,
     remoteTarget: tab.remoteTarget,
@@ -469,6 +474,20 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
       tab.workspaceIdentity,
       tab.workspacePath,
     ],
+  );
+
+  const handleOpenSidePaneFiles = useCallback(
+    (event: MouseEvent<HTMLButtonElement>) => {
+      // 行头是 Collapsible 触发器：click 不阻断冒泡会被当成行折叠切换，
+      // 点按钮会把整个项目意外收起。与 handleOpenWorkspaceFileTree 同规则。
+      event.preventDefault();
+      event.stopPropagation();
+      if (isDisconnectedRemoteWorkspace || readOnlyReason || !onOpenSidePaneFiles) {
+        return;
+      }
+      onOpenSidePaneFiles(tab);
+    },
+    [isDisconnectedRemoteWorkspace, onOpenSidePaneFiles, readOnlyReason, tab],
   );
 
   // 这些 TaskList 操作以前在 JSX 中每次 render 都创建新闭包。
@@ -948,6 +967,20 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
+                    ) : null}
+                    {shouldMountWorkspaceRowActions && showSidePaneFilesAction ? (
+                      <TaskRowActionButton
+                        className="text-foreground-subtle hover:text-foreground"
+                        label={intl.formatMessage({
+                          id: "workspaceSidebar.openSidePaneFiles",
+                        })}
+                        onClick={handleOpenSidePaneFiles}
+                        showTooltip
+                        disabledReason={readOnlyReason}
+                        testId={testId(TID_WORKSPACE_SIDE_PANE_FILES_BUTTON, tab.workspacePath)}
+                      >
+                        <FolderOpen className="h-3.5 w-3.5" />
+                      </TaskRowActionButton>
                     ) : null}
                     {shouldMountWorkspaceRowActions && showFileTreeAction ? (
                       <span className="shrink-0">

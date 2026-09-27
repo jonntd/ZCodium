@@ -12,6 +12,8 @@ export interface WorkspaceFileTreeProps {
   temporaryExternalDirectory?: boolean;
   canOpenLocalFileManager?: boolean;
   activePreviewPath?: string | null;
+  /** 宿主自带关闭入口（如右侧面板 tab 条的 X）时隐藏顶部「返回任务」按钮。 */
+  hideBackButton?: boolean;
   onClose: () => void;
   onOpenBrowserUrl?: (url: string) => void;
   onOpenPreview?: (source: CodeViewerSource) => void;

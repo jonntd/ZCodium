@@ -222,6 +222,8 @@ export function App({
     handleOpenBrowserTab,
     handleToggleGit,
     handleOpenGit,
+    handleOpenFiles,
+    pendFilesOpenForWorkspace,
     handleOpenTreemapping,
     handleOpenWhiteboard,
     handleOpenDeveloperTools,
@@ -566,6 +568,12 @@ export function App({
       handleToggleGit();
     }
   }, [handleToggleGit, workspaceReadOnlyReason]);
+  // 只读 workspace 下文件读取同样不可用，文件浏览器入口与终端/Git 同门槛。
+  const handleOpenFilesIfWritable = useCallback(() => {
+    if (!workspaceReadOnlyReason) {
+      handleOpenFiles();
+    }
+  }, [handleOpenFiles, workspaceReadOnlyReason]);
   const handleOpenCodeViewerIfWritable = useCallback(
     (...args: Parameters<typeof handleOpenCodeViewer>) => {
       if (!workspaceReadOnlyReason) {
@@ -778,6 +786,37 @@ export function App({
       workspaceAbsPath,
       workspaceIdentity,
       workspaceShellZCodeState.selectedProvider,
+    ],
+  );
+
+  // 左侧行按钮「打开文件面板」的入口（右侧「+」菜单无参调用时打开当前工作区）。
+  // 跨工作区必须先挂起打开意图、再走草稿导航切换；切换完成（sidePaneMemoryKey 变为目标）
+  // 后由 useAppPanels 在 memory 恢复之后打开——提前打开会被目标 workspace 的记忆
+  // 覆盖 tabs 并把面板按旧折叠偏好收回去（spec: docs/spec/sidebar-file-viewer.md §2 入口 B）。
+  // 依赖顺序：必须声明在 handleStartDraftInWorkspace 之后。
+  const handleOpenSidePaneFilesForWorkspace = useCallback(
+    (targetWorkspacePath?: string, targetWorkspaceIdentity?: string) => {
+      if (!targetWorkspacePath) {
+        handleOpenFilesIfWritable();
+        return;
+      }
+      const isSameWorkspace =
+        (targetWorkspaceIdentity?.trim() || targetWorkspacePath) ===
+        (workspaceIdentity?.trim() || workspaceAbsPath);
+      if (isSameWorkspace) {
+        handleOpenFilesIfWritable();
+        return;
+      }
+      pendFilesOpenForWorkspace(targetWorkspaceIdentity?.trim() || targetWorkspacePath);
+      handleStartDraftInWorkspace(targetWorkspacePath, targetWorkspaceIdentity);
+    },
+    [
+      handleOpenFilesIfWritable,
+      handleStartDraftInWorkspace,
+      pendFilesOpenForWorkspace,
+      workspaceAbsPath,
+      workspaceIdentity,
+      workspaceReadOnlyReason,
     ],
   );
 
@@ -1235,6 +1274,7 @@ export function App({
         handleOpenDeveloperTools={handleOpenDeveloperTools}
         handleOpenTerminalTab={handleOpenTerminalTabIfWritable}
         handleToggleGit={handleToggleGitIfWritable}
+        handleOpenFiles={handleOpenSidePaneFilesForWorkspace}
         handleToggleSidePane={handleToggleSidePane}
         handleOpenBrowserUrl={handleOpenBrowserUrl}
         handleOpenCodeViewer={handleOpenCodeViewerIfWritable}

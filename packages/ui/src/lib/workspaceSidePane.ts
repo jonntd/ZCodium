@@ -33,6 +33,18 @@ export interface GitSidePaneTab {
   openedAt?: number;
 }
 
+/**
+ * 右侧面板的 workspace 级文件浏览器（复用左侧「查看文件」的 WorkspaceFileTree）。
+ * 单例 tab：id 固定为 "files"，重复打开只激活既有 tab。
+ */
+export interface FilesSidePaneTab {
+  id: "files";
+  type: "files";
+  ownerTaskId?: string | null;
+  workspaceKey?: string | null;
+  openedAt?: number;
+}
+
 export interface CodeViewerSidePaneTab {
   id: string;
   type: "code-viewer";
@@ -517,6 +529,7 @@ export type WorkspaceSidePaneTab =
   | BackgroundBashSidePaneTab
   | BrowserSidePaneTab
   | GitSidePaneTab
+  | FilesSidePaneTab
   | CodeViewerSidePaneTab
   | TreemappingSidePaneTab
   | WhiteboardSidePaneTab
@@ -648,6 +661,10 @@ function createBrowserSidePaneTab(options?: {
 
 function createGitSidePaneTab(): GitSidePaneTab {
   return { id: "git", type: "git", openedAt: Date.now() };
+}
+
+function createFilesSidePaneTab(): FilesSidePaneTab {
+  return { id: "files", type: "files", openedAt: Date.now() };
 }
 
 function createModelTrajectorySidePaneTab(options: {
@@ -1053,6 +1070,7 @@ export function sidePaneOwnerKey(taskId: string | null | undefined): string {
 
 const WORKSPACE_GLOBAL_SIDE_PANE_TAB_TYPES = new Set<WorkspaceSidePaneTab["type"]>([
   "git",
+  "files",
   "developer-tools",
   "treemapping",
 ]);
@@ -1558,6 +1576,12 @@ export function activateGitSidePane(
   current: WorkspaceSidePaneState | null,
 ): WorkspaceSidePaneState {
   return activateSidePaneTab(current, createGitSidePaneTab());
+}
+
+export function activateFilesSidePane(
+  current: WorkspaceSidePaneState | null,
+): WorkspaceSidePaneState {
+  return activateSidePaneTab(current, createFilesSidePaneTab());
 }
 
 export function openWhiteboardSidePane(

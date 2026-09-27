@@ -16,6 +16,7 @@ import {
 import { horizontalListSortingStrategy, SortableContext } from "@dnd-kit/sortable";
 import type { BrowserViewScreenshotSurfacePreparePayload, GitChangeSourceId } from "@zcode/shared";
 import { PreviewPane } from "@/PreviewPane.js";
+import { WorkspaceFileTree } from "@/WorkspaceFileTree.js";
 import { SidePaneTerminalPane } from "@/SidePaneTerminalPane.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import { WorkspaceSidePaneToggleButton } from "@/WorkspaceSidePaneToggleButton.js";
@@ -92,6 +93,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
   BugIcon,
   FileDiffIcon,
+  FolderOpenIcon,
   GlobeIcon,
   MessageSquareTextIcon,
   PlusIcon,
@@ -315,6 +317,7 @@ export function AnimatedSidePanePanel({
   onOpenDeveloperTools,
   onOpenTerminalTab,
   onOpenReviewTab,
+  onOpenFilesTab,
   onOpenSelectionSideConversation,
   onRevealGitFileInTree,
   onOpenBrowserUrl,
@@ -380,6 +383,7 @@ export function AnimatedSidePanePanel({
   onOpenDeveloperTools: () => void;
   onOpenTerminalTab: () => void;
   onOpenReviewTab: () => void;
+  onOpenFilesTab: () => void;
   onOpenSelectionSideConversation: () => void;
   onRevealGitFileInTree?: (path: string) => void;
   onOpenBrowserUrl: (url: string) => void;
@@ -427,6 +431,16 @@ export function AnimatedSidePanePanel({
   const visibleActiveTabId = visibleTabs.some((tab) => tab.id === activeTabId)
     ? activeTabId
     : (visibleTabs.at(-1)?.id ?? "");
+  // files tab 的定位信号：当前激活 code-viewer tab 的文件路径，让文件树跟随定位当前打开的文件。
+  const filesActivePreviewPath = useMemo(() => {
+    const activeTab = tabs.find((tab) => tab.id === visibleActiveTabId);
+    if (!activeTab || activeTab.type !== "code-viewer") {
+      return null;
+    }
+    return "path" in activeTab.source && typeof activeTab.source.path === "string"
+      ? activeTab.source.path
+      : null;
+  }, [tabs, visibleActiveTabId]);
   const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
   const tabsScrollViewportRef = useRef<HTMLDivElement | null>(null);
   const tabsScrollContentRef = useRef<HTMLDivElement | null>(null);
@@ -715,6 +729,17 @@ export function AnimatedSidePanePanel({
             <span>{intl.formatMessage({ id: "sidePane.review" })}</span>
           </DropdownMenuItem>
         ) : null}
+        {!isOfficeMode ? (
+          <DropdownMenuItem
+            data-side-pane-add-item="files"
+            onSelect={() => {
+              onOpenFilesTab();
+            }}
+          >
+            <FolderOpenIcon className="size-4" />
+            <span>{intl.formatMessage({ id: "sidePane.files" })}</span>
+          </DropdownMenuItem>
+        ) : null}
         {/* 画板入口未启用 */}
         {/* <DropdownMenuItem
           onSelect={() => {
@@ -876,6 +901,7 @@ export function AnimatedSidePanePanel({
         relativeTime: (timestamp) => formatTaskRelativeTime(timestamp, intl),
         browserTitle: intl.formatMessage({ id: "browser.title" }),
         reviewTitle: intl.formatMessage({ id: "sidePane.review" }),
+        filesTitle: intl.formatMessage({ id: "sidePane.files" }),
         codeViewerTitle: intl.formatMessage({ id: "codeViewer.title" }),
         treemappingTitle: intl.formatMessage({ id: "treemapping.title" }),
         whiteboardTitle: intl.formatMessage({ id: "whiteboard.title" }),
@@ -1205,6 +1231,28 @@ export function AnimatedSidePanePanel({
                               isSidePaneVisible: isVisible,
                               visibleInlineSizePx: sidePaneVisibleInlineSizePx,
                             })}
+                          />
+                        ) : tab.type === "files" ? (
+                          <WorkspaceFileTree
+                            workspacePath={workspaceAbsPath}
+                            workspaceIdentity={workspaceIdentity}
+                            workspaceRemoteSessionId={workspaceRemoteSessionId}
+                            canOpenLocalFileManager={isDesktop}
+                            hideBackButton
+                            activePreviewPath={filesActivePreviewPath}
+                            onClose={() => onCloseTab(tab.id)}
+                            onOpenBrowserUrl={isDesktop ? onOpenBrowserUrl : undefined}
+                            onOpenPreview={(source) => {
+                              // 右侧面板内点击文件 → 复用主界面 code-viewer tab 链路，
+                              // 渲染器与主界面同源；source 附加 workspace 作用域，
+                              // 远程 workspace 由正确 host 读取（与左侧文件树同规则）。
+                              onOpenCodeViewer({
+                                ...source,
+                                workspacePath: workspaceAbsPath,
+                                workspaceIdentity,
+                                workspaceRemoteSessionId,
+                              });
+                            }}
                           />
                         ) : tab.type === "git" ? (
                           <GitPane

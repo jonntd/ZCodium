@@ -225,6 +225,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onSelectTask,
   onStartDraftInWorkspace,
   onOpenCodeViewer,
+  onOpenSidePaneFiles,
   onOpenBrowserUrl,
   fileTreeOpenRequest,
   onCreateTask,
@@ -273,6 +274,8 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   ) => void;
   onStartDraftInWorkspace: (targetWorkspacePath: string, targetWorkspaceIdentity?: string) => void;
   onOpenCodeViewer?: (source: CodeViewerSource) => void;
+  /** 打开右侧面板文件树 tab；跨工作区切换时序由 App/useAppPanels 处理。 */
+  onOpenSidePaneFiles?: (targetWorkspacePath?: string, targetWorkspaceIdentity?: string) => void;
   onOpenBrowserUrl?: (url: string) => void;
   fileTreeOpenRequest?: SidebarFileTreeOpenRequest | null;
   onCreateTask: (request?: CreateTaskRequest) => void;
@@ -652,6 +655,18 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
     setFileTreeTarget(target);
     setIsFileTreeOpen(true);
   }, []);
+
+  // 左侧行按钮直达右侧面板文件树。跨工作区的“先切换、等 memory 恢复后再打开”时序
+  // 在 App/useAppPanels 层处理（WorkspaceSidebar 的 effect 早于 App 的 memory 恢复执行，
+  // 在这里打开会被目标 workspace 的记忆覆盖），本组件只透传目标工作区。
+  // 注意实参约定是位置参数（与 App.handleOpenSidePaneFilesForWorkspace 一致），
+  // 不能传对象—— 曾因 prop 类型谎报为 () => void 导致对象被当成路径字符串。
+  const handleOpenSidePaneFilesForTab = useCallback(
+    (tab: WorkspaceTabState) => {
+      onOpenSidePaneFiles?.(tab.workspacePath, tab.workspaceIdentity);
+    },
+    [onOpenSidePaneFiles],
+  );
   const workspaceScrollMaskStyle = useMemo<CSSProperties>(() => {
     const baseStyle: CSSProperties = { overflowAnchor: "none" };
     if (!showWorkspaceTopMask && !showWorkspaceBottomMask) {
@@ -1550,6 +1565,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                                             }
                                             onReconnectRemoteWorkspace={onReconnectRemoteWorkspace}
                                             onOpenFileTree={handleOpenWorkspaceFileTree}
+                                            onOpenSidePaneFiles={handleOpenSidePaneFilesForTab}
                                           />
                                         );
                                       })}

@@ -44,6 +44,7 @@ import {
   openCodeViewerSidePane,
   openCodeViewerSidePanes,
   activateGitSidePane,
+  activateFilesSidePane,
   getActiveSidePaneTab,
   getVisibleSidePaneTabs,
   sidePaneOwnerKey,
@@ -255,7 +256,8 @@ export function useAppPanels(options: {
 
   const commitOpenedSidePaneState = useCallback(
     (updater: (current: WorkspaceSidePaneState | null) => WorkspaceSidePaneState | null) => {
-      commitSidePaneState((current) =>
+      // 返回提交后的状态，供调用方记录 tabs 数等观测信息；既有调用方忽略返回值不受影响。
+      return commitSidePaneState((current) =>
         stampSidePaneTabsOwnership(updater(current), {
           ownerTaskId: sidePaneOwnerIdRef.current,
           workspaceKey: activeWorkspaceKeyRef.current,
@@ -284,6 +286,32 @@ export function useAppPanels(options: {
         restored.isSidePaneCollapsed,
     );
   }, [commitSidePaneState, sidePaneMemoryKey]);
+
+  // 左侧行按钮「打开文件面板」的跨工作区时序（spec: docs/spec/sidebar-file-viewer.md §2 入口 B）：
+  // 切换工作区会触发上面的 memory 恢复，tabs 与折叠偏好整体换成目标 workspace 的记忆；
+  // 若在恢复前打开 files tab，会被恢复覆盖、面板还会按目标记忆折叠回去。
+  // 本 effect 必须声明在 memory 恢复之后：同组件内 effect 按声明顺序执行，
+  // 挂起意图在切换完成后的同一次提交里、于恢复完成后再打开。
+  const pendingFilesOpenKeyRef = useRef<string | null>(null);
+  const pendFilesOpenForWorkspace = useCallback((workspaceKey: string) => {
+    pendingFilesOpenKeyRef.current = workspaceKey;
+  }, []);
+  useEffect(() => {
+    const pendingKey = pendingFilesOpenKeyRef.current;
+    if (!pendingKey) {
+      return;
+    }
+    pendingFilesOpenKeyRef.current = null;
+    if (pendingKey !== sidePaneMemoryKey) {
+      // 已切到其它 workspace：打开意图过期，丢弃，避免之后手动切到目标时突然弹文件面板。
+      return;
+    }
+    const next = commitOpenedSidePaneState(activateFilesSidePane);
+    revealSidePaneForCurrentOwner();
+    logger.info(
+      `[App] 打开右侧面板 mode=files (跨工作区挂起) workspace=${workspaceAbsPath} tabs=${next?.tabs.length ?? 0}`,
+    );
+  }, [commitOpenedSidePaneState, revealSidePaneForCurrentOwner, sidePaneMemoryKey, workspaceAbsPath]);
 
   useEffect(() => {
     return () => {
@@ -734,6 +762,18 @@ export function useAppPanels(options: {
       revealSidePaneForCurrentOwner();
       logger.info(
         `[App] 打开右侧面板 mode=git workspace=${workspaceAbsPath} tabs=${next.tabs.length}`,
+      );
+      return next;
+    });
+  }, [isOfficeMode, commitOpenedSidePaneState, revealSidePaneForCurrentOwner, workspaceAbsPath]);
+
+  const handleOpenFiles = useCallback(() => {
+    commitOpenedSidePaneState((current) => {
+      if (isOfficeMode && !current?.tabs.some((tab) => tab.type === "files")) return current;
+      const next = activateFilesSidePane(current);
+      revealSidePaneForCurrentOwner();
+      logger.info(
+        `[App] 打开右侧面板 mode=files workspace=${workspaceAbsPath} tabs=${next.tabs.length}`,
       );
       return next;
     });
@@ -1584,6 +1624,8 @@ export function useAppPanels(options: {
     handleOpenBrowserTab,
     handleToggleGit,
     handleOpenGit,
+    handleOpenFiles,
+    pendFilesOpenForWorkspace,
     handleOpenTreemapping,
     handleOpenWhiteboard,
     handleOpenDeveloperTools,
