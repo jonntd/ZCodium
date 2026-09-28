@@ -109,7 +109,6 @@ export function ChatErrorBanner({
   retryDisabled,
   onDismiss,
   onOpenModelSettings,
-  onOpenUpgrade,
 }: {
   error: ZCodeUiError;
   onRetry?: () => void;

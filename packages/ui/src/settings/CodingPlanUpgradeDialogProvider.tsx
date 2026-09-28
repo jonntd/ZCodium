@@ -1,11 +1,8 @@
 import {
   createContext,
   useCallback,
-  useEffect,
   useContext,
   useMemo,
-  useRef,
-  useState,
   type ReactNode,
 } from "react";
 import { type CodingPlanUpgradeDialogTarget } from "@/settings/codingPlanUpgradeLoginRecovery.js";

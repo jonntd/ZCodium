@@ -1,16 +1,14 @@
 /* oxlint-disable eslint(max-lines) -- 平台事件和分享导入共用同一生命周期。 */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import type { IPlatformService } from "@zcode/shared";
 import { isWorkspaceTab, type TabStoreState, type WindowTabState } from "@/store/tabStore.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { logger } from "@/logger.js";
-import { seedImportedSessionDraft } from "@/v4/composer/newTaskDraft.js";
-import { dismissToast, toast, updateToast } from "@/components/ui/toast.js";
+import { toast } from "@/components/ui/toast.js";
 import { matchesPrimaryShortcut } from "@/lib/keyboardShortcuts.js";
 import { isShortcutRecordingActive } from "@/shortcuts/bindings.js";
 import { isRendererReloadNavigation } from "@/lib/rendererNavigation.js";
-import { useOptionalBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { shouldPublishCompleteWorkspaceSnapshot } from "@/root/rootPlatformWorkspaceSync.js";
 
 export function useRootPlatformEffects({
@@ -34,12 +32,9 @@ export function useRootPlatformEffects({
   tabs,
   activeWorkspacePath,
   activeWorkspaceIdentity,
-  reconnectingRemoteWorkspaceKeys = [],
-  remoteWorkspaceErrorByWorkspaceKey = {},
   totalUnreadTaskCount,
   hasCompletedFullTabRestore = true,
   intl,
-  isRestoringOAuthSession,
 }: {
   initialWorkspaceAbsPath?: string;
   initialWorkspaceIdentity?: string;
@@ -75,7 +70,6 @@ export function useRootPlatformEffects({
   isRestoringOAuthSession: boolean;
 }) {
   const didBootstrapInitialWorkspaceRef = useRef(false);
-  const baseServices = useOptionalBaseWorkspaceServices();
 
   useEffect(() => {
     // 启动时必须先判断 OAuth 本地会话，再恢复历史/初始 workspace。

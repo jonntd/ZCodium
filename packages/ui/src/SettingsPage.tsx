@@ -251,8 +251,6 @@ export function SettingsPage({
   captionWorkspacePath,
   onBack,
   onCreateTask,
-  onOpenWorkspace,
-  allowOpenWorkspace = true,
   onLogin,
   onLogout,
   user,
@@ -880,7 +878,7 @@ export function SettingsPage({
   const handleOfficialServiceToggle = useCallback(
     (key: OfficialServiceKey, enabled: boolean) => {
       const next = normalizeOfficialServiceSwitches({
-        ...(sharedSettings?.officialServices ?? {}),
+        ...sharedSettings?.officialServices,
         [key]: enabled,
       });
       void updateSharedSettings({ officialServices: next });

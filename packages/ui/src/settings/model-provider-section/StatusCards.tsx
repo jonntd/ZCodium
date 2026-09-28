@@ -135,7 +135,6 @@ export function CodingPlanStatusPanel({
   viewState,
   loginLoading,
   disconnectLoading,
-  purchaseUrl,
   planLevel,
   inactivePlanTitle,
   subscriptionRenewTime,
@@ -148,7 +147,6 @@ export function CodingPlanStatusPanel({
   onLogin,
   onRetry,
   reloginOnFailure = false,
-  onOpenPurchase,
   onDisconnect,
   loginActionPlacement = "inline",
   loginActionVisible = false,
@@ -560,7 +558,6 @@ function hasStartPlanEntitlementQuota(
 
 function resolveCodingPlanStatusCardTitle({
   isPurchased,
-  isUnavailable = false,
   isStartPlanProvider,
   inactivePlanTitle,
   rawPlanLevel,
@@ -597,10 +594,6 @@ function isStartPlanEntitlementName(planLevel: string): boolean {
   return (
     normalized === "start" || normalized === "start plan" || normalized.endsWith(" start plan")
   );
-}
-
-function isMaxCodingPlanLevel(planLevel: string): boolean {
-  return /(^|[\s_-])MAX($|[\s_-])/i.test(planLevel);
 }
 
 function CodingPlanUsageSummaryCards({
