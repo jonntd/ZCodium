@@ -450,9 +450,11 @@ function patchAsar(asarPath, dryRun) {
     fs.writeFileSync(staged, out);
     const { spawn } = require("node:child_process");
     if (process.platform === "win32") {
-      // Retry the swap for ~4 minutes: app.asar may stay locked while ZCode is
-      // still running; the move lands as soon as the app closes.
-      spawn("cmd.exe", ["/c", `for /l %i in (1,1,120) do @(move /y "${staged}" "${asarPath}" >nul 2>nul && exit /b 0) & (ping -n 3 127.0.0.1 >nul)`], {
+      // Retry the swap for ~5 minutes: app.asar may stay locked while ZCode is
+      // still running; the move lands as soon as the app closes. The delay
+      // must sit inside the do-body via || or the loop fires all attempts
+      // instantly and gives up.
+      spawn("cmd.exe", ["/c", `for /l %i in (1,1,150) do @(move /y "${staged}" "${asarPath}" >nul 2>nul && exit /b 0 || ping -n 3 127.0.0.1 >nul)`], {
         detached: true,
         stdio: "ignore",
       }).unref();
