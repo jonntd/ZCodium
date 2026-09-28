@@ -2,7 +2,7 @@
   "name": "zcode-plugins",
   "description": "Official ZCode plugin packages, published for the open-source ZCode build.",
   "version": 1,
-  "pluginRoot": "plugins",
+  "metadata": { "pluginRoot": "plugins" },
   "plugins": [
     {
       "name": "android-emulator",
