@@ -367,6 +367,26 @@ function patchAsar(asarPath, dryRun) {
   }
   if (dryRun) return { patched, skipped, wrote: false };
 
+  // Self-check the rebuilt archive in memory before touching disk.
+  const verify = (buf) => {
+    const Jv = buf.readUInt32LE(12);
+    const padV = (4 - (Jv % 4)) % 4;
+    if (buf.readUInt32LE(4) !== 8 + Jv + padV) throw new Error("header size mismatch");
+    const hv = JSON.parse(buf.subarray(16, 16 + Jv).toString("utf8"));
+    const bv = 16 + Jv + padV;
+    const seen = [];
+    walkAsarFiles(hv, "", seen);
+    if (seen.length !== entries.length) throw new Error("entry count mismatch");
+    // spot-check that file bodies sit at their declared offsets
+    for (const [p, v] of seen) {
+      if (v.unpacked || v.link !== undefined) continue;
+      const { body } = bodies.get(p);
+      const off = Number(v.offset || "0");
+      if (!buf.subarray(bv + off, bv + off + v.size).equals(body)) {
+        throw new Error(`body mismatch: ${p}`);
+      }
+    }
+  };
   // rebuild archive
   let offset = 0;
   const order = [];
@@ -390,6 +410,7 @@ function patchAsar(asarPath, dryRun) {
   const parts = [head, Buffer.from(json, "utf8"), Buffer.alloc(pad)];
   for (const p of order) parts.push(bodies.get(p).body);
   const out = Buffer.concat(parts);
+  verify(out);
 
   const backup = asarPath + ".zcode-plugin.bak";
   if (!archiveExists(backup)) {
