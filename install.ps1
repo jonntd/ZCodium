@@ -98,9 +98,11 @@ try {
   $cfg = [ordered]@{}
   if (Test-Path $cliConfig) {
     # Strip a possible BOM: the app's JSON.parse does not tolerate it, and a
-    # BOM'd file would be reported invalid and ignored entirely.
+    # BOM'd file would be reported invalid and ignored entirely. Compare the
+    # first char directly — string.StartsWith uses culture-aware comparison
+    # that treats U+FEFF as invisible and returns true for ANY string.
     $raw = Get-Content $cliConfig -Raw
-    if ($raw.StartsWith([char]0xFEFF)) { $raw = $raw.Substring(1) }
+    if ($raw.Length -gt 0 -and $raw[0] -eq [char]0xFEFF) { $raw = $raw.Substring(1) }
     $existing = $raw | ConvertFrom-Json
     if ($existing) {
       foreach ($prop in $existing.PSObject.Properties) { $cfg[$prop.Name] = $prop.Value }
