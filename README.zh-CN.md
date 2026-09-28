@@ -170,7 +170,16 @@ zcode plugins install documents@zcode-plugins
 
 ## 许可证
 
-插件包按其 manifest 声明以 MIT 许可发布；安装脚本与仓库脚本同条款提供。
+插件包保留各自 manifest 声明的许可证：
+
+- **MIT**：`android-emulator`、`ios-simulator`、`plugin-creator`、
+  `restore-legacy-sessions`、`skill-creator`、`computer-use`、`zcode-guide`
+- **Apache-2.0**：`image-search`
+- **Z.ai 非商用许可**（`skills/*/LICENSE.txt`）：`documents`、`pdf`、
+  `presentations`、`spreadsheets`——仅限个人/教育/非商业用途，
+  商用需 Z.ai 书面授权
+
+安装脚本与仓库脚本以 MIT 发布。
 
 ---
 

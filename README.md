@@ -192,8 +192,17 @@ Notes:
 
 ## License
 
-Plugin packages are MIT licensed as declared in their manifests. Installer
-scripts and repository glue are provided under the same terms.
+Plugin packages keep the license declared in each package manifest:
+
+- **MIT**: `android-emulator`, `ios-simulator`, `plugin-creator`,
+  `restore-legacy-sessions`, `skill-creator`, `computer-use`, `zcode-guide`
+- **Apache-2.0**: `image-search`
+- **Z.ai non-commercial license** (`skills/*/LICENSE.txt`): `documents`,
+  `pdf`, `presentations`, `spreadsheets` — personal, educational, and
+  non-commercial use only; commercial use requires written permission
+  from Z.ai
+
+Installer scripts and repository glue are MIT.
 
 ---
 
