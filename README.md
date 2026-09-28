@@ -2,6 +2,8 @@
 
 Official ZCode plugin packages for the open-source ZCode build.
 
+[![LINUX DO](https://img.shields.io/badge/LINUX_DO-%E7%A4%BE%E5%8C%BA%E8%AE%A4%E5%8F%AF-blue)](https://linux.do)
+
 [中文说明](README.zh-CN.md)
 
 The open-source release ships only a subset of the bundled plugins. This
@@ -192,3 +194,7 @@ Notes:
 
 Plugin packages are MIT licensed as declared in their manifests. Installer
 scripts and repository glue are provided under the same terms.
+
+---
+
+This project actively supports and recognizes the [LINUX DO community](https://linux.do).

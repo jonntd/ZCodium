@@ -2,6 +2,8 @@
 
 面向开源版 ZCode 的官方插件补齐包。
 
+[![LINUX DO](https://img.shields.io/badge/LINUX_DO-%E7%A4%BE%E5%8C%BA%E8%AE%A4%E5%8F%AF-blue)](https://linux.do)
+
 [English](README.md)
 
 开源版本只附带了一小部分内置插件。本仓库提供完整的官方插件集——包括
@@ -169,3 +171,7 @@ zcode plugins install documents@zcode-plugins
 ## 许可证
 
 插件包按其 manifest 声明以 MIT 许可发布；安装脚本与仓库脚本同条款提供。
+
+---
+
+本项目积极参与并认可 [LINUX DO 社区](https://linux.do)。
