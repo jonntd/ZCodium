@@ -82,10 +82,11 @@ cd zcode-plugin
 3. 安装签名过的 **ZCode Computer Use.app** helper 到
    `<app>/Contents/Resources/cua-helper/`——按已安装 app 的版本号和 CPU
    架构从官方发布 CDN 拉取（arm64 和 x64 都支持）；app 已自带则跳过
-4. 通过 app 自带的 Node（`ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`）
-   运行 `tools/patch-cua-runtime.cjs`，把打包里的 stub 模块接到完整运行时
-   ——与 Windows 同一套语义检测
-5. 通过 `launchctl` 设置 `ZCODE_CUA_DEV_MODE=1`（并安装 LaunchAgent 保证
+4. 运行 `tools/patch-cua-runtime.cjs`（优先用系统的 `node`，没有时退回
+   `ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`），把打包里的 stub
+   模块接到完整运行时——与 Windows 同一套语义检测
+5. 重新签名 app bundle（见下方「App 签名」）
+6. 通过 `launchctl` 设置 `ZCODE_CUA_DEV_MODE=1`（并安装 LaunchAgent 保证
    重新登录后仍然生效）——放宽 helper 对未签名开源构建的启动方校验
 
 macOS 注意事项：
@@ -93,10 +94,17 @@ macOS 注意事项：
 - **隐私权限**：首次使用 Computer Use 时，macOS 会为 "ZCode Computer Use"
   弹出「辅助功能」和「屏幕录制」授权请求——在 系统设置 → 隐私与安全性
   中批准。helper 会自行发起权限申请。
-- **App 签名**：向 `Contents/` 写入文件会使 app bundle 的签名失效。自行
-  编译/未签名的开源构建不受影响；如果用的是签名构建，补丁后需要重新签名
-  （`codesign --force --deep --sign - /Applications/ZCode.app`），或者改为
-  把 helper 放到 `~/.zcode/computer-use/ZCode Computer Use.app`。
+- **App 签名**：向 `Contents/` 写入文件会使 app bundle 的签名失效。在较新的
+  macOS 上，签名被破坏或改成 ad-hoc 的托管 app 会被判定「已损坏」拒绝启动，
+  所以安装器会用真实证书重新签名——优先用钥匙串里的 Developer ID 证书，
+  没有则自动创建自签名的 "ZCode Local Code Signing" 证书。内层组件
+  （框架、helper app）保持原签名，同时移除 quarantine 属性让 bundle 不再
+  走 Gatekeeper 评估。首次启动可能仍弹出「无法验证开发者」——右键打开
+  或在 系统设置 → 隐私与安全性 里放行一次即可。
+- **写保护**：被 macOS 登记为托管状态的 app bundle（例如内置更新器安装的）
+  会拒绝向 `Contents/` 写入。安装器会先探测，遇到时会提示重新拷贝 app。
+- **自动更新**：ZCode 内置更新会整体替换 app bundle，清掉 seed 的插件、
+  运行时、helper 和重签名——每次更新后需要重新跑 `install.sh`。
 - 完成后完全退出并重启 ZCode；保险起见可以注销/重新登录一次让 launchd
   环境变量生效。
 
@@ -133,7 +141,7 @@ zcode plugins install documents@zcode-plugins
 | Windows x64 + ZCode 3.14.x | ✅ | ✅ 已端到端验证 |
 | Windows x64 + 其他版本 | ✅ | ⚠️ 大概率可用——补丁器按签名而非文件名识别 stub，但 helper 的 IPC 契约可能随版本漂移 |
 | Windows ARM64 | ✅ | ❌ `ax_native.node` 只有 x64 版 |
-| macOS arm64 / x64 | ✅ | ⚠️ `install.sh` 会装齐全部组件（helper 从官方 CDN 拉取）；真机验证中 |
+| macOS arm64 / x64 | ✅ | ✅ 已真机验证（3.14.3, arm64）；x64 同路径未实测 |
 | 远程 / WSL workspace | ✅ | ❌ 设计如此——Computer Use 只注入本地桌面会话 |
 
 补充说明：

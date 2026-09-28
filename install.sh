@@ -77,7 +77,6 @@ if [[ -z "$APP_ROOT" ]]; then
 fi
 
 echo "ZCode resources: $APP_ROOT"
-seed_packages "$APP_ROOT/glm/packages"
 
 # ---------------------------------------------------------------------------
 # macOS: enable the packaged Computer Use runtime
@@ -86,6 +85,25 @@ seed_packages "$APP_ROOT/glm/packages"
 if [[ "$(uname -s)" == "Darwin" ]]; then
   CONTENTS="$(dirname "$APP_ROOT")"
   APP_DIR="$(dirname "$CONTENTS")"
+
+  # Once macOS registers a launched app bundle, writes into it require App
+  # Management permission. Detect that state early with a real write probe
+  # before any file copies.
+  if ! ( touch "$APP_ROOT/.zcode-install-probe" 2>/dev/null ); then
+    echo "ERROR: $APP_DIR is write-protected by macOS (App Management)." >&2
+    echo "Delete the app and copy a fresh ZCode.app into place, or grant App" >&2
+    echo "Management permission to this terminal, then re-run the installer." >&2
+    exit 1
+  fi
+  rm -f "$APP_ROOT/.zcode-install-probe"
+
+  # Adding files under Contents/ invalidates the code signature seal. For a
+  # quarantined bundle Gatekeeper then reports the app as damaged — and also
+  # blocks the ELECTRON_RUN_AS_NODE invocation below. Stripping quarantine up
+  # front keeps the bundle runnable while it carries a broken seal; the
+  # bundle is re-signed afterwards.
+  xattr -dr com.apple.quarantine "$APP_DIR" 2>/dev/null || true
+
   APP_VERSION="$(defaults read "$CONTENTS/Info" CFBundleShortVersionString 2>/dev/null || true)"
   MAC_ARCH="$(uname -m)"
   case "$MAC_ARCH" in
@@ -93,7 +111,11 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     x86_64) ZIP_ARCH="x64" ;;
     *) echo "WARNING: unsupported macOS arch $MAC_ARCH" >&2; ZIP_ARCH="" ;;
   esac
+fi
 
+seed_packages "$APP_ROOT/glm/packages"
+
+if [[ "$(uname -s)" == "Darwin" ]]; then
   # 1. stage the CUA runtime next to app.asar
   mkdir -p "$APP_ROOT/tools"
   rm -rf "$APP_ROOT/tools/zcode-cua"
@@ -129,13 +151,69 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   fi
 
   # 3. patch the packaged app (stub modules + node-repl-host bridge)
+  # A plain node install avoids the app binary entirely; the Electron binary
+  # is the fallback for machines without node.
   ZCODE_BIN="$(find "$CONTENTS/MacOS" -maxdepth 1 -type f -perm +111 2>/dev/null | head -1)"
-  if [[ -n "$ZCODE_BIN" ]]; then
+  if command -v node >/dev/null 2>&1; then
+    node "$SCRIPT_DIR/tools/patch-cua-runtime.cjs" --install-dir "$CONTENTS" \
+      || echo "WARNING: runtime patch reported an issue (see above)." >&2
+  elif [[ -n "$ZCODE_BIN" ]]; then
     ELECTRON_RUN_AS_NODE=1 "$ZCODE_BIN" "$SCRIPT_DIR/tools/patch-cua-runtime.cjs" --install-dir "$CONTENTS" \
       || echo "WARNING: runtime patch reported an issue (see above)." >&2
   else
     echo "WARNING: ZCode binary not found under $CONTENTS/MacOS; run this manually:" >&2
     echo "  ELECTRON_RUN_AS_NODE=1 \"$CONTENTS/MacOS/ZCode\" \"$SCRIPT_DIR/tools/patch-cua-runtime.cjs\" --install-dir \"$CONTENTS\"" >&2
+  fi
+
+  # 4. the resource seal is invalid now; re-sign the outer bundle so the
+  # signature is valid again. An ad-hoc (-) signature makes Gatekeeper report
+  # the managed app as damaged, so a real signing identity is required — a
+  # Developer ID certificate if one exists, otherwise a local self-signed
+  # code-signing certificate created in the login keychain. Nested components
+  # (helpers, frameworks, the Computer Use helper app) keep their original
+  # signatures.
+  if ! codesign --verify "$APP_DIR" >/dev/null 2>&1; then
+    SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
+      | sed -n 's/.*"\(Developer ID Application[^"]*\)".*/\1/p' | head -1)"
+    if [[ -z "$SIGN_ID" ]]; then
+      SIGN_ID="ZCode Local Code Signing"
+      if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
+        CERT_D="$(mktemp -d)"
+        CERT_PW="zcode-local-sign"
+        if openssl req -x509 -newkey rsa:2048 -keyout "$CERT_D/key.pem" \
+            -out "$CERT_D/cert.pem" -days 3650 -nodes \
+            -subj "/CN=$SIGN_ID" \
+            -addext "keyUsage=critical,digitalSignature" \
+            -addext "extendedKeyUsage=critical,codeSigning" \
+            -addext "basicConstraints=critical,CA:FALSE" 2>/dev/null \
+          && openssl pkcs12 -export -legacy -out "$CERT_D/id.p12" \
+            -inkey "$CERT_D/key.pem" -in "$CERT_D/cert.pem" \
+            -passout "pass:$CERT_PW" 2>/dev/null \
+          && security import "$CERT_D/id.p12" -P "$CERT_PW" \
+            -T /usr/bin/codesign >/dev/null 2>&1; then
+          security add-trusted-cert -r trustRoot -p codeSign \
+            -k "$HOME/Library/Keychains/login.keychain-db" \
+            "$CERT_D/cert.pem" >/dev/null 2>&1 || true
+          echo "Created a local code-signing identity for the modified bundle."
+        fi
+        rm -rf "$CERT_D"
+      fi
+      security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID" \
+        || SIGN_ID=""
+    fi
+
+    if [[ -n "$SIGN_ID" ]]; then
+      if codesign --force --sign "$SIGN_ID" "$APP_DIR" >/dev/null 2>&1; then
+        echo "Re-signed the app bundle ($SIGN_ID)."
+      else
+        echo "WARNING: re-sign with '$SIGN_ID' failed." >&2
+      fi
+    else
+      echo "WARNING: no usable code-signing identity; trying ad-hoc signature." >&2
+      echo "Gatekeeper may still report the app as damaged — if so, create a" >&2
+      echo "code-signing certificate in Keychain Access and re-sign manually." >&2
+      codesign --force --sign - "$APP_DIR" >/dev/null 2>&1 || true
+    fi
   fi
 
   # 4. dev-mode environment for unsigned open-source builds (GUI apps read env
@@ -164,6 +242,11 @@ PLIST
   echo "  - On first Computer Use run, macOS asks for Accessibility and Screen"
   echo "    Recording permission for 'ZCode Computer Use' — approve in System"
   echo "    Settings > Privacy & Security."
+  echo "  - The bundle is re-signed with a local identity; if macOS still shows"
+  echo "    an 'unverified developer' prompt on first launch, approve it once in"
+  echo "    System Settings > Privacy & Security."
+  echo "  - ZCode updates replace the whole app bundle; re-run this installer"
+  echo "    after each update."
 fi
 
 echo ""

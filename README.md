@@ -89,10 +89,12 @@ The script:
    `<app>/Contents/Resources/cua-helper/` — fetched from the official release
    CDN for the installed app's version and CPU architecture (arm64 and x64 are
    both supported); skipped when the app already bundles it
-4. Runs `tools/patch-cua-runtime.cjs` through the app's own bundled Node
-   (`ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`) to wire packaged stub
-   modules to the full runtime — same semantic detection as on Windows
-5. Sets `ZCODE_CUA_DEV_MODE=1` via `launchctl` (plus a LaunchAgent so it
+4. Runs `tools/patch-cua-runtime.cjs` (with a system `node` when available,
+   otherwise via `ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`) to wire
+   packaged stub modules to the full runtime — same semantic detection as on
+   Windows
+5. Re-signs the app bundle (see "App signature" below)
+6. Sets `ZCODE_CUA_DEV_MODE=1` via `launchctl` (plus a LaunchAgent so it
    survives relogin), which relaxes the helper's launcher signature check for
    unsigned open-source builds
 
@@ -103,10 +105,22 @@ macOS-specific notes:
   System Settings → Privacy & Security. The helper re-launches itself to
   request them (`--request-accessibility`).
 - **App signature**: writing into `Contents/` invalidates the app bundle's
-  signature. This is fine for self-built/unsigned open-source builds; if you
-  run a signed build, re-sign afterwards
-  (`codesign --force --deep --sign - /Applications/ZCode.app`) or place the
-  helper at `~/.zcode/computer-use/ZCode Computer Use.app` instead.
+  signature. On recent macOS a managed app whose signature is broken *or*
+  ad-hoc is reported as damaged and refuses to launch, so the installer
+  re-signs the outer bundle with a real identity — a Developer ID certificate
+  when one exists in the keychain, otherwise a self-signed "ZCode Local Code
+  Signing" certificate it creates for you. Nested components (frameworks,
+  helper apps) keep their original signatures, and quarantine is stripped so
+  the bundle is never re-assessed by Gatekeeper. On first launch macOS may
+  still show an "unverified developer" prompt — approve once via
+  right-click → Open or System Settings → Privacy & Security.
+- **Write protection**: an app bundle that macOS has registered as managed
+  (for example one placed by the built-in updater) rejects writes into
+  `Contents/`. The installer probes for this and tells you to re-copy the app
+  when it hits it.
+- **Updates**: ZCode's built-in updater replaces the whole app bundle, which
+  wipes the seeded plugins, runtime, helper and re-signing — re-run
+  `install.sh` after every update.
 - Fully quit and restart ZCode afterwards; logging out/in once makes the
   launchd environment reliable.
 
@@ -145,7 +159,7 @@ seeding can populate — use the seed install above for full parity.
 | Windows x64, ZCode 3.14.x | ✅ | ✅ verified end-to-end |
 | Windows x64, other versions | ✅ | ⚠️ likely — the patcher detects stub chunks by signature, not filename, but the helper's IPC contract may drift between releases |
 | Windows ARM64 | ✅ | ❌ `ax_native.node` is x64-only |
-| macOS arm64 / x64 | ✅ | ⚠️ `install.sh` stages everything (helper fetched from the official CDN); pending on-device verification |
+| macOS arm64 / x64 | ✅ | ✅ verified on-device (3.14.3, arm64); x64 untested but same path |
 | Remote / WSL workspaces | ✅ | ❌ by design — Computer Use is only injected into local desktop sessions |
 
 Notes:
