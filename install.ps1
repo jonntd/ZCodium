@@ -97,7 +97,11 @@ $cliConfig = Join-Path $HOME '.zcode\cli\config.json'
 try {
   $cfg = [ordered]@{}
   if (Test-Path $cliConfig) {
-    $existing = Get-Content $cliConfig -Raw | ConvertFrom-Json
+    # Strip a possible BOM: the app's JSON.parse does not tolerate it, and a
+    # BOM'd file would be reported invalid and ignored entirely.
+    $raw = Get-Content $cliConfig -Raw
+    if ($raw.StartsWith([char]0xFEFF)) { $raw = $raw.Substring(1) }
+    $existing = $raw | ConvertFrom-Json
     if ($existing) {
       foreach ($prop in $existing.PSObject.Properties) { $cfg[$prop.Name] = $prop.Value }
     }
@@ -114,10 +118,14 @@ try {
   $pluginMap['enabledPlugins'] = $enabled
   $cfg['plugins'] = $pluginMap
   New-Item -ItemType Directory -Force -Path (Split-Path $cliConfig) | Out-Null
-  ($cfg | ConvertTo-Json -Depth 10) | Set-Content $cliConfig -Encoding UTF8
+  # Write UTF-8 without BOM on every PowerShell version: Set-Content -Encoding
+  # UTF8 emits a BOM under Windows PowerShell 5.1, which the app's strict
+  # JSON.parse would reject (the whole config would then be ignored).
+  $json = $cfg | ConvertTo-Json -Depth 10
+  [System.IO.File]::WriteAllText($cliConfig, $json, [System.Text.UTF8Encoding]::new($false))
   Write-Host "Enabled computer-use@zcode-plugins-official in $cliConfig" -ForegroundColor Green
 } catch {
-  Write-Warning "Could not enable the computer-use plugin in $cliConfig: $_"
+  Write-Warning "Could not enable the computer-use plugin in ${cliConfig}: $_"
 }
 
 if (Test-Path $runtimeDir) {
