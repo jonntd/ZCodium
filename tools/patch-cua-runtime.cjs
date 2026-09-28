@@ -554,19 +554,30 @@ function main() {
   // Compatibility preflight: warn (don't block) when the runtime manifest's
   // declared platform/arch/Electron ABI doesn't match this host. When run via
   // ZCode.exe (ELECTRON_RUN_AS_NODE), process.versions.electron is the app's
-  // real Electron version; under a plain Node it is simply skipped.
+  // real Electron version; under a plain Node it is simply skipped. Picks the
+  // manifest matching this platform; helper binaries for other platforms are
+  // delivered by other means (e.g. the signed macOS helper app bundle).
   try {
-    const manifest = JSON.parse(
-      fs.readFileSync(path.join(repoDir, "runtimes", "cua-helper", "runtime-manifest.json"), "utf8"),
-    );
-    if (manifest.platform && process.platform !== manifest.platform) {
+    const runtimesDir = path.join(repoDir, "runtimes");
+    const manifests = fs
+      .readdirSync(runtimesDir)
+      .map((d) => path.join(runtimesDir, d, "runtime-manifest.json"))
+      .filter((p) => fs.existsSync(p))
+      .map((p) => JSON.parse(fs.readFileSync(p, "utf8")));
+    const manifest = manifests.find((m) => !m.platform || m.platform === process.platform);
+    if (!manifest && manifests.length) {
+      console.warn(
+        `[cua-patch] NOTE: no bundled helper runtime for ${process.platform}; the helper must be provided by the app bundle.`,
+      );
+    }
+    if (manifest?.platform && process.platform !== manifest.platform) {
       console.warn(`[cua-patch] WARNING: platform ${process.platform} != expected ${manifest.platform} (helper binary may not load)`);
     }
-    if (manifest.arch && process.arch !== manifest.arch) {
+    if (manifest?.arch && process.arch !== manifest.arch) {
       console.warn(`[cua-patch] WARNING: arch ${process.arch} != expected ${manifest.arch} (native addon will not load)`);
     }
     if (
-      manifest.electronVersion &&
+      manifest?.electronVersion &&
       process.versions.electron &&
       process.versions.electron.split(".")[0] !== manifest.electronVersion.split(".")[0]
     ) {

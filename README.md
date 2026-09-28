@@ -75,12 +75,40 @@ marketplace; the "Computer Use / 电脑控制" toggle shows up in Settings.
 ### Installed app on macOS
 
 ```bash
+git clone https://github.com/luxi233/zcode-plugin
+cd zcode-plugin
 ./install.sh                    # auto-detects /Applications/ZCode.app
 # or: ./install.sh /path/to/ZCode.app
 ```
 
-The bundled helper runtime targets Windows; on macOS only the plugin packages
-are seeded.
+The script:
+
+1. Copies every plugin into `<app>/Contents/Resources/glm/packages/`
+2. Stages the Computer Use runtime into `<app>/Contents/Resources/tools/zcode-cua/`
+3. Installs the signed **ZCode Computer Use.app** helper into
+   `<app>/Contents/Resources/cua-helper/` — fetched from the official release
+   CDN for the installed app's version and CPU architecture (arm64 and x64 are
+   both supported); skipped when the app already bundles it
+4. Runs `tools/patch-cua-runtime.cjs` through the app's own bundled Node
+   (`ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`) to wire packaged stub
+   modules to the full runtime — same semantic detection as on Windows
+5. Sets `ZCODE_CUA_DEV_MODE=1` via `launchctl` (plus a LaunchAgent so it
+   survives relogin), which relaxes the helper's launcher signature check for
+   unsigned open-source builds
+
+macOS-specific notes:
+
+- **Privacy permissions**: on first use macOS prompts for *Accessibility* and
+  *Screen Recording* for "ZCode Computer Use" — approve in
+  System Settings → Privacy & Security. The helper re-launches itself to
+  request them (`--request-accessibility`).
+- **App signature**: writing into `Contents/` invalidates the app bundle's
+  signature. This is fine for self-built/unsigned open-source builds; if you
+  run a signed build, re-sign afterwards
+  (`codesign --force --deep --sign - /Applications/ZCode.app`) or place the
+  helper at `~/.zcode/computer-use/ZCode Computer Use.app` instead.
+- Fully quit and restart ZCode afterwards; logging out/in once makes the
+  launchd environment reliable.
 
 ### Source checkout (development)
 
@@ -117,7 +145,7 @@ seeding can populate — use the seed install above for full parity.
 | Windows x64, ZCode 3.14.x | ✅ | ✅ verified end-to-end |
 | Windows x64, other versions | ✅ | ⚠️ likely — the patcher detects stub chunks by signature, not filename, but the helper's IPC contract may drift between releases |
 | Windows ARM64 | ✅ | ❌ `ax_native.node` is x64-only |
-| macOS | ✅ | ❌ no macOS helper runtime in this repo |
+| macOS arm64 / x64 | ✅ | ⚠️ `install.sh` stages everything (helper fetched from the official CDN); pending on-device verification |
 | Remote / WSL workspaces | ✅ | ❌ by design — Computer Use is only injected into local desktop sessions |
 
 Notes:
