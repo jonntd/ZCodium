@@ -4,9 +4,15 @@ import { readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { createRequire } from "node:module";
-import { runCommand, runCommandAndReadStdout } from "../../scripts/spawn-command.mjs";
+import {
+  runCommand,
+  runCommandAndReadStdout,
+} from "../../scripts/spawn-command.mjs";
 import { loadBuiltinProviderConfig } from "../../scripts/builtin-provider-config.mjs";
-import { noticesFileName, stageElectronNotices } from "../../scripts/third-party-notices.mjs";
+import {
+  noticesFileName,
+  stageElectronNotices,
+} from "../../scripts/third-party-notices.mjs";
 import { resolveNativeSearchReleasePlan } from "../../scripts/native-search-tools-config.mjs";
 import { getBuildMetadata } from "./scripts/build-metadata.mjs";
 import { resolveUpdateFeedTarget } from "./scripts/update-feed-target.mjs";
@@ -21,6 +27,7 @@ import {
   resolveDesktopArtifactSuffix,
   resolveDesktopProductIdentity,
 } from "./scripts/desktop-product-identity.mjs";
+import { adhocCodesignMacApp } from "./scripts/adhoc-codesign-mac.mjs";
 const ELECTRON_BUILDER_ARCH = {
   1: "x64",
   3: "arm64",
@@ -82,7 +89,8 @@ const nativeSearchReleasePlan = resolveNativeSearchReleasePlan({
   platform: targetPlatform.os,
   arch: targetPlatform.arch,
 });
-const rawMacSigningIdentity = process.env.APPLE_SIGNING_IDENTITY || process.env.CSC_NAME;
+const rawMacSigningIdentity =
+  process.env.APPLE_SIGNING_IDENTITY || process.env.CSC_NAME;
 const macSigningIdentity =
   rawMacSigningIdentity?.replace(/^Developer ID Application:\s*/, "") ?? null;
 const shouldEnableMacSigning =
@@ -169,7 +177,9 @@ async function writeWindowsInstallManifest(context) {
   const files = [];
   const visit = async (directory, relativeDirectory = "") => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
-      const relativePath = relativeDirectory ? `${relativeDirectory}/${entry.name}` : entry.name;
+      const relativePath = relativeDirectory
+        ? `${relativeDirectory}/${entry.name}`
+        : entry.name;
       const absolutePath = join(directory, entry.name);
       if (entry.isDirectory()) {
         await visit(absolutePath, relativePath);
@@ -181,7 +191,11 @@ async function writeWindowsInstallManifest(context) {
 
   await visit(root);
   files.sort();
-  await writeFile(join(root, WINDOWS_INSTALL_MANIFEST_NAME), `${files.join("\r\n")}\r\n`, "utf8");
+  await writeFile(
+    join(root, WINDOWS_INSTALL_MANIFEST_NAME),
+    `${files.join("\r\n")}\r\n`,
+    "utf8",
+  );
 }
 
 function resolveElectronDownloadMirror(env = process.env) {
@@ -275,7 +289,13 @@ async function runTimedAsync(label, fn) {
 function resolveAppAsarPath(context) {
   if (context.electronPlatformName === "darwin") {
     const appName = `${context.packager?.appInfo?.productFilename ?? "ZCode"}.app`;
-    return resolve(context.appOutDir, appName, "Contents", "Resources", "app.asar");
+    return resolve(
+      context.appOutDir,
+      appName,
+      "Contents",
+      "Resources",
+      "app.asar",
+    );
   }
 
   return resolve(context.appOutDir, "resources", "app.asar");
@@ -312,7 +332,9 @@ function resolveMissingRuntimeModules(appAsarPath) {
       // 让 afterPack 只处理当前环境确实可解析的依赖，避免 CI 因单个可选依赖缺失全量失败。
       console.warn(
         `[afterPack] runtime module not found, skip injection: ${entry.moduleName}; searched=${runtimeModuleLookupRoots
-          .map((lookupRoot) => resolve(lookupRoot, "node_modules", entry.moduleName))
+          .map((lookupRoot) =>
+            resolve(lookupRoot, "node_modules", entry.moduleName),
+          )
           .join(", ")}`,
       );
       return false;
@@ -340,16 +362,21 @@ async function injectHoistedRuntimeModulesIntoAsar(context) {
     throw new Error(`打包产物缺少 app.asar: ${appAsarPath}`);
   }
 
-  const missingRuntimeModules = runTimedSync("afterPack:scan-missing-runtime-modules", () =>
-    resolveMissingRuntimeModules(appAsarPath),
+  const missingRuntimeModules = runTimedSync(
+    "afterPack:scan-missing-runtime-modules",
+    () => resolveMissingRuntimeModules(appAsarPath),
   );
   if (missingRuntimeModules.length === 0) {
     // 之前 afterPack 每次都完整 extract/pack app.asar，即使运行时依赖已经齐全也会重复重写。
     // 这会把每次打包固定拉长十几秒到几十秒。先做缺失扫描，只有真的缺包才执行重写流程。
-    console.log("[afterPack] runtime modules already complete, skip app.asar rewrite");
+    console.log(
+      "[afterPack] runtime modules already complete, skip app.asar rewrite",
+    );
     return;
   }
-  console.log(`[afterPack] missing runtime modules count=${missingRuntimeModules.length}`);
+  console.log(
+    `[afterPack] missing runtime modules count=${missingRuntimeModules.length}`,
+  );
 
   // CI 会把 TMPDIR 指到项目内 .tmp，GitLab get_sources/clean 可能在脚本启动前清掉该目录。
   // afterPack 里重写 app.asar 同样依赖 mkdtempSync，必须自己兜底创建父目录，避免后续签名阶段只看到 .app 消失。
@@ -371,7 +398,9 @@ async function injectHoistedRuntimeModulesIntoAsar(context) {
         if (!sourceModulePath) {
           throw new Error(
             `未找到运行时依赖 ${moduleName}，已搜索: ${runtimeModuleLookupRoots
-              .map((lookupRoot) => resolve(lookupRoot, "node_modules", moduleName))
+              .map((lookupRoot) =>
+                resolve(lookupRoot, "node_modules", moduleName),
+              )
               .join(", ")}`,
           );
         }
@@ -427,11 +456,16 @@ function assertPackagedNativeResourcePolicy(context) {
   const entries = parseAsarListWithPackState(
     runAsarCommandAndReadStdout(["list", "--is-pack", appAsarPath]),
   );
-  const violations = findDesktopNativePackageViolations(entries, targetPlatform.key);
+  const violations = findDesktopNativePackageViolations(
+    entries,
+    targetPlatform.key,
+  );
   if (violations.length > 0) {
     // supportedArchitectures 允许工作区准备多平台依赖，但安装包只能携带目标平台资源。
     // 之前 Canvas 和 node-pty 的其他平台 native 被同时写进 asar/unpacked，包体被放大数百 MiB。
-    throw new Error(`桌面 native 资源边界校验失败:\n- ${violations.join("\n- ")}`);
+    throw new Error(
+      `桌面 native 资源边界校验失败:\n- ${violations.join("\n- ")}`,
+    );
   }
 }
 
@@ -509,8 +543,9 @@ export default {
       "nsis",
       "installSection.nsh",
     );
-    const patchResult = await runTimedAsync("beforePack:patchNsisInstallSection", () =>
-      patchNsisInstallSectionFile(nsisInstallSectionPath),
+    const patchResult = await runTimedAsync(
+      "beforePack:patchNsisInstallSection",
+      () => patchNsisInstallSectionFile(nsisInstallSectionPath),
     );
     nsisInstallSectionPatched = true;
     nsisInstallSectionOriginalSource = patchResult.originalSource;
@@ -530,7 +565,12 @@ export default {
     const framework = context.packager.info.framework;
     const resources =
       context.electronPlatformName === "darwin"
-        ? resolve(context.appOutDir, framework.distMacOsAppName, "Contents", "Resources")
+        ? resolve(
+            context.appOutDir,
+            framework.distMacOsAppName,
+            "Contents",
+            "Resources",
+          )
         : resolve(context.appOutDir, "resources");
     await stageElectronNotices(context.appOutDir, resources, framework.version);
   },
@@ -560,6 +600,14 @@ export default {
         writeWindowsInstallManifest(context),
       );
     }
+    // adhoc 兜底签名必须放在 afterPack 最后：前面的 asar 注入/sourcemap 清理都会
+    // 改变 bundle 密封内容；真实证书签名（doSignAfterPack）在本钩子之后执行，
+    // 启用时会覆盖 adhoc 结果。依据 docs/spec/macos-adhoc-codesign.md。
+    await runTimedAsync("afterPack:adhocCodesignMacApp", () =>
+      adhocCodesignMacApp(context, {
+        enableMacSigning: shouldEnableMacSigning,
+      }),
+    );
   },
   extraResources: [
     { from: resolve(workspaceRoot, noticesFileName), to: noticesFileName },
