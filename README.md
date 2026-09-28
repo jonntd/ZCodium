@@ -2,6 +2,8 @@
 
 Official ZCode plugin packages for the open-source ZCode build.
 
+[中文说明](README.zh-CN.md)
+
 The open-source release ships only a subset of the bundled plugins. This
 repository provides the full official plugin set — including the Computer Use
 runtime — so an open-source installation can reach feature parity with the
@@ -107,6 +109,25 @@ Note: plugins installed this way carry the `@zcode-plugins` id. The Settings
 "Computer Use" toggle and the default-enabled flags are bound to the built-in
 official marketplace id (`zcode-plugins-official`), which only filesystem
 seeding can populate — use the seed install above for full parity.
+
+## Compatibility
+
+| Environment | Plugins | Computer Use |
+| --- | --- | --- |
+| Windows x64, ZCode 3.14.x | ✅ | ✅ verified end-to-end |
+| Windows x64, other versions | ✅ | ⚠️ likely — the patcher detects stub chunks by signature, not filename, but the helper's IPC contract may drift between releases |
+| Windows ARM64 | ✅ | ❌ `ax_native.node` is x64-only |
+| macOS | ✅ | ❌ no macOS helper runtime in this repo |
+| Remote / WSL workspaces | ✅ | ❌ by design — Computer Use is only injected into local desktop sessions |
+
+Notes:
+
+- The helper runtime declares `electronVersion: 41.0.3` in its manifest; the
+  patcher warns when the installed app's Electron ABI differs.
+- **After any ZCode update**, re-run `install.ps1` — updates overwrite
+  `resources\`. The script is idempotent.
+- The patcher always keeps a rollback copy at
+  `resources\app.asar.zcode-plugin.bak`.
 
 ## License
 

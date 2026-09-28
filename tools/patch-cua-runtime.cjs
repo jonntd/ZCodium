@@ -551,6 +551,31 @@ function main() {
     process.exit(2);
   }
 
+  // Compatibility preflight: warn (don't block) when the runtime manifest's
+  // declared platform/arch/Electron ABI doesn't match this host. When run via
+  // ZCode.exe (ELECTRON_RUN_AS_NODE), process.versions.electron is the app's
+  // real Electron version; under a plain Node it is simply skipped.
+  try {
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(repoDir, "runtimes", "cua-helper", "runtime-manifest.json"), "utf8"),
+    );
+    if (manifest.platform && process.platform !== manifest.platform) {
+      console.warn(`[cua-patch] WARNING: platform ${process.platform} != expected ${manifest.platform} (helper binary may not load)`);
+    }
+    if (manifest.arch && process.arch !== manifest.arch) {
+      console.warn(`[cua-patch] WARNING: arch ${process.arch} != expected ${manifest.arch} (native addon will not load)`);
+    }
+    if (
+      manifest.electronVersion &&
+      process.versions.electron &&
+      process.versions.electron.split(".")[0] !== manifest.electronVersion.split(".")[0]
+    ) {
+      console.warn(
+        `[cua-patch] WARNING: app Electron ${process.versions.electron} != runtime ABI ${manifest.electronVersion} (native addon may fail to load)`,
+      );
+    }
+  } catch {}
+
   // 1. runtime
   const runtimeDst = path.join(installDir, "resources", "tools", "zcode-cua");
   const copied = copyDirSync(runtimeSrc, runtimeDst, DRY_RUN || CHECK_ONLY);
