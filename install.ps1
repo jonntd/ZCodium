@@ -99,6 +99,47 @@ if (Test-Path $runtimeDir) {
   Write-Host "Installed Computer Use helper runtime -> $runtimeTarget" -ForegroundColor Green
 }
 
+# --- Enable the Computer Use runtime inside the packaged app ---------------
+# Some builds ship the @zcode/zcode-cua surface as inert stubs. The patcher
+# detects those stubs inside app.asar and the seeded node-repl-host bundle
+# and rewires them to the full runtime under resources/tools/zcode-cua.
+# It is a no-op on builds that already ship the real implementation.
+$patcher = Join-Path $scriptRoot 'tools\patch-cua-runtime.cjs'
+if (Test-Path $patcher) {
+  $running = Get-Process -Name 'ZCode' -ErrorAction SilentlyContinue
+  if ($running) {
+    Write-Warning "ZCode is running. The runtime patch was skipped; fully quit ZCode (including the tray icon) and re-run install.ps1, or run:"
+    Write-Warning "  `$env:ELECTRON_RUN_AS_NODE=1; & '$install\ZCode.exe' '$patcher' --install-dir '$install' --repo-dir '$scriptRoot'"
+  } else {
+    $nodeCmd = $null
+    $nodeArgs = @()
+    $zcodeExe = Join-Path $install 'ZCode.exe'
+    if (Test-Path $zcodeExe) {
+      $nodeCmd = $zcodeExe
+      $env:ELECTRON_RUN_AS_NODE = '1'
+    } elseif (Get-Command node -ErrorAction SilentlyContinue) {
+      $nodeCmd = 'node'
+    }
+    if ($nodeCmd) {
+      Write-Host "Enabling packaged Computer Use runtime..." -ForegroundColor Cyan
+      $hadRunAsNode = Test-Path Env:\ELECTRON_RUN_AS_NODE
+      $prevRunAsNode = $env:ELECTRON_RUN_AS_NODE
+      try {
+        $env:ELECTRON_RUN_AS_NODE = '1'
+        & $nodeCmd $patcher --install-dir $install --repo-dir $scriptRoot
+      } finally {
+        if ($hadRunAsNode) { $env:ELECTRON_RUN_AS_NODE = $prevRunAsNode }
+        else { Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
+      }
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Runtime patch reported an error (see above). Plugins are still installed."
+      }
+    } else {
+      Write-Warning "No Node runtime found to run the packaged-runtime patch. Install Node.js or re-run later."
+    }
+  }
+}
+
 if (-not $SkipDevMode) {
   [Environment]::SetEnvironmentVariable('ZCODE_CUA_DEV_MODE', '1', 'User')
   $env:ZCODE_CUA_DEV_MODE = '1'

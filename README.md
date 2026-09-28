@@ -29,6 +29,8 @@ Layout:
 ```
 plugins/               one directory per plugin package (.zcode-plugin/plugin.json)
 runtimes/cua-helper/   Computer Use helper runtime (windows-helper.js + ax_native.node)
+runtimes/zcode-cua/    Computer Use runtime package (broker client/server, helper lifecycle)
+tools/                 packaged-app runtime enabler used by the installers
 marketplace.json       standard ZCode plugin marketplace manifest
 install.ps1            Windows seed installer
 install.sh             macOS / source-checkout seed installer
@@ -54,7 +56,14 @@ The script:
 
 1. Copies every plugin into `<install>\resources\glm\packages\`
 2. Copies the Computer Use helper runtime into `<install>\resources\tools\cua-helper\`
-3. Sets the user environment variable `ZCODE_CUA_DEV_MODE=1`, which relaxes the
+3. Runs `tools/patch-cua-runtime.cjs` through the app's own bundled Node
+   (`ELECTRON_RUN_AS_NODE=1 ZCode.exe`): it detects whether this build shipped
+   the Computer Use runtime as inert stubs and, if so, wires the packaged code
+   to the full runtime under `resources\tools\zcode-cua\`. The app must be
+   fully closed for this step; if it is running the installer prints the exact
+   command to re-run later. Safe to re-run — already-patched installs are
+   skipped and `app.asar` is backed up first.
+4. Sets the user environment variable `ZCODE_CUA_DEV_MODE=1`, which relaxes the
    helper's launcher signature check for unsigned open-source builds
    (skip with `-SkipDevMode`)
 
