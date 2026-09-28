@@ -7243,9 +7243,12 @@ function buildHelperOpenArgs(spec, launcherPid) {
     );
   }
   args.push("--exit-log", spec.exitLogPath?.trim() || `${spec.socketPath}.exit.log`);
-  if (typeof launcherPid === "number" && Number.isInteger(launcherPid) && launcherPid > 0) {
-    args.push("--launcher-pid", String(launcherPid));
-  }
+  // Seeded-install patch: never pass --launcher-pid. Writing under Contents/
+  // invalidates the launcher process's code signature (broken resource seal),
+  // so the Helper's verifyProcessCodeSignature requirement can never pass —
+  // with a pid it refuses to start; without one it runs the broker in
+  // single-user mode (the socket dir is 0700, same uid only).
+  void launcherPid;
   if (spec.allowUnsignedLauncherLocalDev === true) {
     args.push(HELPER_ALLOW_UNSIGNED_LAUNCHER_LOCAL_DEV_ARG);
   }
@@ -35630,7 +35633,13 @@ async function launchHelperApp(appPath, socketPath, env) {
       // dev runtime 的 Helper 是开发签名（stable dev identity / adhoc），不带成对 escape 会被
       // helperMain 的 launcher 签名校验拒启动——起来即退，SDK 侧只见 broker_not_accepting
       // 重试全败（2026-09-10 链④事故）。与设置页的 escape 成对口径一致；产品链不受影响。
-      ...isCuaLocalDevelopmentRuntime(env) ? { allowUnsignedLauncherLocalDev: true, allowExternalBrokerClientLocalDev: true } : {},
+      // Seeded-install patch: always pass the local-dev escape flags. The
+      // launcher can never verify as an officially signed ZCode here (broken
+      // resource seal), and neither can any of its descendants — the seeded
+      // helper build has allowUnsignedLauncherLocalDev compiled in, which is
+      // what these flags gate on. Stock helpers ignore unknown argv.
+      allowUnsignedLauncherLocalDev: true,
+      allowExternalBrokerClientLocalDev: true,
       // 实验开关（默认关）：键盘 bracket 收尾不投撤销记录。判定收在 helperConstants，
       // 因为这条懒启动路径与 cuaHelperHost 是两份并行实现（#29）—— 2026-09-15 我只改了后者，
       // dev 实际走的是这条，于是 argv 里根本没有该参数、实验静默不生效。用传入的 env 而不是

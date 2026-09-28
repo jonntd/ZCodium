@@ -100,8 +100,8 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   # Adding files under Contents/ invalidates the code signature seal. For a
   # quarantined bundle Gatekeeper then reports the app as damaged — and also
   # blocks the ELECTRON_RUN_AS_NODE invocation below. Stripping quarantine up
-  # front keeps the bundle runnable while it carries a broken seal; the
-  # bundle is re-signed afterwards.
+  # front keeps the bundle runnable while it carries a broken seal (the
+  # original signature is intentionally kept; see below).
   xattr -dr com.apple.quarantine "$APP_DIR" 2>/dev/null || true
 
   APP_VERSION="$(defaults read "$CONTENTS/Info" CFBundleShortVersionString 2>/dev/null || true)"
@@ -177,6 +177,63 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     rm -rf "$TMP_D"
   fi
 
+  # 2b. Patch the helper's embedded local-development trust flag, then re-sign
+  # it adhoc. The stock helper verifies that (a) the process that launched it
+  # and (b) every broker client + its parent chain satisfy an Apple-anchored
+  # ZCode signing requirement — which a seeded install can never satisfy
+  # because seeding breaks the app's resource seal and thus invalidates the
+  # code signature of every process exec'd from it. The helper ships the
+  # escape hatches (--allow-unsigned-launcher-local-dev, same-uid broker
+  # clients) but compiles their gate `allowUnsignedLauncherLocalDev` to false
+  # in release builds. We flip that embedded literal in place — the SEA blob
+  # is plain JS — then re-sign adhoc since the byte edit voids the signature.
+  # TCC permissions (Accessibility / Screen Recording) will prompt once more
+  # under the adhoc identity.
+  patch_helper_local_dev() {
+    local app="$1"
+    local bin="$app/Contents/MacOS/ZCode Computer Use"
+    [[ -f "$bin" ]] || return 1
+    python3 - "$bin" <<'PY'
+import sys
+path = sys.argv[1]
+data = open(path, "rb").read()
+old = b"var allowUnsignedLauncherLocalDev = false;"
+new = b"var allowUnsignedLauncherLocalDev = true ;"
+idx = data.find(old)
+if idx < 0:
+    if b"var allowUnsignedLauncherLocalDev = true ;" in data:
+        print("helper already patched"); sys.exit(0)
+    print("helper patch pattern not found", file=sys.stderr); sys.exit(1)
+data = data[:idx] + new + data[idx + len(old):]
+open(path, "wb").write(data)
+print("patched helper local-dev flag")
+PY
+  }
+
+  if [[ -d "$HELPER_APP" ]]; then
+    if patch_helper_local_dev "$HELPER_APP"; then
+      codesign --force --deep --sign - "$HELPER_APP" >/dev/null 2>&1 \
+        && echo "Re-signed helper adhoc (TCC will prompt once under the new identity)." \
+        || echo "WARNING: helper adhoc re-sign failed." >&2
+      # Seed the install roots the runtime resolves for the dev/stable
+      # variants so ensureStandaloneHelperLaunched finds the patched helper.
+      CU_ROOT="$HOME/.zcode/computer-use"
+      mkdir -p "$CU_ROOT/dev"
+      rm -rf "$CU_ROOT/dev/ZCode Computer Use Dev.app"
+      ditto "$HELPER_APP" "$CU_ROOT/dev/ZCode Computer Use Dev.app"
+      rm -rf "$CU_ROOT/dev/ZCode Computer Use.app"
+      ditto "$HELPER_APP" "$CU_ROOT/dev/ZCode Computer Use.app"
+      rm -rf "$CU_ROOT/ZCode Computer Use.app"
+      ditto "$HELPER_APP" "$CU_ROOT/ZCode Computer Use.app"
+      echo "Seeded patched helper into $CU_ROOT"
+    else
+      echo "WARNING: could not patch $HELPER_APP for local-dev trust." >&2
+      echo "Computer Use helper will refuse the unsigned launcher; see README." >&2
+    fi
+  else
+    echo "WARNING: helper app missing at $HELPER_APP" >&2
+  fi
+
   # 3. patch the packaged app (stub modules + node-repl-host bridge)
   # A plain node install avoids the app binary entirely; the Electron binary
   # is the fallback for machines without node.
@@ -192,76 +249,43 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     echo "  ELECTRON_RUN_AS_NODE=1 \"$CONTENTS/MacOS/ZCode\" \"$SCRIPT_DIR/tools/patch-cua-runtime.cjs\" --install-dir \"$CONTENTS\"" >&2
   fi
 
-  # 4. the resource seal is invalid now; re-sign the outer bundle so the
-  # signature is valid again. An ad-hoc (-) signature makes Gatekeeper report
-  # the managed app as damaged, so a real signing identity is required — a
-  # Developer ID certificate if one exists, otherwise a local self-signed
-  # code-signing certificate created in the login keychain. Nested components
-  # (helpers, frameworks, the Computer Use helper app) keep their original
-  # signatures.
+  # 4. Do NOT re-sign the bundle. Writing under Contents/ invalidates the
+  # resource seal — `codesign --verify` reports a mismatch — but the original
+  # signature is left intact and, with quarantine stripped above,
+  # LaunchServices opens the bundle normally. Re-signing (adhoc or self-signed)
+  # only makes things worse: Gatekeeper flags the managed app as damaged.
+  # The helper's launcher/peer signature checks are instead relaxed by
+  # patching the helper itself (step 2b).
   if ! codesign --verify "$APP_DIR" >/dev/null 2>&1; then
-    SIGN_ID="$(security find-identity -v -p codesigning 2>/dev/null \
-      | sed -n 's/.*"\(Developer ID Application[^"]*\)".*/\1/p' | head -1)"
-    if [[ -z "$SIGN_ID" ]]; then
-      SIGN_ID="ZCode Local Code Signing"
-      if ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID"; then
-        CERT_D="$(mktemp -d)"
-        CERT_PW="zcode-local-sign"
-        if openssl req -x509 -newkey rsa:2048 -keyout "$CERT_D/key.pem" \
-            -out "$CERT_D/cert.pem" -days 3650 -nodes \
-            -subj "/CN=$SIGN_ID" \
-            -addext "keyUsage=critical,digitalSignature" \
-            -addext "extendedKeyUsage=critical,codeSigning" \
-            -addext "basicConstraints=critical,CA:FALSE" 2>/dev/null \
-          && openssl pkcs12 -export -legacy -out "$CERT_D/id.p12" \
-            -inkey "$CERT_D/key.pem" -in "$CERT_D/cert.pem" \
-            -passout "pass:$CERT_PW" 2>/dev/null \
-          && security import "$CERT_D/id.p12" -P "$CERT_PW" \
-            -T /usr/bin/codesign >/dev/null 2>&1; then
-          security add-trusted-cert -r trustRoot -p codeSign \
-            -k "$HOME/Library/Keychains/login.keychain-db" \
-            "$CERT_D/cert.pem" >/dev/null 2>&1 || true
-          echo "Created a local code-signing identity for the modified bundle."
-        fi
-        rm -rf "$CERT_D"
-      fi
-      security find-identity -v -p codesigning 2>/dev/null | grep -q "$SIGN_ID" \
-        || SIGN_ID=""
-    fi
-
-    if [[ -n "$SIGN_ID" ]]; then
-      if codesign --force --sign "$SIGN_ID" "$APP_DIR" >/dev/null 2>&1; then
-        echo "Re-signed the app bundle ($SIGN_ID)."
-      else
-        echo "WARNING: re-sign with '$SIGN_ID' failed." >&2
-      fi
-    else
-      echo "WARNING: no usable code-signing identity; trying ad-hoc signature." >&2
-      echo "Gatekeeper may still report the app as damaged — if so, create a" >&2
-      echo "code-signing certificate in Keychain Access and re-sign manually." >&2
-      codesign --force --sign - "$APP_DIR" >/dev/null 2>&1 || true
-    fi
+    echo "NOTE: app resource seal no longer matches (expected after seeding);"
+    echo "the original code signature is intentionally kept."
   fi
 
-  # 5. dev-mode environment for unsigned open-source builds (GUI apps read env
-  #    from launchd, not from the shell profile)
+  # 5. local-dev environment for the unsigned-helper trust path (GUI apps
+  #    read env from launchd, not from the shell profile):
+  #    - ZCODE_CUA_DEV_MODE: runtime resolves the dev install variant
+  #    - ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL: installer accepts the adhoc helper
+  #    - ZCODE_CUA_HELPER_BUNDLE_ID: expected bundle id stays the stock id
   launchctl setenv ZCODE_CUA_DEV_MODE 1 2>/dev/null || true
+  launchctl setenv ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL 1 2>/dev/null || true
+  launchctl setenv ZCODE_CUA_HELPER_BUNDLE_ID "dev.zcode.cua-helper" 2>/dev/null || true
   AGENT_PLIST="$HOME/Library/LaunchAgents/com.zcode.cua-env.plist"
-  if [[ ! -f "$AGENT_PLIST" ]]; then
-    mkdir -p "$HOME/Library/LaunchAgents"
-    cat > "$AGENT_PLIST" <<'PLIST'
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat > "$AGENT_PLIST" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>com.zcode.cua-env</string>
   <key>ProgramArguments</key>
-  <array><string>/bin/launchctl</string><string>setenv</string><string>ZCODE_CUA_DEV_MODE</string><string>1</string></array>
+  <array>
+    <string>/bin/sh</string><string>-c</string>
+    <string>launchctl setenv ZCODE_CUA_DEV_MODE 1; launchctl setenv ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL 1; launchctl setenv ZCODE_CUA_HELPER_BUNDLE_ID dev.zcode.cua-helper</string>
+  </array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
 PLIST
-    launchctl load "$AGENT_PLIST" 2>/dev/null || true
-    echo "Installed LaunchAgent to persist ZCODE_CUA_DEV_MODE across logins."
-  fi
+  launchctl load "$AGENT_PLIST" 2>/dev/null || true
+  echo "Installed LaunchAgent to persist the Computer Use env across logins."
 
   echo ""
   echo "macOS notes:"
@@ -269,9 +293,10 @@ PLIST
   echo "  - On first Computer Use run, macOS asks for Accessibility and Screen"
   echo "    Recording permission for 'ZCode Computer Use' — approve in System"
   echo "    Settings > Privacy & Security."
-  echo "  - The bundle is re-signed with a local identity; if macOS still shows"
-  echo "    an 'unverified developer' prompt on first launch, approve it once in"
-  echo "    System Settings > Privacy & Security."
+  echo "  - The app keeps its original signature (resource seal mismatched by"
+  echo "    design); the helper is patched + adhoc-signed for local-dev trust,"
+  echo "    so TCC will ask for Accessibility/Screen Recording once under the"
+  echo "    new helper identity."
   echo "  - ZCode updates replace the whole app bundle; re-run this installer"
   echo "    after each update."
 fi

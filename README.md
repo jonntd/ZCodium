@@ -96,39 +96,48 @@ The script:
 4. Installs the signed **ZCode Computer Use.app** helper into
    `<app>/Contents/Resources/cua-helper/` — fetched from the official release
    CDN for the installed app's version and CPU architecture (arm64 and x64 are
-   both supported); skipped when the app already bundles it
+   both supported); skipped when the app already bundles it — then patches
+   the helper's embedded local-dev trust flag and re-signs it adhoc (see
+   "Helper trust" below), seeding the patched copy under
+   `~/.zcode/computer-use/`
 5. Runs `tools/patch-cua-runtime.cjs` (with a system `node` when available,
    otherwise via `ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`) to wire
    packaged stub modules to the full runtime — same semantic detection as on
    Windows
-6. Re-signs the app bundle (see "App signature" below)
-7. Sets `ZCODE_CUA_DEV_MODE=1` via `launchctl` (plus a LaunchAgent so it
-   survives relogin), which relaxes the helper's launcher signature check for
-   unsigned open-source builds
+6. Keeps the original app signature (the resource seal intentionally stays
+   mismatched — see "App signature" below)
+7. Sets `ZCODE_CUA_DEV_MODE=1`, `ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1` and
+   `ZCODE_CUA_HELPER_BUNDLE_ID=dev.zcode.cua-helper` via `launchctl` (plus a
+   LaunchAgent so they survive relogin)
 
 macOS-specific notes:
 
 - **Privacy permissions**: on first use macOS prompts for *Accessibility* and
   *Screen Recording* for "ZCode Computer Use" — approve in
-  System Settings → Privacy & Security. The helper re-launches itself to
-  request them (`--request-accessibility`).
-- **App signature**: writing into `Contents/` invalidates the app bundle's
-  signature. On recent macOS a managed app whose signature is broken *or*
-  ad-hoc is reported as damaged and refuses to launch, so the installer
-  re-signs the outer bundle with a real identity — a Developer ID certificate
-  when one exists in the keychain, otherwise a self-signed "ZCode Local Code
-  Signing" certificate it creates for you. Nested components (frameworks,
-  helper apps) keep their original signatures, and quarantine is stripped so
-  the bundle is never re-assessed by Gatekeeper. On first launch macOS may
-  still show an "unverified developer" prompt — approve once via
-  right-click → Open or System Settings → Privacy & Security.
+  System Settings → Privacy & Security. The helper is adhoc re-signed during
+  install, so macOS asks once under the new signing identity.
+- **App signature**: writing into `Contents/` invalidates the resource seal.
+  The installer deliberately keeps the *original* code signature — with
+  quarantine stripped, LaunchServices opens the bundle normally even though
+  `codesign --verify` reports a mismatch (the expected, stable state of a
+  seeded install). Do **not** re-sign the app: ad-hoc and self-signed
+  bundles get flagged as damaged by Gatekeeper.
+- **Helper trust**: the stock helper refuses to run unless (a) the process
+  that launched it and (b) every broker client + its parent chain verify
+  against an Apple-anchored ZCode signing requirement — impossible once the
+  app's seal is broken, since every process exec'd from the bundle then has
+  an invalid signature. The release helper ships the dev escape hatches but
+  compiles their gate (`allowUnsignedLauncherLocalDev`) to `false`; the
+  installer flips that literal inside the SEA-embedded JS and re-signs the
+  helper adhoc. The patched runtime also stops passing `--launcher-pid`
+  (which could never verify) and always sends the local-dev flags.
 - **Write protection**: an app bundle that macOS has registered as managed
   (for example one placed by the built-in updater) rejects writes into
   `Contents/`. The installer probes for this and tells you to re-copy the app
   when it hits it.
 - **Updates**: ZCode's built-in updater replaces the whole app bundle, which
-  wipes the seeded plugins, runtime, helper and re-signing — re-run
-  `install.sh` after every update.
+  wipes the seeded plugins, runtime and helper — re-run `install.sh` after
+  every update.
 - Fully quit and restart ZCode afterwards; logging out/in once makes the
   launchd environment reliable.
 
