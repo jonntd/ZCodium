@@ -112,26 +112,37 @@ if (Test-Path $patcher) {
     Write-Warning "  `$env:ELECTRON_RUN_AS_NODE=1; & '$install\ZCode.exe' '$patcher' --install-dir '$install' --repo-dir '$scriptRoot'"
   } else {
     $nodeCmd = $null
-    $nodeArgs = @()
     $zcodeExe = Join-Path $install 'ZCode.exe'
-    if (Test-Path $zcodeExe) {
-      $nodeCmd = $zcodeExe
-      $env:ELECTRON_RUN_AS_NODE = '1'
-    } elseif (Get-Command node -ErrorAction SilentlyContinue) {
+    # Prefer a real Node runtime when present: under ELECTRON_RUN_AS_NODE the
+    # app binary works too, but it virtualizes *.asar paths and detaches from
+    # the console, so real Node is the more predictable runner.
+    if (Get-Command node -ErrorAction SilentlyContinue) {
       $nodeCmd = 'node'
+    } elseif (Test-Path $zcodeExe) {
+      $nodeCmd = $zcodeExe
     }
     if ($nodeCmd) {
       Write-Host "Enabling packaged Computer Use runtime..." -ForegroundColor Cyan
       $hadRunAsNode = Test-Path Env:\ELECTRON_RUN_AS_NODE
       $prevRunAsNode = $env:ELECTRON_RUN_AS_NODE
+      $patchExit = 0
       try {
         $env:ELECTRON_RUN_AS_NODE = '1'
-        & $nodeCmd $patcher --install-dir $install --repo-dir $scriptRoot
+        if ($nodeCmd -eq $zcodeExe) {
+          # GUI-subsystem exe: Start-Process -Wait -PassThru gives a reliable
+          # exit code ($LASTEXITCODE stays empty for detached GUI processes).
+          $pargs = @('"' + $patcher + '"', '--install-dir', '"' + $install + '"', '--repo-dir', '"' + $scriptRoot + '"')
+          $proc = Start-Process -FilePath $nodeCmd -ArgumentList $pargs -Wait -NoNewWindow -PassThru
+          $patchExit = $proc.ExitCode
+        } else {
+          & $nodeCmd $patcher --install-dir $install --repo-dir $scriptRoot
+          $patchExit = $LASTEXITCODE
+        }
       } finally {
         if ($hadRunAsNode) { $env:ELECTRON_RUN_AS_NODE = $prevRunAsNode }
         else { Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
       }
-      if ($LASTEXITCODE -ne 0) {
+      if ($patchExit -ne 0) {
         Write-Warning "Runtime patch reported an error (see above). Plugins are still installed."
       }
     } else {
