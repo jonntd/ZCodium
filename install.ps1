@@ -134,9 +134,13 @@ if (Test-Path $runtimeDir) {
   $toolsTarget = Join-Path $install 'resources\tools'
   New-Item -ItemType Directory -Force -Path $toolsTarget | Out-Null
   $runtimeTarget = Join-Path $toolsTarget 'cua-helper'
-  if (Test-Path $runtimeTarget) { Remove-Item $runtimeTarget -Recurse -Force }
-  Copy-Item $runtimeDir $runtimeTarget -Recurse
-  Write-Host "Installed Computer Use helper runtime -> $runtimeTarget" -ForegroundColor Green
+  try {
+    if (Test-Path $runtimeTarget) { Remove-Item $runtimeTarget -Recurse -Force }
+    Copy-Item $runtimeDir $runtimeTarget -Recurse
+    Write-Host "Installed Computer Use helper runtime -> $runtimeTarget" -ForegroundColor Green
+  } catch {
+    Write-Warning "Could not update the helper runtime at $runtimeTarget (files may be locked by a running ZCode). Quit ZCode and re-run install.ps1 to update it."
+  }
 }
 
 # --- Enable the Computer Use runtime inside the packaged app ---------------
