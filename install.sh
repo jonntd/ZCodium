@@ -266,12 +266,16 @@ PY
   #    - ZCODE_CUA_DEV_MODE: runtime resolves the dev install variant
   #    - ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL: installer accepts the adhoc helper
   #    - ZCODE_CUA_HELPER_BUNDLE_ID: expected bundle id stays the stock id
+  #    - ZCODE_CUA_PACKAGE_ENTRY: node-repl bridge resolves the staged runtime
+  #      directly (the path is baked in since it must be absolute)
+  CUA_ENTRY="$APP_ROOT/tools/zcode-cua/index.js"
   launchctl setenv ZCODE_CUA_DEV_MODE 1 2>/dev/null || true
   launchctl setenv ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL 1 2>/dev/null || true
   launchctl setenv ZCODE_CUA_HELPER_BUNDLE_ID "dev.zcode.cua-helper" 2>/dev/null || true
+  launchctl setenv ZCODE_CUA_PACKAGE_ENTRY "$CUA_ENTRY" 2>/dev/null || true
   AGENT_PLIST="$HOME/Library/LaunchAgents/com.zcode.cua-env.plist"
   mkdir -p "$HOME/Library/LaunchAgents"
-  cat > "$AGENT_PLIST" <<'PLIST'
+  cat > "$AGENT_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
@@ -279,13 +283,18 @@ PY
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string><string>-c</string>
-    <string>launchctl setenv ZCODE_CUA_DEV_MODE 1; launchctl setenv ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL 1; launchctl setenv ZCODE_CUA_HELPER_BUNDLE_ID dev.zcode.cua-helper</string>
+    <string>launchctl setenv ZCODE_CUA_DEV_MODE 1; launchctl setenv ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL 1; launchctl setenv ZCODE_CUA_HELPER_BUNDLE_ID dev.zcode.cua-helper; launchctl setenv ZCODE_CUA_PACKAGE_ENTRY '$CUA_ENTRY'</string>
   </array>
   <key>RunAtLoad</key><true/>
 </dict></plist>
 PLIST
   launchctl load "$AGENT_PLIST" 2>/dev/null || true
   echo "Installed LaunchAgent to persist the Computer Use env across logins."
+
+  # The bridge also searches <plugin-cache>/tools/zcode-cua — provide a
+  # durable symlink there as a fallback for caches that predate the env.
+  mkdir -p "$HOME/.zcode/cli/plugins/cache/tools"
+  ln -sfn "$APP_ROOT/tools/zcode-cua" "$HOME/.zcode/cli/plugins/cache/tools/zcode-cua" 2>/dev/null || true
 
   echo ""
   echo "macOS notes:"

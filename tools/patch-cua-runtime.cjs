@@ -476,7 +476,7 @@ function patchAsar(asarPath, dryRun) {
 // ---------------------------------------------------------------------------
 
 const SERVER_STUB_RE =
-  /var UNAVAILABLE_TEXT = "Computer Use is not available in this build\.";\s*\nfunction createComputerUseRuntime\(_options\) \{[\s\S]*?\n\}\n/;
+  /var UNAVAILABLE_TEXT = "Computer Use is not available in this build\.";[\s\S]*?function createComputerUseRuntime\(_options\) \{[\s\S]*?\n\}\n/;
 
 const SERVER_IMPL = `var UNAVAILABLE_TEXT = "Computer Use is not available in this build.";
 // ${PATCH_MARKER}: delegate to the real @zcode/zcode-cua package under
@@ -493,6 +493,8 @@ function createComputerUseRuntime(_options) {
         const candidates = [];
         if (override) candidates.push(override);
         candidates.push(join(dirname(process.execPath), "resources", "tools", "zcode-cua", "index.js"));
+        // Packaged macOS app: execPath lives in Contents/Frameworks/<Helper>.app/Contents/MacOS
+        candidates.push(join(dirname(process.execPath), "..", "..", "..", "..", "Resources", "tools", "zcode-cua", "index.js"));
         try {
           const { fileURLToPath } = await import("node:url");
           const here = dirname(fileURLToPath(import.meta.url));
@@ -535,11 +537,14 @@ function patchServerBundle(file, dryRun) {
   } catch {
     return "missing";
   }
-  if (src.includes(PATCH_MARKER)) return "already";
-  if (!src.includes(STUB_MARKER)) return "no-stub";
-  if (!SERVER_STUB_RE.test(src)) return "unrecognized-shape";
+  const next = src.replace(SERVER_STUB_RE, SERVER_IMPL);
+  if (next === src) {
+    if (src.includes(PATCH_MARKER)) return "already";
+    if (!src.includes(STUB_MARKER)) return "no-stub";
+    return "unrecognized-shape";
+  }
   if (!dryRun) {
-    fs.writeFileSync(file, src.replace(SERVER_STUB_RE, SERVER_IMPL));
+    fs.writeFileSync(file, next);
   }
   return "patched";
 }
