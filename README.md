@@ -65,7 +65,11 @@ The script:
    fully closed for this step; if it is running the installer prints the exact
    command to re-run later. Safe to re-run — already-patched installs are
    skipped and `app.asar` is backed up first.
-4. Sets the user environment variable `ZCODE_CUA_DEV_MODE=1`, which relaxes the
+4. Writes `computer-use@zcode-plugins-official` into
+   `plugins.enabledPlugins` in `~/.zcode/cli/config.json` — official builds
+   ship Computer Use as an opt-in plugin that is off by default, so a seeded
+   install enables it explicitly (merged into any existing config)
+5. Sets the user environment variable `ZCODE_CUA_DEV_MODE=1`, which relaxes the
    helper's launcher signature check for unsigned open-source builds
    (skip with `-SkipDevMode`)
 
@@ -84,17 +88,21 @@ cd zcode-plugin
 The script:
 
 1. Copies every plugin into `<app>/Contents/Resources/glm/packages/`
-2. Stages the Computer Use runtime into `<app>/Contents/Resources/tools/zcode-cua/`
-3. Installs the signed **ZCode Computer Use.app** helper into
+2. Enables `computer-use@zcode-plugins-official` in
+   `~/.zcode/cli/config.json` (`plugins.enabledPlugins`) — it is off by
+   default in official builds, so a seeded install turns it on explicitly
+   (merged, existing config is preserved)
+3. Stages the Computer Use runtime into `<app>/Contents/Resources/tools/zcode-cua/`
+4. Installs the signed **ZCode Computer Use.app** helper into
    `<app>/Contents/Resources/cua-helper/` — fetched from the official release
    CDN for the installed app's version and CPU architecture (arm64 and x64 are
    both supported); skipped when the app already bundles it
-4. Runs `tools/patch-cua-runtime.cjs` (with a system `node` when available,
+5. Runs `tools/patch-cua-runtime.cjs` (with a system `node` when available,
    otherwise via `ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`) to wire
    packaged stub modules to the full runtime — same semantic detection as on
    Windows
-5. Re-signs the app bundle (see "App signature" below)
-6. Sets `ZCODE_CUA_DEV_MODE=1` via `launchctl` (plus a LaunchAgent so it
+6. Re-signs the app bundle (see "App signature" below)
+7. Sets `ZCODE_CUA_DEV_MODE=1` via `launchctl` (plus a LaunchAgent so it
    survives relogin), which relaxes the helper's launcher signature check for
    unsigned open-source builds
 

@@ -90,6 +90,36 @@ $packagesTarget = Join-Path $install 'resources\glm\packages'
 $copied = Copy-PluginPackages $packagesTarget
 Write-Host "Seeded $($copied.Count) plugins into $packagesTarget" -ForegroundColor Green
 
+# Enable the Computer Use plugin for new sessions. Official builds keep it
+# opt-in (the always-on builtin set does not include it), so a seeded install
+# needs an explicit enable entry in the CLI config — merged, never replaced.
+$cliConfig = Join-Path $HOME '.zcode\cli\config.json'
+try {
+  $cfg = [ordered]@{}
+  if (Test-Path $cliConfig) {
+    $existing = Get-Content $cliConfig -Raw | ConvertFrom-Json
+    if ($existing) {
+      foreach ($prop in $existing.PSObject.Properties) { $cfg[$prop.Name] = $prop.Value }
+    }
+  }
+  $pluginMap = [ordered]@{}
+  if ($cfg['plugins']) {
+    foreach ($prop in $cfg['plugins'].PSObject.Properties) { $pluginMap[$prop.Name] = $prop.Value }
+  }
+  $enabled = [ordered]@{}
+  if ($pluginMap['enabledPlugins']) {
+    foreach ($prop in $pluginMap['enabledPlugins'].PSObject.Properties) { $enabled[$prop.Name] = $prop.Value }
+  }
+  $enabled['computer-use@zcode-plugins-official'] = $true
+  $pluginMap['enabledPlugins'] = $enabled
+  $cfg['plugins'] = $pluginMap
+  New-Item -ItemType Directory -Force -Path (Split-Path $cliConfig) | Out-Null
+  ($cfg | ConvertTo-Json -Depth 10) | Set-Content $cliConfig -Encoding UTF8
+  Write-Host "Enabled computer-use@zcode-plugins-official in $cliConfig" -ForegroundColor Green
+} catch {
+  Write-Warning "Could not enable the computer-use plugin in $cliConfig: $_"
+}
+
 if (Test-Path $runtimeDir) {
   $toolsTarget = Join-Path $install 'resources\tools'
   New-Item -ItemType Directory -Force -Path $toolsTarget | Out-Null

@@ -115,6 +115,33 @@ fi
 
 seed_packages "$APP_ROOT/glm/packages"
 
+# Enable the Computer Use plugin for new sessions. Official builds keep it
+# opt-in (the always-on builtin set does not include it), so a seeded install
+# needs an explicit enable entry in the CLI config — merged, never replaced.
+CLI_CONFIG="$HOME/.zcode/cli/config.json"
+if command -v node >/dev/null 2>&1; then
+  node -e '
+    const fs = require("fs");
+    const p = process.argv[1];
+    let cfg = {};
+    try { cfg = JSON.parse(fs.readFileSync(p, "utf8")); } catch {}
+    if (!cfg || typeof cfg !== "object" || Array.isArray(cfg)) cfg = {};
+    const plugins = cfg.plugins && typeof cfg.plugins === "object" && !Array.isArray(cfg.plugins)
+      ? cfg.plugins : (cfg.plugins = {});
+    const enabled = plugins.enabledPlugins && typeof plugins.enabledPlugins === "object" && !Array.isArray(plugins.enabledPlugins)
+      ? plugins.enabledPlugins : (plugins.enabledPlugins = {});
+    enabled["computer-use@zcode-plugins-official"] = true;
+    fs.mkdirSync(require("path").dirname(p), { recursive: true });
+    fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
+  ' "$CLI_CONFIG" \
+    && echo "Enabled computer-use@zcode-plugins-official in $CLI_CONFIG" \
+    || echo "WARNING: could not enable the computer-use plugin in $CLI_CONFIG" >&2
+else
+  echo "NOTE: enable 'Computer Use' once in ZCode's plugin settings, or add" >&2
+  echo "  \"plugins\": {\"enabledPlugins\": {\"computer-use@zcode-plugins-official\": true}}" >&2
+  echo "  to $CLI_CONFIG" >&2
+fi
+
 if [[ "$(uname -s)" == "Darwin" ]]; then
   # 1. stage the CUA runtime next to app.asar
   mkdir -p "$APP_ROOT/tools"
@@ -216,7 +243,7 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
     fi
   fi
 
-  # 4. dev-mode environment for unsigned open-source builds (GUI apps read env
+  # 5. dev-mode environment for unsigned open-source builds (GUI apps read env
   #    from launchd, not from the shell profile)
   launchctl setenv ZCODE_CUA_DEV_MODE 1 2>/dev/null || true
   AGENT_PLIST="$HOME/Library/LaunchAgents/com.zcode.cua-env.plist"

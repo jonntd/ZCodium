@@ -60,7 +60,10 @@ cd zcode-plugin
    下的完整实现上。此步骤要求 **ZCode 完全退出**（包括托盘图标）；如果检测到
    还在运行，脚本会打印稍后手动执行的命令。脚本幂等可重复执行，且会先备份
    `app.asar`。
-4. 写入用户环境变量 `ZCODE_CUA_DEV_MODE=1`——放宽 helper 的启动方签名校验，
+4. 在 `~/.zcode/cli/config.json` 里把 `computer-use@zcode-plugins-official`
+   写入 `plugins.enabledPlugins`——官方构建里 Computer Use 是默认关闭的
+   可选插件，seed 安装需要显式启用（合并写入，不覆盖已有配置）
+5. 写入用户环境变量 `ZCODE_CUA_DEV_MODE=1`——放宽 helper 的启动方签名校验，
    未签名的开源构建需要这一项（可用 `-SkipDevMode` 跳过）
 
 完全退出并重启 ZCode 后：插件会出现在内置官方市场下，设置里会出现
@@ -78,15 +81,17 @@ cd zcode-plugin
 脚本会依次：
 
 1. 把全部插件复制到 `<app>/Contents/Resources/glm/packages/`
-2. 把 Computer Use 运行时放到 `<app>/Contents/Resources/tools/zcode-cua/`
-3. 安装签名过的 **ZCode Computer Use.app** helper 到
+2. 在 `~/.zcode/cli/config.json` 启用 `computer-use@zcode-plugins-official`
+   （官方构建里它默认关闭，seed 安装需显式启用；合并写入不覆盖现有配置）
+3. 把 Computer Use 运行时放到 `<app>/Contents/Resources/tools/zcode-cua/`
+4. 安装签名过的 **ZCode Computer Use.app** helper 到
    `<app>/Contents/Resources/cua-helper/`——按已安装 app 的版本号和 CPU
    架构从官方发布 CDN 拉取（arm64 和 x64 都支持）；app 已自带则跳过
-4. 运行 `tools/patch-cua-runtime.cjs`（优先用系统的 `node`，没有时退回
+5. 运行 `tools/patch-cua-runtime.cjs`（优先用系统的 `node`，没有时退回
    `ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`），把打包里的 stub
    模块接到完整运行时——与 Windows 同一套语义检测
-5. 重新签名 app bundle（见下方「App 签名」）
-6. 通过 `launchctl` 设置 `ZCODE_CUA_DEV_MODE=1`（并安装 LaunchAgent 保证
+6. 重新签名 app bundle（见下方「App 签名」）
+7. 通过 `launchctl` 设置 `ZCODE_CUA_DEV_MODE=1`（并安装 LaunchAgent 保证
    重新登录后仍然生效）——放宽 helper 对未签名开源构建的启动方校验
 
 macOS 注意事项：
