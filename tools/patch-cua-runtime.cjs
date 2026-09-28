@@ -313,6 +313,22 @@ function bridgeChunk(body, asarPath) {
   return `${header}${body.slice(0, cut).trimEnd()}\n${imports}\n${exportStmt}\n`;
 }
 
+// Some builds ship with the Computer Use settings section hidden via a static
+// HIDDEN_SETTINGS_SECTIONS set (new Set([`automations`,`plugins`,...,
+// `computerUse`])). The section and its feature are fully present — only the
+// nav entry is suppressed. Removing the id from the set restores the stock
+// section, matching the regular product layout.
+function unhideSettingsSection(body) {
+  const needle = ",`computerUse`]";
+  const i = body.indexOf(needle);
+  if (i < 0) return null;
+  const window = body.slice(Math.max(0, i - 300), i + needle.length);
+  if (!window.includes("new Set([") || !window.includes("automations") || !window.includes("workspaceFileSearch")) {
+    return null;
+  }
+  return body.slice(0, i) + body.slice(i + needle.length - 1);
+}
+
 function walkAsarFiles(node, prefix, out) {
   for (const [name, v] of Object.entries(node.files || {})) {
     const p = prefix + "/" + name;
@@ -347,13 +363,20 @@ function patchAsar(asarPath, dryRun) {
 
   const patched = [];
   const skipped = [];
+  const unhidden = [];
   const bodies = new Map();
   for (const [p, v] of entries) {
     if (v.unpacked || v.link !== undefined) continue;
     const off = Number(v.offset || "0");
-    const body = data.subarray(base + off, base + off + v.size);
+    let body = data.subarray(base + off, base + off + v.size);
     bodies.set(p, { v, body });
     if (!p.endsWith(".js") || v.size > 8 * 1024 * 1024) continue;
+    const unhiddenBody = unhideSettingsSection(body.toString("utf8"));
+    if (unhiddenBody) {
+      body = Buffer.from(unhiddenBody, "utf8");
+      unhidden.push(p);
+      bodies.set(p, { v, body });
+    }
     const res = bridgeChunk(body.toString("utf8"), p);
     if (res === "already") skipped.push(p);
     else if (res) {
@@ -362,10 +385,11 @@ function patchAsar(asarPath, dryRun) {
     }
   }
 
-  if (patched.length === 0) {
-    return { patched, skipped, wrote: false };
+  const rewritten = [...new Set([...patched, ...unhidden])];
+  if (rewritten.length === 0) {
+    return { patched, skipped, unhidden, wrote: false };
   }
-  if (dryRun) return { patched, skipped, wrote: false };
+  if (dryRun) return { patched, skipped, unhidden, wrote: false };
 
   // Self-check the rebuilt archive in memory before touching disk.
   const verify = (buf) => {
@@ -391,7 +415,7 @@ function patchAsar(asarPath, dryRun) {
   let offset = 0;
   const order = [];
   for (const [p, { v, body }] of bodies) {
-    if (patched.includes(p)) {
+    if (rewritten.includes(p)) {
       v.size = body.length;
       v.integrity = integrityOf(body);
     }
@@ -426,12 +450,14 @@ function patchAsar(asarPath, dryRun) {
     fs.writeFileSync(staged, out);
     const { spawn } = require("node:child_process");
     if (process.platform === "win32") {
-      spawn("cmd.exe", ["/c", "ping", "-n", "3", "127.0.0.1", ">nul", "&", "move", "/y", staged, asarPath], {
+      // Retry the swap for ~4 minutes: app.asar may stay locked while ZCode is
+      // still running; the move lands as soon as the app closes.
+      spawn("cmd.exe", ["/c", `for /l %i in (1,1,120) do @(move /y "${staged}" "${asarPath}" >nul 2>nul && exit /b 0) & (ping -n 3 127.0.0.1 >nul)`], {
         detached: true,
         stdio: "ignore",
       }).unref();
     } else {
-      spawn("/bin/sh", ["-c", `sleep 2 && mv -f ${shellQuote(staged)} ${shellQuote(asarPath)}`], {
+      spawn("/bin/sh", ["-c", `for i in $(seq 1 120); do mv -f ${shellQuote(staged)} ${shellQuote(asarPath)} 2>/dev/null && exit 0; sleep 2; done`], {
         detached: true,
         stdio: "ignore",
       }).unref();
@@ -440,7 +466,7 @@ function patchAsar(asarPath, dryRun) {
   } else {
     fs.writeFileSync(asarPath, out);
   }
-  return { patched, skipped, wrote: true, deferredMove, backup };
+  return { patched, skipped, unhidden, wrote: true, deferredMove, backup };
 }
 
 // ---------------------------------------------------------------------------
@@ -599,6 +625,12 @@ function main() {
     if (r.patched.length) {
       console.log(`[cua-patch] app.asar: bridged ${r.patched.length} stub chunk(s):`);
       for (const p of r.patched) console.log(`            ${p}`);
+    }
+    if (r.unhidden?.length) {
+      console.log(`[cua-patch] app.asar: restored Computer Use settings section in:`);
+      for (const p of r.unhidden) console.log(`            ${p}`);
+    }
+    if (r.patched.length || r.unhidden?.length) {
       if (r.wrote) console.log(`            backup: ${r.backup}`);
       if (r.deferredMove) console.log("            (archive swap runs when this process exits)");
     } else if (skippedNonEmpty(r)) {
