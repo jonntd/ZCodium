@@ -73,6 +73,7 @@ import {
   getAutoUpdaterState,
   hydratePendingPostUpdateReleaseNotes,
   initAutoUpdater,
+  installReadyMacUpdateOnAppQuit,
   onAutoUpdaterStateChanged,
   refreshAutoUpdaterReleaseChannel,
   resolveUpdateFeedSourceFromStartupConfig,
@@ -2125,32 +2126,37 @@ app.on("before-quit", (event) => {
     localMediaPreviewPathRegistry.clear();
     event.preventDefault();
     void prepareAppQuit("app-before-quit").finally(() => {
-      const remainingWindows = getApplicationWindowsExcludingCuaIndicator();
-      logger.info(
-        `[app-quit] preparation finished, resuming quit with windows=${remainingWindows.length}`,
-      );
-      // ChromeDriver 关闭最后一个 renderer 后才触发 app.quit 时，
-      // 第一次 before-quit 会被异步 host 清理拦截；清理完成时窗口可能仍处于
-      // closing 状态，此时重入 app.quit 会被 Electron 忽略，ChromeDriver 会等待
-      // 约 70 秒。这里把最后一次退出绑定到真实 closed 事件，不依赖超时猜测。
-      if (remainingWindows.length === 0) {
-        exitPreparedApp("no-windows-after-preparation");
-        return;
-      }
-
-      let exitRequested = false;
-      const exitAfterLastWindowClosed = () => {
-        if (exitRequested || getApplicationWindowsExcludingCuaIndicator().length > 0) {
+      // mac 直替换安装要在 host/agent 回收之后、真正退出之前完成（ready 态存在时）。
+      // 内层 finally 保证安装失败也不阻塞退出流程；安装器内部对非 darwin/非 ready 直接跳过。
+      // 依据 docs/spec/macos-direct-swap-update.md。
+      void installReadyMacUpdateOnAppQuit().finally(() => {
+        const remainingWindows = getApplicationWindowsExcludingCuaIndicator();
+        logger.info(
+          `[app-quit] preparation finished, resuming quit with windows=${remainingWindows.length}`,
+        );
+        // ChromeDriver 关闭最后一个 renderer 后才触发 app.quit 时，
+        // 第一次 before-quit 会被异步 host 清理拦截；清理完成时窗口可能仍处于
+        // closing 状态，此时重入 app.quit 会被 Electron 忽略，ChromeDriver 会等待
+        // 约 70 秒。这里把最后一次退出绑定到真实 closed 事件，不依赖超时猜测。
+        if (remainingWindows.length === 0) {
+          exitPreparedApp("no-windows-after-preparation");
           return;
         }
-        exitRequested = true;
-        logger.info("[app-quit] all windows closed after preparation, exiting app");
-        exitPreparedApp("all-windows-closed-after-preparation");
-      };
-      for (const win of remainingWindows) {
-        win.once("closed", exitAfterLastWindowClosed);
-      }
-      app.quit();
+
+        let exitRequested = false;
+        const exitAfterLastWindowClosed = () => {
+          if (exitRequested || getApplicationWindowsExcludingCuaIndicator().length > 0) {
+            return;
+          }
+          exitRequested = true;
+          logger.info("[app-quit] all windows closed after preparation, exiting app");
+          exitPreparedApp("all-windows-closed-after-preparation");
+        };
+        for (const win of remainingWindows) {
+          win.once("closed", exitAfterLastWindowClosed);
+        }
+        app.quit();
+      });
     });
   }
 });

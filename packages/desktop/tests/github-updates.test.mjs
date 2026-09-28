@@ -49,7 +49,7 @@ test("force guard never fetches, blocks or invokes callbacks", async () => {
   );
 });
 
-test("github feed by default, custom feed overrides stay generic, manual check and native download/install remain wired", async () => {
+test("github feed by default, custom feed overrides stay generic, manual check and mac direct swap install remain wired", async () => {
   const updater = new EventEmitter();
   let checks = 0,
     downloads = 0,
@@ -72,13 +72,21 @@ test("github feed by default, custom feed overrides stay generic, manual check a
   };
   const handlers = new Map();
   const sent = [];
+  const relaunched = [];
+  let exits = 0;
+  let swaps = 0;
   const win = {
     isDestroyed: () => false,
     webContents: { id: 1, send: (...args) => sent.push(args) },
   };
   const module = await load("autoUpdater", {
     electron: {
-      app: { isPackaged: true, getVersion: () => "1.0.0" },
+      app: {
+        isPackaged: true,
+        getVersion: () => "1.0.0",
+        relaunch: (options) => relaunched.push(options),
+        exit: () => exits++,
+      },
       BrowserWindow: { getAllWindows: () => [win], getFocusedWindow: () => win },
       Menu: { getApplicationMenu: () => null },
       ipcMain: { handle: (key, fn) => handlers.set(key, fn), on() {} },
@@ -100,6 +108,18 @@ test("github feed by default, custom feed overrides stay generic, manual check a
     },
     semver: { __esModule: true, default: require("semver") },
     "./logger.js": { logger },
+    "./macUpdateInstaller.js": {
+      // 直替换安装器被 mock：这里守护的是接线（调用与 relaunch 参数），不是安装器本体。
+      cleanupStaleMacUpdateArtifacts: async () => {},
+      resolveMacAppBundlePathFromResources: () => null,
+      installMacUpdateBundleSwap: async () => {
+        swaps++;
+        return {
+          ok: true,
+          execPath: "/tmp/mock-staged/ZCodium.app/Contents/MacOS/ZCodium",
+        };
+      },
+    },
   });
   assert.deepEqual(
     module.resolveUpdateFeedSourceFromStartupConfig({
@@ -152,7 +172,14 @@ test("github feed by default, custom feed overrides stay generic, manual check a
   assert.equal(module.getAutoUpdaterState().kind, "update-downloaded");
   await handlers.get("QuitAndInstallUpdate")();
   assert.equal(preparation, 1);
-  assert.equal(installs, 1);
+  // darwin 上安装由直替换接管：先替换、再走退出准备、最后带新主程序重启；
+  // 原生 Squirrel quitAndInstall 不再被调用（其 requirement 校验对旧版安装不可满足）。
+  assert.equal(swaps, 1);
+  assert.equal(installs, 0);
+  assert.deepEqual(relaunched, [
+    { execPath: "/tmp/mock-staged/ZCodium.app/Contents/MacOS/ZCodium" },
+  ]);
+  assert.equal(exits, 1);
   assert.ok(sent.length > 0);
   await module.initAutoUpdater({ updateFeedSource: { url: "https://example.invalid/custom/" } });
   // 自定义 feed 覆盖保持 generic provider：测试/开发链路不依赖 GitHub Releases。

@@ -1,8 +1,11 @@
 # Spec: macOS 无证书打包的 adhoc 兜底签名
 
 本 spec 定义 ZCodium fork mac 安装包在**没有 Apple 开发者证书**时的 adhoc bundle
-签名规则。目标：让 Squirrel.Mac（macOS 自动更新的系统侧执行者）能够通过对新包的
-代码签名校验，使自动更新真正可安装。
+签名规则。目标：让 mac 更新包具备自洽的 bundle 密封。 sealing 结果的两个消费方：
+Squirrel.Mac 的结构校验（仅对 3.14.6+ 之后的"已密封旧安装"有效），以及直替换安装器的
+`codesign --verify --strict` 自检（见 `macos-direct-swap-update.md`——对 3.14.3 这类
+未密封旧安装，Squirrel 的 requirement 校验是 cdhash 锁死、任何新包都无法满足，mac
+安装已改为直替换，不再依赖 Squirrel）。
 
 > 现状：`mac.identity` 在未启用 `ZCODE_ENABLE_MAC_SIGN` 时为 null，electron-builder
 > 完全跳过签名，产物 .app 只有内部二进制的 linker adhoc 签名，bundle 级

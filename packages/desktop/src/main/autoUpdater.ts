@@ -17,6 +17,12 @@ import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
 import { logger } from "./logger.js";
+import {
+  cleanupStaleMacUpdateArtifacts,
+  installMacUpdateBundleSwap,
+  resolveMacAppBundlePathFromResources,
+  type MacBundleSwapResult,
+} from "./macUpdateInstaller.js";
 const { autoUpdater } = pkg;
 
 // 更新源仓库坐标由 tsup define 注入（见 scripts/update-feed-target.mjs，与 electron-builder
@@ -405,6 +411,63 @@ function buildDownloadProgressState(
   };
 }
 
+// 读取 MacUpdater 已下载并通过 sha512 校验的更新 zip 路径。downloadedUpdateHelper 是
+// electron-updater 的内部字段，这里做受控访问并兜底为 null，由直替换安装器按 skip 处理。
+function readMacUpdateZipPath(): string | null {
+  const helper = (autoUpdater as unknown as { downloadedUpdateHelper?: { file?: unknown } | null })
+    .downloadedUpdateHelper;
+  const file = helper?.file;
+  return typeof file === "string" && file.length > 0 ? file : null;
+}
+
+// MacUpdater 下载完成时会给原生 Squirrel 建一个本地代理服务器。mac 安装改为直替换后
+// 不再触发 Squirrel 拉流，及时关掉避免监听残留。
+function closeMacUpdaterProxyServer(): void {
+  const macUpdater = autoUpdater as unknown as { closeServerIfExists?: () => void };
+  if (typeof macUpdater.closeServerIfExists === "function") {
+    macUpdater.closeServerIfExists();
+  }
+}
+
+async function installReadyMacUpdateForDarwin(targetVersion: string): Promise<MacBundleSwapResult> {
+  return installMacUpdateBundleSwap({
+    targetVersion,
+    updateZipPath: readMacUpdateZipPath(),
+    isPackaged: app.isPackaged,
+    currentVersion: getCurrentAppVersionForUpdate(),
+    bundlePath: resolveMacAppBundlePathFromResources(process.resourcesPath),
+    execPath: process.execPath,
+  });
+}
+
+// 自然退出路径的静默安装：ready 态存在且是 darwin 时，在退出准备完成后直替换一次。
+// 失败只记日志不阻塞退出——用户下一次启动仍是旧版本，可重新走更新流程。
+// 不需要 relaunch：与旧 autoInstallOnAppQuit 行为一致（退出即安装，不拉起新版本）。
+let macQuitInstallDone = false;
+export async function installReadyMacUpdateOnAppQuit(): Promise<void> {
+  if (process.platform !== "darwin" || macQuitInstallDone) {
+    return;
+  }
+  if (menuState.kind !== "update-downloaded" || !readyUpdateVersion) {
+    return;
+  }
+  if (readyUpdateRestoredFromPendingReleaseNotes || quitAndInstallInFlight) {
+    // 恢复态要重新下载；点击路径已接管安装，这里不重复替换。
+    return;
+  }
+  macQuitInstallDone = true;
+  const targetVersion = readyUpdateVersion;
+  logger.info(`[auto-update] install ready update on app quit version=${targetVersion}`);
+  const swapResult = await installReadyMacUpdateForDarwin(targetVersion);
+  if (swapResult.ok) {
+    logger.info(`[auto-update] mac direct swap install on quit done version=${targetVersion}`);
+  } else {
+    logger.error(
+      `[auto-update] mac direct swap install on quit failed version=${targetVersion} reason=${swapResult.reason}`,
+    );
+  }
+}
+
 async function quitAndInstallUpdate(rejectUnavailable = false) {
   if (
     menuState.kind === "update-downloaded" &&
@@ -445,11 +508,24 @@ async function quitAndInstallUpdate(rejectUnavailable = false) {
   }
   quitAndInstallInFlight = true;
   logger.info("[auto-update] user requested quit and install");
-  // macOS 上 quitAndInstall() 在关窗前不会先走 app.before-quit。
-  // 如果仍然只靠 before-quit 去放行窗口 close，现有的“红绿灯关闭=隐藏窗口”逻辑会把退出拦住，
-  // 表现成点击更新后界面消失但进程没退、安装流程也不再继续。
-  // 这里先通知主进程进入“允许真正关窗”的状态，再把控制权交给 updater。
+  // macOS 直替换：在退出准备（回收 host/agent）之前完成解压、自检与重命名替换。
+  // rename 是原子操作且不影响运行中进程；放在回收之前，失败时子进程未被回收、
+  // 应用仍完整可用，可以把错误正常回给渲染层。成功后再走退出准备并带新二进制重启。
+  // 依据 docs/spec/macos-direct-swap-update.md（Squirrel requirement 校验对旧版
+  // 安装不可满足，见该文档背景一节）。
+  let darwinSwappedExecPath: string | null = null;
   try {
+    if (process.platform === "darwin") {
+      const swapResult = await installReadyMacUpdateForDarwin(readyUpdateVersion);
+      if (!swapResult.ok) {
+        throw new Error(`mac direct swap install failed: ${swapResult.reason}`);
+      }
+      darwinSwappedExecPath = swapResult.execPath;
+    }
+    // macOS 上 quitAndInstall() 在关窗前不会先走 app.before-quit。
+    // 如果仍然只靠 before-quit 去放行窗口 close，现有的“红绿灯关闭=隐藏窗口”逻辑会把退出拦住，
+    // 表现成点击更新后界面消失但进程没退、安装流程也不再继续。
+    // 这里先通知主进程进入“允许真正关窗”的状态，再把控制权交给 updater。
     // Windows 更新会替换 resources/glm 等随包资源；
     // 若 quitAndInstall 先于 host/agent 子进程完成退出，安装器可能在文件仍被占用时开始覆盖，
     // 最终留下“应用能启动但 bundled agent 丢失”的半更新状态。
@@ -473,6 +549,16 @@ async function quitAndInstallUpdate(rejectUnavailable = false) {
       // 避免点击“重启以更新”执行退出准备后停在无响应状态。
       logger.info("[auto-update] dev update install fallback: relaunch app");
       app.relaunch();
+      app.exit(0);
+      return;
+    }
+
+    if (darwinSwappedExecPath) {
+      // 替换已发生在退出准备之前；这里用替换后 bundle 的主程序重启，
+      // 不能再走 electron-updater quitAndInstall()——mac 上它会触发原生 Squirrel，
+      // 对旧版未密封安装必然复现 SQRL requirement 校验失败。
+      logger.info("[auto-update] relaunch after mac direct swap install");
+      app.relaunch({ execPath: darwinSwappedExecPath });
       app.exit(0);
       return;
     }
@@ -1505,9 +1591,25 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   // Windows/NSIS 在窗口关闭后会异步启动安装；如果用户紧接着关机，安装器可能被系统中断，
   // 留下半更新状态并导致下次启动失败。
   // 这里仅在 Windows 关闭“退出即自动安装”，要求用户显式点更新；其他平台保持原有行为，避免改动既有升级链路。
-  autoUpdater.autoInstallOnAppQuit = process.platform !== "win32";
+  // macOS 例外：MacUpdater 在 autoInstallOnAppQuit=true 时下载完成会立刻触发原生 Squirrel
+  // 暂存，而 Squirrel 用“运行中应用的 designated requirement”校验新包——旧版未密封安装的
+  // 隐式要求是 cdhash 精确匹配，任何新包都无法满足，暂存必然失败并把 ready 态清空
+  // （用户表现即“下载完弹窗直接消失”）。mac 安装由 macUpdateInstaller 直替换接管，
+  // 依据 docs/spec/macos-direct-swap-update.md。
+  autoUpdater.autoInstallOnAppQuit = process.platform !== "win32" && process.platform !== "darwin";
   autoUpdater.logger = logger;
   applyUpdateProvider(options);
+
+  if (process.platform === "darwin") {
+    const macBundlePath = resolveMacAppBundlePathFromResources(process.resourcesPath);
+    if (macBundlePath) {
+      // 上一次直替换成功后的残留（备份/暂存目录）在本次启动时回收；
+      // 能运行到这里说明替换后的应用已正常启动，备份可以安全删除。
+      void cleanupStaleMacUpdateArtifacts(macBundlePath).catch((error) => {
+        logger.warn("[auto-update] cleanup stale mac update artifacts failed:", error);
+      });
+    }
+  }
 
   const triggerCheckForUpdates = (reason: string) => {
     if (checkForUpdatesInFlight) {
@@ -1687,8 +1789,12 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
     clearAvailableUpdateState();
     clearDownloadingUpdateState();
     logger.info(
-      `[auto-update] downloaded: ${info.version}, ${process.platform === "win32" ? "waiting for explicit install" : "ready to install on quit or explicit install"}`,
+      `[auto-update] downloaded: ${info.version}, ${process.platform === "darwin" ? "ready for direct swap install on quit or explicit install" : process.platform === "win32" ? "waiting for explicit install" : "ready to install on quit or explicit install"}`,
     );
+    if (process.platform === "darwin") {
+      // mac 不再走原生 Squirrel 安装，代理服务器没有消费者，立即关闭。
+      closeMacUpdaterProxyServer();
+    }
     setAutoUpdaterMenuState(buildUpdateDownloadedState(info.version));
     notifyForceAutoUpdate({ kind: "ready", version: info.version });
 
