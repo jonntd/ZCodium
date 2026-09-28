@@ -11,13 +11,18 @@
 //
 // 远端（SSH/WSL/Docker）没有 Electron，仍走 prepare:remote-assets 的原生二进制，互不影响。
 
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { access, cp, mkdir } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "../../../scripts/spawn-command.mjs";
 import { stageAgentBundle } from "./stage-agent-bundle.mjs";
+import {
+  shouldCopyOfficialPluginAsset,
+  stageOfficialPluginPackage,
+  stageVendoredOfficialPlugins,
+} from "./stage-vendored-official-plugins.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(scriptDir, "..");
@@ -125,33 +130,6 @@ const bundledSkillPack = {
   stagedPath: "packages/bundled-skills",
   topLevelPaths: ["skills"],
 };
-const includedOfficialPluginTopLevelPaths = new Set([
-  ".mcp.json",
-  ".zcode-plugin",
-  "README.md",
-  // Electron 生产资源复制有独立白名单，遗漏 agents 会让首启 filesystem seed 永久缺少子代理。
-  "agents",
-  "commands",
-  "dist",
-  "docs",
-  "hooks",
-  "output-styles",
-  "package.json",
-  "scripts",
-  "skills",
-  "templates",
-]);
-const excludedOfficialPluginAssetNames = new Set([
-  ".DS_Store",
-  ".venv",
-  "__pycache__",
-  "node_modules",
-]);
-
-function shouldCopyOfficialPluginAsset(sourcePath) {
-  const name = basename(sourcePath);
-  return !excludedOfficialPluginAssetNames.has(name) && !name.endsWith(".pyc");
-}
 const isBootstrapWithRemote = process.env.ZCODE_BOOTSTRAP_WITH_REMOTE === "1";
 
 function buildCliBundle() {
@@ -235,31 +213,13 @@ function stageBundle() {
 
 function stageOfficialPlugins() {
   for (const plugin of officialPluginPackages) {
-    const sourceRoot = resolve(repoRoot, plugin.relativePath);
-    const manifestPath = resolve(sourceRoot, ".zcode-plugin", "plugin.json");
-    if (!existsSync(manifestPath)) {
-      throw new Error(`[prepare:agent-bundle] missing official plugin manifest: ${manifestPath}`);
-    }
-
-    const targetRoot = resolve(glmDir, plugin.stagedPath);
-    mkdirSync(targetRoot, { recursive: true });
-    for (const entryName of includedOfficialPluginTopLevelPaths) {
-      const sourcePath = resolve(sourceRoot, entryName);
-      if (!existsSync(sourcePath)) continue;
-      cpSync(sourcePath, resolve(targetRoot, entryName), {
-        recursive: true,
-        filter: shouldCopyOfficialPluginAsset,
-      });
-    }
-    for (const relativePath of plugin.requiredSeedPaths ?? []) {
-      const stagedAssetPath = resolve(targetRoot, ...relativePath.split("/"));
-      if (!existsSync(stagedAssetPath)) {
-        throw new Error(
-          `[prepare:agent-bundle] missing staged official plugin seed asset: ${stagedAssetPath}`,
-        );
-      }
-    }
-    console.log(`[prepare:agent-bundle] staged official plugin ${plugin.stagedPath}`);
+    stageOfficialPluginPackage({
+      repoRoot,
+      glmDir,
+      relativePath: plugin.relativePath,
+      stagedPath: plugin.stagedPath,
+      requiredSeedPaths: plugin.requiredSeedPaths ?? [],
+    });
   }
 }
 
@@ -291,4 +251,7 @@ buildCliBundle();
 buildOfficialPluginRuntimes();
 stageBundle();
 stageOfficialPlugins();
+// ZcodePro 合入的 12 个官方插件包（根 plugins/）是 definitions 里其余 seed 单元的唯一包源
+// （spec：docs/spec/builtin-zcodepro-plugins.md）。必须排在 stageBundle 之后：它先清空 glmDir。
+await stageVendoredOfficialPlugins({ repoRoot, platformKey });
 await stageBundledSkillPack();

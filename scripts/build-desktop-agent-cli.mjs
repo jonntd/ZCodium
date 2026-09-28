@@ -2,7 +2,14 @@ import { existsSync } from "node:fs";
 import { access } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { stageAgentBundle } from "../packages/desktop/scripts/stage-agent-bundle.mjs";
+import {
+  resolveAgentBundlePaths,
+  stageAgentBundle,
+} from "../packages/desktop/scripts/stage-agent-bundle.mjs";
+import {
+  stageOfficialPluginPackage,
+  stageVendoredOfficialPlugins,
+} from "../packages/desktop/scripts/stage-vendored-official-plugins.mjs";
 import { runCommand } from "./spawn-command.mjs";
 
 // adapters tsc 在内存受限机器上会 OOM（exit 134），给整条构建链路提高堆上限。
@@ -89,12 +96,46 @@ async function verifyRequiredDevPluginRuntimeArtifacts() {
  * 实现与打包链共用 stage-agent-bundle.mjs，两边不可能再各自漂移。
  *
  * dev 只跑宿主平台，所以 platformKey 直接取 process；打包链的跨平台 target 由它自己解析。
+ *
+ * ZcodePro 合入的 12 个官方插件包也在这里随 dev bundle 一起 stage（spec：
+ * docs/spec/builtin-zcodepro-plugins.md）：stageAgentBundle 会先清空 glmDir，插件 staging
+ * 必须跟在它后面，否则 dev 每次重建都会把上一份插件产物抹掉。
  */
-function stageDevAgentBundle() {
+async function stageDevAgentBundle() {
+  const platformKey = `${process.platform}-${process.arch}`;
   stageAgentBundle({
     repoRoot,
-    platformKey: `${process.platform}-${process.arch}`,
+    platformKey,
   });
+  await stageVendoredOfficialPlugins({ repoRoot, platformKey });
+  // browser-use / node-repl-host 的包源在 apps/zcode-cli/packages/ 下，dev 链此前从不 staging，
+  // 一直靠旧缓存分片兜底；vendored staging 重写 bundled 分片后该兜底失效，必须在每次 dev
+  // 重建时与打包链同布局补齐。node-repl-host 的 dist 是构建产物，缺失时跳过（保持旧行为，
+  // 由 bootstrap seed 侧的 requiredSeedPaths 降级）。
+  const { glmDir } = resolveAgentBundlePaths({ repoRoot, platformKey });
+  for (const plugin of [
+    {
+      relativePath: "apps/zcode-cli/packages/browser-use-plugin",
+      stagedPath: "packages/browser-use-plugin",
+      requiresBuiltRuntime: false,
+    },
+    {
+      relativePath: "apps/zcode-cli/packages/node-repl-host",
+      stagedPath: "packages/node-repl-host",
+      requiresBuiltRuntime: true,
+    },
+  ]) {
+    if (
+      plugin.requiresBuiltRuntime &&
+      !existsSync(resolve(repoRoot, plugin.relativePath, "dist", "mcp", "server.js"))
+    ) {
+      console.warn(
+        `[build-desktop-agent-cli] skip staging ${plugin.stagedPath}: runtime build output missing`,
+      );
+      continue;
+    }
+    stageOfficialPluginPackage({ repoRoot, glmDir, ...plugin });
+  }
 }
 
 async function runBootstrapWithRemoteBuild() {
@@ -137,7 +178,7 @@ async function runBootstrapWithRemoteBuild() {
 
 if (useBootstrapWithRemoteBuild) {
   await runBootstrapWithRemoteBuild();
-  stageDevAgentBundle();
+  await stageDevAgentBundle();
   process.exit(0);
 }
 
@@ -158,7 +199,7 @@ if (!useTurboBuild) {
     env: pnpmRunEnv,
     stdio: "inherit",
   });
-  stageDevAgentBundle();
+  await stageDevAgentBundle();
   process.exit(0);
 }
 
@@ -179,4 +220,4 @@ runCommand(
     stdio: "inherit",
   },
 );
-stageDevAgentBundle();
+await stageDevAgentBundle();
