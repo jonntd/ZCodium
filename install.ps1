@@ -109,11 +109,11 @@ try {
     }
   }
   $pluginMap = [ordered]@{}
-  if ($cfg['plugins']) {
+  if ($cfg['plugins'] -is [pscustomobject]) {
     foreach ($prop in $cfg['plugins'].PSObject.Properties) { $pluginMap[$prop.Name] = $prop.Value }
   }
   $enabled = [ordered]@{}
-  if ($pluginMap['enabledPlugins']) {
+  if ($pluginMap['enabledPlugins'] -is [pscustomobject]) {
     foreach ($prop in $pluginMap['enabledPlugins'].PSObject.Properties) { $enabled[$prop.Name] = $prop.Value }
   }
   $enabled['computer-use@zcode-plugins-official'] = $true
