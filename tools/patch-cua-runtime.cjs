@@ -28,6 +28,70 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { execFileSync } = require("node:child_process");
+
+// Under ELECTRON_RUN_AS_NODE the embedded Electron runtime virtualizes every
+// path containing ".asar", so the archive file itself becomes unreadable
+// through fs. Shelling out to the platform shell performs the same IO on the
+// real filesystem.
+const ASAR_VIRTUALIZED = !!process.versions.electron;
+
+function shellQuote(p) {
+  return process.platform === "win32" ? `"${p}"` : `'${p.replace(/'/g, "'\\''")}'`;
+}
+
+function shellCopy(src, dst) {
+  if (process.platform === "win32") {
+    execFileSync("cmd.exe", ["/c", "copy", "/y", src, dst], { stdio: "pipe" });
+  } else {
+    execFileSync("/bin/sh", ["-c", `cp -f ${shellQuote(src)} ${shellQuote(dst)}`]);
+  }
+}
+
+function shellMove(src, dst) {
+  if (process.platform === "win32") {
+    execFileSync("cmd.exe", ["/c", "move", "/y", src, dst], { stdio: "pipe" });
+  } else {
+    execFileSync("/bin/sh", ["-c", `mv -f ${shellQuote(src)} ${shellQuote(dst)}`]);
+  }
+}
+
+function shellExists(p) {
+  if (process.platform === "win32") {
+    try {
+      execFileSync("cmd.exe", ["/c", "if", "exist", p, "exit", "/b", "0"], { stdio: "pipe" });
+      // `if exist` falls through to exit code of the last command; probe via dir
+      execFileSync("cmd.exe", ["/c", "dir", "/b", p], { stdio: "pipe" });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  try {
+    execFileSync("/bin/sh", ["-c", `test -f ${shellQuote(p)}`]);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Read an .asar file's raw bytes, dodging Electron's virtualized fs.
+function readArchive(p) {
+  if (!ASAR_VIRTUALIZED) return fs.readFileSync(p);
+  const probe = p + ".work-read";
+  try {
+    shellCopy(p, probe);
+    return fs.readFileSync(probe);
+  } finally {
+    try {
+      fs.unlinkSync(probe);
+    } catch {}
+  }
+}
+
+function archiveExists(p) {
+  return ASAR_VIRTUALIZED ? shellExists(p) : fs.existsSync(p);
+}
 
 const STUB_MARKER = "Computer Use is not available in this build.";
 const PATCH_MARKER = "zcode-plugin:cua-runtime-bridge";
@@ -271,7 +335,7 @@ function integrityOf(buf) {
 }
 
 function patchAsar(asarPath, dryRun) {
-  const data = fs.readFileSync(asarPath);
+  const data = readArchive(asarPath);
   const J = data.readUInt32LE(12);
   const header = JSON.parse(data.subarray(16, 16 + J).toString("utf8"));
   const base = 16 + J;
@@ -325,11 +389,34 @@ function patchAsar(asarPath, dryRun) {
   const out = Buffer.concat(parts);
 
   const backup = asarPath + ".zcode-plugin.bak";
-  if (!fs.existsSync(backup)) fs.copyFileSync(asarPath, backup);
-  const tmp = asarPath + ".zcode-plugin.tmp";
-  fs.writeFileSync(tmp, out);
-  fs.renameSync(tmp, asarPath);
-  return { patched, skipped, wrote: true, backup };
+  if (!archiveExists(backup)) {
+    if (ASAR_VIRTUALIZED) shellCopy(asarPath, backup);
+    else fs.copyFileSync(asarPath, backup);
+  }
+  let deferredMove = false;
+  if (ASAR_VIRTUALIZED) {
+    // This process itself holds app.asar open (ELECTRON_RUN_AS_NODE), so the
+    // final swap must run after we exit. Stage the archive and hand the move
+    // to a detached shell with a short delay.
+    const staged = path.join(path.dirname(asarPath), "app.work-staged");
+    fs.writeFileSync(staged, out);
+    const { spawn } = require("node:child_process");
+    if (process.platform === "win32") {
+      spawn("cmd.exe", ["/c", "ping", "-n", "3", "127.0.0.1", ">nul", "&", "move", "/y", staged, asarPath], {
+        detached: true,
+        stdio: "ignore",
+      }).unref();
+    } else {
+      spawn("/bin/sh", ["-c", `sleep 2 && mv -f ${shellQuote(staged)} ${shellQuote(asarPath)}`], {
+        detached: true,
+        stdio: "ignore",
+      }).unref();
+    }
+    deferredMove = true;
+  } else {
+    fs.writeFileSync(asarPath, out);
+  }
+  return { patched, skipped, wrote: true, deferredMove, backup };
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +540,7 @@ function main() {
       console.log(`[cua-patch] app.asar: bridged ${r.patched.length} stub chunk(s):`);
       for (const p of r.patched) console.log(`            ${p}`);
       if (r.wrote) console.log(`            backup: ${r.backup}`);
+      if (r.deferredMove) console.log("            (archive swap runs when this process exits)");
     } else if (skippedNonEmpty(r)) {
       console.log("[cua-patch] app.asar: already patched");
     } else {
