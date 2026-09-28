@@ -61,6 +61,11 @@
     ".agents/skills",
     "packages/formal-proof",
     "apps/zcode-cli",
-    "docs/electron"
+    "docs/electron",
+    // ZcodePro 插件市场仓库（zcodepro/main）合入的外部 vendor 内容，按上游原样维护：
+    // 其脚本大量使用顶层 require/throw、且含 dist 产物，套用本仓库规则只会误报。
+    "plugins",
+    "runtimes",
+    "tools"
   ]
 }
