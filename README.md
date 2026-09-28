@@ -1,4 +1,4 @@
-# zcode-plugin
+# ZcodePro
 
 Official ZCode plugin packages for the open-source ZCode build.
 
@@ -48,8 +48,8 @@ installer scripts copy the plugins into exactly that layout.
 ### Installed app on Windows
 
 ```powershell
-git clone https://github.com/luxi233/zcode-plugin
-cd zcode-plugin
+git clone https://github.com/luxi233/ZcodePro
+cd ZcodePro
 .\install.ps1                 # auto-detects the install directory
 # or: .\install.ps1 -InstallDir D:\Apps\ZCode
 ```
@@ -79,8 +79,8 @@ marketplace; the "Computer Use / 电脑控制" toggle shows up in Settings.
 ### Installed app on macOS
 
 ```bash
-git clone https://github.com/luxi233/zcode-plugin
-cd zcode-plugin
+git clone https://github.com/luxi233/ZcodePro
+cd ZcodePro
 ./install.sh                    # auto-detects /Applications/ZCode.app
 # or: ./install.sh /path/to/ZCode.app
 ```
@@ -160,7 +160,7 @@ This repository is also a standard ZCode plugin marketplace and can be added
 directly:
 
 ```bash
-zcode plugins marketplace add luxi233/zcode-plugin
+zcode plugins marketplace add luxi233/ZcodePro
 zcode plugins install documents@zcode-plugins
 ```
 

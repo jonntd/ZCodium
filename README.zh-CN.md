@@ -1,4 +1,4 @@
-# zcode-plugin
+# ZcodePro
 
 面向开源版 ZCode 的官方插件补齐包。
 
@@ -45,8 +45,8 @@ ZCode 启动时会从应用入口旁的 `packages` 目录（`resources/glm/zcode
 ### Windows 已安装版本
 
 ```powershell
-git clone https://github.com/luxi233/zcode-plugin
-cd zcode-plugin
+git clone https://github.com/luxi233/ZcodePro
+cd ZcodePro
 .\install.ps1                 # 自动探测安装目录
 # 或: .\install.ps1 -InstallDir D:\Apps\ZCode
 ```
@@ -72,8 +72,8 @@ cd zcode-plugin
 ### macOS 已安装版本
 
 ```bash
-git clone https://github.com/luxi233/zcode-plugin
-cd zcode-plugin
+git clone https://github.com/luxi233/ZcodePro
+cd ZcodePro
 ./install.sh                    # 自动探测 /Applications/ZCode.app
 # 或: ./install.sh /path/to/ZCode.app
 ```
@@ -140,7 +140,7 @@ ZCODE_CUA_DEV_MODE=1
 本仓库同时也是一个标准 ZCode 插件市场，可以直接添加：
 
 ```bash
-zcode plugins marketplace add luxi233/zcode-plugin
+zcode plugins marketplace add luxi233/ZcodePro
 zcode plugins install documents@zcode-plugins
 ```
 
