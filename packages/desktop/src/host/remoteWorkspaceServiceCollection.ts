@@ -35,6 +35,9 @@ import {
   IMemoryService,
   ISettingsSyncService,
   IPromptAttachmentTransferService,
+  IPromptAssistService,
+  PromptEnhanceGenerator,
+  createPromptAssistService,
   type IServiceAccessor,
 } from "@zcode/services";
 import {
@@ -320,6 +323,30 @@ export function createRemoteWorkspaceServiceCollection(params: {
   // 没有桌面 renderer 那层 `baseServices + remoteServices` 合并。
   // 因此这里为 remote workspace host 补齐本地全局 channel；文件、终端、ZCode Agent 仍来自远端，
   // 设置、凭据、OAuth、模型供应商和 settings-sync 继续读写本机配置。
+  // 提示词增强跟随远端 Environment 的模型选择（与本地 node.ts 装配同构）。
+  const promptEnhanceGenerator = new PromptEnhanceGenerator({
+    currentModelProvider: {
+      async readCurrentModel() {
+        return (
+          (await params.connectionServices.modelSelectionService.getView()).preferredSelection ??
+          null
+        );
+      },
+    },
+    textGenerator: {
+      async generateText(textParams) {
+        return await params.connectionServices.zcodeAgentService.generateWorkspaceText({
+          workspacePath: textParams.workspacePath,
+          ...(textParams.workspaceIdentity
+            ? { workspaceIdentity: textParams.workspaceIdentity }
+            : {}),
+          selection: textParams.selection,
+          messages: textParams.messages,
+          querySource: textParams.querySource,
+        });
+      },
+    },
+  });
   const services = new ServiceCollection()
     .register(IFileService, params.connectionServices.fileService)
     .register(IGitService, params.connectionServices.gitService)
@@ -387,7 +414,8 @@ export function createRemoteWorkspaceServiceCollection(params: {
       ISettingsSyncService,
       createSettingsSyncService({ settingService: localSettingService }),
     )
-    .register(IPromptAttachmentTransferService, params.promptAttachmentTransferService);
+    .register(IPromptAttachmentTransferService, params.promptAttachmentTransferService)
+    .register(IPromptAssistService, createPromptAssistService({ promptEnhanceGenerator }));
   registerHostApiNetworkTransportForDispose(services, hostApiNetworkTransport);
   registerRemoteProviderProvisioningExecutor(services, remoteProviderProvisioningService);
   return services;

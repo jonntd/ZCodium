@@ -27,6 +27,8 @@ async function applyFileRewind(
   const result = await record.app.runtime.applyWorkspaceFileRewind({
     targetMessageIds,
     ...(targetTurnId ? { targetTurnId } : {}),
+    // 按文件撤销（docs/spec/per-file-rewind.md）：缺席 = 整轮撤销。
+    ...(payload.paths?.length ? { paths: payload.paths } : {}),
   });
   return {
     type: "applyFileRewind",

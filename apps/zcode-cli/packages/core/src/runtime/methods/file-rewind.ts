@@ -44,7 +44,11 @@ type FileCheckpointOperation = {
   artifact: WorkspaceCheckpointArtifact;
   beforeContent: string | null;
   checkpoint: CheckpointCreatedPayload;
+  // 绝对路径：FileSystemPort / 计划模拟使用。
   path: string;
+  // artifact 原始路径（模型传入的工作区相对/绝对路径）：RewindTriggered.files 与
+  // fileChanges items 的 path 同形，UI 按它做「已撤销」比对。
+  rawPath: string;
   toolName: string;
 };
 
@@ -61,6 +65,10 @@ interface FileAggregate {
   action: "restore" | "delete";
   operationCount: number;
   path: string;
+  // 对外暴露 artifact 原始路径：preview 结果必须与 fileChanges items、
+  // RewindTriggered.files 同形，UI 才能跨数据源做「已撤销」徽标与单文件
+  // 预选的精确匹配（绝对路径属于 core 内部 FileSystemPort 细节）。
+  rawPath: string;
   toolNames: Set<string>;
   unsafe?: {
     currentHash?: string;
@@ -73,6 +81,7 @@ interface FileAggregate {
 interface IgnoredFileAggregate {
   operationCount: number;
   path: string;
+  rawPath: string;
   toolNames: Set<string>;
 }
 
@@ -85,6 +94,8 @@ export async function previewWorkspaceFileRewind(
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
+    /** 按文件撤销：只计划这些路径（相对/绝对均可，按 workspace root 归一）。 */
+    paths?: readonly string[];
   } = {},
 ): Promise<WorkspaceFileRewindPreview> {
   const plan = await buildWorkspaceFileRewindPlan.call(this, options);
@@ -100,6 +111,8 @@ export async function applyWorkspaceFileRewind(
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
+    /** 按文件撤销：只还原这些路径；缺席 = 整轮撤销（现状语义）。 */
+    paths?: readonly string[];
     /** 组合 rewind 的提交闸：文件全部写成功后、workspace event 发布前提交 branch cut。 */
     commitAfterApply?: () => Promise<void>;
   } = {},
@@ -216,6 +229,9 @@ export async function applyWorkspaceFileRewind(
   const lastOperation = plan.operations.at(-1);
   const targetMessageId = options.targetMessageId ?? options.targetMessageIds?.[0];
   const rewindId = `rewind_${crypto.randomUUID()}`;
+  // 按文件撤销时在事件里记录撤销的 artifact 原始路径：投影靠它维护 fileChanges
+  // 的 per-file 撤销账本（revertedPaths），文件摘要查询与 UI 按同形路径比对。
+  const rewoundRawPaths = [...new Set(plan.operations.map((operation) => operation.rawPath))].sort();
   const event = this.createEvent(
     SessionEventType.RewindTriggered,
     {
@@ -226,6 +242,7 @@ export async function applyWorkspaceFileRewind(
       targetCheckpointId: lastOperation?.checkpoint.checkpointId,
       restoredSnapshotRef: lastOperation?.checkpoint.snapshotRef,
       reason: "file_summary_rewind",
+      ...(options.paths?.length ? { files: rewoundRawPaths } : {}),
     },
     traceContext,
   );
@@ -283,6 +300,7 @@ async function buildWorkspaceFileRewindPlan(
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
+    paths?: readonly string[];
   },
 ): Promise<WorkspaceFileRewindPlan> {
   const traceContext =
@@ -292,6 +310,7 @@ async function buildWorkspaceFileRewindPlan(
       canApply: false,
       ignoredFiles: [],
       operations: [],
+      revertedPaths: [],
       safeFiles: [],
       unsafeFiles: [
         {
@@ -318,10 +337,31 @@ async function buildWorkspaceFileRewindPlan(
       canApply: false,
       ignoredFiles: [],
       operations: [],
+      revertedPaths: [],
       safeFiles: [],
       unsafeFiles: [],
     };
   }
+
+  // 按文件撤销（docs/spec/per-file-rewind.md）：
+  // - priorRewindPaths = 本轮此前 file_summary_rewind 已撤销的 artifact 原始路径，
+  //   这些文件已处于还原后状态，必须整体排除，否则 hash 预检会把它们误判
+  //   external_modified，剩余文件也无法继续撤销（多窗口/迟到订阅同理）。
+  // - requestedPaths = 命令指定的子集（相对/绝对均可，按 workspace root 归一）；
+  //   安全性裁决只针对子集，未选中文件的不安全状态不再阻断。
+  const priorRewindPaths = collectPriorFileSummaryRewindPaths(events, {
+    targetMessageId: options.targetMessageId,
+    targetMessageIds: options.targetMessageIds,
+    targetTurnId: options.targetTurnId,
+  });
+  const excludedPaths = new Set(
+    priorRewindPaths.map((rawPath) => resolveCheckpointFilePath(this.workspaceRoot, rawPath)),
+  );
+  const requestedPaths = options.paths?.length
+    ? new Set(options.paths.map((path) => resolveCheckpointFilePath(this.workspaceRoot, path)))
+    : undefined;
+  const isPathSelected = (path: string): boolean =>
+    !excludedPaths.has(path) && (!requestedPaths || requestedPaths.has(path));
 
   const artifacts: Array<{
     artifact: WorkspaceCheckpointArtifact;
@@ -361,11 +401,9 @@ async function buildWorkspaceFileRewindPlan(
   for (const { artifact, checkpoint } of artifacts) {
     if (isIgnoredShellTool(artifact.toolName)) {
       for (const file of artifact.files) {
-        addIgnoredFile(
-          ignoredByPath,
-          resolveCheckpointFilePath(this.workspaceRoot, file.path),
-          artifact.toolName,
-        );
+        const filePath = resolveCheckpointFilePath(this.workspaceRoot, file.path);
+        if (!isPathSelected(filePath)) continue;
+        addIgnoredFile(ignoredByPath, filePath, file.path, artifact.toolName);
       }
       continue;
     }
@@ -375,11 +413,13 @@ async function buildWorkspaceFileRewindPlan(
       // FileSystemPort 只接受绝对路径。若不在计划阶段按 runtime workspace root
       // 解析，安全文件会被误报 file_read_failed，组合 rewind 只返回 blocked。
       const filePath = resolveCheckpointFilePath(this.workspaceRoot, file.path);
+      if (!isPathSelected(filePath)) continue;
       const afterContent = resolveCheckpointAfterContent(file);
       if (afterContent === undefined) {
         markUnsafe(unsupportedByPath, {
           action: file.existedBefore && file.beforeContent !== null ? "restore" : "delete",
           path: filePath,
+          rawPath: file.path,
           reason: "unsupported_checkpoint",
           toolName: artifact.toolName,
         });
@@ -393,6 +433,7 @@ async function buildWorkspaceFileRewindPlan(
         beforeContent: file.beforeContent,
         checkpoint,
         path: filePath,
+        rawPath: file.path,
         toolName: artifact.toolName,
       });
     }
@@ -422,6 +463,7 @@ async function buildWorkspaceFileRewindPlan(
         action: operation.action,
         message: currentState.message,
         path: operation.path,
+        rawPath: operation.rawPath,
         reason: currentState.reason,
         toolName: operation.toolName,
       });
@@ -435,6 +477,7 @@ async function buildWorkspaceFileRewindPlan(
         currentHash: currentState.hash ?? "missing",
         expectedHash,
         path: operation.path,
+        rawPath: operation.rawPath,
         reason: "external_modified",
         toolName: operation.toolName,
       });
@@ -468,9 +511,60 @@ async function buildWorkspaceFileRewindPlan(
     canApply: safeFiles.length > 0 && unsafeFiles.length === 0,
     ignoredFiles,
     operations: unsafeFiles.length === 0 ? applyOperations : [],
+    revertedPaths: [...priorRewindPaths].sort(compareStrings),
     safeFiles,
     unsafeFiles,
   };
+}
+
+/**
+ * 收集本轮此前按文件撤销（file_summary_rewind + files）已还原的 artifact 原始路径。
+ * 这些文件已处于 before 状态且不再属于本轮 active 改动，计划阶段必须排除，
+ * 否则 hash 预检误报 external_modified，剩余文件也无法继续撤销。
+ */
+function collectPriorFileSummaryRewindPaths(
+  events: Parameters<typeof selectCheckpointForRewind>[0],
+  target: {
+    targetMessageId?: MessageId;
+    targetMessageIds?: MessageId[];
+    targetTurnId?: TurnId;
+  },
+): string[] {
+  const targetMessageIds =
+    target.targetMessageIds && target.targetMessageIds.length > 0
+      ? target.targetMessageIds
+      : target.targetMessageId
+        ? [target.targetMessageId]
+        : [];
+  const messageIdSet = new Set(targetMessageIds.map((messageId) => String(messageId)));
+  const paths = new Set<string>();
+  for (const event of events) {
+    if (event.type !== SessionEventType.RewindTriggered) continue;
+    const payload = event.payload as {
+      scope?: string;
+      reason?: string;
+      targetMessageId?: string;
+      files?: unknown;
+    };
+    if (payload.scope !== RewindScope.Workspace || payload.reason !== "file_summary_rewind") {
+      continue;
+    }
+    const matchesMessage =
+      payload.targetMessageId !== undefined && messageIdSet.has(String(payload.targetMessageId));
+    // 普通轮可用事件 turnId 兜底；split product turn（带 "~"）不做 turnId 匹配，
+    // 与 resolveTargetCheckpoints 的防串轮约束一致。
+    const matchesTurn =
+      target.targetTurnId !== undefined &&
+      !String(target.targetTurnId).includes("~") &&
+      event.turnId !== undefined &&
+      String(event.turnId) === String(target.targetTurnId);
+    if (!matchesMessage && !matchesTurn) continue;
+    if (!Array.isArray(payload.files)) continue;
+    for (const file of payload.files) {
+      if (typeof file === "string" && file.length > 0) paths.add(file);
+    }
+  }
+  return [...paths];
 }
 
 function resolveCheckpointFilePath(workspaceRoot: string, path: string): string {
@@ -610,6 +704,7 @@ function ensureFileAggregate(
     action: operation.action,
     operationCount: 0,
     path: operation.path,
+    rawPath: operation.rawPath,
     toolNames: new Set(),
   };
   aggregates.set(operation.path, aggregate);
@@ -624,6 +719,7 @@ function markUnsafe(
     expectedHash?: string;
     message?: string;
     path: string;
+    rawPath: string;
     reason: WorkspaceFileRewindUnsafeReason;
     toolName: string;
   },
@@ -645,6 +741,7 @@ function markUnsafe(
     action: input.action,
     operationCount: 1,
     path: input.path,
+    rawPath: input.rawPath,
     toolNames: new Set([input.toolName]),
     unsafe: {
       currentHash: input.currentHash,
@@ -658,6 +755,7 @@ function markUnsafe(
 function addIgnoredFile(
   aggregates: Map<string, IgnoredFileAggregate>,
   path: string,
+  rawPath: string,
   toolName: string,
 ): void {
   const existing = aggregates.get(path);
@@ -669,6 +767,7 @@ function addIgnoredFile(
   aggregates.set(path, {
     operationCount: 1,
     path,
+    rawPath,
     toolNames: new Set([toolName]),
   });
 }
@@ -677,7 +776,7 @@ function toSafeFile(file: FileAggregate): WorkspaceFileRewindSafeFile {
   return {
     action: file.action,
     operationCount: file.operationCount,
-    path: file.path,
+    path: file.rawPath,
     toolNames: Array.from(file.toolNames).sort(),
   };
 }
@@ -685,7 +784,7 @@ function toSafeFile(file: FileAggregate): WorkspaceFileRewindSafeFile {
 function toUnsafeFile(file: FileAggregate): WorkspaceFileRewindUnsafeFile {
   return {
     operationCount: file.operationCount,
-    path: file.path,
+    path: file.rawPath,
     reason: file.unsafe?.reason ?? "unsupported_checkpoint",
     toolNames: Array.from(file.toolNames).sort(),
     ...(file.unsafe?.message ? { message: file.unsafe.message } : {}),
@@ -697,7 +796,7 @@ function toUnsafeFile(file: FileAggregate): WorkspaceFileRewindUnsafeFile {
 function toIgnoredFile(file: IgnoredFileAggregate): WorkspaceFileRewindIgnoredFile {
   return {
     operationCount: file.operationCount,
-    path: file.path,
+    path: file.rawPath,
     reason: "bash_ignored",
     toolNames: Array.from(file.toolNames).sort(),
   };
@@ -707,10 +806,15 @@ function compareByPath<T extends { path: string }>(left: T, right: T): number {
   return left.path.localeCompare(right.path);
 }
 
+function compareStrings(left: string, right: string): number {
+  return left.localeCompare(right);
+}
+
 function toPreview(plan: WorkspaceFileRewindPlan): WorkspaceFileRewindPreview {
   return {
     canApply: plan.canApply,
     ignoredFiles: plan.ignoredFiles,
+    revertedPaths: plan.revertedPaths,
     safeFiles: plan.safeFiles,
     unsafeFiles: plan.unsafeFiles,
   };

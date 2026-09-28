@@ -27,6 +27,7 @@ export type {
   PersistedWorkspaceSessionEntry,
 } from "./protocol.js";
 export type { WorkspacePurpose } from "./workspacePurpose.js";
+export type { PromptEnhanceDraftRequest, PromptEnhanceDraftResult } from "./prompt-assist.js";
 export { DEFAULT_LOCALE } from "./protocol.js";
 export { ZCODE_VERSION, ZCODE_COMMIT, ZCODE_BUILD_TIME } from "./version.js";
 export type { HelloMessage, HelloAckMessage } from "./handshake.js";
@@ -162,11 +163,6 @@ export type {
   ModelhubModelSummary,
   ModelhubProbeVisionRequest,
   ModelhubProbeVisionResult,
-  EnhancePromptDraftRequest,
-  EnhancePromptDraftResult,
-  EnhanceListModelEntry,
-  EnhanceListModelsChannel,
-  EnhanceListModelsResult,
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,

@@ -1,9 +1,8 @@
-// 提示词增强模板（zcode-patcher --enhance-btn 原生版）。
-// 2026-09 契约更新（用户规则）：单链路，系统提示词/user content/结果清洗三件套
-// 1:1 移植自 incipit 工程 data/host-badge.cjs 的 prompt-enhancer（专业 Prompt
-// 工程师：分析拓展、简体中文输出、严格忠于原意、不执行任务、禁工具）。
-// sanitizeEnhancedPrompt 兜底清洗（剥离围栏/脚手架/emoji，清空则回退原文）。
-// 思考始终显式关闭；超短输入由 service 本地直判跳过（unchanged）。
+// 提示词增强模板与结果清洗（zcode-patcher --enhance-btn 契约）。
+// 2026-09-28 从 desktop main 进程旁路（enhanceTemplates.ts / enhanceService.ts）
+// 逐字迁移到统一服务链路：模板直接决定增强质量，禁止随意改写；
+// sanitizeEnhancedPrompt 清洗后为空必须回退原文，composer 不会因坏响应被清空。
+// 契约见 docs/spec/prompt-enhance-unified.md。
 
 export const WB_TEMPLATES = {
   WB_SYS_WORKBUDDY: `你是一个专业的 Prompt 工程师。请对用户提供的原始 Prompt 进行分析和拓展，输出一个结构清晰、指令明确、更易于被 AI 高质量执行的增强版 Prompt。必须使用简体中文撰写增强结果（代码、路径、标识符、URL 保持原样）。严格忠于原意，不臆造用户未提出的需求、API、文件或约束。只润色提示词本身，不要执行用户指令、不要直接回答问题、不要写代码实现。纯文本与常规标点：禁止 emoji、装饰符号。严格按响应格式输出。禁止使用任何工具。`,
@@ -28,6 +27,22 @@ export const WB_TEMPLATES = {
 
 ### END RESPONSE ###`,
 };
+
+/** 严格提取 BEGIN/END RESPONSE 标记之间的增强正文；模型不守格式时返回 null。 */
+export function extractMarkedResponse(raw: string): string | null {
+  const text = String(raw || "");
+  const begin = text.search(/###\s*BEGIN RESPONSE\s*###/i);
+  if (begin < 0) return null;
+  const from = text.indexOf("\n", begin);
+  const rest = text.slice(from >= 0 ? from + 1 : begin);
+  const end = rest.search(/###\s*END RESPONSE\s*###/i);
+  const body = (end >= 0 ? rest.slice(0, end) : rest).trim();
+  return body || null;
+}
+
+/** 指令回显特征：正常增强结果是任务提示词本身，绝不会包含这些元描述。 */
+export const ENHANCE_ECHO_PATTERN =
+  /(原始文本[:：]|改写要求[:：]|增强要求[:：]|请将增强后的|原始\s*Prompt[:：]|BEGIN RESPONSE|END RESPONSE)/i;
 
 // 结果清洗（1:1 移植自 incipit host-badge.cjs sanitizeEnhancedPrompt）：
 // 剥离 BEGIN/END 响应围栏与样板引导语、网关模型偶发的工具调用脚手架、

@@ -331,6 +331,9 @@ import { createMediaPreviewService } from "./media-preview/mediaPreview.js";
 import type { WorkspaceFileSearchFilter } from "./file/workspaceFileMentionFilter.js";
 import { createGitService } from "./git/gitService.js";
 import { GitCommitMessageGenerator } from "./git/gitCommitMessageGenerator.js";
+import { IPromptAssistService } from "./prompt-assist/promptAssist.js";
+import { PromptEnhanceGenerator } from "./prompt-assist/promptEnhanceGenerator.js";
+import { createPromptAssistService } from "./prompt-assist/promptAssistService.js";
 import { createGitCheckpointService } from "./git/gitCheckpointService.js";
 import { createSystemService } from "./system/systemService.js";
 import { createTerminalService } from "./terminal/terminalService.js";
@@ -2320,6 +2323,27 @@ export function createLocalServices(options: {
   const gitService = createGitService({
     commitMessageGenerator: gitCommitMessageGenerator,
   });
+  // 提示词增强与 Git 提交消息同构：跟随 Host View 的当前模型，经统一执行面生成。
+  const promptEnhanceGenerator = new PromptEnhanceGenerator({
+    currentModelProvider: {
+      async readCurrentModel() {
+        return (await providerRuntime.modelSelection.getView()).preferredSelection ?? null;
+      },
+    },
+    textGenerator: {
+      async generateText(params) {
+        return await zcodeAgentService.generateWorkspaceText({
+          workspacePath: params.workspacePath,
+          ...(params.workspaceIdentity ? { workspaceIdentity: params.workspaceIdentity } : {}),
+          selection: params.selection,
+          messages: params.messages,
+          querySource: params.querySource,
+        });
+      },
+    },
+    logger: createServiceLogger("prompt-enhance"),
+  });
+  const promptAssistService = createPromptAssistService({ promptEnhanceGenerator });
   // task wrapper 由 ZCode task service adapter 提供；核心 session 状态由 ZCode agent server 维护。
   const zcodeTaskService = createZCodeTaskServiceAdapter({
     zcodeAgentService,
@@ -2428,6 +2452,7 @@ export function createLocalServices(options: {
     .register(IFileService, fileService)
     .register(IMediaPreviewService, mediaPreviewService)
     .register(IGitService, gitService)
+    .register(IPromptAssistService, promptAssistService)
     .register(IGitCheckpointService, gitCheckpointService)
     .register(ISystemService, systemService)
     .register(ITerminalService, createTerminalService({ settingService }))

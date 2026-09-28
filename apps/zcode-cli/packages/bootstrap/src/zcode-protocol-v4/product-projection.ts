@@ -1740,6 +1740,7 @@ export class ProductProjection {
       branchGeneration?: number;
       createdMessageId?: string;
       reason?: string;
+      files?: unknown;
     };
     if (payload.scope === "workspace" && payload.reason === "file_summary_rewind") {
       const targetMessageId = payload.targetMessageId;
@@ -1751,6 +1752,30 @@ export class ProductProjection {
       const headerRowId = this.turnHeaderRowIdByTurnId.get(targetRow.turnId);
       const headerRow = headerRowId !== undefined ? this.findRow(headerRowId) : undefined;
       if (headerRow?.kind !== "turnHeader" || !headerRow.fileChanges) return [];
+      // 按文件撤销（docs/spec/per-file-rewind.md）：files 在场时维护 per-file 撤销
+      // 账本，覆盖全部文件才翻 reverted；缺席（旧事件 / 整轮撤销）保持现状语义。
+      const rewoundFiles = Array.isArray(payload.files)
+        ? payload.files.filter(
+            (file): file is string => typeof file === "string" && file.length > 0,
+          )
+        : null;
+      if (rewoundFiles === null) {
+        return [
+          {
+            op: "row.upserted",
+            row: {
+              ...headerRow,
+              fileChanges: {
+                ...headerRow.fileChanges,
+                state: "reverted",
+              },
+            },
+          },
+        ];
+      }
+      const revertedPaths = [
+        ...new Set([...(headerRow.fileChanges.revertedPaths ?? []), ...rewoundFiles]),
+      ].sort((left, right) => left.localeCompare(right));
       return [
         {
           op: "row.upserted",
@@ -1758,7 +1783,9 @@ export class ProductProjection {
             ...headerRow,
             fileChanges: {
               ...headerRow.fileChanges,
-              state: "reverted",
+              state:
+                revertedPaths.length >= headerRow.fileChanges.files ? "reverted" : "active",
+              revertedPaths,
             },
           },
         },

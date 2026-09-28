@@ -150,7 +150,12 @@ export const commandPayloadSchemas = {
   compact: z.object({}),
   // running 时对稳定 assistant row 可用。
   forkAssistant: z.object({ target: conversationRowTargetSchema }),
-  applyFileRewind: z.object({ target: conversationRowTargetSchema }),
+  // 按文件撤销（docs/spec/per-file-rewind.md）：paths 给出本轮内要撤销的文件路径
+  // （artifact 原始相对路径或绝对路径均可，core 按 workspace root 归一）；缺席 = 整轮撤销。
+  applyFileRewind: z.object({
+    target: conversationRowTargetSchema,
+    paths: z.array(z.string().min(1)).max(500).optional(),
+  }),
   editUserQuery: z.object({
     target: conversationRowTargetSchema,
     newText: z.string(),

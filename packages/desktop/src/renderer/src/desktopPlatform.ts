@@ -19,17 +19,6 @@ export function createDesktopPlatform(options: {
     modelhubProbeVision: (payload) =>
       window.zcode.modelhubProbeVision?.(payload) ??
       Promise.resolve({ ok: false, error: "modelhub requires a desktop host" }),
-    enhancePromptDraft: (payload) =>
-      window.zcode.enhancePromptDraft?.(payload) ??
-      Promise.resolve({ ok: false, error: "enhance requires a desktop host" }),
-    enhanceListModels: () =>
-      window.zcode.enhanceListModels?.() ??
-      Promise.resolve({
-        ok: false,
-        selected: "",
-        channels: [],
-        error: "enhance requires a desktop host",
-      }),
     onRemoteConnectionLog: (handler) => window.zcode.onRemoteConnectionLog(handler),
     onRemoteSessionClosed: (handler) => window.zcode.onRemoteSessionClosed(handler),
     onBotRemoteWorkspaceReconnected: (handler) =>

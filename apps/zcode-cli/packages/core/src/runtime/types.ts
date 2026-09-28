@@ -608,6 +608,9 @@ export interface WorkspaceFileRewindIgnoredFile {
 export interface WorkspaceFileRewindPreview {
   canApply: boolean;
   ignoredFiles: WorkspaceFileRewindIgnoredFile[];
+  // 按文件撤销（docs/spec/per-file-rewind.md）：预览时排除的「此前已撤销」路径，
+  // artifact 原始路径形态，与 fileChanges items 的 path 同形。
+  revertedPaths?: string[];
   safeFiles: WorkspaceFileRewindSafeFile[];
   unsafeFiles: WorkspaceFileRewindUnsafeFile[];
 }

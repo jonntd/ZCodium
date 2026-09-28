@@ -36,9 +36,6 @@ import type {
   ModelhubFetchModelsResult,
   ModelhubProbeVisionRequest,
   ModelhubProbeVisionResult,
-  EnhancePromptDraftRequest,
-  EnhancePromptDraftResult,
-  EnhanceListModelsResult,
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,
@@ -140,6 +137,8 @@ export const ServiceChannels = {
   Feedback: "feedback",
   /** Composer 附件在 host-local 与 remote runtime 之间的预传服务 */
   PromptAttachmentTransfer: "prompt-attachment-transfer",
+  /** Composer 提示词增强等文本辅助服务（统一链路，走 Agent runtime） */
+  PromptAssist: "prompt-assist",
   /** 闲时任务管理服务（与 automation 服务面独立） */
   OffPeakTask: "off-peak-task",
   /** Onboarding 完成记录服务（本地持久化，后续上传服务器） */
@@ -166,10 +165,6 @@ export const PlatformChannels = {
   ModelhubFetchModels: "zcode:modelhub-fetch-models",
   /** Renderer → Main：探测模型视觉能力（modelhub，main 侧发送 1x1 图片） */
   ModelhubProbeVision: "zcode:modelhub-probe-vision",
-  /** Renderer → Main：按用户渠道配置改写提示词草稿（增强按钮） */
-  EnhanceRun: "zcode:enhance-run",
-  /** Renderer → Main：列出可用于提示词增强的渠道与模型 */
-  EnhanceListModels: "zcode:enhance-list-models",
   /** Renderer → Main：通过原生另存为对话框保存文件 */
   SaveFile: "zcode:save-file",
   /** Renderer → Main：用 Chromium 打印引擎把当前页面 print 媒体版面导出为 PDF */
@@ -668,14 +663,6 @@ export interface PlatformChannelMap {
   [PlatformChannels.ModelhubProbeVision]: {
     request: ModelhubProbeVisionRequest;
     response: ModelhubProbeVisionResult;
-  };
-  [PlatformChannels.EnhanceRun]: {
-    request: EnhancePromptDraftRequest;
-    response: EnhancePromptDraftResult;
-  };
-  [PlatformChannels.EnhanceListModels]: {
-    request: void;
-    response: EnhanceListModelsResult;
   };
   [PlatformChannels.SaveFile]: {
     request: SaveFileRequest;

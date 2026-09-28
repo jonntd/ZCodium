@@ -299,48 +299,6 @@ export interface ModelhubProbeVisionResult {
   status?: number;
 }
 
-/** zcode-patcher 提示词增强：main 进程按用户已配置的渠道改写 composer 草稿。 */
-export interface EnhancePromptDraftRequest {
-  text: string;
-  /** 指定渠道 id + 模型 id；缺省时 main 侧按评分选择当前可用渠道 */
-  channel?: string;
-  model?: string;
-}
-
-export interface EnhancePromptDraftResult {
-  ok: boolean;
-  text?: string;
-  model?: string;
-  channel?: string;
-  error?: string;
-  /** 独立链路命中：输入不适合改写，text 为原文透传（渲染层保留草稿并提示）。 */
-  unchanged?: boolean;
-}
-
-export interface EnhanceListModelEntry {
-  id: string;
-  priority: number;
-}
-
-export interface EnhanceListModelsChannel {
-  id: string;
-  /** 渠道显示名（config provider.name）；UI 用它替代裸 id。 */
-  name: string;
-  kind: string;
-  score: number;
-  selected: boolean;
-  hasKey: boolean;
-  models: EnhanceListModelEntry[];
-}
-
-export interface EnhanceListModelsResult {
-  ok: boolean;
-  selected: string;
-  channels: EnhanceListModelsChannel[];
-  manual?: { model: string; kind: string } | null;
-  error?: string;
-}
-
 export interface PrintPageToPdfResult {
   success: boolean;
   /** PDF 字节；success 时存在 */
@@ -647,15 +605,6 @@ export interface IPlatformService {
 
   /** 模型视觉能力探测（modelhub）：main 进程发送 1x1 图片按响应判定；Web 端不实现。 */
   modelhubProbeVision?(payload: ModelhubProbeVisionRequest): Promise<ModelhubProbeVisionResult>;
-
-  /**
-   * 提示词增强（zcode-patcher --enhance-btn 原生版）：main 进程读取用户渠道配置与
-   * 凭据，用渠道模型改写 composer 草稿；Web 端不实现。
-   */
-  enhancePromptDraft?(payload: EnhancePromptDraftRequest): Promise<EnhancePromptDraftResult>;
-
-  /** 列出可用于提示词增强的渠道与模型（按可用性评分排序）；Web 端不实现。 */
-  enhanceListModels?(): Promise<EnhanceListModelsResult>;
 
   /** 订阅当前窗口内远程连接过程日志，返回 disposer */
   onRemoteConnectionLog(handler: (entry: RemoteConnectionRuntimeLog) => void): () => void;

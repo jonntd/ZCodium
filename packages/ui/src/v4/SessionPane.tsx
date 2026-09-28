@@ -1404,6 +1404,8 @@ export function SessionPane({
         options.cachePolicy === "in-flight"
           ? current.revision
           : (options.fileChangesState ?? "unknown"),
+        // 按文件撤销后 state 仍是 active（剩余文件可继续撤销），缓存随撤销账本失效。
+        options.cachePolicy === "in-flight" ? null : (options.revertedRevision ?? null),
         target.rowId,
         target.entityId,
       ]);
@@ -1483,14 +1485,15 @@ export function SessionPane({
   );
 
   const handleApplyFileRewind = useCallback(
-    (target: ConversationRowTarget) => {
+    (target: ConversationRowTarget, paths?: readonly string[]) => {
       const current = snapshotRef.current;
       if (!sessionId || !current) {
         throw new Error("Cannot apply file rewind without an active session revision");
       }
+      // 按文件撤销（docs/spec/per-file-rewind.md）：paths 缺省 = 整轮撤销。
       return dispatchCommand(
         "applyFileRewind",
-        { target },
+        paths?.length ? { target, paths: [...paths] } : { target },
         sessionId,
         current.revision,
         current.logEpoch,

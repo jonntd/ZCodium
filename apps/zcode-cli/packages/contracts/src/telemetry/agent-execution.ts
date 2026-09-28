@@ -16,6 +16,7 @@ export const AgentTelemetryOperation = {
   WebFetchProcessing: "web_fetch_processing",
   WebSearch: "web_search",
   WorkspaceGitCommitMessage: "workspace_git_commit_message",
+  WorkspacePromptEnhance: "workspace_prompt_enhance",
   WorkspaceGenerateText: "workspace_generate_text",
 } as const;
 

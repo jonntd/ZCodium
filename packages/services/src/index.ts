@@ -291,6 +291,9 @@ export type {
   PromptAttachmentTransferPhase,
   PromptAttachmentTransferProgress,
 } from "./prompt-attachment-transfer/promptAttachmentTransfer.js";
+export { IPromptAssistService } from "./prompt-assist/promptAssist.js";
+export { createPromptAssistService } from "./prompt-assist/promptAssistService.js";
+export { PromptEnhanceGenerator } from "./prompt-assist/promptEnhanceGenerator.js";
 export type {
   CreateFeedbackTicketInput,
   FeedbackAttachment,

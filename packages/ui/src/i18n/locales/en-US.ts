@@ -1968,6 +1968,16 @@ const enUS: Record<string, string> = {
   "chat.changeSummary.rewind": "Undo",
   "chat.changeSummary.reapply": "Reapply",
   "chat.changeSummary.reverted": "Undone",
+  // Per-file rewind (docs/spec/per-file-rewind.md)
+  "chat.changeSummary.revertProgress": "{rewound} of {total} files undone",
+  "chat.changeSummary.fileRow.revert": "Undo this file",
+  "chat.changeSummary.rewindDialog.selectAll": "Select all",
+  "chat.changeSummary.rewindDialog.confirmCount.one": "Undo this file",
+  "chat.changeSummary.rewindDialog.confirmCount.other": "Undo {count} selected files",
+  "chat.changeSummary.rewindDialog.partialHint":
+    "Only the selected files will be undone; other changes are kept.",
+  "chat.changeSummary.rewindDialog.revertedNote":
+    "{count} file(s) were undone earlier and will not be touched again.",
   "chat.changeSummary.rewindDialog.title": "Undo file changes",
   "chat.changeSummary.rewindDialog.description":
     "ZCodium checks current file content again before writing. If another process changed a file, no files will be written.",
@@ -5476,18 +5486,8 @@ const enUS: Record<string, string> = {
   "chat.composer.context.aria": "{percent} of context used",
   "chat.composer.context.used": "of context used",
   "chat.composer.enhance.label": "Enhance prompt",
-  "chat.composer.enhance.tooltip":
-    "Enhance prompt (click / Ctrl+/ to enhance · menu for model/mode)",
-  "chat.composer.enhance.options": "Enhance options (mode/model)",
-  "chat.composer.enhance.current": "Current enhance target: {target}",
-  "chat.composer.enhance.followCurrent": "Follow current model ({model})",
-  "chat.composer.enhance.channel.auto": "Auto (by channel scoring)",
-  "chat.composer.enhance.badge.current": "★ current",
-  "chat.composer.enhance.badge.noKey": "no key",
+  "chat.composer.enhance.tooltip": "Enhance prompt (click / Ctrl+/, follows the session model)",
   "chat.composer.enhance.emptyDraft": "Type a prompt to enhance first",
-  "chat.composer.enhance.restoredAuto": "Cleared stale selection ({channel}); back to auto scoring",
-  "chat.composer.enhance.manualHint": "Manual config active: {model} (enhance-config.json)",
-  "chat.composer.enhance.noChannels": "No enabled channels in config.json",
   "chat.composer.enhance.unchanged": "No enhancement needed - original kept",
   "chat.composer.enhance.failed": "Enhance failed: {error}",
   "chat.quota.action.upgrade": "Configure",

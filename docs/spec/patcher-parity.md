@@ -115,6 +115,11 @@
 
 ## 6. 增强提示词按钮（--enhance-btn）
 
+> **2026-09-28 迁移**：实现方式已改为统一服务链路（对齐生成提交消息），跟随会话
+> 模型、删除渠道选择与 desktop main 旁路，详见 `prompt-enhance-unified.md`。本节
+> 中提示词模板与结果清洗契约继续有效；渠道列表/评分/手动渠道/IPlatformService
+> 可选方法等条目作废。
+
 - **单链路提示词契约**（2026-09 用户规则：收敛为一条默认链路，提示词采用
   incipit 工程 `data/host-badge.cjs` 的 prompt-enhancer 三件套，1:1 移植）：
   - 系统提示词：专业 Prompt 工程师——对原始 Prompt 分析拓展，输出结构清晰、

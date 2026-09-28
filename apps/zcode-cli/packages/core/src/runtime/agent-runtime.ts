@@ -638,6 +638,7 @@ export interface AgentRuntime {
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
+    paths?: readonly string[];
   }): Promise<WorkspaceFileRewindPreview>;
   applyWorkspaceFileRewind(options?: {
     abortSignal?: AbortSignal;
@@ -646,6 +647,7 @@ export interface AgentRuntime {
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
+    paths?: readonly string[];
     commitAfterApply?: () => Promise<void>;
   }): Promise<WorkspaceFileRewindApplyResult>;
   generateWorkspaceText(

@@ -176,7 +176,11 @@ export interface ConversationRowRenderContext {
   previewFileRewind?: (
     target: ConversationRowTarget,
   ) => Promise<V4ConversationFileRewindPreviewResult>;
-  applyFileRewind?: (target: ConversationRowTarget) => Promise<CommandAck>;
+  /** 按文件撤销（docs/spec/per-file-rewind.md）：paths 缺省 = 整轮撤销。 */
+  applyFileRewind?: (
+    target: ConversationRowTarget,
+    paths?: readonly string[],
+  ) => Promise<CommandAck>;
   /** 已发送 image/video 预览；由 pane 绑定的 workspace transport 注入。 */
   readAttachment?: (
     params: ConversationAttachmentReadParams,
@@ -194,6 +198,11 @@ export interface ConversationFileChangesRequestOptions {
   cachePolicy: "in-flight" | "terminal";
   /** rewind 会在同一 logEpoch 内切换 active/reverted，终态缓存必须按该语义状态隔离。 */
   fileChangesState?: ConversationFileChangesState;
+  /**
+   * 按文件撤销（docs/spec/per-file-rewind.md）后 state 仍是 active（剩余文件可继续
+   * 撤销），终态缓存必须随撤销账本长度失效（账本只增不减，长度即版本）。
+   */
+  revertedRevision?: string;
 }
 
 export type ConversationReasoningVisibility = Pick<

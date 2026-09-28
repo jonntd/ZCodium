@@ -111,12 +111,6 @@ declare global {
       modelhubProbeVision?(
         payload: import("@zcode/shared").ModelhubProbeVisionRequest,
       ): Promise<import("@zcode/shared").ModelhubProbeVisionResult>;
-      /** 按用户渠道配置改写提示词草稿（增强按钮） */
-      enhancePromptDraft?(
-        payload: import("@zcode/shared").EnhancePromptDraftRequest,
-      ): Promise<import("@zcode/shared").EnhancePromptDraftResult>;
-      /** 列出可用于提示词增强的渠道与模型 */
-      enhanceListModels?(): Promise<import("@zcode/shared").EnhanceListModelsResult>;
       /** 订阅当前窗口内远程连接过程日志，返回 disposer */
       onRemoteConnectionLog(handler: (entry: RemoteConnectionRuntimeLog) => void): () => void;
       /** 订阅远程 workspace session 关闭事件，返回 disposer */

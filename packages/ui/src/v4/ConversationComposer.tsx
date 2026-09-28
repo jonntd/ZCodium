@@ -2019,17 +2019,11 @@ function ConversationComposerImpl({
           onSwitchMode={onSwitchMode}
         />
         <ComposerEnhanceButton
+          workspacePath={workspacePath}
+          workspaceIdentity={workspaceIdentity}
           draftText={text}
           onReplaceDraft={handleReplaceComposerDraft}
           disabled={disabled}
-          currentProviderId={
-            draftConfig?.modelSelection?.providerId ??
-            snapshot?.config.modelSelection?.providerId ??
-            null
-          }
-          currentModelId={
-            draftConfig?.modelSelection?.modelId ?? snapshot?.config.modelSelection?.modelId ?? null
-          }
           onRegisterRun={handleRegisterEnhanceRun}
         />
         <ControlHintTooltip title={intl.formatMessage({ id: "chat.composer.continue.tooltip" })}>

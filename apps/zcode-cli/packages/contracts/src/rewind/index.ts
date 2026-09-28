@@ -85,6 +85,9 @@ export const rewindTriggeredPayloadSchema = z
     branchGeneration: z.number().int().nonnegative().optional(),
     createdMessageId: z.string().min(1).optional(),
     reason: z.string().min(1).optional(),
+    // 按文件撤销（docs/spec/per-file-rewind.md）：本次还原的 artifact 原始路径；
+    // 仅 paths 过滤的 file_summary_rewind 携带，缺席 = 整轮撤销（旧事件兼容）。
+    files: z.array(z.string().min(1)).optional(),
   })
   .strict();
 

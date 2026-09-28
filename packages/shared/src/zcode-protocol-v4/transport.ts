@@ -760,6 +760,9 @@ export const v4ConversationFileRewindPreviewResultSchema = z
     ignoredFiles: z.array(v4WorkspaceFileRewindIgnoredFileSchema),
     safeFiles: z.array(v4WorkspaceFileRewindSafeFileSchema),
     unsafeFiles: z.array(v4WorkspaceFileRewindUnsafeFileSchema),
+    // 按文件撤销（docs/spec/per-file-rewind.md）：预览时已排除的「此前已撤销」路径
+    // （artifact 原始路径，与 fileChanges items 的 path 同形）。optional 偏斜安全。
+    revertedPaths: z.array(z.string().min(1)).optional(),
   })
   .strict();
 export type V4ConversationFileRewindPreviewResult = z.infer<

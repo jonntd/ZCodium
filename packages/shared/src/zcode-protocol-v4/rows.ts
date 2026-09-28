@@ -91,6 +91,9 @@ export const turnHeaderRowSchema = z.object({
       deletions: z.number(),
       files: z.number(),
       state: z.enum(["active", "reverted"]).optional(),
+      // 按文件撤销账本（docs/spec/per-file-rewind.md）：已撤销文件的 artifact 原始
+      // 路径，与 fileChanges items 的 path 同形；缺席 = 无部分撤销。
+      revertedPaths: z.array(z.string().min(1)).optional(),
     })
     .optional(),
 });

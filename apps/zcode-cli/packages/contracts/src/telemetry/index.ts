@@ -16,6 +16,7 @@ export const ModelApiOperation = {
   GoalTitle: "goal_title_generation",
   GoalVerification: "goal_completion_verification",
   GitCommitMessage: "workspace_git_commit_message",
+  PromptEnhance: "workspace_prompt_enhance",
   ProjectMemoryExtract: "project_memory_extract",
   ReadSessionContextExtract: "read_session_context_extract",
   ReadSessionContextSynthesize: "read_session_context_synthesize",
@@ -181,6 +182,11 @@ function mapQuerySourceToModelApiOperation(querySource: string | undefined): {
     case "git_commit_message":
       return {
         operation: ModelApiOperation.GitCommitMessage,
+        actorKind: ModelApiActorKind.System,
+      };
+    case "prompt_enhance":
+      return {
+        operation: ModelApiOperation.PromptEnhance,
         actorKind: ModelApiActorKind.System,
       };
     case "web_search_tool":
