@@ -338,7 +338,9 @@ function patchAsar(asarPath, dryRun) {
   const data = readArchive(asarPath);
   const J = data.readUInt32LE(12);
   const header = JSON.parse(data.subarray(16, 16 + J).toString("utf8"));
-  const base = 16 + J;
+  // Pickle layout: u32(4) u32(8+J+pad) u32(4+J+pad) u32(J) json pad
+  const Jpad = (4 - (J % 4)) % 4;
+  const base = 16 + J + Jpad;
 
   const entries = [];
   walkAsarFiles(header, "", entries);
@@ -379,12 +381,13 @@ function patchAsar(asarPath, dryRun) {
   }
   const json = JSON.stringify(header);
   const Jn = Buffer.byteLength(json);
+  const pad = (4 - (Jn % 4)) % 4;
   const head = Buffer.alloc(16);
   head.writeUInt32LE(4, 0);
-  head.writeUInt32LE(Jn + 10, 4);
-  head.writeUInt32LE(Jn + 6, 8);
+  head.writeUInt32LE(8 + Jn + pad, 4);
+  head.writeUInt32LE(4 + Jn + pad, 8);
   head.writeUInt32LE(Jn, 12);
-  const parts = [head, Buffer.from(json, "utf8")];
+  const parts = [head, Buffer.from(json, "utf8"), Buffer.alloc(pad)];
   for (const p of order) parts.push(bodies.get(p).body);
   const out = Buffer.concat(parts);
 
