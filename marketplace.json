@@ -1,0 +1,80 @@
+{
+  "name": "zcode-plugins",
+  "description": "Official ZCode plugin packages, published for the open-source ZCode build.",
+  "version": 1,
+  "pluginRoot": "plugins",
+  "plugins": [
+    {
+      "name": "android-emulator",
+      "version": "0.1.0",
+      "description": "Provides Android development workflows and emulator automation for ZCode.",
+      "source": "./android-emulator-plugin"
+    },
+    {
+      "name": "computer-use",
+      "version": "0.6.3",
+      "description": "Computer Use: automate desktop apps with mouse, keyboard, and UI element control.",
+      "source": "./zcode-cua-plugin"
+    },
+    {
+      "name": "documents",
+      "version": "0.1.7",
+      "description": "DOCX document production skills, published as an official ZCode plugin.",
+      "source": "./documents-plugin"
+    },
+    {
+      "name": "image-search",
+      "version": "0.1.1",
+      "description": "Official ZCode image search MCP server for finding illustrations and reference images.",
+      "source": "./image-search-plugin"
+    },
+    {
+      "name": "ios-simulator",
+      "version": "0.1.0",
+      "description": "Provides iOS development workflows and simulator automation for ZCode.",
+      "source": "./ios-simulator-plugin"
+    },
+    {
+      "name": "pdf",
+      "version": "0.1.7",
+      "description": "PDF document production skills, published as an official ZCode plugin.",
+      "source": "./pdf-plugin"
+    },
+    {
+      "name": "plugin-creator",
+      "version": "0.1.1",
+      "description": "Develop and validate ZCode plugins through a local dev marketplace, installation, trials and updates.",
+      "source": "./plugin-creator-plugin"
+    },
+    {
+      "name": "presentations",
+      "version": "0.1.7",
+      "description": "PPTX presentation production skills, published as an official ZCode plugin.",
+      "source": "./presentations-plugin"
+    },
+    {
+      "name": "restore-legacy-sessions",
+      "version": "0.1.0",
+      "description": "Restore and migrate legacy ACP sessions into current ZCode sessions.",
+      "source": "./restore-legacy-sessions-plugin"
+    },
+    {
+      "name": "skill-creator",
+      "version": "0.1.0",
+      "description": "Create, evaluate and iterate ZCode skills interactively.",
+      "source": "./skill-creator-plugin"
+    },
+    {
+      "name": "spreadsheets",
+      "version": "0.1.7",
+      "description": "XLSX spreadsheet production skills, published as an official ZCode plugin.",
+      "source": "./spreadsheets-plugin"
+    },
+    {
+      "name": "zcode-guide",
+      "version": "0.3.0",
+      "description": "ZCode usage guidance, diagnostics and best-practice answers.",
+      "source": "./zcode-guide-plugin"
+    }
+  ]
+}
