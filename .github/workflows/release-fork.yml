@@ -105,17 +105,24 @@ jobs:
           cat > /tmp/release-notes.md <<'NOTES'
           # ZCodium <VERSION>
           NOTES
-          # 修改记录：fetch-tags 已拉取全部 tag，取创建时间最近且非本次的 tag 为基线，
-          # --no-merges 过滤合并提交；首次发布（无其他 tag）自动省略本节。
+          # 修改记录：基线 tag 与上游 release.yml 同口径——git describe 取 ${TAG}^ 可达的
+          # 最近正式 tag（--exclude 'v*-*' 排除 audit 预发布，避免区间被预发布版截短）；
+          # --no-merges 过滤合并提交；首次发布（无正式 tag）自动省略本节。
           # 条目经 scripts/render-release-changelog.mjs 渲染为中英双语（映射见
-          # .github/changelog-zh.json），缺翻译时输出渲染后不可见的 HTML 注释待办。
-          PREV_TAG="$(git tag --sort=-creatordate | grep -vxF "$TAG" | head -1 || true)"
+          # .github/changelog-zh.json），缺翻译时输出渲染后不可见的 HTML 注释待办；
+          # 渲染为空（如两 tag 指向同一提交）时给兜底行，不留空段落。
+          PREV_TAG="$(git describe --tags --abbrev=0 --match 'v*' --exclude 'v*-*' "${TAG}^" 2>/dev/null || true)"
           if [ -n "$PREV_TAG" ]; then
             {
               echo ""
               echo "## What's Changed ($PREV_TAG -> $TAG)"
               echo ""
-              node scripts/render-release-changelog.mjs --from "$PREV_TAG" --to "$TAG"
+              node scripts/render-release-changelog.mjs --from "$PREV_TAG" --to "$TAG" > /tmp/changelog-entries.md || true
+              if [ -s /tmp/changelog-entries.md ]; then
+                cat /tmp/changelog-entries.md
+              else
+                echo "- 无代码变更 / No code changes"
+              fi
             } >> /tmp/release-notes.md
           fi
           cat >> /tmp/release-notes.md <<'NOTES'

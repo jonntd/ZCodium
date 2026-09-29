@@ -24,7 +24,7 @@ export function renderChangelogEntries(commits, translations) {
       continue;
     }
     lines.push(`- ${subject} (${hash})`);
-    const zh = translations[hash]?.trim();
+    const zh = findTranslation(translations, hash)?.trim();
     if (zh) {
       lines.push(`  - ${zh}`);
     } else {
@@ -32,6 +32,18 @@ export function renderChangelogEntries(commits, translations) {
     }
   }
   return lines.join("\n");
+}
+
+// 翻译 key 与 git %h 都是完整 SHA 的唯一前缀（key 固定 7 字符；仓库对象增长后 %h
+// 可能输出 8+ 字符）。两个唯一前缀指向同一提交当且仅当互为前缀——不同提交不可能
+// 共享一个唯一缩写前缀，因此无歧义。空串 key 跳过（startsWith("") 恒真）。
+function findTranslation(translations, hash) {
+  for (const [key, value] of Object.entries(translations)) {
+    if (key && (hash.startsWith(key) || key.startsWith(hash))) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function listCommits(from, to) {

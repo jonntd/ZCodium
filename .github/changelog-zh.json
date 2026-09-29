@@ -33,5 +33,12 @@
   "15e2202": "install.ps1：helper 运行时被占用（文件锁）时不再安装失败。",
   "6bdc801": "仓库更名为 ZcodePro。",
   "2131d67": "在 README 中致谢 LINUX DO 社区。",
-  "dfb318a": "修正 README 许可证章节，与各 package manifest 保持一致。"
+  "dfb318a": "修正 README 许可证章节，与各 package manifest 保持一致。",
+  "38154d7": "Lint 扫描排除 ZcodePro 插件市场合入目录。",
+  "4be313e": "ZcodePro 12 个插件内置化，随包写入官方插件市场 bundled 分片。",
+  "3bd8c5c": "修复内置插件在官方插件市场开关关闭时从商店消失的问题（三处断链）。",
+  "a31ebe6": "fork 发版接通双语 Changelog，补齐 3.14.7 以来的中文翻译。",
+  "a60f434": "补齐 services/shared/ui 包级测试入口，裁剪失效的遥测遗留用例。",
+  "98d2680": "Computer Use 运行时内置化（二期）：构建期把占位 stub 换成真实现，官方 helper 打本地开发补丁后随包分发并 adhoc 重签，退役安装脚本时代的补丁方案。",
+  "15e44b0": "修复打包版首次 Computer Use 授权：随包 helper 信任门由主进程确定性下发，host 产物构建期 define 对齐打包语义。"
 }
