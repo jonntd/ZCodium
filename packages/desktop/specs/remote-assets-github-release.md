@@ -8,6 +8,12 @@
 - **发布布局转换**：`scripts/publish-remote-assets.mjs` 是唯一 owner，把目录式布局转换成 GitHub Release 扁平资产，不改动 mock-cdn。产物是 `manifest-<arch>.json` + `<platformArch>__<componentId>__<safeVersion>.tar.gz`。
 - **消费方**：`@zcode/server` 的 remote asset 加载（`remoteAssetCache.ts`）按 manifest 的 `artifactPath` 拼 `<base>/<artifactPath>` 下载，不感知托管介质；sha256 校验针对文件内容，与文件名无关。
 
+## 版本对齐
+
+- manifest 的 `appVersion` 必须等于桌面 app 的 `ZCODE_VERSION`（客户端在 `parseRemoteAssetManifestFromResponse` 强校验）；远端 server bundle 的内部版本也必须一致（部署后按 `zcode-server.cjs --version` 比较），否则每次连接都会判定版本不匹配并重新部署。
+- 构建链统一由 `ZCODE_APP_VERSION` 注入：桌面 app（`build-metadata.mjs`）、server bundle（`packages/server/tsup.config.ts` 与 `build-remote.ts`）、remote assets（`prepare-prebuilds.mjs`）与发布脚本默认值；本地开发未设置时回退 `package.json` 版本。
+- CI 的 `remote-assets` job 必须携带与 `desktop` job 相同的 `ZCODE_APP_VERSION`。
+
 ## 扁平命名契约
 
 - GitHub Release 的 asset 名不允许 `/`，组件必须压成单段文件名。
@@ -27,6 +33,13 @@
   - 组件候选：`<base>/<artifactPath>`（`zz-` 扁平名，直接命中；tag 带 `v` 前缀时不会产生父级探测）。
   - manifest 的 `appVersion` 与当前 app 版本不一致时，加载器按原有校验拒绝，避免把旧版本资源装入新客户端。
 
+## 开箱即用（构建内置源）
+
+- release workflow 构建桌面端时注入 `ZCODIUM_REMOTE_ASSET_CDN_BASE_URL`（本仓库该 tag 的 `releases/download/<tag>`），编译期写入 main 进程；安装版开箱即可连接 WSL/SSH，不需要用户配置环境变量。
+- `resolveRemoteCdnBaseUrls` 解析优先级：用户显式 `ZCODE_REMOTE_ASSET_CDN_BASE_URL` > 构建内置源 > 官方 CDN（仅此路径受 marketplace 开关控制）。内置源与用户源都属自有分发，不经过官方服务开关与官方出口策略。
+- fork 构建时地址由 `github.repository` 决定，天然指向 fork 自己的 Release 资产。
+- dev/本地构建不注入内置源，仍走 mock-cdn 或显式配置。
+
 ## CI
 
 - release workflow 的 `remote-assets` job：`pnpm prepare:remote-assets` → `node scripts/publish-remote-assets.mjs --out dist/remote-assets-github` → `gh release upload <tag> --clobber`（带重试）。
@@ -37,3 +50,5 @@
 1. 发布脚本单测：`zz-` 扁平命名（无 `/`、无 `+`）、manifest 输出名与 `artifactPath` 重写、sha256 不变、多平台发现与 `--platforms` 过滤、缺失组件与 sha256 不匹配报错。
 2. 加载链路测试：本地 HTTP 服务扁平布局，`ensureRemoteReleaseDirFromCdn` 能按 manifest 下载、校验并物化到 `releases/<version>/<platform>/<mount>`。
 3. `pnpm typecheck`、`pnpm lint`、架构检查通过；release workflow YAML 语法合法。
+4. 版本对齐：`ZCODE_APP_VERSION=<audit 版本>` 构建出的 remote assets，其 `manifest.appVersion` 与 server bundle 的 `--version` 输出都等于该版本；未设置时回退 `package.json` 版本。
+5. 开箱即用：`ZCODIUM_REMOTE_ASSET_CDN_BASE_URL` 注入后，发布版无需任何用户配置即可解析出远程资源源；用户显式 `ZCODE_REMOTE_ASSET_CDN_BASE_URL` 仍优先于内置源。

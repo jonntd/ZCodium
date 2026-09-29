@@ -1,11 +1,7 @@
 /* oxlint-disable eslint(max-lines) -- footer 聚合账户、主题、模式和快捷键菜单。 */
 import type { Locale, UserInfo } from "@zcode/shared";
 import { memo, useCallback, useEffect, useState } from "react";
-import {
-  DesktopCommandIds,
-  TID_LOGIN_TRIGGER,
-  TID_TASK_SETTINGS_BUTTON,
-} from "@zcode/shared";
+import { DesktopCommandIds, TID_LOGIN_TRIGGER, TID_TASK_SETTINGS_BUTTON } from "@zcode/shared";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar.js";
 import { ZCodeAboutLogo } from "@/components/ui/ZCodeAboutLogo.js";
@@ -145,7 +141,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
           )}
         </AvatarFallback>
       </Avatar>
-      <div className="min-w-0 flex-1 overflow-hidden text-left">
+      <div className="min-w-0 flex-1 overflow-hidden text-start">
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="min-w-0 truncate text-ui-base font-semibold text-foreground">
             {profileBadge}
@@ -209,7 +205,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
               type="button"
               variant="ghost"
               size={"lg"}
-              className="min-w-0 flex-1 justify-start gap-2 overflow-hidden rounded-tl-2xl rounded-bl-2xl border-0 pl-0"
+              className="min-w-0 flex-1 justify-start gap-2 overflow-hidden rounded-tl-2xl rounded-bl-2xl border-0 ps-0"
               data-testid={TID_LOGIN_TRIGGER}
               aria-label={profileBadge}
             >
@@ -240,6 +236,11 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
                   <DropdownMenuRadioItem value="zh-CN">
                     {intl.formatMessage({
                       id: "sidebar.settings.locale.zh-CN",
+                    })}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="fa-IR">
+                    {intl.formatMessage({
+                      id: "sidebar.settings.locale.fa-IR",
                     })}
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>

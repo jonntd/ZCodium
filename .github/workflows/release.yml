@@ -190,8 +190,11 @@ jobs:
           - Update metadata: `latest*.yml`, `latest.json`
           NOTES
           sed -i "s/<VERSION>/${TAG#v}/g" /tmp/release-notes.md
-          # 自动生成版本差异 Changelog：对比最近的 tag（排除 ci 类提交），插入到标题之后
-          BASE_TAG=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)
+          # 自动生成版本差异 Changelog：对比最近的正式 tag（排除 ci 类提交），插入到标题之后。
+          # 审计/预发布 tag（v3.14.4-audit.20260929.2 这类）会被 draft 构建打在 main 上；
+          # 若让它们参与 describe，正式版的基线会切到 draft tag，Changelog 只剩一行。
+          # 只接受正式版 tag（v<semver>，无连字符）。
+          BASE_TAG=$(git describe --tags --abbrev=0 --match 'v*' --exclude 'v*-*' "${TAG}^" 2>/dev/null || true)
           if [ -n "$BASE_TAG" ]; then
             {
               echo "## Changelog (vs $BASE_TAG) / 更新日志（相对 $BASE_TAG）"
@@ -326,6 +329,9 @@ jobs:
           ZCODE_ENV: production
           # 文件名与应用版本带上完整审计版本（如 3.14.0-audit.20260922.6），不再只写 3.14.0。
           ZCODE_APP_VERSION: ${{ needs.release.outputs.version }}
+          # 内置远程资源默认源：指向本仓库该 tag 的 GitHub Release 资产（zz- 布局）。
+          # 安装后的客户端开箱即可连接 WSL/SSH，不再要求用户配置环境变量。
+          ZCODIUM_REMOTE_ASSET_CDN_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ needs.release.outputs.tag }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: pnpm bundle:desktop -- --os ${{ matrix.target }} --arch ${{ matrix.arch }}
 
@@ -382,9 +388,15 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Prepare remote assets
+        env:
+          # 与 desktop job 相同：server bundle 与 manifest.appVersion 必须等于 app 版本，
+          # 否则客户端 appVersion 校验拒绝、远端部署版本检查反复不匹配。
+          ZCODE_APP_VERSION: ${{ needs.release.outputs.version }}
         run: pnpm prepare:remote-assets
 
       - name: Build GitHub release layout
+        env:
+          ZCODE_APP_VERSION: ${{ needs.release.outputs.version }}
         run: node scripts/publish-remote-assets.mjs --out dist/remote-assets-github
 
       - name: Upload remote assets to release

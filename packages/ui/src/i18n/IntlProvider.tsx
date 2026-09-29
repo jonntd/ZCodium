@@ -8,6 +8,7 @@ import {
   useRef,
 } from "react";
 import type { ReactNode } from "react";
+import { Direction as DirectionPrimitive } from "radix-ui";
 import type { Locale, LocalePreference } from "@zcode/shared";
 import { DEFAULT_LOCALE } from "@zcode/shared";
 import type { BroadcastMessage, IBroadcastService, ISettingService } from "@zcode/services";
@@ -18,11 +19,13 @@ import {
 } from "@/lib/browserEnvironment.js";
 import zhCN from "./locales/zh-CN.js";
 import enUS from "./locales/en-US.js";
+import faIR from "./locales/fa.js";
 
 /** 语言 → 翻译消息映射 */
 const MESSAGES: Record<Locale, Record<string, string>> = {
   "zh-CN": zhCN,
   "en-US": enUS,
+  "fa-IR": faIR,
 };
 
 /** 简易 intl 工具：根据 id 查找翻译，支持 {key} 占位符替换 */
@@ -39,7 +42,7 @@ interface LocaleBroadcastPayload {
 }
 
 function isLocale(value: unknown): value is Locale {
-  return value === "zh-CN" || value === "en-US";
+  return value === "zh-CN" || value === "en-US" || value === "fa-IR";
 }
 
 function isLocalePreference(value: unknown): value is LocalePreference {
@@ -164,7 +167,10 @@ export function ZCodeIntlProvider({
       return DEFAULT_LOCALE;
     }
 
-    return language.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
+    const normalizedLanguage = language.toLowerCase();
+    if (normalizedLanguage.startsWith("zh")) return "zh-CN";
+    if (normalizedLanguage.startsWith("fa")) return "fa-IR";
+    return "en-US";
   }, []);
   const resolveSystemLocale = useCallback(async (): Promise<Locale> => {
     const resolvedLocale = await resolveHostSystemLocale?.();
@@ -267,6 +273,13 @@ export function ZCodeIntlProvider({
     return localePreference === "system" ? systemLocale : localePreference;
   }, [localePreference, systemLocale]);
 
+  // html 的 lang/dir 必须跟随界面语言；fa-IR 是 RTL，其余语言保持 LTR。
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document.documentElement.lang = locale;
+    document.documentElement.dir = locale === "fa-IR" ? "rtl" : "ltr";
+  }, [locale]);
+
   const setLocalePreference = useCallback(
     (newPreference: LocalePreference) => {
       const operationSeq = localePreferenceOperationSeqRef.current + 1;
@@ -361,7 +374,15 @@ export function ZCodeIntlProvider({
     [intl, locale, localePreference, setLocale, setLocalePreference],
   );
 
-  return <IntlContext value={value}>{children}</IntlContext>;
+  return (
+    <IntlContext value={value}>
+      {/* Radix 组件（dropdown/select/dialog 等 portal）不读 html[dir]，必须由
+          DirectionProvider 显式给方向，否则 fa-IR 下所有浮层仍是 LTR。 */}
+      <DirectionPrimitive.DirectionProvider dir={locale === "fa-IR" ? "rtl" : "ltr"}>
+        {children}
+      </DirectionPrimitive.DirectionProvider>
+    </IntlContext>
+  );
 }
 
 /** 获取 intl 上下文 */

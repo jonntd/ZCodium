@@ -740,7 +740,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
         setLocalePreference("system");
         return;
       }
-      if (value === "zh-CN" || value === "en-US") {
+      if (value === "zh-CN" || value === "en-US" || value === "fa-IR") {
         setLocalePreference(value as Locale);
       }
     },
@@ -1011,7 +1011,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   // 这里把 render prop 稳定在真正影响工具栏展示的状态上，避免消息流更新污染侧栏任务区。
   const workspaceTaskToolbar = useCallback(
     () => (
-      <div className="pl-2.5 pr-3">
+      <div className="ps-2.5 pe-3">
         <div className="flex min-w-0 items-center justify-between gap-2">
           <div className="flex min-w-0 shrink-0 items-center gap-1">
             <Tabs
@@ -1027,6 +1027,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                 ref={primaryTaskTabsListRef}
                 className="relative h-7 w-fit overflow-hidden rounded-full bg-surface p-0.5 group-data-horizontal/tabs:h-7"
               >
+                {/* 指示条用 translateX(offsetLeft) 物理坐标定位（见 updateIndicator），
+                    必须锚定物理 left-0；换 logical start-0 在 RTL 下会指到错误的 tab。
+                    不要把这个 left-0 迁移成逻辑属性。 */}
                 <span
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-y-0.5 left-0 rounded-full bg-background transition-[opacity,transform,width] duration-200 ease-out"
@@ -1037,7 +1040,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                     primaryTaskTabTriggerRefs.current.grouped = node;
                   }}
                   value="grouped"
-                  className="relative z-10 h-6 flex-none gap-1 rounded-full border-transparent bg-transparent py-0 pl-1.5 pr-2 text-ui-sm font-medium text-foreground-subtle transition-colors data-active:border-transparent data-active:bg-transparent data-active:text-foreground data-active:shadow-none dark:data-active:border-transparent dark:data-active:bg-transparent"
+                  className="relative z-10 h-6 flex-none gap-1 rounded-full border-transparent bg-transparent py-0 ps-1.5 pe-2 text-ui-sm font-medium text-foreground-subtle transition-colors data-active:border-transparent data-active:bg-transparent data-active:text-foreground data-active:shadow-none dark:data-active:border-transparent dark:data-active:bg-transparent"
                 >
                   <Hash aria-hidden="true" className="size-3 shrink-0" />
                   <span>
@@ -1051,7 +1054,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
                     primaryTaskTabTriggerRefs.current.workspace = node;
                   }}
                   value="workspace"
-                  className="relative z-10 h-6 flex-none gap-1 rounded-full border-transparent bg-transparent py-0 pl-1.5 pr-2 text-ui-sm font-medium text-foreground-subtle transition-colors data-active:border-transparent data-active:bg-transparent data-active:text-foreground data-active:shadow-none dark:data-active:border-transparent dark:data-active:bg-transparent"
+                  className="relative z-10 h-6 flex-none gap-1 rounded-full border-transparent bg-transparent py-0 ps-1.5 pe-2 text-ui-sm font-medium text-foreground-subtle transition-colors data-active:border-transparent data-active:bg-transparent data-active:text-foreground data-active:shadow-none dark:data-active:border-transparent dark:data-active:bg-transparent"
                 >
                   <Folder aria-hidden="true" className="size-3 shrink-0" />
                   <span>
@@ -1253,7 +1256,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
         <div
           className={cn(
             "absolute inset-0 flex min-h-0 flex-col transition-transform duration-200 ease-out",
-            isFileTreeOpen && "-translate-x-full pointer-events-none",
+            isFileTreeOpen && "-translate-x-full rtl:translate-x-full pointer-events-none",
           )}
           aria-hidden={isFileTreeOpen}
         >
@@ -1285,10 +1288,10 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
               className="w-full justify-start gap-2 text-foreground hover:bg-surface-hover hover:text-foreground"
             >
               <Search className="size-4" />
-              <span className="min-w-0 flex-1 truncate text-left">
+              <span className="min-w-0 flex-1 truncate text-start">
                 {intl.formatMessage({ id: "commandCenter.open" })}
               </span>
-              <span className="ml-auto shrink-0 text-ui-xs font-normal text-foreground-subtlest">
+              <span className="ms-auto shrink-0 text-ui-xs font-normal text-foreground-subtlest">
                 {commandCenterShortcutLabel}
               </span>
             </Button>
@@ -1637,7 +1640,7 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
           </div>
 
           <WorkspaceSidebarFooter
-            className="pr-3"
+            className="pe-3"
             theme={theme}
             localeMenuValue={localeMenuValue}
             onLocaleChange={handleLocaleChange}
@@ -1658,7 +1661,9 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
         <div
           className={cn(
             "absolute inset-0 transition-transform duration-200 ease-out",
-            isFileTreeOpen ? "translate-x-0" : "translate-x-full pointer-events-none",
+            isFileTreeOpen
+              ? "translate-x-0"
+              : "translate-x-full rtl:-translate-x-full pointer-events-none",
           )}
           aria-hidden={!isFileTreeOpen}
         >

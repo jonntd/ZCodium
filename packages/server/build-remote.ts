@@ -4,7 +4,10 @@ import { validateRemoteServerBundle } from "./buildRemoteValidation.js";
 import { loadBuiltinProviderConfig } from "../../scripts/builtin-provider-config.mjs";
 import { stageThirdPartyNotices } from "../../scripts/third-party-notices.mjs";
 
-const { version } = JSON.parse(readFileSync("../../package.json", "utf-8"));
+const { version: packageVersion } = JSON.parse(readFileSync("../../package.json", "utf-8"));
+// 与 tsup.config.ts 同一版本注入规则：CI 发布时 server bundle 必须跟随
+// ZCODE_APP_VERSION（审计版本），否则远端部署的版本检查永远不匹配。
+const version = process.env.ZCODE_APP_VERSION?.trim() || packageVersion;
 const { content: zcodeBuiltinProviderConfigJson } = await loadBuiltinProviderConfig();
 
 /**

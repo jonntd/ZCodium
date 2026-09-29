@@ -128,6 +128,21 @@ async function runFunctionalEffects() {
         overrideBaseUrl: "https://github.com/probe/repo/releases/download/v0.0.0",
       })[0] ?? null;
 
+    // 内置发布源：发布构建注入的自有源同样不受官方开关影响（安装版开箱即用）。
+    snapshot.remoteCdnBundledUrl =
+      resolveRemoteCdnBaseUrls({
+        version: "0.0.0",
+        bundledBaseUrl: "https://github.com/probe/repo/releases/download/v0.0.0",
+      })[0] ?? null;
+
+    // 优先级：显式覆盖必须优先于内置源。
+    snapshot.remoteCdnOverrideWins =
+      resolveRemoteCdnBaseUrls({
+        version: "0.0.0",
+        overrideBaseUrl: "https://mirror.example/remote",
+        bundledBaseUrl: "https://github.com/probe/repo/releases/download/v0.0.0",
+      })[0] ?? null;
+
     // offPeak：关闭时取号在凭证/网络前拒绝；打开后真的发出取号请求并解析结果。
     let offPeakFetchCalls = 0;
     const offPeakClient = createOffPeakServerClient({

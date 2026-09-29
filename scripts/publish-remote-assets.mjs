@@ -189,7 +189,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const args = parseArgs(process.argv.slice(2));
   const result = buildGithubAssetLayout({
     ...args,
-    expectedVersion: args.expectedVersion ?? readJsonFile(join(repoRoot, "package.json")).version,
+    // 与构建链同一优先级：显式 --version > ZCODE_APP_VERSION（CI 审计版本）> package.json。
+    expectedVersion:
+      args.expectedVersion?.trim() ||
+      process.env.ZCODE_APP_VERSION?.trim() ||
+      readJsonFile(join(repoRoot, "package.json")).version,
   });
   const megabytes = (result.totalBytes / (1024 * 1024)).toFixed(1);
   console.log(

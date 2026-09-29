@@ -1,10 +1,11 @@
-import { Component } from "react";
+import { Component, useEffect } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import type { Locale } from "@zcode/shared";
 import { DEFAULT_LOCALE } from "@zcode/shared";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import zhCN from "@/i18n/locales/zh-CN.js";
 import enUS from "@/i18n/locales/en-US.js";
+import faIR from "@/i18n/locales/fa.js";
 import { logger } from "@/logger.js";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
@@ -65,7 +66,11 @@ function resolveBoundaryLocale(): Locale {
   if (typeof localStorage !== "undefined" && typeof localStorage.getItem === "function") {
     try {
       const storedPreference = localStorage.getItem(LOCALE_PREFERENCE_KEY);
-      if (storedPreference === "zh-CN" || storedPreference === "en-US") {
+      if (
+        storedPreference === "zh-CN" ||
+        storedPreference === "en-US" ||
+        storedPreference === "fa-IR"
+      ) {
         return storedPreference;
       }
     } catch {
@@ -76,7 +81,10 @@ function resolveBoundaryLocale(): Locale {
   }
 
   if (typeof navigator !== "undefined") {
-    return navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
+    const normalized = navigator.language.toLowerCase();
+    if (normalized.startsWith("zh")) return "zh-CN";
+    if (normalized.startsWith("fa")) return "fa-IR";
+    return "en-US";
   }
 
   return DEFAULT_LOCALE;
@@ -84,7 +92,7 @@ function resolveBoundaryLocale(): Locale {
 
 function formatBoundaryMessage(id: string): string {
   const locale = resolveBoundaryLocale();
-  const messages = locale === "en-US" ? enUS : zhCN;
+  const messages = locale === "en-US" ? enUS : locale === "fa-IR" ? faIR : zhCN;
   return messages[id] ?? id;
 }
 
@@ -117,6 +125,14 @@ function ErrorFallback({
   isWindowsDesktop?: boolean;
 }) {
   const errorSummary = error.message.trim() || formatBoundaryMessage("appError.unknown");
+
+  // 错误边界可能脱离 IntlProvider 渲染，这里按 fallback 语言同步 html lang/dir（fa-IR 为 RTL）。
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const locale = resolveBoundaryLocale();
+    document.documentElement.lang = locale;
+    document.documentElement.dir = locale === "fa-IR" ? "rtl" : "ltr";
+  }, []);
 
   return (
     <DesktopWindowFrame

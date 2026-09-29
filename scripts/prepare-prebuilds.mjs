@@ -41,7 +41,11 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = resolve(scriptDir, "..");
 const desktopDir = join(rootDir, "packages/desktop");
 const mockCdnDir = join(desktopDir, "mock-cdn");
-const version = require(join(rootDir, "package.json")).version;
+// CI 发布时把完整 tag 版本（如 3.14.4-audit.20260929）通过 ZCODE_APP_VERSION 注入：
+// remote assets 的发布目录与 manifest.appVersion 必须与桌面 app 的 ZCODE_VERSION 一致，
+// 否则客户端会以 appVersion mismatch 拒绝这些资源；本地构建回退 package.json 版本。
+const version =
+  process.env.ZCODE_APP_VERSION?.trim() || require(join(rootDir, "package.json")).version;
 const ZCODE_AGENT_RUNTIME = {
   glm: {
     version: readZCodeAgentRuntimeVersion(),

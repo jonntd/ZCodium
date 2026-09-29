@@ -87,6 +87,15 @@ test("official service switches gate real feature entry points", () => {
   assert.equal(closed.remoteCdnOverrideUrl, probeOverrideUrl, "关闭时显式自建源不得被官方开关阻断");
   assert.equal(opened.remoteCdnOverrideUrl, probeOverrideUrl, "打开后显式自建源不得被开关改写");
 
+  // 内置发布源：发布构建注入后开箱即用，同样不受官方开关影响；显式覆盖仍优先。
+  assert.equal(closed.remoteCdnBundledUrl, probeOverrideUrl, "关闭时内置发布源不得被官方开关阻断");
+  assert.equal(opened.remoteCdnBundledUrl, probeOverrideUrl, "打开后内置发布源保持原值");
+  assert.equal(
+    closed.remoteCdnOverrideWins,
+    "https://mirror.example/remote",
+    "显式覆盖优先于内置源",
+  );
+
   // offPeak：关闭=取号在凭证/网络前拒绝；打开=真的发出取号请求并解析结果。
   assert.equal(closed.offPeakRejected, true, "关闭时取号必须按未开启拒绝");
   assert.equal(closed.offPeakFetchCalls, 0, "关闭时不得发起取号请求");

@@ -12,7 +12,11 @@ const { stageThirdPartyNotices } = await import(
 
 // tsup config 可能从不同 cwd 加载，基于配置文件自身目录解析仓库根 package.json。
 const rootPackageJsonPath = resolve(import.meta.dirname, "../../package.json");
-const { version } = JSON.parse(readFileSync(rootPackageJsonPath, "utf-8"));
+const { version: packageVersion } = JSON.parse(readFileSync(rootPackageJsonPath, "utf-8"));
+// CI 发布时通过 ZCODE_APP_VERSION 注入完整审计版本（如 3.14.4-audit.20260929）。
+// 远端 server bundle 必须与桌面 app 使用同一 ZCODE_VERSION：否则部署后的远端版本检查
+// 与 remote manifest 的 appVersion 校验都会不匹配；本地构建回退 package.json 版本。
+const version = process.env.ZCODE_APP_VERSION?.trim() || packageVersion;
 
 const { environment: zcodeEnv, content: zcodeBuiltinProviderConfigJson } =
   await loadBuiltinProviderConfig();

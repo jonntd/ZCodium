@@ -110,6 +110,11 @@ function createSharedDefines() {
     ),
     // 客户端只有一个 CDN 配置，与发布端 OSS 目标列表分离。
     __ZCODE_CDN_BASE_URL__: JSON.stringify(env.ZCODE_CDN_BASE_URL?.trim() || ""),
+    // 发布构建内置的自有 remote 资源源（本仓库该 tag 的 GitHub Release 资产）。
+    // 注入后安装版开箱即可连接 WSL/SSH；dev/本地构建为空，仍走 mock-cdn / 显式配置。
+    __ZCODIUM_REMOTE_ASSET_CDN_BASE_URL__: JSON.stringify(
+      process.env.ZCODIUM_REMOTE_ASSET_CDN_BASE_URL?.trim() || "",
+    ),
   };
 }
 

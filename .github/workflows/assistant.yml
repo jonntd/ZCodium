@@ -34,11 +34,30 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # GITHUB_TOKEN 无权推送 .github/workflows 变更（GitHub 硬性限制），提交里混入这类文件会导致 push 整体被拒；
+      # 安装 pre-commit hook 在提交时剥离这些变更，保证 agent 的其他改动可正常推送。
+      - name: Strip workflow-file changes from commits
+        run: |
+          mkdir -p .git/hooks
+          cat > .git/hooks/pre-commit <<'HOOK'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          if git diff --cached --name-only | grep -q '^\.github/workflows/'; then
+            echo "[pre-commit] 检测到 .github/workflows 变更，GITHUB_TOKEN 无权推送，已从本次提交移除："
+            git diff --cached --name-only -- '.github/workflows/'
+            git restore --staged -- '.github/workflows/'
+          fi
+          HOOK
+          chmod +x .git/hooks/pre-commit
+
       - name: Run assistant
         uses: anomalyco/opencode/github@latest
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # CI 无人应答权限询问，opencode 会因此永久挂起；这里预先放行工具权限。
+          # question 保持 deny，避免 agent 向无人应答的 CI 环境提问。
+          OPENCODE_PERMISSION: '{"*":"allow","question":"deny","doom_loop":"allow","external_directory":"allow"}'
         with:
           model: deepseek/deepseek-flash
           use_github_token: true
