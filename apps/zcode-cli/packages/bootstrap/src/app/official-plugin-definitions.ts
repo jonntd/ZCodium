@@ -91,6 +91,20 @@ const OFFICIAL_ZCODE_GUIDE_REQUIRED_SEED_PATHS = [
   "skills/diagnosing-skills/SKILL.md",
 ] as const;
 
+// vendored 插件（仓库根 plugins/，来自 ZcodePro 合入，见 docs/spec/builtin-zcodepro-plugins.md）
+// 的 dev 态候选：dev 下 agent resolver dist 优先，entrypointDir = apps/zcode-cli/packages/cli/dist，
+// 五级向上到达仓库根。打包态 entrypointDir = resources/glm，首候选 packages/<name>-plugin
+// 直接命中 staged 包，这条候选解析为不存在路径、无副作用。
+// 注意 computer-use 的包目录名是 zcode-cua-plugin（沿用原生 Helper identity），与插件名不同。
+const VENDORED_PLUGIN_ROOT_CANDIDATES = (name: string, directory = `${name}-plugin`) =>
+  [
+    `packages/${directory}`,
+    `../${directory}`,
+    `../../${directory}`,
+    `../../../${directory}`,
+    `../../../../../plugins/${directory}`,
+  ] as const;
+
 export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = [
   {
     // 无 listing：宿主不进市场、不对用户露出。它必须始终可用，因为 node_repl 的注册门禁
@@ -122,12 +136,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       },
     },
     name: "android-emulator",
-    rootCandidates: [
-      "packages/android-emulator-plugin",
-      "../android-emulator-plugin",
-      "../../android-emulator-plugin",
-      "../../../android-emulator-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("android-emulator"),
     version: "0.1.0",
   },
   {
@@ -178,12 +187,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       },
       name,
       requiredSeedPaths: ["agents/visual-judge.md", `skills/${skill}/SKILL.md`],
-      rootCandidates: [
-        `packages/${name}-plugin`,
-        `../${name}-plugin`,
-        `../../${name}-plugin`,
-        `../../../${name}-plugin`,
-      ],
+      rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES(name),
       version: "0.1.7",
     }),
   ),
@@ -199,12 +203,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     },
     name: "image-search",
     requiredSeedPaths: [".mcp.json"],
-    rootCandidates: [
-      "packages/image-search-plugin",
-      "../image-search-plugin",
-      "../../image-search-plugin",
-      "../../../image-search-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("image-search"),
     version: "0.1.1",
   },
   {
@@ -219,12 +218,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       },
     },
     name: "ios-simulator",
-    rootCandidates: [
-      "packages/ios-simulator-plugin",
-      "../ios-simulator-plugin",
-      "../../ios-simulator-plugin",
-      "../../../ios-simulator-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("ios-simulator"),
     version: "0.1.0",
   },
   {
@@ -239,12 +233,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       },
     },
     name: "restore-legacy-sessions",
-    rootCandidates: [
-      "packages/restore-legacy-sessions-plugin",
-      "../restore-legacy-sessions-plugin",
-      "../../restore-legacy-sessions-plugin",
-      "../../../restore-legacy-sessions-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("restore-legacy-sessions"),
     version: "0.1.0",
   },
   {
@@ -261,12 +250,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
         "zh-CN": "开发、校验 ZCode 插件，完成本地 dev 市场安装、试用与更新。",
       },
     },
-    rootCandidates: [
-      "packages/plugin-creator-plugin",
-      "../plugin-creator-plugin",
-      "../../plugin-creator-plugin",
-      "../../../plugin-creator-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("plugin-creator"),
     requiredSeedPaths: [
       "skills/plugin-creator/SKILL.md",
       "skills/plugin-creator/scripts/create-basic-plugin.mjs",
@@ -289,12 +273,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       description_i18n: { "zh-CN": "创建、编辑和验证可复用的 ZCode 技能。" },
     },
     name: "skill-creator",
-    rootCandidates: [
-      "packages/skill-creator-plugin",
-      "../skill-creator-plugin",
-      "../../skill-creator-plugin",
-      "../../../skill-creator-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("skill-creator"),
     version: "0.1.0",
   },
   {
@@ -320,12 +299,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     },
     name: "zcode-guide",
     requiredSeedPaths: OFFICIAL_ZCODE_GUIDE_REQUIRED_SEED_PATHS,
-    rootCandidates: [
-      "packages/zcode-guide-plugin",
-      "../zcode-guide-plugin",
-      "../../zcode-guide-plugin",
-      "../../../zcode-guide-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("zcode-guide"),
     // 包源为仓库根 plugins/zcode-guide-plugin（ZcodePro 合入），版本与其 .zcode-plugin/plugin.json
     // 一致；漂移会导致 seed 继续写入旧缓存目录（对照测试机械校验三处一致）。
     version: "0.3.0",
@@ -355,12 +329,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       // 插件更名为 computer-use 后，CDN 图标仍发布在 zcode-cua 目录；沿用资源路径避免 404。
       icon: OFFICIAL_PLUGIN_ICON,
     },
-    rootCandidates: [
-      "packages/zcode-cua-plugin",
-      "../zcode-cua-plugin",
-      "../../zcode-cua-plugin",
-      "../../../zcode-cua-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("computer-use", "zcode-cua-plugin"),
     requiredSeedPaths: OFFICIAL_CUA_REQUIRED_SEED_PATHS,
     // 当前 CUA 为不可用占位包，无需复制 native runtime；避免把本地旧依赖继续带入缓存。
     runtimeTopLevelPaths: [],

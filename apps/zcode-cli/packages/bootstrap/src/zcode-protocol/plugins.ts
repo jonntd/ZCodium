@@ -545,6 +545,7 @@ function toAvailablePluginSummary(input: {
   version?: string;
   installed: boolean;
   componentTypes?: string[];
+  officialSource?: "bundled" | "cdn";
   listing?: ZCodeAvailablePluginSummary["listing"];
 }): ZCodeAvailablePluginSummary {
   return {
@@ -555,6 +556,9 @@ function toAvailablePluginSummary(input: {
     ...(input.version ? { version: input.version } : {}),
     installed: input.installed,
     ...(input.componentTypes ? { componentTypes: input.componentTypes } : {}),
+    // 官方市场条目的来源分片标记：Host 在官方 marketplace 开关关闭时据此保留
+    // bundled（本地内置）条目、过滤 CDN 条目。漏映射会让内置插件在商店消失。
+    ...(input.officialSource ? { officialSource: input.officialSource } : {}),
     ...(input.listing ? { listing: input.listing } : {}),
   };
 }

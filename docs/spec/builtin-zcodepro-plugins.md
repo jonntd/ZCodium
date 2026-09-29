@@ -77,7 +77,8 @@ Agent storage：<storage>/cli/plugins/marketplaces/zcode-plugins-official/bundle
 1. 干净跑 `pnpm --filter @zcode/desktop prepare:agent-bundle`（或 bundle:desktop）后，
    `bundled-agents/<key>/glm/packages/` 含 12 个 `*-plugin`，且两处 `dist/mcp/server.js` 内无
    bare import（node: 前缀除外）。
-2. dev：`pnpm dev:desktop` 后同目录同样有 12 个包；商店公开分段出现 12 个插件；
+2. dev：`pnpm dev:desktop` 后同目录同样有 12 个包；商店公开分段出现 12 个插件；官方服务
+   `marketplace` 开关关闭（审计默认）时公开分段仍展示内置插件（bundled 条目），仅 CDN 目录隐藏；
    默认启用的 10 个开箱可用（`/doctor`、文档技能等）。
 3. 安装默认关闭的 android-emulator：skills/commands/hooks/templates 完整、MCP server 可启动。
 4. `tsx --test` 对照测试通过：definition version == vendored manifest version；staging 表覆盖

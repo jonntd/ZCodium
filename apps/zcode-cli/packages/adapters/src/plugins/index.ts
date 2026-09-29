@@ -85,6 +85,7 @@ export {
 } from "./marketplace.js";
 
 export {
+  readBundledOfficialMarketplaceEntryNamesSync,
   writeBundledOfficialMarketplacePartitionSync,
   writeCdnOfficialMarketplacePartitionSync,
 } from "./official-marketplace.js";

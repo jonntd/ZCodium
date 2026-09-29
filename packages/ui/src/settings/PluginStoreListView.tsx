@@ -81,12 +81,15 @@ export function PluginStoreListView({
   );
   const officialMarketplaceDisabled = officialMarketplaceEnabled === false;
   const publicItems = useMemo(
-    // 关闭官方市场开关时“公开”分段整体为空：缓存的市场/插件不再展示，
+    // 关闭官方市场开关时只隐藏 CDN 来源的目录条目（officialSource !== "bundled"）；
+    // bundled（本地内置）条目是随包 seed 的本地资产，公开分段继续可见。
     // 已安装列表（installedItems）不受影响，仍是用户可管理的本地资产。
     () =>
-      officialMarketplaceDisabled
-        ? []
-        : items.filter((item) => isPublicStoreMarketplaceId(item.marketplace)),
+      items.filter(
+        (item) =>
+          isPublicStoreMarketplaceId(item.marketplace) &&
+          (!officialMarketplaceDisabled || item.summary?.officialSource === "bundled"),
+      ),
     [items, officialMarketplaceDisabled],
   );
   const personalItems = useMemo(

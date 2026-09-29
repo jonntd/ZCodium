@@ -42,20 +42,21 @@ export function createPluginManagementService(
       agent.onDynamicPluginOperationProgress(operationId),
     async getPluginsOverview(params) {
       const result = await agent.getPluginsOverview(params);
-      // 官方市场开关关闭时，公开市场投影必须为空并显式标记：UI 的“公开”分段据此不展示
-      // 缓存过的官方市场/插件（它们仍保留在本地，重新打开开关后可见），同时引导用户去设置打开。
-      // 已安装插件列表不受过滤，用户仍可管理本地已安装的插件。
+      // 官方市场开关关闭时只隐藏 CDN 来源的目录条目（含历史缓存）；bundled（本地内置）
+      // 条目是随包 seed 的本地资产，不受官方网络开关影响，公开分段继续可见——
+      // 否则内置插件会在商店里"消失"，与 seed 侧"本地内置不受开关影响"的口径矛盾。
+      // 官方市场身份保留（bundled 条目归属它）；officialMarketplaceEnabled=false 供 UI
+      // 展示 CDN 关闭引导。已安装插件列表不受过滤，用户仍可管理本地已安装的插件。
       if (isOfficialServiceEnabled("marketplace")) {
         return { ...result, officialMarketplaceEnabled: true };
       }
       return {
         ...result,
         officialMarketplaceEnabled: false,
-        marketplaces: result.marketplaces.filter(
-          (marketplace) => marketplace.id !== ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
-        ),
         availablePlugins: result.availablePlugins.filter(
-          (plugin) => plugin.marketplace !== ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
+          (plugin) =>
+            plugin.marketplace !== ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID ||
+            plugin.officialSource === "bundled",
         ),
       };
     },

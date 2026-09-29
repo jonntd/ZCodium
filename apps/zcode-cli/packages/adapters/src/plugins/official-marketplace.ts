@@ -60,6 +60,19 @@ export function loadBundledOfficialPluginRootsSync(
   });
 }
 
+/** bundled 分片里的插件名集合：overview 投影据此区分本地内置与 CDN 来源条目。 */
+export function readBundledOfficialMarketplaceEntryNamesSync(
+  storageRoot: string,
+): ReadonlySet<string> {
+  const bundledPartition = readBundledPartition(storageRoot);
+  if (!bundledPartition) return new Set();
+  return new Set(
+    readPluginEntries(bundledPartition.manifest)
+      .map(readPluginName)
+      .filter(isDefined),
+  );
+}
+
 function rebuildOfficialMarketplaceSync(storageRoot: string): Record<string, unknown> {
   const bundledPartition = readBundledPartition(storageRoot);
   const cdnManifest = readJsonRecord(partitionPath(storageRoot, CDN_PARTITION_FILE));

@@ -164,16 +164,21 @@ test("agent spawn env and protocol entrypoint carry the official switches", asyn
   );
 });
 
-test("host filters the official marketplace from the public projection when the switch is off", () => {
+test("host keeps only bundled official plugins in the public projection when the switch is off", () => {
   const home = mkdtempSync(join(tmpdir(), "zcode-official-overview-"));
   const filter = runProbe(home, "overview-filter");
 
-  // 关闭：官方市场与官方候选插件不可见，已安装列表保留；标记为 false（UI 展示引导）。
-  assert.deepEqual(filter.closedMarketplaces, ["probe-market"], "关闭时公开市场不得包含官方市场");
+  // 关闭：官方市场身份保留、CDN 来源候选被过滤、bundled（本地内置）候选保留；
+  // 已安装列表保留；标记为 false（UI 展示 CDN 关闭引导）。
+  assert.deepEqual(
+    filter.closedMarketplaces,
+    ["zcode-plugins-official", "probe-market"],
+    "关闭时官方市场身份必须保留（bundled 条目归属它）",
+  );
   assert.deepEqual(
     filter.closedAvailable,
-    ["probe@probe-market"],
-    "关闭时公开候选插件不得包含官方插件",
+    ["documents@zcode-plugins-official", "probe@probe-market"],
+    "关闭时公开候选只保留 bundled 官方插件与个人来源",
   );
   assert.deepEqual(
     filter.closedInstalled,
@@ -182,8 +187,12 @@ test("host filters the official marketplace from the public projection when the 
   );
   assert.equal(filter.closedFlag, false, "关闭时必须注入 officialMarketplaceEnabled=false");
 
-  // 打开：官方市场与候选插件恢复可见；标记为 true。
+  // 打开：CDN 候选恢复可见；标记为 true。
   assert.deepEqual(filter.openedMarketplaces, ["zcode-plugins-official", "probe-market"]);
-  assert.deepEqual(filter.openedAvailable, ["github@zcode-plugins-official", "probe@probe-market"]);
+  assert.deepEqual(filter.openedAvailable, [
+    "github@zcode-plugins-official",
+    "documents@zcode-plugins-official",
+    "probe@probe-market",
+  ]);
   assert.equal(filter.openedFlag, true, "打开时 officialMarketplaceEnabled=true");
 });

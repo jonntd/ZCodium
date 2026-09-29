@@ -78,6 +78,25 @@ test("requiredSeedPaths exist in vendored plugin sources", () => {
   }
 });
 
+test("dev entrypoint candidates resolve vendored plugin sources", () => {
+  // dev 态 agent resolver dist 优先：entrypointDir = apps/zcode-cli/packages/cli/dist。
+  // rootCandidates 必须含一条能从该 baseDir 命中仓库根 plugins/ 的候选，否则 dev 的
+  // filesystem seed 找不到包源（desktop 首启只 seed 到 browser-use/node-repl-host 的回归）。
+  const devEntrypointDir = resolve(repoRoot, "apps/zcode-cli/packages/cli/dist");
+  for (const plugin of VENDORED_OFFICIAL_PLUGINS) {
+    const definition = OFFICIAL_PLUGIN_DEFINITIONS.find((entry) => entry.name === plugin.name);
+    assert.ok(definition, `definition missing for vendored plugin: ${plugin.name}`);
+    const vendoredRoot = resolve(repoRoot, "plugins", plugin.directory);
+    const hit = definition.rootCandidates.some(
+      (candidate) => resolve(devEntrypointDir, candidate) === vendoredRoot,
+    );
+    assert.ok(
+      hit,
+      `${plugin.name}: no rootCandidate resolves from cli/dist to ${vendoredRoot}`,
+    );
+  }
+});
+
 test("shared DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS matches bootstrap derived set", () => {
   assert.equal(SHARED_DEFAULT_ENABLED_IDS.size, DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS.size);
   for (const pluginId of SHARED_DEFAULT_ENABLED_IDS) {

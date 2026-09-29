@@ -28,6 +28,7 @@ import {
   loadMarketplaceManifestSync,
   parseMarketplaceSourceInput,
   parseEntryStoreListing,
+  readBundledOfficialMarketplaceEntryNamesSync,
   readPluginSourceIdentityPin,
   removeMarketplace,
   uninstallMarketplacePlugin,
@@ -111,6 +112,9 @@ export interface ZCodeAvailablePluginData {
   installed: boolean;
   componentTypes?: string[];
   hookDetails?: PluginHookDetail[];
+  // 官方市场条目的来源分片：bundled=本地内置 seed，cdn=官方 CDN 目录（含历史缓存）。
+  // Host 的公开投影在官方 marketplace 开关关闭时据此只滤 CDN、保留本地内置条目。
+  officialSource?: "bundled" | "cdn";
   // 商店信息（显示名/icon/分类/作者/链接/hero/示例提示词），来自目录条目。
   listing?: PluginStoreListing;
 }
@@ -295,6 +299,7 @@ export function getZCodePluginsOverview(
   const catalogs: Array<{
     summary: ZCodeMarketplaceSummaryData;
     entries: PluginMarketplaceEntry[];
+    officialBundledNames?: ReadonlySet<string>;
   }> = [];
   for (const { record, useCachedManifest } of effectiveMarketplaces) {
     // Marketplace source 只来自 User/Host 配置。只有目标 Host 已经通过显式 refresh/install
@@ -303,6 +308,12 @@ export function getZCodePluginsOverview(
     const manifest = useCachedManifest
       ? loadMarketplaceManifestSync(pluginStorageRoot, record.id)
       : null;
+    // 官方市场条目按 bundled/cdn 分片标注来源：Host 在官方 marketplace 开关关闭时只从
+    // 公开投影滤掉 CDN 条目，本地内置（bundled）条目是本地 seed 资产，不受网络开关影响。
+    const officialBundledNames =
+      record.id === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE
+        ? readBundledOfficialMarketplaceEntryNamesSync(pluginStorageRoot)
+        : undefined;
     catalogs.push({
       summary: toMarketplaceSummaryData(
         record,
@@ -310,6 +321,7 @@ export function getZCodePluginsOverview(
         countVisibleMarketplacePlugins(record.id, manifest?.plugins),
       ),
       entries: manifest?.plugins ?? [],
+      officialBundledNames,
     });
   }
 
@@ -322,7 +334,12 @@ export function getZCodePluginsOverview(
   const listingByPluginId = new Map<string, PluginStoreListing>();
   const availablePlugins = catalogs.flatMap((catalog) =>
     catalog.entries.map((entry) => {
-      const data = toAvailablePluginData(entry, catalog.summary.id, installedIds);
+      const data = toAvailablePluginData(
+        entry,
+        catalog.summary.id,
+        installedIds,
+        catalog.officialBundledNames,
+      );
       latestPinByPluginId.set(data.id, {
         ...(entry.version ? { version: entry.version } : {}),
         ...(readPluginSourceIdentityPin(entry.source)
@@ -1199,6 +1216,7 @@ function toAvailablePluginData(
   entry: PluginMarketplaceEntry,
   marketplace: string,
   installedIds: ReadonlySet<string>,
+  officialBundledNames?: ReadonlySet<string>,
 ): ZCodeAvailablePluginData {
   const id = `${entry.name}@${marketplace}`;
   return {
@@ -1209,6 +1227,13 @@ function toAvailablePluginData(
     ...(entry.version ? { version: entry.version } : {}),
     installed: installedIds.has(id),
     componentTypes: inferComponentTypes(entry.raw),
+    ...(officialBundledNames
+      ? {
+          officialSource: officialBundledNames.has(entry.name)
+            ? ("bundled" as const)
+            : ("cdn" as const),
+        }
+      : {}),
     ...(entry.listing ? { listing: entry.listing } : {}),
   };
 }

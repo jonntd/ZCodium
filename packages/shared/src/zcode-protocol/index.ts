@@ -3121,6 +3121,8 @@ export const zcodeAvailablePluginSummarySchema = z
     version: z.string().optional(),
     installed: z.boolean(),
     componentTypes: z.array(z.string()).optional(),
+    // 仅官方市场条目携带：bundled=本地内置 seed，cdn=官方 CDN 目录（含历史缓存）。
+    officialSource: z.enum(["bundled", "cdn"]).optional(),
     listing: zcodePluginStoreListingSchema.optional(),
   })
   .strict();
@@ -3161,8 +3163,8 @@ export const zcodePluginsOverviewResultSchema = z
     diagnostics: z.array(zcodePluginDiagnosticSchema),
     /**
      * Host 注入的展示态：官方插件市场开关是否开启。
-     * agent 不返回；关闭时 Host 已同时过滤掉官方市场与官方候选插件，
-     * UI 据此在“公开”分段展示引导用户去设置打开的提示。缺省视为可用（旧客户端兼容）。
+     * agent 不返回；关闭时 Host 过滤官方市场中的 CDN 来源候选（bundled 本地内置条目保留），
+     * UI 据此在“公开”分段展示 CDN 关闭引导提示。缺省视为可用（旧客户端兼容）。
      */
     officialMarketplaceEnabled: z.boolean().optional(),
     capability: z

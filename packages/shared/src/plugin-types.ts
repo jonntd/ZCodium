@@ -36,6 +36,8 @@ export interface AvailablePluginSummary {
   version?: string;
   installed: boolean;
   componentTypes?: PluginComponentType[];
+  /** 仅官方市场条目携带：bundled=本地内置 seed，cdn=官方 CDN 目录（含历史缓存）。 */
+  officialSource?: "bundled" | "cdn";
 }
 
 export interface InstalledPluginSummary {

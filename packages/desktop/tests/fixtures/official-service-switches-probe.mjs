@@ -279,7 +279,8 @@ if (mode === "baseline") {
   result.openedDefaults = defaults.length;
   result.openedDefaultSource = defaults[0]?.source ?? null;
 } else if (mode === "overview-filter") {
-  // Host 的公开市场投影：关闭时官方市场/候选插件从 overview 过滤且注入标记，已安装列表保留。
+  // Host 的公开市场投影：关闭时官方市场的 CDN 候选条目被过滤且注入标记；
+  // bundled（本地内置）条目与官方市场身份保留，已安装列表保留。
   const { createPluginManagementService } = await import(
     new URL("../../../services/src/plugins/pluginManagementService.ts", import.meta.url).href
   );
@@ -315,6 +316,14 @@ if (mode === "baseline") {
           name: "Github",
           marketplace: "zcode-plugins-official",
           installed: false,
+          officialSource: "cdn",
+        },
+        {
+          id: "documents@zcode-plugins-official",
+          name: "Documents",
+          marketplace: "zcode-plugins-official",
+          installed: false,
+          officialSource: "bundled",
         },
         {
           id: "probe@probe-market",
