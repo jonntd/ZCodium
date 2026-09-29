@@ -10,6 +10,10 @@
  *      bridge modules that re-export the real implementation.
  *   3. Replaces the stubbed createComputerUseRuntime inside the seeded
  *      node-repl-host MCP server bundle(s) with a lazy delegating loader.
+ *   4. Rebinds the stubbed Computer Use host surface in
+ *      out/host/index.js (helper lifecycle, permission probes, MCP
+ *      resolver) to the real broker-server implementations so the
+ *      settings page reports real permission status.
  *
  * Everything is detected, not assumed: chunks are located by their stub
  * signature ("Computer Use is not available in this build." + named export
@@ -329,6 +333,97 @@ function unhideSettingsSection(body) {
   return body.slice(0, i) + body.slice(i + needle.length - 1);
 }
 
+// ---------------------------------------------------------------------------
+// out/host/index.js — the Electron host process carries its own copy of the
+// CUA surface (helper lifecycle, permission probes, MCP server resolver),
+// shipped as stubs even when the renderer chunks were stubbed too. The
+// settings page talks to this surface; its queryPermissionStatus() returns {}
+// which the UI renders as "未知". Instead of rewriting declarations, rebind
+// each stub symbol — they are all `function`/`var` declarations, hence
+// reassignable — to the real implementations in
+// resources/tools/zcode-cua/broker-server.js, inserted right after the stub
+// block so every call site keeps working untouched.
+// ---------------------------------------------------------------------------
+
+const HOST_BRIDGE_MARKER = "zcode-plugin:host-cua-bridge";
+
+// semantic annotation -> export name on broker-server.js (same spelling).
+const HOST_STUB_FUNCTIONS = [
+  "buildHelperOpenArgs",
+  "isCuaLocalDevelopmentRuntime",
+  "createCuaHelperInstaller",
+  "createProductCuaHelperHost",
+  "isOfficialCuaPluginEnabledForWorkspace",
+  "createCuaProductMcpServerResolver",
+  "waitForCuaHelperStartup",
+  "isPotentialZCodeCuaAgentMcpServer",
+  "isScreenCaptureProbeSuccess",
+  "hasCuaProductHelperAgentEnvUnavailable",
+  "reapOrphanedHelpers",
+];
+const HOST_STUB_CLASSES = [
+  "CuaHelperLifecycleManager",
+  "CuaProductHelperWorkspaceRegistry",
+];
+
+function patchHostIndex(body, asarPath) {
+  if (body.includes(HOST_BRIDGE_MARKER)) return "already";
+  // Only the packaged host surface carries this exact stub pairing.
+  if (!body.includes('"createProductCuaHelperHost"') || !body.includes('"reapOrphanedHelpers"')) {
+    return null;
+  }
+
+  const dirDepth = asarPath.split("/").filter(Boolean).length - 1;
+  const rel = "../".repeat(dirDepth + 1) + "tools/zcode-cua/broker-server.js";
+
+  const rebinds = [];
+  for (const sem of HOST_STUB_FUNCTIONS) {
+    const m = body.match(new RegExp(`[\\w$]+\\(([\\w$]+),"${sem}"\\)`));
+    if (!m) return null;
+    // Release builds compile isCuaLocalDevelopmentRuntime to `false`; the real
+    // implementation checks NODE_ENV/__ZCODE_LOCAL_DEVELOPMENT_RUNTIME__ which
+    // are both unset in the packaged host — so the helper-launch escape flags
+    // (unsigned launcher / external broker client) would never be emitted even
+    // though the seeded install IS a local-development runtime. Honor the
+    // installer's ZCODE_CUA_DEV_MODE env (set via launchctl) instead.
+    if (sem === "isCuaLocalDevelopmentRuntime") {
+      rebinds.push(
+        `${m[1]}=(e)=>{const v=e?.ZCODE_CUA_DEV_MODE?.trim?.().toLowerCase?.();return v==="1"||v==="true"||v==="on"||__zpcuaHost.isCuaLocalDevelopmentRuntime(e);};`,
+      );
+      continue;
+    }
+    rebinds.push(`${m[1]}=(...a)=>__zpcuaHost.${sem}(...a);`);
+  }
+  for (const sem of HOST_STUB_CLASSES) {
+    const m = body.match(new RegExp(`(?:var\\s+|,)\\s*([\\w$]+)=class\\{static\\{[\\w$]+\\(this,"${sem}"\\)`));
+    if (!m) return null;
+    rebinds.push(`${m[1]}=__zpcuaHost.${sem};`);
+  }
+  // defaultCuaHelperVerifierDependencies ships as an object literal, no
+  // annotation — locate it by shape and substitute the real defaults.
+  const deps = body.match(
+    /var\s+([\w$]+)=\{readExecutableArchs:[\w$]+,verifyCodeSignature:[\w$]+,verifyTeamIdentifier:[\w$]+\}/,
+  );
+  if (deps) rebinds.push(`${deps[1]}=__zpcuaHost.defaultCuaHelperVerifierDependencies;`);
+
+  // Insert after the last stub declaration (reapOrphanedHelpers closes the
+  // block); every top-level `new <registry>/<manager>` site sits later.
+  const tail = body.search(/[\w$]+\([\w$]+,"reapOrphanedHelpers"\);/);
+  if (tail < 0) return null;
+  const insertAt = tail + body.slice(tail).indexOf(";") + 1;
+
+  const bridge =
+    `\n// ${HOST_BRIDGE_MARKER}: rebind the packaged CUA host stubs to the real\n` +
+    `// implementations shipped under resources/tools/zcode-cua.\n` +
+    `${rebinds.join("\n")}\n`;
+  return (
+    `import * as __zpcuaHost from "${rel}";\n` +
+    body.slice(0, insertAt) +
+    bridge +
+    body.slice(insertAt)
+  );
+}
+
 function walkAsarFiles(node, prefix, out) {
   for (const [name, v] of Object.entries(node.files || {})) {
     const p = prefix + "/" + name;
@@ -364,6 +459,7 @@ function patchAsar(asarPath, dryRun) {
   const patched = [];
   const skipped = [];
   const unhidden = [];
+  const hostPatched = {};
   const bodies = new Map();
   for (const [p, v] of entries) {
     if (v.unpacked || v.link !== undefined) continue;
@@ -383,13 +479,25 @@ function patchAsar(asarPath, dryRun) {
       patched.push(p);
       bodies.set(p, { v, body: Buffer.from(res, "utf8") });
     }
+    if (p.endsWith("/out/host/index.js")) {
+      const hostRes = patchHostIndex(
+        bodies.get(p).body.toString("utf8"),
+        p,
+      );
+      if (hostRes === "already") hostPatched.skipped = true;
+      else if (hostRes) {
+        hostPatched.patched = true;
+        hostPatched.path = p;
+        bodies.set(p, { v, body: Buffer.from(hostRes, "utf8") });
+      }
+    }
   }
 
-  const rewritten = [...new Set([...patched, ...unhidden])];
+  const rewritten = [...new Set([...patched, ...unhidden, ...(hostPatched.patched ? [hostPatched.path] : [])])];
   if (rewritten.length === 0) {
-    return { patched, skipped, unhidden, wrote: false };
+    return { patched, skipped, unhidden, hostPatched, wrote: false };
   }
-  if (dryRun) return { patched, skipped, unhidden, wrote: false };
+  if (dryRun) return { patched, skipped, unhidden, hostPatched, wrote: false };
 
   // Self-check the rebuilt archive in memory before touching disk.
   const verify = (buf) => {
@@ -468,7 +576,7 @@ function patchAsar(asarPath, dryRun) {
   } else {
     fs.writeFileSync(asarPath, out);
   }
-  return { patched, skipped, unhidden, wrote: true, deferredMove, backup };
+  return { patched, skipped, unhidden, hostPatched, wrote: true, deferredMove, backup };
 }
 
 // ---------------------------------------------------------------------------
@@ -637,10 +745,13 @@ function main() {
       console.log(`[cua-patch] app.asar: restored Computer Use settings section in:`);
       for (const p of r.unhidden) console.log(`            ${p}`);
     }
-    if (r.patched.length || r.unhidden?.length) {
+    if (r.hostPatched?.patched) {
+      console.log(`[cua-patch] app.asar: rebound CUA host stubs in ${r.hostPatched.path}`);
+    }
+    if (r.patched.length || r.unhidden?.length || r.hostPatched?.patched) {
       if (r.wrote) console.log(`            backup: ${r.backup}`);
       if (r.deferredMove) console.log("            (archive swap runs when this process exits)");
-    } else if (skippedNonEmpty(r)) {
+    } else if (skippedNonEmpty(r) || r.hostPatched?.skipped) {
       console.log("[cua-patch] app.asar: already patched");
     } else {
       console.log("[cua-patch] app.asar: no stub chunks found (nothing to do)");
