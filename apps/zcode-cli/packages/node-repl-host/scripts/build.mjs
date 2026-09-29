@@ -2,8 +2,15 @@ import { mkdir, readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
+import { createZcodeCuaRuntimeAliasPlugin } from "../../../../../scripts/zcode-cua-runtime-alias.mjs";
 
 const packageRoot = resolve(import.meta.dirname, "..");
+// CUA runtime alias（docs/spec/cua-runtime-builtin.md §A）：workspace 的 @zcode/zcode-cua
+// 是 fail-closed stub，本包内联的 helperInstaller/懒启动路径需要 runtimes/zcode-cua
+// 真实现才能在打包态安装/拉起 Helper。仅 bundler 层替换，typecheck 仍解析 stub。
+const zcodeCuaRuntimeAliasPlugin = createZcodeCuaRuntimeAliasPlugin({
+  runtimeRoot: resolve(packageRoot, "../../../../runtimes/zcode-cua"),
+});
 
 // 见 browser-use-plugin/scripts/build.mjs 的同名修复：esbuild 的 esm 产物里
 // __require shim 在 ESM 作用域没有 require 可用，@zcode/core 拖进来的 CJS 依赖（yaml →
@@ -38,6 +45,10 @@ const require = __zcodeCreateRequire(import.meta.url);`;
 const resolveCuaHelperBuildId = (env = process.env) =>
   env.ZCODE_CUA_HELPER_BUILD_ID?.trim() ?? "";
 
+// workspace stub 的 fail-closed 文案。alias 插件生效时它不可能进入产物；出现即说明
+// alias 漂移（入口漏挂、exports 表改名），打包态 CUA 会整体静默失效，直接失败。
+const ZCODE_CUA_STUB_MARKER = "Computer Use is not available in this build.";
+
 export const buildNodeReplHostBundle = async ({
   outfile = resolve(packageRoot, "dist", "mcp", "server.js"),
   cuaHelperBuildId = resolveCuaHelperBuildId(),
@@ -46,8 +57,13 @@ export const buildNodeReplHostBundle = async ({
   await build({
     banner: { js: nodeRequireBanner },
     bundle: true,
+    plugins: [zcodeCuaRuntimeAliasPlugin],
     define: {
       __ZCODE_CUA_HELPER_BUILD_ID__: JSON.stringify(cuaHelperBuildId),
+      // 与 desktop tsup 同名 define 同语义：vendor 信任门据此判定本地开发运行时
+      // （unsigned Helper 逃生口 / buildId env 覆盖）。本包只随 dev 与打包链构建，
+      // 这里按构建机 NODE_ENV 折叠，打包链（NODE_ENV=production）为 false。
+      __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__: JSON.stringify(process.env.NODE_ENV !== "production"),
     },
     entryPoints: [resolve(packageRoot, "src", "server.ts")],
     format: "esm",
@@ -58,14 +74,18 @@ export const buildNodeReplHostBundle = async ({
   });
   // 构建期守卫：define 名一旦漂移（改名、被 createSharedDefines 之类重构吞掉），
   // 产物会静默退回空串，而症状只在正式包出现且表现为超时。这里立刻失败，别再让它溜到用户手上。
-  if (cuaHelperBuildId) {
-    const bundled = await readFile(outfile, "utf8");
-    if (!bundled.includes(cuaHelperBuildId)) {
-      throw new Error(
-        `[node-repl-host] ZCODE_CUA_HELPER_BUILD_ID=${cuaHelperBuildId} 未折叠进 ${outfile}：` +
-          "__ZCODE_CUA_HELPER_BUILD_ID__ define 没有生效，正式包的 Helper 安装会被 fail-closed 拒绝。",
-      );
-    }
+  const bundled = await readFile(outfile, "utf8");
+  if (cuaHelperBuildId && !bundled.includes(cuaHelperBuildId)) {
+    throw new Error(
+      `[node-repl-host] ZCODE_CUA_HELPER_BUILD_ID=${cuaHelperBuildId} 未折叠进 ${outfile}：` +
+        "__ZCODE_CUA_HELPER_BUILD_ID__ define 没有生效，正式包的 Helper 安装会被 fail-closed 拒绝。",
+    );
+  }
+  if (bundled.includes(ZCODE_CUA_STUB_MARKER)) {
+    throw new Error(
+      `[node-repl-host] ${outfile} 含 workspace stub 残留（"${ZCODE_CUA_STUB_MARKER}"）：` +
+        "@zcode/zcode-cua alias 未生效，打包态 Computer Use 会整体失效。",
+    );
   }
   return { outfile, cuaHelperBuildId };
 };

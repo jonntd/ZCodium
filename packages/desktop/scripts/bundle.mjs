@@ -5,7 +5,7 @@
 // 先保留集中实现，后续再按“参数解析/构建执行/产物校验”拆分模块。
 
 import { spawn } from "node:child_process";
-import { readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import process from "node:process";
@@ -691,6 +691,48 @@ function verifyPackagedRuntimeDependencies(os, arch) {
   }
 }
 
+// CUA runtime 内置守卫（docs/spec/cua-runtime-builtin.md §A）：host 产物必须内联
+// runtimes/zcode-cua 真实现，workspace stub 的 fail-closed 文案不允许出现。
+// 沿入口的本地 chunk import 图检查而不是全扫 out/host——tsup 不清 outDir，
+// 上一轮构建的残留 chunk 会骗过朴素全扫（本次实施时实际踩到）。
+const ZCODE_CUA_STUB_MARKER = "Computer Use is not available in this build.";
+const HOST_LOCAL_CHUNK_IMPORT_PATTERN = /(?:from\s*|import\s*\(\s*)"\.\/(chunk-[^"']+\.js)"/g;
+
+export function collectHostChunkGraphFiles(hostOutDir = resolve(desktopRoot, "out", "host")) {
+  const entryFiles = ["index.js", "tasksStorageWorker.js"]
+    .map((name) => join(hostOutDir, name))
+    .filter((path) => existsSync(path));
+  const visited = new Set();
+  const queue = [...entryFiles];
+  while (queue.length > 0) {
+    const filePath = queue.pop();
+    if (visited.has(filePath)) continue;
+    visited.add(filePath);
+    const source = readFileSync(filePath, "utf8");
+    for (const match of source.matchAll(HOST_LOCAL_CHUNK_IMPORT_PATTERN)) {
+      queue.push(join(hostOutDir, match[1]));
+    }
+  }
+  return [...visited];
+}
+
+export function assertNoCuaStubMarkerInHostGraph(hostOutDir) {
+  const files = collectHostChunkGraphFiles(hostOutDir);
+  if (files.length === 0) {
+    throw new Error("打包守卫：out/host 下没有入口产物（先跑 pnpm build）");
+  }
+  const violations = files.filter((filePath) =>
+    readFileSync(filePath, "utf8").includes(ZCODE_CUA_STUB_MARKER),
+  );
+  if (violations.length > 0) {
+    throw new Error(
+      `打包守卫：host 产物含 workspace stub 残留（"${ZCODE_CUA_STUB_MARKER}"）：\n` +
+        `${violations.join("\n")}\n` +
+        "@zcode/zcode-cua 的 runtime alias 未生效，打包态 Computer Use 会整体失效。",
+    );
+  }
+}
+
 async function main() {
   const { os, arch, skipPrepare, skipBuild, dryRun } = parseArgs(process.argv.slice(2));
   const buildArgs = [
@@ -728,6 +770,10 @@ async function main() {
   if (!skipBuild) {
     run(pnpmCommand, ["build"], buildEnv);
   }
+
+  runTimedSync("bundle:assert-no-cua-stub-marker", () =>
+    assertNoCuaStubMarkerInHostGraph(),
+  );
 
   await runTimedAsync("bundle:electron-builder", () =>
     runElectronBuilderWithRetry(buildArgs, buildEnv),

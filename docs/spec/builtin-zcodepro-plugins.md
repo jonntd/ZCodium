@@ -68,9 +68,9 @@ Agent storage：<storage>/cli/plugins/marketplaces/zcode-plugins-official/bundle
    dynamic-workflows 技能仍由 bundled-skills 包（glm/packages/bundled-skills）提供，不丢失。
 4. **image-search 依赖官方 API**：其 MCP 为 http 指向 `${ZCODE_BASE_URL}`（zcode_official jwt 鉴权），
    审计 fork 默认断连下该 MCP 连接失败属预期降级，不在本 spec 处理。
-5. **computer-use 一期边界**：包照常 stage（文档/技能/客户端脚本可 seed），但 CUA 运行时
-   （runtimes/zcode-cua → resources/tools/zcode-cua、签名 helper app、workspace stub 替换）不随包，
-   插件保持默认关闭；运行时内置化为二期。
+5. **computer-use 一期边界**：包照常 stage（文档/技能/客户端脚本可 seed），但运行时面
+   （host 内联 stub 替换、签名 helper 随包、dev 接线）在二期补齐，
+   见 [[cua-runtime-builtin]]。
 
 ## 验收场景
 
@@ -85,7 +85,8 @@ Agent storage：<storage>/cli/plugins/marketplaces/zcode-plugins-official/bundle
    definitions 全部 12 个；requiredSeedPaths 存在；shared 与 bootstrap 默认启用集合一致。
 5. 卸载某内置插件 → 重启不回植（Restorable Builtin 抑制语义不变）。
 
-## 明确不做（二期）
-- CUA 运行时内置（extraResources + helper 签名/下载 + stub 替换 + `patch-cua-runtime.cjs` 退役）。
+## 明确不做（二期已完成，见 [[cua-runtime-builtin]]）
+- CUA 运行时内置（构建期 alias 替换 stub + Developer-ID helper 随包 + dev 接线 +
+  `patch-cua-runtime.cjs` 退役）已由 cua-runtime-builtin spec 覆盖。
 - 官方 CDN 市场与 `officialPlatformPolicy` 开关语义不变。
 - 根目录 `marketplace.json`（zcode-plugins 个人市场身份）与内置链路互不干扰，维持原样。

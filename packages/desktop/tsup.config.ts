@@ -10,6 +10,14 @@ import { resolveUpdateFeedTarget } from "./scripts/update-feed-target.mjs";
 const { loadBuiltinProviderConfig } = await import(
   pathToFileURL(resolve(import.meta.dirname, "../../scripts/builtin-provider-config.mjs")).href
 );
+// CUA runtime alias 插件同样含 import.meta 消费面（读 runtime 包 exports 表），
+// 与 builtin-provider-config 同理走动态加载（docs/spec/cua-runtime-builtin.md §A）。
+const { createZcodeCuaRuntimeAliasPlugin } = await import(
+  pathToFileURL(resolve(import.meta.dirname, "../../scripts/zcode-cua-runtime-alias.mjs")).href
+);
+const zcodeCuaRuntimeAliasPlugin = createZcodeCuaRuntimeAliasPlugin({
+  runtimeRoot: resolve(import.meta.dirname, "../../runtimes/zcode-cua"),
+});
 
 const buildMetadata = getBuildMetadata();
 // 更新源仓库坐标与 electron-builder publish 配置同源（update-feed-target.mjs），见 spec github-updates.md。
@@ -105,6 +113,11 @@ function createSharedDefines() {
     __ZCODE_ENV__: JSON.stringify(zcodeEnv),
     __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
     __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
+    // CUA 本地开发运行时开关：vendor runtime 的信任门（unsigned Helper 逃生口、buildId
+    // env 覆盖）只在 true + ZCODE_RUNTIME_ENV!=production 时放开。必须构建期折叠——
+    // vendor 兜底读运行时 process.env.NODE_ENV，而桌面 host 的 NODE_ENV 被有意清空，
+    // 不定义的话 dev:desktop 会被误判成生产运行时、helper 装不上。
+    __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__: JSON.stringify(process.env.NODE_ENV !== "production"),
     // Computer Use Helper build identity — helperInstaller 读它决定下载哪个 Helper bundle。
     // 缺失时 installer 抛 "Packaged ZCode is missing its embedded Computer Use Helper build identity"。
     // CI 构建时通过 ZCODE_CUA_HELPER_BUILD_ID env 注入；dev 为空串走兜底（dev helper 不走下载）。
@@ -178,6 +191,7 @@ export default defineConfig([
       // producer 的 JS broker 必须跟随 services 一起内联，原生 addon 仍只存在于独立 Helper。
       "@zcode/zcode-cua",
     ],
+    esbuildPlugins: [zcodeCuaRuntimeAliasPlugin],
     // OTLP 端点与鉴权只在运行时读取；构建环境中的凭据不能写进公开安装包。
     define: createSharedDefines(),
     // main/host 同时 watch 且共享 out 根目录时，默认 chunk 命名会互相覆盖，
@@ -237,6 +251,7 @@ export default defineConfig([
       "@zcode/provider-node",
       "@zcode/zcode-cua",
     ],
+    esbuildPlugins: [zcodeCuaRuntimeAliasPlugin],
     define: createSharedDefines(),
     // 与 main 保持一致的 chunk 隔离策略，避免 host/main 产物相互覆盖。
     esbuildOptions(options) {
@@ -266,6 +281,7 @@ export default defineConfig([
       "@zcode/provider-node",
       "@zcode/zcode-cua",
     ],
+    esbuildPlugins: [zcodeCuaRuntimeAliasPlugin],
     define: createSharedDefines(),
     esbuildOptions(options) {
       applyDesktopTsupEsbuildSecurityOptions(options);

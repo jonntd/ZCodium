@@ -685,6 +685,31 @@ export default {
       to: "tools/ripgrep",
       filter: ["**/*"],
     },
+    ...(targetPlatform.os === "darwin"
+      ? [
+          {
+            // CUA helper 随包（docs/spec/cua-runtime-builtin.md §B）：prepare:cua-helper
+            // 从官方发布 CDN 抽取的 Developer-ID 签名 "ZCode Computer Use.app"。
+            // 生产态 vendor runtime 只认 bundled 来源（resourcesPath/cua-helper/<name>），
+            // 缺失时打包不失败（prepare 阶段已 warn+skip），运行时报 helper 未安装。
+            from: `bundled-cua-helper/${targetPlatform.key}`,
+            to: "cua-helper",
+            filter: ["**/*"],
+          },
+        ]
+      : []),
+    ...(targetPlatform.os === "win32"
+      ? [
+          {
+            // Windows CUA helper runtime：入库预编译产物（含 runtime-manifest.json + sha256）。
+            // 运行时 PRODUCT_RUNTIME_SEGMENTS 只认 resources/tools/cua-helper 并 fail-closed 校验
+            // platform/arch/electron/sha256（windowsCuaDevRuntime）。未真机验证，出错会显式报错。
+            from: resolve(workspaceRoot, "runtimes", "cua-helper"),
+            to: "tools/cua-helper",
+            filter: ["**/*"],
+          },
+        ]
+      : []),
     ...nativeSearchReleasePlan.extraResourceToolIds.map((toolId) => ({
       from: `bundled-tools/${targetPlatform.key}/${toolId}`,
       to: `tools/${toolId}`,
@@ -734,6 +759,10 @@ export default {
     signIgnore: [
       "[/\\\\]Contents[/\\\\]Resources[/\\\\]glm([/\\\\]|$)",
       "[/\\\\]Contents[/\\\\]Resources[/\\\\]tools([/\\\\]|$)",
+      // CUA helper 是 prepare:cua-helper 产出的 local-dev 补丁 + adhoc 变体（ZCodium 的
+      // adhoc 外壳过不了 stock helper 的 launcher 信任门，见 docs/spec/cua-runtime-builtin.md §B）。
+      // 证书签名链路跳过它；adhoc 兜底链路的 --deep 对相同字节做确定性重签（cdhash 稳定）。
+      "[/\\\\]Contents[/\\\\]Resources[/\\\\]cua-helper([/\\\\]|$)",
     ],
   },
   win: {

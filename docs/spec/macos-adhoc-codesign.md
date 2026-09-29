@@ -49,6 +49,12 @@ indicates they must be present"`，`autoUpdater.ts` 随后清掉 ready 状态—
 - **签名命令**：`codesign --force --deep --sign - <App>.app`（adhoc 无 hardened
   runtime、不注入 entitlements，避免 Electron JIT 在无 allow-jit 授权的 hardened
   runtime 下被杀）。
+- **嵌套 CUA helper（2026-09-29 起）**：随包的 `Contents/Resources/cua-helper/ZCode
+  Computer Use.app` 由 `prepare:cua-helper` 在打包前处理为 **local-dev 补丁 + adhoc**
+  变体（ZCodium 是 adhoc 外壳，stock helper 的 Apple 锚定 launcher 信任门永远不满足，
+  见 `cua-runtime-builtin.md` §B 的信任模型偏离）。因此这里不需要为它做任何保签特殊
+  处理：`--deep` 对相同字节做确定性 adhoc 重签（cdhash 稳定），跨更新 TCC 授权不重置。
+  `mac.signIgnore` 仍排除 `Resources/cua-helper`，让未来启用真实证书的链路同样跳过它。
 - **自校验（fail-fast）**：签名后立即执行 `codesign --verify --strict <App>.app`，
   非零退出码让打包直接失败，防止再发出校验不过的产物。
 - **幂等**：`--force` 重复签名安全；CI 重试、本地重复打包无副作用。

@@ -22,6 +22,9 @@ const shouldPrepareWindowsBrowserImportHelper =
 // CUA 权限浮窗的吸附数据源。仅 macOS；缺 swiftc 时脚本内部自行降级为跳过（浮窗 fail-open
 // 到屏幕底部，仍可用），所以无条件挂在 darwin 上不会让构建变脆。
 const shouldPrepareMacosWindowBounds = target.os === "darwin";
+// CUA helper 随包（docs/spec/cua-runtime-builtin.md §B）：darwin 从官方 CDN 抽
+// Developer-ID helper（网络失败时脚本内部 warn+skip），win32 只做入库 runtime 完整性自检。
+const shouldPrepareCuaHelper = target.os === "darwin" || target.os === "win32";
 
 // 本机桌面包内置 agent 的 JS bundle（prepare:agent-bundle），运行时由 app 的 Electron Node runtime 执行。
 // 远端跨平台原生二进制仍由上面的 prepare:remote-assets 提供。
@@ -31,6 +34,7 @@ const localRuntimeScripts = [
   ...(nativeSearchReleasePlan.enabled ? ["prepare:native-search"] : []),
   ...(shouldPrepareWindowsBrowserImportHelper ? ["prepare:browser-import-helper"] : []),
   ...(shouldPrepareMacosWindowBounds ? ["prepare:macos-window-bounds"] : []),
+  ...(shouldPrepareCuaHelper ? ["prepare:cua-helper"] : []),
 ];
 
 function runTimedPnpmScript(scriptName) {

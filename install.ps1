@@ -6,8 +6,11 @@
 .DESCRIPTION
   ZCode discovers bundled plugins from the "packages" directory next to the
   application entrypoint (resources/glm/zcode.cjs). This script copies the
-  plugin packages into that layout and places the Computer Use helper runtime
-  under resources/tools/cua-helper, matching the layout the app expects.
+  plugin packages into that layout.
+
+  Note: ZCodium builds carry the full Computer Use runtime and the helper
+  runtime inside the app itself — no post-install patching needed
+  (docs/spec/cua-runtime-builtin.md).
 
 .PARAMETER InstallDir
   Root of the installed ZCode app (the folder containing resources\glm\zcode.cjs).
@@ -17,11 +20,6 @@
   Alternatively, a local ZCode source checkout. Plugins are copied into its
   top-level "packages" directory, which the development bootstrap scans.
 
-.PARAMETER SkipDevMode
-  Do not set the ZCODE_CUA_DEV_MODE=1 user environment variable. The variable
-  relaxes the helper's launcher signature check, which unsigned open-source
-  builds need for Computer Use.
-
 .EXAMPLE
   .\install.ps1
   .\install.ps1 -InstallDir D:\Apps\ZCode
@@ -29,14 +27,12 @@
 #>
 param(
   [string]$InstallDir,
-  [string]$RepoDir,
-  [switch]$SkipDevMode
+  [string]$RepoDir
 )
 
 $ErrorActionPreference = 'Stop'
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pluginsDir = Join-Path $scriptRoot 'plugins'
-$runtimeDir = Join-Path $scriptRoot 'runtimes\cua-helper'
 
 if (-not (Test-Path $pluginsDir)) {
   Write-Error "plugins directory not found next to install.ps1: $pluginsDir"
@@ -61,7 +57,7 @@ if ($RepoDir) {
   Write-Host "Seeded $($copied.Count) plugins into $target" -ForegroundColor Green
   Write-Host ""
   Write-Host "For the Computer Use helper runtime in a source checkout, set:"
-  Write-Host "  ZCODE_CUA_DEV_ROOT=$runtimeDir"
+  Write-Host "  ZCODE_CUA_DEV_ROOT=<repo>\runtimes\cua-helper"
   Write-Host "  ZCODE_CUA_DEV_MODE=1"
   exit 0
 }
@@ -128,77 +124,6 @@ try {
   Write-Host "Enabled computer-use@zcode-plugins-official in $cliConfig" -ForegroundColor Green
 } catch {
   Write-Warning "Could not enable the computer-use plugin in ${cliConfig}: $_"
-}
-
-if (Test-Path $runtimeDir) {
-  $toolsTarget = Join-Path $install 'resources\tools'
-  New-Item -ItemType Directory -Force -Path $toolsTarget | Out-Null
-  $runtimeTarget = Join-Path $toolsTarget 'cua-helper'
-  try {
-    if (Test-Path $runtimeTarget) { Remove-Item $runtimeTarget -Recurse -Force }
-    Copy-Item $runtimeDir $runtimeTarget -Recurse
-    Write-Host "Installed Computer Use helper runtime -> $runtimeTarget" -ForegroundColor Green
-  } catch {
-    Write-Warning "Could not update the helper runtime at $runtimeTarget (files may be locked by a running ZCode). Quit ZCode and re-run install.ps1 to update it."
-  }
-}
-
-# --- Enable the Computer Use runtime inside the packaged app ---------------
-# Some builds ship the @zcode/zcode-cua surface as inert stubs. The patcher
-# detects those stubs inside app.asar and the seeded node-repl-host bundle
-# and rewires them to the full runtime under resources/tools/zcode-cua.
-# It is a no-op on builds that already ship the real implementation.
-$patcher = Join-Path $scriptRoot 'tools\patch-cua-runtime.cjs'
-if (Test-Path $patcher) {
-  $running = Get-Process -Name 'ZCode' -ErrorAction SilentlyContinue
-  if ($running) {
-    Write-Warning "ZCode is running. The runtime patch was skipped; fully quit ZCode (including the tray icon) and re-run install.ps1, or run:"
-    Write-Warning "  `$env:ELECTRON_RUN_AS_NODE=1; & '$install\ZCode.exe' '$patcher' --install-dir '$install' --repo-dir '$scriptRoot'"
-  } else {
-    $nodeCmd = $null
-    $zcodeExe = Join-Path $install 'ZCode.exe'
-    # Prefer a real Node runtime when present: under ELECTRON_RUN_AS_NODE the
-    # app binary works too, but it virtualizes *.asar paths and detaches from
-    # the console, so real Node is the more predictable runner.
-    if (Get-Command node -ErrorAction SilentlyContinue) {
-      $nodeCmd = 'node'
-    } elseif (Test-Path $zcodeExe) {
-      $nodeCmd = $zcodeExe
-    }
-    if ($nodeCmd) {
-      Write-Host "Enabling packaged Computer Use runtime..." -ForegroundColor Cyan
-      $hadRunAsNode = Test-Path Env:\ELECTRON_RUN_AS_NODE
-      $prevRunAsNode = $env:ELECTRON_RUN_AS_NODE
-      $patchExit = 0
-      try {
-        $env:ELECTRON_RUN_AS_NODE = '1'
-        if ($nodeCmd -eq $zcodeExe) {
-          # GUI-subsystem exe: Start-Process -Wait -PassThru gives a reliable
-          # exit code ($LASTEXITCODE stays empty for detached GUI processes).
-          $pargs = @('"' + $patcher + '"', '--install-dir', '"' + $install + '"', '--repo-dir', '"' + $scriptRoot + '"')
-          $proc = Start-Process -FilePath $nodeCmd -ArgumentList $pargs -Wait -NoNewWindow -PassThru
-          $patchExit = $proc.ExitCode
-        } else {
-          & $nodeCmd $patcher --install-dir $install --repo-dir $scriptRoot
-          $patchExit = $LASTEXITCODE
-        }
-      } finally {
-        if ($hadRunAsNode) { $env:ELECTRON_RUN_AS_NODE = $prevRunAsNode }
-        else { Remove-Item Env:\ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue }
-      }
-      if ($patchExit -ne 0) {
-        Write-Warning "Runtime patch reported an error (see above). Plugins are still installed."
-      }
-    } else {
-      Write-Warning "No Node runtime found to run the packaged-runtime patch. Install Node.js or re-run later."
-    }
-  }
-}
-
-if (-not $SkipDevMode) {
-  [Environment]::SetEnvironmentVariable('ZCODE_CUA_DEV_MODE', '1', 'User')
-  $env:ZCODE_CUA_DEV_MODE = '1'
-  Write-Host "Set user environment variable ZCODE_CUA_DEV_MODE=1" -ForegroundColor Green
 }
 
 Write-Host ""

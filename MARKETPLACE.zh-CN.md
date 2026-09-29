@@ -56,20 +56,16 @@ cd ZcodePro
 脚本会依次：
 
 1. 把全部插件复制到 `<安装目录>\resources\glm\packages\`
-2. 把 Computer Use helper 运行时放到 `<安装目录>\resources\tools\cua-helper\`
-3. 运行 `tools/patch-cua-runtime.cjs`：检测当前构建是否把 Computer Use
-   运行时裁成了空壳（stub），如果是就把它接到 `resources\tools\zcode-cua\`
-   下的完整实现上。此步骤要求 **ZCode 完全退出**（包括托盘图标）；如果检测到
-   还在运行，脚本会打印稍后手动执行的命令。脚本幂等可重复执行，且会先备份
-   `app.asar`。
-4. 在 `~/.zcode/cli/config.json` 里把 `computer-use@zcode-plugins-official`
+2. 在 `~/.zcode/cli/config.json` 里把 `computer-use@zcode-plugins-official`
    写入 `plugins.enabledPlugins`——官方构建里 Computer Use 是默认关闭的
    可选插件，seed 安装需要显式启用（合并写入，不覆盖已有配置）
-5. 写入用户环境变量 `ZCODE_CUA_DEV_MODE=1`——放宽 helper 的启动方签名校验，
-   未签名的开源构建需要这一项（可用 `-SkipDevMode` 跳过）
 
 完全退出并重启 ZCode 后：插件会出现在内置官方市场下，设置里会出现
 「电脑控制 / Computer Use」开关。
+
+说明：旧的 stub 补丁步骤（helper 运行时拷贝、asar patcher、`ZCODE_CUA_DEV_MODE`）
+已于 2026-09-29 退役。ZCodium 构建自带完整 Computer Use 运行时与签名 helper
+（docs/spec/cua-runtime-builtin.md）；官方 ZCode 构建本身就有真实现，从不需要补丁。
 
 ### macOS 已安装版本
 
@@ -85,44 +81,23 @@ cd ZcodePro
 1. 把全部插件复制到 `<app>/Contents/Resources/glm/packages/`
 2. 在 `~/.zcode/cli/config.json` 启用 `computer-use@zcode-plugins-official`
    （官方构建里它默认关闭，seed 安装需显式启用；合并写入不覆盖现有配置）
-3. 把 Computer Use 运行时放到 `<app>/Contents/Resources/tools/zcode-cua/`
-4. 安装签名过的 **ZCode Computer Use.app** helper 到
-   `<app>/Contents/Resources/cua-helper/`——按已安装 app 的版本号和 CPU
-   架构从官方发布 CDN 拉取（arm64 和 x64 都支持）；app 已自带则跳过——
-   随后 patch helper 内嵌的 local-dev 信任旗标并 adhoc 重签（见下方
-   「Helper 信任链」），补丁版 helper 同时 seed 到 `~/.zcode/computer-use/`
-5. 运行 `tools/patch-cua-runtime.cjs`（优先用系统的 `node`，没有时退回
-   `ELECTRON_RUN_AS_NODE` + `<app>/Contents/MacOS/ZCode`），把打包里的 stub
-   模块接到完整运行时——与 Windows 同一套语义检测
-6. 保留 app 原始签名（resource seal 有意保持不匹配——见下方「App 签名」）
-7. 通过 `launchctl` 设置 `ZCODE_CUA_DEV_MODE=1`、
-   `ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1`、
-   `ZCODE_CUA_HELPER_BUNDLE_ID=dev.zcode.cua-helper`（并安装 LaunchAgent
-   保证重新登录后仍然生效）
+3. 保留 app 原始签名（resource seal 有意保持不匹配——见下方「App 签名」）
 
 macOS 注意事项：
 
 - **隐私权限**：首次使用 Computer Use 时，macOS 会为 "ZCode Computer Use"
   弹出「辅助功能」和「屏幕录制」授权请求——在 系统设置 → 隐私与安全性
-  中批准。helper 安装时被 adhoc 重签，授权会以新签名身份再弹一次。
+  中批准。ZCodium 随包携带上游 Developer-ID 签名的 helper，授权跨更新持久。
 - **App 签名**：向 `Contents/` 写入文件会让 resource seal 不再匹配——但
   安装器**特意保留原始签名**：去掉 quarantine 后 LaunchServices 会正常
   启动这个 bundle，`codesign --verify` 报告的封条不匹配是 seed 安装的
   预期稳定状态。**不要重签 app**——ad-hoc/自签名的 bundle 反而会被
   Gatekeeper 判为已损坏。
-- **Helper 信任链**：官方 helper 要求 (a) 启动它的进程与 (b) 每个 broker
-  连接方及其父进程链都满足 Apple 锚定的 ZCode 签名要求——而 app 封条
-  一旦破损，从该 bundle exec 的所有进程签名都失效，这个条件永远无法
-  满足。官方 helper 自带 dev 逃生口，但发布版把开关
-  （`allowUnsignedLauncherLocalDev`）编译为 `false`；安装器直接把 SEA
-  内嵌 JS 里的这个字面量改为 `true` 并 adhoc 重签。补丁版 runtime 同时
-  不再传 `--launcher-pid`（永远过不了校验），并始终发送 local-dev 旗标。
 - **写保护**：被 macOS 登记为托管状态的 app bundle（例如内置更新器安装的）
   会拒绝向 `Contents/` 写入。安装器会先探测，遇到时会提示重新拷贝 app。
-- **自动更新**：ZCode 内置更新会整体替换 app bundle，清掉 seed 的插件、
-  运行时、helper——每次更新后需要重新跑 `install.sh`。
-- 完成后完全退出并重启 ZCode；保险起见可以注销/重新登录一次让 launchd
-  环境变量生效。
+- **自动更新**：ZCode 内置更新会整体替换 app bundle，清掉 seed 的插件——
+  每次更新后需要重新跑 `install.sh`。
+- 完成后完全退出并重启 ZCode。
 
 ### 源码目录（开发环境）
 

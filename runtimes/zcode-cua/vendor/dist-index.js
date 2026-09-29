@@ -7511,7 +7511,13 @@ function isExplicitLocalDevOptIn(value) {
   return normalized === "1" || normalized === "true" || normalized === "on";
 }
 function isUnsignedHelperLocalDevRequested(env = process.env) {
-  if (!isCuaLocalDevelopmentRuntime(env)) return false;
+  // ZCodium fork patch（延续 b63d033 的 seeded-install patch 系列，见
+  // docs/spec/cua-runtime-builtin.md §B 信任模型偏离）：stock 语义把 local-dev 信任
+  // 限制在非 production 运行时，但 ZCodium 的打包 app 本体是 adhoc 签名，官方锚定的
+  // launcher 校验永远不满足——随包 helper 因此统一为 prepare 阶段 patch 过的
+  // local-dev 变体，打包态也必须走 local_dev_unsigned 分支（buildId/arch 校验保留，
+  // TeamID/adhoc 检查跳过）。opt-in 由桌面主进程确定性下发（ZCODE_CUA_HELPER_ALLOW_
+  // UNSIGNED_LOCAL=1），用户 shell 注入无法改变行为。
   return isExplicitLocalDevOptIn(env.ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL) || isCuaDevModeRequested(env);
 }
 var init_helperLocalDevAuthorization = __esm({
@@ -35626,6 +35632,11 @@ async function launchHelperApp(appPath, socketPath, env) {
     {
       appPath,
       socketPath,
+      // ZCodium fork patch（docs/spec/cua-runtime-builtin.md §B）：helper 的
+      // isUnauthenticatedLocalDevAllowed 要求 subject.app_bundle_path 非空，产品 Host 的
+      // managed 路径会传 --expected-app-bundle-path，这条 standalone 懒启动路径也必须传，
+      // 否则 tokenless 启动在 helper 侧被拒（起来即退、SDK 侧只见超时）。
+      expectedAppBundlePath: appPath,
       // 产品链一直无条件 true，没有任何设置项把关；这里对齐。
       pipMode: true,
       // 按变体按天分文件，可发现；产品链仍用 <socket>.exit.log（见 spec 注释）。

@@ -43,7 +43,9 @@ const HIDDEN_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
   // 工作区搜索（.zcodeignore）设置入口先隐藏：规则文件仍生效并可手动编辑，
   // 编辑页代码保留，放开时从这里移除即可。
   "workspaceFileSearch",
-  "computerUse",
+  // computerUse 曾随 workspace stub 一起隐藏（stub 下分区是死功能）；CUA 运行时
+  // 内置化后分区恢复（docs/spec/cua-runtime-builtin.md），web/linux 仍由
+  // createSettingsPageConfig 的桌面平台门控挡住。
 ]);
 
 interface SettingsSectionIntentEventDetail {

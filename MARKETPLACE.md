@@ -59,24 +59,19 @@ cd ZcodePro
 The script:
 
 1. Copies every plugin into `<install>\resources\glm\packages\`
-2. Copies the Computer Use helper runtime into `<install>\resources\tools\cua-helper\`
-3. Runs `tools/patch-cua-runtime.cjs` through the app's own bundled Node
-   (`ELECTRON_RUN_AS_NODE=1 ZCode.exe`): it detects whether this build shipped
-   the Computer Use runtime as inert stubs and, if so, wires the packaged code
-   to the full runtime under `resources\tools\zcode-cua\`. The app must be
-   fully closed for this step; if it is running the installer prints the exact
-   command to re-run later. Safe to re-run — already-patched installs are
-   skipped and `app.asar` is backed up first.
-4. Writes `computer-use@zcode-plugins-official` into
+2. Writes `computer-use@zcode-plugins-official` into
    `plugins.enabledPlugins` in `~/.zcode/cli/config.json` — official builds
    ship Computer Use as an opt-in plugin that is off by default, so a seeded
    install enables it explicitly (merged into any existing config)
-5. Sets the user environment variable `ZCODE_CUA_DEV_MODE=1`, which relaxes the
-   helper's launcher signature check for unsigned open-source builds
-   (skip with `-SkipDevMode`)
 
 Fully quit and restart ZCode. The plugins appear under the built-in official
 marketplace; the "Computer Use / 电脑控制" toggle shows up in Settings.
+
+Note: the legacy stub-patching steps (helper runtime copy, asar patcher,
+`ZCODE_CUA_DEV_MODE`) were retired on 2026-09-29. ZCodium builds carry the
+full Computer Use runtime and the signed helper inside the app bundle
+(docs/spec/cua-runtime-builtin.md); official ZCode builds ship their own
+runtime and never needed the patcher.
 
 ### Installed app on macOS
 
@@ -94,54 +89,28 @@ The script:
    `~/.zcode/cli/config.json` (`plugins.enabledPlugins`) — it is off by
    default in official builds, so a seeded install turns it on explicitly
    (merged, existing config is preserved)
-3. Stages the Computer Use runtime into `<app>/Contents/Resources/tools/zcode-cua/`
-4. Installs the signed **ZCode Computer Use.app** helper into
-   `<app>/Contents/Resources/cua-helper/` — fetched from the official release
-   CDN for the installed app's version and CPU architecture (arm64 and x64 are
-   both supported); skipped when the app already bundles it — then patches
-   the helper's embedded local-dev trust flag and re-signs it adhoc (see
-   "Helper trust" below), seeding the patched copy under
-   `~/.zcode/computer-use/`
-5. Runs `tools/patch-cua-runtime.cjs` (with a system `node` when available,
-   otherwise via `ELECTRON_RUN_AS_NODE=1 <app>/Contents/MacOS/ZCode`) to wire
-   packaged stub modules to the full runtime — same semantic detection as on
-   Windows
-6. Keeps the original app signature (the resource seal intentionally stays
+3. Keeps the original app signature (the resource seal intentionally stays
    mismatched — see "App signature" below)
-7. Sets `ZCODE_CUA_DEV_MODE=1`, `ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1` and
-   `ZCODE_CUA_HELPER_BUNDLE_ID=dev.zcode.cua-helper` via `launchctl` (plus a
-   LaunchAgent so they survive relogin)
 
 macOS-specific notes:
 
 - **Privacy permissions**: on first use macOS prompts for *Accessibility* and
   *Screen Recording* for "ZCode Computer Use" — approve in
-  System Settings → Privacy & Security. The helper is adhoc re-signed during
-  install, so macOS asks once under the new signing identity.
+  System Settings → Privacy & Security. ZCodium bundles the upstream
+  Developer-ID helper, so the grant persists across app updates.
 - **App signature**: writing into `Contents/` invalidates the resource seal.
   The installer deliberately keeps the *original* code signature — with
   quarantine stripped, LaunchServices opens the bundle normally even though
   `codesign --verify` reports a mismatch (the expected, stable state of a
   seeded install). Do **not** re-sign the app: ad-hoc and self-signed
   bundles get flagged as damaged by Gatekeeper.
-- **Helper trust**: the stock helper refuses to run unless (a) the process
-  that launched it and (b) every broker client + its parent chain verify
-  against an Apple-anchored ZCode signing requirement — impossible once the
-  app's seal is broken, since every process exec'd from the bundle then has
-  an invalid signature. The release helper ships the dev escape hatches but
-  compiles their gate (`allowUnsignedLauncherLocalDev`) to `false`; the
-  installer flips that literal inside the SEA-embedded JS and re-signs the
-  helper adhoc. The patched runtime also stops passing `--launcher-pid`
-  (which could never verify) and always sends the local-dev flags.
 - **Write protection**: an app bundle that macOS has registered as managed
   (for example one placed by the built-in updater) rejects writes into
   `Contents/`. The installer probes for this and tells you to re-copy the app
   when it hits it.
 - **Updates**: ZCode's built-in updater replaces the whole app bundle, which
-  wipes the seeded plugins, runtime and helper — re-run `install.sh` after
-  every update.
-- Fully quit and restart ZCode afterwards; logging out/in once makes the
-  launchd environment reliable.
+  wipes the seeded plugins — re-run `install.sh` after every update.
+- Fully quit and restart ZCode afterwards.
 
 ### Source checkout (development)
 

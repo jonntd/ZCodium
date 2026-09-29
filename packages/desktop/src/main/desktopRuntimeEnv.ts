@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- desktop runtime/env 解析需要集中维护 main/host/remote assets 的启动边界，拆分会扩大远程连接回归面。 */
 import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, resolve, win32 } from "node:path";
 import type { ConnectOptions } from "@zcode/server/remote";
@@ -392,6 +393,58 @@ function resolveBundledRuntimeToolBinaryPath(
   return candidates.find((candidate) => existsSync(candidate));
 }
 
+// CUA helper dev 自动接线（docs/spec/cua-runtime-builtin.md §C）：dev（未打包）不再依赖
+// install.sh 时代的 launchctl setenv——按显式 env 覆盖 → zcode home 既有安装（dev 变体优先）
+// → prepare:cua-helper 的 staging 产物 的顺序探测，命中即随 host env 注入 bundled path。
+// 生产打包态不走这里（resourcesPath/cua-helper 是唯一事实源）。
+function defaultDevCuaHelperRootCandidates(): string[] {
+  // 与 resolveBundledZCodeAgentBinaryPath 的 bundled-agents 多候选根同构：
+  // dev 启动 cwd 可能是仓库根或 packages/desktop。
+  return [
+    join(process.cwd(), "bundled-cua-helper"),
+    join(process.cwd(), "packages", "desktop", "bundled-cua-helper"),
+    join(import.meta.dirname, "../../bundled-cua-helper"),
+  ];
+}
+
+// 读 helper 自身 Info.plist 的 ZCodeCUAHelperBuildId（vendor verify 用同一来源做
+// buildId 匹配）。二进制 plist 必须走 plutil；dev 接线一次性读，代价可忽略。
+function readCuaHelperBuildId(helperAppPath: string): string | undefined {
+  try {
+    const result = spawnSync(
+      "/usr/bin/plutil",
+      ["-extract", "ZCodeCUAHelperBuildId", "raw", "-o", "-", "--", join(helperAppPath, "Contents", "Info.plist")],
+      { encoding: "utf8" },
+    );
+    const buildId = (result.stdout ?? "").trim();
+    return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(buildId) ? buildId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveDevCuaHelperAppPath({
+  envOverride,
+  zcodeHome,
+  platformKey,
+  rootCandidates = defaultDevCuaHelperRootCandidates(),
+  existsSyncImpl = existsSync,
+}: {
+  envOverride?: string;
+  zcodeHome: string;
+  platformKey: string;
+  rootCandidates?: string[];
+  existsSyncImpl?: (path: string) => boolean;
+}): string | undefined {
+  const candidates = [
+    envOverride,
+    join(zcodeHome, "computer-use", "dev", DEV_HELPER_APP_NAME),
+    join(zcodeHome, "computer-use", HELPER_APP_NAME),
+    ...rootCandidates.map((root) => join(root, platformKey, HELPER_APP_NAME)),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => existsSyncImpl(candidate));
+}
+
 function resolveBundledLarkCliBinaryPath(): string | undefined {
   return resolveBundledRuntimeToolBinaryPath("lark-cli", "lark-cli");
 }
@@ -489,31 +542,23 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
       ? undefined
       : packagedDesktop
         ? join(process.resourcesPath, "cua-helper", HELPER_APP_NAME)
-        : // Truthy grammar must match the producer's isUnsignedHelperLocalDevRequested
-          // (1|true|on, case-insensitive). Accepting only the literal "1" silently
-          // ignored `true`/`on` set by scripts following the documented dev flow.
-          ["1", "true", "on"].includes(
-              rawInheritedEnv.ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL?.trim().toLowerCase() ?? "",
-            )
-          ? rawInheritedEnv.ZCODE_CUA_BUNDLED_HELPER_APP_PATH?.trim() ||
-            join(
-              rawInheritedEnv.ZCODE_HOME?.trim() || join(homedir(), ".zcode"),
-              "computer-use",
-              "dev",
-              DEV_HELPER_APP_NAME,
-            )
-          : undefined;
+        : resolveDevCuaHelperAppPath({
+            envOverride: rawInheritedEnv.ZCODE_CUA_BUNDLED_HELPER_APP_PATH?.trim() || undefined,
+            zcodeHome: rawInheritedEnv.ZCODE_HOME?.trim() || join(homedir(), ".zcode"),
+            platformKey: resolvePlatformKeyForPackagedApp(),
+          });
   const windowsAppInstallDir = resolveWindowsAppInstallDirForDataBaseDirGuard();
   const inheritedEnv = applySelectedZCodeEnvLinks({
     ...sanitizeZCodeRuntimeEnv(rawInheritedEnv),
     ...buildZCodeToolEnvPassthroughEnv(rawInheritedEnv),
   });
-  // A release app must never inherit the local unsigned-Helper escape hatch.
-  // Otherwise a developer shell/launchctl variable can make the signed app
-  // reject its verified bundled Helper and route onboarding to a stale dev app.
-  if (packagedDesktop) {
-    delete inheritedEnv.ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL;
-  }
+  // ZCodium 随包 helper 是 prepare:cua-helper 打过 local-dev 补丁的 adhoc 变体
+  // （stock helper 的 Apple 锚定 launcher 信任门对 adhoc 外壳永远不满足，见
+  // docs/spec/cua-runtime-builtin.md §B 的信任模型偏离说明），所以运行时必须以
+  // local_dev_unsigned 模式信任它。这里由主进程显式下发 "1"，同时抹掉用户 shell
+  // 可能注入的任意值——上游“release 不得继承该逃生口”的担忧在 fork 语境下转变为
+  // “该值由产品自身确定性提供”，用户注入无法改变行为。
+  inheritedEnv.ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL = "1";
   const dynamicWorkflowModeHostEnv = resolveDynamicWorkflowModeHostEnv({
     inheritedValue: rawInheritedEnv[ZCODE_DYNAMIC_WORKFLOW_MODE_ENV],
     isPackaged: packagedDesktop,
@@ -522,6 +567,11 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
   // 三层里有两层不写这个键，空对象无法覆盖 inheritedEnv，所以先无条件删掉继承值再按决策 spread 回去。
   // 少了这一行，production 包和 dev 的非法取值都会原样穿透到 Host。
   delete inheritedEnv[ZCODE_DYNAMIC_WORKFLOW_MODE_ENV];
+  // dev 接线的 helper 自身 buildId（只需读一次；plutil 见 readCuaHelperBuildId 注释）。
+  const devCuaHelperBuildId =
+    bundledCuaHelperAppPath && !packagedDesktop
+      ? readCuaHelperBuildId(bundledCuaHelperAppPath)
+      : undefined;
 
   return {
     ...inheritedEnv,
@@ -543,6 +593,19 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
     ...(windowsAppInstallDir ? { [ZCODE_WINDOWS_APP_INSTALL_DIR_ENV]: windowsAppInstallDir } : {}),
     ...(bundledCuaHelperAppPath
       ? { [ZCODE_CUA_BUNDLED_HELPER_APP_PATH_ENV]: bundledCuaHelperAppPath }
+      : {}),
+    // dev 态额外注入 bundle id 覆盖与 helper 实测 buildId（打包态由 define/默认值覆盖，
+    // 不需要这两个键）：
+    // - HELPER_BUNDLE_ID：dev 变体默认期望 dev.zcode.cua-helper.dev，而本机/随包 helper 都是
+    //   官方 stock id dev.zcode.cua-helper（2026-09-29 真机验收实测：不注入必报
+    //   "bundle id dev.zcode.cua-helper does not match dev.zcode.cua-helper.dev"）。
+    // - HELPER_BUILD_ID：vendor 内嵌的期望 buildId 是上游某次发布的字面量，与本机 helper 的
+    //   Info.plist 不一定一致；dev 打包 define 为空串时 env 覆盖生效，按实际 helper 钉住。
+    ...(bundledCuaHelperAppPath && !packagedDesktop
+      ? {
+          ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcode.cua-helper",
+          ...(devCuaHelperBuildId ? { ZCODE_CUA_HELPER_BUILD_ID: devCuaHelperBuildId } : {}),
+        }
       : {}),
     ...(resolvedGlmBinaryPath ? { GLM_BINARY_PATH: resolvedGlmBinaryPath } : {}),
     ...(resolvedLarkCliBinaryPath ? { ZCODE_LARK_CLI_BINARY: resolvedLarkCliBinaryPath } : {}),

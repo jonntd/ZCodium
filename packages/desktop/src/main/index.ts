@@ -39,7 +39,7 @@ import {
   webContents,
 } from "electron";
 import type { UtilityProcess as ElectronUtilityProcess } from "electron";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -1785,6 +1785,15 @@ app.whenReady().then(async () => {
   installLocalMediaPreviewProtocol(session.defaultSession.protocol, {
     isPathAuthorized: localMediaPreviewPathRegistry.isAuthorized,
   });
+  // CUA helper 经 LaunchServices `open` 拉起，继承的是 launchd 环境而非本进程 env。
+  // 随包 helper 是 prepare:cua-helper 打过 local-dev 补丁的变体，其 tokenless 启动门
+  // 需要在 launchd env 里看到这个显式 opt-in（docs/spec/cua-runtime-builtin.md §B）。
+  // 每次启动幂等设置一次；helper 只由本 app 拉起，无需 LaunchAgent 持久化。
+  if (process.platform === "darwin") {
+    spawnSync("/bin/launchctl", ["setenv", "ZCODE_CUA_HELPER_ALLOW_UNAUTHENTICATED_LOCAL", "1"], {
+      timeout: 3000,
+    });
+  }
   // Electron 的 net.request 只能在 app ready 后使用；灰度请求仍是旁路预热，不阻塞首个 Host。
   void desktopContextPromptRollout?.refresh();
   installBrowserRestoreBootstrapProtocol(
