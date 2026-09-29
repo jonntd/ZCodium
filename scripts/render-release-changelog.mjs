@@ -89,5 +89,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const translationsPath = resolve(repoRoot, args.translations ?? ".github/changelog-zh.json");
   const translations = JSON.parse(readFileSync(translationsPath, "utf8"));
   const commits = listCommits(args.from, args.to);
-  process.stdout.write(`${renderChangelogEntries(commits, translations)}\n`);
+  const output = renderChangelogEntries(commits, translations);
+  // 空区间输出 0 字节（不写尾随换行）：调用方用 `[ -s ]` 区分「有条目」与「无代码变更」。
+  if (output) {
+    process.stdout.write(`${output}\n`);
+  }
 }
