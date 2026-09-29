@@ -437,11 +437,16 @@ export function resolveDevCuaHelperAppPath({
   rootCandidates?: string[];
   existsSyncImpl?: (path: string) => boolean;
 }): string | undefined {
+  // 顺序约束：staged 补丁件必须排在 zcode home 既有安装之前。vendor 把
+  // ZCODE_CUA_BUNDLED_HELPER_APP_PATH 当作 ensureInstalled 的**安装源**（目标在
+  // computer-use/dev 变体目录），指向 home 旧副本会自我覆盖且可能带着 stock 信任门
+  // 字面量（懒启动在源缺失时还会回退 home 旧副本，死在 token 门——2026-09-30 真机实测）。
+  // staged 是 fork 自己的补丁产物，作为源与安装目标天然分离。
   const candidates = [
     envOverride,
+    ...rootCandidates.map((root) => join(root, platformKey, HELPER_APP_NAME)),
     join(zcodeHome, "computer-use", "dev", DEV_HELPER_APP_NAME),
     join(zcodeHome, "computer-use", HELPER_APP_NAME),
-    ...rootCandidates.map((root) => join(root, platformKey, HELPER_APP_NAME)),
   ].filter((candidate): candidate is string => Boolean(candidate));
   return candidates.find((candidate) => existsSyncImpl(candidate));
 }
