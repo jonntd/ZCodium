@@ -442,6 +442,14 @@ function fixGetStatusReturns(body) {
     "return{grantOwner:ot.grant_owner,grantOwnerDisplayName:z??ot.grant_owner,accessibility:ot.accessibility,";
   const warmRetNew =
     "return{available:!0,grantOwner:ot.grant_owner,grantOwnerDisplayName:z??ot.grant_owner,accessibility:ot.accessibility,";
+  // Warm-path catch: the lifecycle `handle` is only cleared by stop(), so a
+  // helper that dies on its own leaves running===true and every poll throws
+  // into this catch -> the settings page shows "未知" until the app restarts.
+  // Drop the stale handle and retry once through the cold probe/spawn path.
+  const warmCatch =
+    "catch(ot){return{available:!1,reason:`Could not read Computer Use Helper permission status: ${ot instanceof Error?ot.message:String(ot)}`}}";
+  const warmCatchNew =
+    "catch(ot){try{await lt?.stop?.()}catch{}return So.getStatus(ie,_e,pt)}";
   let fixed = false;
   if (body.includes(coldRet)) {
     body = body.replace(coldRet, coldRetNew);
@@ -449,6 +457,10 @@ function fixGetStatusReturns(body) {
   }
   if (body.includes(warmRet)) {
     body = body.replace(warmRet, warmRetNew);
+    fixed = true;
+  }
+  if (body.includes(warmCatch)) {
+    body = body.replace(warmCatch, warmCatchNew);
     fixed = true;
   }
   return fixed ? body : null;
