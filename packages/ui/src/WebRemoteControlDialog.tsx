@@ -75,14 +75,14 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
             // 这里改成显式点击关闭，并把按钮本身标成 no-drag，保证右上角关闭动作能稳定命中。
             // Bugfix: 远控弹层内可点击控件之前没有显式 pointer cursor，桌面端 hover 时不像可操作元素。
             // 这里仅给启用态补手指指针，禁用态仍沿用 Button 的 disabled 交互语义。
-            className="absolute top-2 right-2 enabled:cursor-pointer [app-region:no-drag]"
+            className="absolute top-2 end-2 enabled:cursor-pointer [app-region:no-drag]"
             onClick={() => onOpenChange(false)}
           >
             <XIcon />
             <span className="sr-only">Close</span>
           </Button>
           <div className="max-h-[calc(100vh-6rem)] min-h-0 overflow-y-auto p-5">
-            <DialogHeader className="space-y-2 pr-8">
+            <DialogHeader className="space-y-2 pe-8">
               <div className="flex items-center gap-2">
                 <div className="flex size-10 items-center justify-center rounded-lg border border-border bg-surface text-primary">
                   <MonitorSmartphone className="size-5" />
@@ -121,7 +121,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
                       <button
                         key={entry.provider}
                         type="button"
-                        className="flex min-h-0 cursor-pointer items-start gap-3 rounded-lg border border-transparent bg-surface px-3 py-3 text-left transition-colors hover:border-input-border-focused hover:bg-surface-hover focus-visible:border-input-border-focused"
+                        className="flex min-h-0 cursor-pointer items-start gap-3 rounded-lg border border-transparent bg-surface px-3 py-3 text-start transition-colors hover:border-input-border-focused hover:bg-surface-hover focus-visible:border-input-border-focused"
                         onClick={() => handleOpenBotEntry(entry.provider)}
                       >
                         {/* Bugfix: 远控 Bot Channel 入口原来用通用 lucide 图标，用户无法一眼区分微信、飞书和 Telegram。

@@ -87,7 +87,7 @@ export function WorkspaceAccessCard({
                   <button
                     key={workspace.id}
                     type="button"
-                    className="flex min-w-0 items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
+                    className="flex min-w-0 items-center gap-3 rounded-md px-2 py-2 text-start transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60"
                     onClick={() => void onToggleWorkspaceAccess(workspace.id, !checked)}
                     disabled={loading}
                     title={workspace.label}

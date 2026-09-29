@@ -31,8 +31,8 @@ export const appSettingsOccupationEnum = appSettingsOccupationSchema;
 
 const nonEmptyStringSchema = z.string().trim().min(1);
 
-export const localeSchema = z.enum(["zh-CN", "en-US"]);
-const localePreferenceSchema = z.enum(["system", "zh-CN", "en-US"]);
+export const localeSchema = z.enum(["zh-CN", "en-US", "fa-IR"]);
+const localePreferenceSchema = z.enum(["system", "zh-CN", "en-US", "fa-IR"]);
 const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
 /** 批量删除审批阈值；与 zcode-protocol 的 deleteProtectionPreferencesSchema 保持同一量程。 */
 const batchDeleteApprovalThresholdSchema = z.number().int().min(1).max(10000);

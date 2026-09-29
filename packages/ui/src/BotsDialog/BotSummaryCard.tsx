@@ -99,7 +99,7 @@ export function BotSummaryCard({
             type="button"
             tabIndex={-1}
             aria-hidden="true"
-            className="pointer-events-none absolute left-0 top-0 invisible max-w-md overflow-hidden rounded-sm px-1 text-left text-ui-lg font-medium"
+            className="pointer-events-none absolute start-0 top-0 invisible max-w-md overflow-hidden rounded-sm px-1 text-start text-ui-lg font-medium"
             // 隐藏测量节点默认会折叠首尾空格，导致输入名称带空格时宽度偏小；保留空白才能和 input 的实际内容宽度一致。
             style={{ whiteSpace: "pre" }}
           >
@@ -107,7 +107,7 @@ export function BotSummaryCard({
           </button>
           <input
             autoFocus
-            className="w-full min-w-0 truncate rounded-sm border-0 bg-transparent px-1 py-0 text-left text-ui-lg font-medium leading-normal text-foreground outline-none hover:bg-hover focus-visible:ring-1 focus-visible:ring-input-border-focused"
+            className="w-full min-w-0 truncate rounded-sm border-0 bg-transparent px-1 py-0 text-start text-ui-lg font-medium leading-normal text-foreground outline-none hover:bg-hover focus-visible:ring-1 focus-visible:ring-input-border-focused"
             value={selectedBotName}
             onBlur={onCommitNameDraft}
             onChange={(event) => onNameDraftChange(event.target.value)}
@@ -121,7 +121,7 @@ export function BotSummaryCard({
       ) : (
         <button
           type="button"
-          className="min-w-0 max-w-md truncate rounded-sm px-1 text-left text-ui-lg font-medium hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-input-border-focused"
+          className="min-w-0 max-w-md truncate rounded-sm px-1 text-start text-ui-lg font-medium hover:bg-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-input-border-focused"
           onClick={onStartRename}
           onKeyDown={(event) => {
             if (event.key === "Enter") {

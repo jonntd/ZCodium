@@ -116,6 +116,11 @@ function createSharedDefines() {
     // 桌面更新源仓库坐标（GitHub provider），与 electron-builder publish 配置同源注入。
     __ZCODE_UPDATE_GITHUB_OWNER__: JSON.stringify(updateFeedTarget.owner),
     __ZCODE_UPDATE_GITHUB_REPO__: JSON.stringify(updateFeedTarget.repo),
+    // 发布构建内置的自有 remote 资源源（本仓库该 tag 的 GitHub Release 资产）。
+    // 注入后安装版开箱即可连接 WSL/SSH；dev/本地构建为空，仍走 mock-cdn / 显式配置。
+    __ZCODIUM_REMOTE_ASSET_CDN_BASE_URL__: JSON.stringify(
+      process.env.ZCODIUM_REMOTE_ASSET_CDN_BASE_URL?.trim() || "",
+    ),
   };
 }
 

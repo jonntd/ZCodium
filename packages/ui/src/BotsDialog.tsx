@@ -1035,7 +1035,7 @@ export function BotsDialog({
             <DialogTitle className="text-lg font-medium text-foreground">
               {intl.formatMessage({ id: "bots.title" })}
             </DialogTitle>
-            <DialogDescription className="ml-3">
+            <DialogDescription className="ms-3">
               {intl.formatMessage({ id: "bots.description" })}
             </DialogDescription>
           </div>
@@ -1077,7 +1077,7 @@ export function BotsDialog({
                         setSelectedBotId(bot.id);
                       }}
                       className={cn(
-                        "mb-1 w-full rounded-xl px-2.5 pr-4 py-3 text-left transition-colors",
+                        "mb-1 w-full rounded-xl px-2.5 pe-4 py-3 text-start transition-colors",
                         selected
                           ? "bg-surface-hover text-foreground"
                           : "text-foreground-subtle hover:bg-surface-hover hover:text-foreground",
@@ -1134,7 +1134,7 @@ export function BotsDialog({
                         aria-busy={isCreatingThisProvider}
                         onClick={() => (implemented ? void handleAddBot(provider.id) : undefined)}
                         className={cn(
-                          "flex items-start gap-3 rounded-lg border border-card-border bg-card py-4 px-3 text-left transition-colors",
+                          "flex items-start gap-3 rounded-lg border border-card-border bg-card py-4 px-3 text-start transition-colors",
                           implemented && !isCreatingAnyProvider
                             ? "hover:border-input-border-focused hover:bg-surface-hover"
                             : "cursor-not-allowed opacity-60",
