@@ -7718,8 +7718,17 @@ function resolveCuaHelperRuntimeVersion(options = {}) {
   return options.explicitVersion?.trim() || env.ZCODE_CUA_HELPER_VERSION?.trim() || void 0;
 }
 function resolveExpectedCuaHelperBuildId(env = process.env, embeddedBuildId = ZCODE_CUA_HELPER_BUILD_ID) {
-  const runtimeOverride = isCuaLocalDevelopmentRuntime(env) ? env.ZCODE_CUA_HELPER_BUILD_ID?.trim() : void 0;
-  return normalizeHelperBuildId(embeddedBuildId.trim() || runtimeOverride);
+  // ZCodium fork patch（docs/spec/cua-runtime-builtin.md §B）：上游把本次发布的
+  // buildId 烙成内嵌字面量（embedded || env 的顺序使 env 永远够不着），而 fork 随包
+  // helper 的 buildId 与上游字面量无关。改为 env 优先：桌面主进程从随包 helper 的
+  // Info.plist 实读 buildId 注入 ZCODE_CUA_HELPER_BUILD_ID，配对关系由产品自身保证；
+  // override 放行条件从「本地开发运行时」放宽为「本地开发运行时或显式 opt-in」
+  // （与 isUnsignedHelperLocalDevRequested 的 fork patch 同一口径），打包态同样生效。
+  const runtimeOverride =
+    isCuaLocalDevelopmentRuntime(env) || isUnsignedHelperLocalDevRequested(env)
+      ? env.ZCODE_CUA_HELPER_BUILD_ID?.trim()
+      : void 0;
+  return normalizeHelperBuildId(runtimeOverride || embeddedBuildId.trim());
 }
 function createCuaHelperInstaller(options = {}) {
   const plan = options.plan ?? resolveCuaHelperInstallPlan({

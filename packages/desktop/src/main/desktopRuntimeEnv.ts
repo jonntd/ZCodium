@@ -574,11 +574,12 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
   // 三层里有两层不写这个键，空对象无法覆盖 inheritedEnv，所以先无条件删掉继承值再按决策 spread 回去。
   // 少了这一行，production 包和 dev 的非法取值都会原样穿透到 Host。
   delete inheritedEnv[ZCODE_DYNAMIC_WORKFLOW_MODE_ENV];
-  // dev 接线的 helper 自身 buildId（只需读一次；plutil 见 readCuaHelperBuildId 注释）。
-  const devCuaHelperBuildId =
-    bundledCuaHelperAppPath && !packagedDesktop
-      ? readCuaHelperBuildId(bundledCuaHelperAppPath)
-      : undefined;
+  // 接线的 helper 自身 buildId（只需读一次；plutil 见 readCuaHelperBuildId 注释）。
+  // dev/打包两态都读：vendor 内嵌的期望 buildId 是上游某次发布的字面量，env 优先
+  // patch（见 vendor resolveExpectedCuaHelperBuildId）后由这里按实际 helper 钉住。
+  const cuaHelperBuildId = bundledCuaHelperAppPath
+    ? readCuaHelperBuildId(bundledCuaHelperAppPath)
+    : undefined;
 
   return {
     ...inheritedEnv,
@@ -599,20 +600,19 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
     ...(dataBaseDir !== homedir() ? { ZCODE_DATA_BASE_DIR: dataBaseDir } : {}),
     ...(windowsAppInstallDir ? { [ZCODE_WINDOWS_APP_INSTALL_DIR_ENV]: windowsAppInstallDir } : {}),
     ...(bundledCuaHelperAppPath
-      ? { [ZCODE_CUA_BUNDLED_HELPER_APP_PATH_ENV]: bundledCuaHelperAppPath }
-      : {}),
-    // dev 态额外注入 bundle id 覆盖与 helper 实测 buildId（打包态由 define/默认值覆盖，
-    // 不需要这两个键）：
-    // - HELPER_BUNDLE_ID：dev 变体默认期望 dev.zcode.cua-helper.dev，而本机/随包 helper 都是
-    //   官方 stock id dev.zcode.cua-helper（2026-09-29 真机验收实测：不注入必报
-    //   "bundle id dev.zcode.cua-helper does not match dev.zcode.cua-helper.dev"）。
-    // - HELPER_BUILD_ID：vendor 内嵌的期望 buildId 是上游某次发布的字面量，与本机 helper 的
-    //   Info.plist 不一定一致；dev 打包 define 为空串时 env 覆盖生效，按实际 helper 钉住。
-    ...(bundledCuaHelperAppPath && !packagedDesktop
       ? {
-          ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcode.cua-helper",
-          ...(devCuaHelperBuildId ? { ZCODE_CUA_HELPER_BUILD_ID: devCuaHelperBuildId } : {}),
+          [ZCODE_CUA_BUNDLED_HELPER_APP_PATH_ENV]: bundledCuaHelperAppPath,
+          // helper 实测 buildId（dev/打包两态）：vendor 内嵌期望值是上游字面量，
+          // env 优先 patch 后由这里按随包 helper 钉住配对。
+          ...(cuaHelperBuildId ? { ZCODE_CUA_HELPER_BUILD_ID: cuaHelperBuildId } : {}),
         }
+      : {}),
+    // dev 态额外注入 bundle id 覆盖（打包态期望 stock id 即默认值，不需要该键）：
+    // dev 变体默认期望 dev.zcode.cua-helper.dev，而本机/随包 helper 都是
+    // 官方 stock id dev.zcode.cua-helper（2026-09-29 真机验收实测：不注入必报
+    // "bundle id dev.zcode.cua-helper does not match dev.zcode.cua-helper.dev"）。
+    ...(bundledCuaHelperAppPath && !packagedDesktop
+      ? { ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcode.cua-helper" }
       : {}),
     ...(resolvedGlmBinaryPath ? { GLM_BINARY_PATH: resolvedGlmBinaryPath } : {}),
     ...(resolvedLarkCliBinaryPath ? { ZCODE_LARK_CLI_BINARY: resolvedLarkCliBinaryPath } : {}),
