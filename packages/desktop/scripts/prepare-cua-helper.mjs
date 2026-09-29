@@ -10,9 +10,9 @@
 // win32：helper runtime 直接引用入库的 runtimes/cua-helper（含 runtime-manifest.json
 //   + sha256，运行时由 windowsCuaDevRuntime fail-closed 校验），这里只做完整性自检。
 //
-// 失败语义：网络/下载问题 → warn + skip（安装包照常产出，CUA 报未安装）；
-// 签名或身份校验不过 → fail-fast（宁可随包没有 helper，也不能进一个运行时必然
-// 拒收的坏 helper）。ZCODE_SKIP_CUA_HELPER=1 显式跳过；已就位且未强制时幂等复用。
+// 失败语义：网络/下载与签名/身份校验失败统一 warn + skip（安装包照常产出，CUA 报
+// 未安装；坏 helper 不会随包，具体原因看日志）。ZCODE_SKIP_CUA_HELPER=1 显式跳过；
+// 已就位且未强制时幂等复用。
 
 import process from "node:process";
 import { spawnSync } from "node:child_process";
@@ -65,11 +65,19 @@ export function resolveStagedCuaHelperDir(desktopRoot, platformKey) {
   return resolve(desktopRoot, "bundled-cua-helper", platformKey);
 }
 
-async function downloadWithRetry(url, destPath, { attempts = 3 } = {}) {
+// 单次尝试整体（含响应体流）超时：CDN 挂起时落到下一次重试/最终 warn+skip，
+// 不让 CI 的 prepare 步骤吊到全局超时。
+const DOWNLOAD_ATTEMPT_TIMEOUT_MS = 5 * 60 * 1000;
+
+async function downloadWithRetry(
+  url,
+  destPath,
+  { attempts = 3, timeoutMs = DOWNLOAD_ATTEMPT_TIMEOUT_MS } = {},
+) {
   let lastError;
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
