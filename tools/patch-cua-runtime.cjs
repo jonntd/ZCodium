@@ -790,6 +790,58 @@ function findServerBundles(installDir) {
 }
 
 // ---------------------------------------------------------------------------
+// step 4: zcode-guide seed gate
+// ---------------------------------------------------------------------------
+// The CLI bundle's bundled-plugin definitions pin a requiredSeedPaths list for
+// zcode-guide that references files no released package ships
+// (commands/workflow.md, skills/dynamic-workflows/*). Seed then refuses to
+// stage the package and the marketplace entry fails at install time with
+// "Bundled plugin cache directory missing". Rewrite the pinned list to only
+// the pinned paths that actually exist in the seeded package so the integrity
+// check still covers real truncation but no longer demands unshipped files.
+
+function relaxGuideSeedGate(glmFile, packageDir, dryRun) {
+  let src;
+  try {
+    src = fs.readFileSync(glmFile, "utf8");
+  } catch {
+    return "missing";
+  }
+  // definition object: `name:"zcode-guide"` next to `requiredSeedPaths:<expr>`
+  const def = src.match(/name:"zcode-guide"\s*,\s*requiredSeedPaths:([A-Za-z_$][\w$]*|\[)/);
+  if (!def) return "no-gate";
+  let replaced = false;
+  const keepExisting = (literalBody) => {
+    const entries = [...literalBody.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    const kept = entries.filter((rel) => fs.existsSync(path.join(packageDir, rel)));
+    if (kept.length === entries.length) return null; // all requirements already satisfiable
+    return `[${kept.map((rel) => JSON.stringify(rel)).join(",")}]`;
+  };
+  let next;
+  if (def[1] === "[") {
+    // inline array literal after requiredSeedPaths:
+    const start = def.index + def[0].length - 1;
+    const end = src.indexOf("]", start);
+    if (end < 0) return "unrecognized-shape";
+    const lit = keepExisting(src.slice(start + 1, end));
+    if (lit === null) return "already-ok";
+    next = src.slice(0, start) + lit + src.slice(end + 1);
+    replaced = true;
+  } else {
+    const ident = def[1];
+    const assign = new RegExp(`\\b${ident}=\\[([^\\]]*)\\]`).exec(src);
+    if (!assign) return "unrecognized-shape";
+    const lit = keepExisting(assign[1]);
+    if (lit === null) return "already-ok";
+    next = src.slice(0, assign.index) + `${ident}=${lit}` + src.slice(assign.index + assign[0].length);
+    replaced = true;
+  }
+  if (!replaced) return "unrecognized-shape";
+  if (!dryRun) fs.writeFileSync(glmFile, next);
+  return "relaxed";
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
@@ -885,6 +937,20 @@ function main() {
     const res = patchServerBundle(file, DRY_RUN || CHECK_ONLY);
     if (res === "patched" || res === "unrecognized-shape" || res === "already") {
       console.log(`[cua-patch] server.js ${res}: ${file}`);
+    }
+  }
+
+  // 4. zcode-guide seed gate in the CLI bundle (glm/zcode.cjs). Applies to any
+  //    build whose definition pins unshipped files; a no-op on older/newer
+  //    bundles where the gate differs.
+  {
+    const glmFile = path.join(installDir, "resources", "glm", "zcode.cjs");
+    const pkgDir = path.join(installDir, "resources", "glm", "packages", "zcode-guide-plugin");
+    const res = fs.existsSync(pkgDir)
+      ? relaxGuideSeedGate(glmFile, pkgDir, DRY_RUN || CHECK_ONLY)
+      : "package-missing";
+    if (res === "relaxed" || res === "unrecognized-shape") {
+      console.log(`[cua-patch] zcode.cjs zcode-guide gate: ${res}`);
     }
   }
 
