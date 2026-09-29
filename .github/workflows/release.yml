@@ -194,12 +194,13 @@ jobs:
           # 审计/预发布 tag（v3.14.4-audit.20260929.2 这类）会被 draft 构建打在 main 上；
           # 若让它们参与 describe，正式版的基线会切到 draft tag，Changelog 只剩一行。
           # 只接受正式版 tag（v<semver>，无连字符）。
+          # 条目按 .github/changelog-zh.json 渲染为中英双语；缺翻译时附隐藏 TODO 注释。
           BASE_TAG=$(git describe --tags --abbrev=0 --match 'v*' --exclude 'v*-*' "${TAG}^" 2>/dev/null || true)
           if [ -n "$BASE_TAG" ]; then
+            CHANGES=$(node scripts/render-release-changelog.mjs --from "$BASE_TAG" --to "$TAG")
             {
               echo "## Changelog (vs $BASE_TAG) / 更新日志（相对 $BASE_TAG）"
               echo ""
-              CHANGES=$(git log --no-merges --pretty='- %s (%h)' "$BASE_TAG..${TAG}" | grep -v '^- ci' || true)
               if [ -n "$CHANGES" ]; then
                 printf '%s\n' "$CHANGES"
               else
