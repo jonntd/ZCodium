@@ -7,6 +7,7 @@ import {
   type CuaHelperInstaller,
   type CuaHelperInstallerOptions,
 } from "@zcode/services/node";
+import { applyBundledCuaHelperTrustEnv } from "./desktopCuaHelperTrustEnv.js";
 
 type InstallerFactory = (options: CuaHelperInstallerOptions) => CuaHelperInstaller;
 
@@ -40,13 +41,10 @@ export function createDesktopCuaHelperInstaller(
   createInstaller: InstallerFactory = createCuaHelperInstaller,
 ): CuaHelperInstaller {
   const bundledAppPath = options.bundledHelperAppPath ?? resolvePackagedCuaHelperAppPath(options);
-  const env = { ...options.env };
-  // The unsigned-local escape hatch belongs only to unpackaged development.
-  // A signed app with a bundled Helper must be deterministic even when its
-  // LaunchServices environment was polluted by an earlier dev session.
-  if (bundledAppPath) {
-    delete env.ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL;
-  }
+  // 信任门 env 决策抽到零依赖纯函数（docs/spec/cua-runtime-builtin.md §B 偏离第三条）：fork 的
+  // 随包 helper 是 patched+adhoc 变体，打包态必须确定性置 "1" 走 local_dev_unsigned，而不是上游
+  // 的 delete（delete 会让 onboarding 链在干净机器上被严格验证 fail-closed 拒收，修复于 2026-09-29）。
+  const env = applyBundledCuaHelperTrustEnv({ ...options.env }, bundledAppPath);
   return createInstaller(
     canonicalizeCuaHelperInstallerOptions({
       env,

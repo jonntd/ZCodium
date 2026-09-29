@@ -29,9 +29,9 @@ fork 拥有自己的打包链后，正确位置是构建期。
      未设时不可用），对外部 fork 无意义。
 2. **helper 信任门**（`verifyCuaHelperBundle`，vendor :7331 起）：`codesign --verify` 通过、
    **非 adhoc**、TeamIdentifier === `8A5X4JJ39T`（上游 ZCode 团队）、`bundleInfo.buildId === plan.expectedBuildId`。
-   unsigned 逃生口 `ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL` 只在本地开发运行时生效
-   （`COMPILED_LOCAL_DEVELOPMENT_RUNTIME` 且 `ZCODE_RUNTIME_ENV !== "production"`），打包态由
-   `desktopRuntimeEnv.ts` 显式删除该变量。
+   上游 stock 语义里 unsigned 逃生口 `ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL` 只在本地开发运行时生效
+   （`COMPILED_LOCAL_DEVELOPMENT_RUNTIME` 且 `ZCODE_RUNTIME_ENV !== "production"`），且打包态 installer
+   会显式删除该变量——fork 在 §B 偏离中把 gate 的 production 门与这条删除一并反转（见下）。
 3. **结论**：fork 没有 Apple 证书且 app 本体是 adhoc 签名，stock 发布 helper 的 launcher
    信任门对 adhoc 外壳永远不满足——唯一可行路径是随包携带 **local-dev 补丁 + adhoc 重签**
    的 helper 变体（官方 ZCode.app 的 `Contents/Resources/cua-helper/` 提供 pristine 件源，
@@ -81,7 +81,9 @@ electron-builder extraResources：bundled-cua-helper/<key> → Contents/Resource
         ▼
 运行时信任（local_dev_unsigned 模式，vendor verifyCuaHelperBundle 的 allowUnsignedLocalDev 分支）：
   打包态：__ZCODE_CUA_HELPER_BUILD_ID__ define ← CI 从 build-id.txt 导出；
-          ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1 由主进程显式下发（不继承用户 shell）
+          ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1 由主进程确定性下发（不继承用户 shell），
+          覆盖两条消费链：host env（desktopRuntimeEnv.buildHostProcessEnv）与 onboarding
+          installer env（desktopCuaHelperInstaller → applyBundledCuaHelperTrustEnv）
   dev 态：desktopRuntimeEnv 自动接线注入 ALLOW_UNSIGNED + BUNDLE_ID + 实测 BUILD_ID
 ```
 
@@ -95,6 +97,10 @@ ZCodium 是 adhoc 外壳，永远不满足，pristine helper 在 fork 里必然�
   「仅非 production 运行时」限制——否则打包态必然走严格校验、必然拒收 patched+adhoc
   helper。opt-in（`ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1`）由桌面主进程确定性下发，
   用户 shell 注入无法改变行为。
+- **主进程 installer 链**（`desktopCuaHelperInstaller.ts`）：上游在有随包 helper 时 delete
+  该 opt-in（"已签名 app 必须确定性"），fork 的随包件必然 adhoc、严格验证永远失败——同点位
+  反转为确定性置 `1`（纯函数 `applyBundledCuaHelperTrustEnv`，`node --test` 直测）。
+  dev（未打包、无 bundledAppPath）保持上游语义：由文档化的 dev 流程显式 opt-in，不代持。
 
 运行时信任走 `local_dev_unsigned` 分支（buildId/arch 校验保留，TeamID/adhoc 检查跳过）。
 TCC 稳定性不受影响：helper 字节在同一上游版本间不变，adhoc 签名对相同字节是确定性的，
@@ -126,8 +132,13 @@ darwin + 未打包（app.isPackaged === false）：
   - `ZCODE_CUA_HELPER_BUILD_ID=<helper plist 实值>`（plutil 读 ZCodeCUAHelperBuildId）：vendor
     内嵌期望值是上游某次发布的字面量，与本机 helper 不一定一致；dev 打包 define 折叠为空串时
     env 覆盖生效（`resolveExpectedCuaHelperBuildId` 的 embedded || env 顺序）。
-- 打包态行为不变（env 删除逻辑保留），`__ZCODE_LOCAL_DEVELOPMENT_RUNTIME__` define 补齐
-  （NODE_ENV 非 production → true），不再依赖被清空的运行时 NODE_ENV 兜底。
+- 打包态 installer env 同点位反转：上游 delete → fork 确定性置 `1`（§B 偏离第三条，
+  `applyBundledCuaHelperTrustEnv`）；dev 未打包、无 bundledAppPath 时不代持。
+- `__ZCODE_LOCAL_DEVELOPMENT_RUNTIME__` define 按构建机 NODE_ENV 折叠（非 production → true）：
+  桌面 tsup/vite 由 run-production-build.mjs 注入 NODE_ENV=production，折叠正确；node-repl-host
+  经 prepare:runtime-assets 子链构建、不经过该 runner，bundle.mjs 的 buildEnv 补齐
+  NODE_ENV=production 兜住。host 链另有 ZCODE_RUNTIME_ENV=production 运行时兜底，但 define
+  必须与打包语义一致，不留「编译期本地开发信任」进正式包。
 
 ## 退役清单（野路子 → 内置）
 
@@ -166,8 +177,13 @@ darwin + 未打包（app.isPackaged === false）：
 5. **降级路径**：`ZCODE_SKIP_CUA_HELPER=1` 打包跳过 helper 时产物仍可用（CUA 报未安装，
    不崩）；dev 无任何 helper 时不注入 env、UI 引导。
 6. `pnpm typecheck` / `pnpm lint` 通过（如实报告）。
+7. **打包态 onboarding（干净机器）**：无 install.sh 时代 launchctl/launchd 残留的机器上运行
+   打包版 → 设置页「电脑控制」→ 授权 onboarding/drag → helper 经 local_dev_unsigned 安装验证
+   通过（desktopCuaHelperInstaller 置 `1` 链路）；信任门单测 `cua-helper-trust-env.test.mjs`
+   通过（含 vendor patch 被 vendored 升级冲掉的回归守卫）。
 
 ## 回滚边界
 
 回滚 = 撤销 alias 两处 + extraResources/signIgnore 两项 + prepare 脚本挂载 + dev 接线段 +
+installer 信任门覆盖（applyBundledCuaHelperTrustEnv）+ bundle.mjs 的 NODE_ENV 注入 +
 UI 解隐藏；产物回到 stub fail-closed 语义（CUA 不可用但不崩），一期插件内置化不受影响。

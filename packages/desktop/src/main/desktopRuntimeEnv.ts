@@ -26,6 +26,7 @@ import {
   type ZCodeRuntimeEnv,
 } from "@zcode/shared";
 import { resolvePlatformKeyForPackagedApp } from "../../scripts/target-platform.mjs";
+import { ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL_ENV } from "./desktopCuaHelperTrustEnv.js";
 import {
   getAppConfigDir,
   getDataBaseDir,
@@ -557,8 +558,9 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
   // docs/spec/cua-runtime-builtin.md §B 的信任模型偏离说明），所以运行时必须以
   // local_dev_unsigned 模式信任它。这里由主进程显式下发 "1"，同时抹掉用户 shell
   // 可能注入的任意值——上游“release 不得继承该逃生口”的担忧在 fork 语境下转变为
-  // “该值由产品自身确定性提供”，用户注入无法改变行为。
-  inheritedEnv.ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL = "1";
+  // “该值由产品自身确定性提供”，用户注入无法改变行为。变量名与 installer 链共用
+  // desktopCuaHelperTrustEnv 的常量，防止两处消费面漂移。
+  inheritedEnv[ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL_ENV] = "1";
   const dynamicWorkflowModeHostEnv = resolveDynamicWorkflowModeHostEnv({
     inheritedValue: rawInheritedEnv[ZCODE_DYNAMIC_WORKFLOW_MODE_ENV],
     isPackaged: packagedDesktop,

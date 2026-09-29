@@ -754,6 +754,12 @@ async function main() {
   const buildEnv = {
     ZCODE_TARGET_OS: os,
     ZCODE_TARGET_ARCH: arch,
+    // 打包链统一 NODE_ENV=production：node-repl-host（agent bundle 经 prepare:runtime-assets
+    // 子链构建，不经过 run-production-build.mjs 的注入）按构建机 NODE_ENV 折叠
+    // __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__，缺这行正式包会把"编译期本地开发信任"带进 host 产物
+    // （docs/spec/cua-runtime-builtin.md §C；运行时另有 ZCODE_RUNTIME_ENV=production 兜底，
+    // 但 define 必须与打包语义一致）。
+    NODE_ENV: "production",
     ...createElectronRuntimeMirrorEnv(resolveElectronMirror()),
     ...createElectronBuilderBinariesMirrorEnv(resolveElectronBuilderBinariesMirror()),
   };
