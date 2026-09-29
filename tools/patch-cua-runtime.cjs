@@ -366,6 +366,67 @@ const HOST_STUB_CLASSES = [
   "CuaProductHelperWorkspaceRegistry",
 ];
 
+// ---------------------------------------------------------------------------
+// main-process installer stubs (e.g. /out/main/chunk-*.js): a second stub
+// family ships the helper installer + permission-subject identity resolver as
+// reject/throw placeholders, which breaks the settings-page onboarding jump
+// ("无法打开 CUA 权限引导: install/verification failed"). Same technique as the
+// host bridge: rebind the annotated stub symbols — all function/var
+// declarations — to the real implementations in broker-server.js.
+// ---------------------------------------------------------------------------
+
+const MAIN_BRIDGE_MARKER = "zcode-plugin:main-cua-bridge";
+const MAIN_STUB_FUNCTIONS = [
+  "resolveHelperPermissionSubjectIdentity",
+  "createCuaHelperInstaller",
+];
+
+function patchMainStubChunk(body, asarPath) {
+  if (!body.includes(STUB_MARKER)) return null;
+  if (body.includes(MAIN_BRIDGE_MARKER)) return "already";
+  // Only chunks carrying the installer stub pair.
+  if (
+    !body.includes('"createCuaHelperInstaller"') ||
+    !body.includes('"resolveHelperPermissionSubjectIdentity"')
+  ) {
+    return null;
+  }
+
+  const dirDepth = asarPath.split("/").filter(Boolean).length - 1;
+  const rel = "../".repeat(dirDepth + 1) + "tools/zcode-cua/broker-server.js";
+
+  const rebinds = [];
+  let insertAt = -1;
+  for (const sem of MAIN_STUB_FUNCTIONS) {
+    const m = body.match(new RegExp(`[\\w$]+\\(([\\w$]+),"${sem}"\\)`));
+    if (!m) return null;
+    rebinds.push(`${m[1]}=(...a)=>__zpcuaMain.${sem}(...a);`);
+    const end = m.index + m[0].length + 1;
+    if (end > insertAt) insertAt = end;
+  }
+  // defaultCuaHelperVerifierDependencies ships as an unannotated object
+  // literal of stub fns — same shape fingerprint as the host bridge.
+  const deps = body.match(
+    /(?:var\s+|,)\s*([\w$]+)=\{readExecutableArchs:[\w$]+,verifyCodeSignature:[\w$]+,verifyTeamIdentifier:[\w$]+\}/,
+  );
+  if (deps) {
+    rebinds.push(`${deps[1]}=__zpcuaMain.defaultCuaHelperVerifierDependencies;`);
+    insertAt = Math.max(insertAt, deps.index + deps[0].length);
+  }
+  if (insertAt < 0) return null;
+
+  const bridge =
+    `\n// ${MAIN_BRIDGE_MARKER}: rebind packaged helper-installer stubs to the\n` +
+    `// real implementations shipped under resources/tools/zcode-cua.\n` +
+    `${rebinds.join("\n")}\n`;
+  return (
+    `import * as __zpcuaMain from "${rel}";\n` +
+    body.slice(0, insertAt) +
+    bridge +
+    body.slice(insertAt)
+  );
+}
+
 // cua-permission.getStatus: the renderer validator requires `available===true`
 // on success, but this build's success returns omit the field entirely (only
 // failure branches set `available:!1`), so the settings page can never show a
@@ -491,6 +552,7 @@ function patchAsar(asarPath, dryRun) {
   const skipped = [];
   const unhidden = [];
   const hostPatched = {};
+  const mainPatched = [];
   const bodies = new Map();
   for (const [p, v] of entries) {
     if (v.unpacked || v.link !== undefined) continue;
@@ -521,12 +583,21 @@ function patchAsar(asarPath, dryRun) {
         hostPatched.path = p;
         bodies.set(p, { v, body: Buffer.from(hostRes, "utf8") });
       }
+    } else {
+      const mainRes = patchMainStubChunk(
+        bodies.get(p).body.toString("utf8"),
+        p,
+      );
+      if (mainRes && mainRes !== "already") {
+        mainPatched.push(p);
+        bodies.set(p, { v, body: Buffer.from(mainRes, "utf8") });
+      }
     }
   }
 
-  const rewritten = [...new Set([...patched, ...unhidden, ...(hostPatched.patched ? [hostPatched.path] : [])])];
+  const rewritten = [...new Set([...patched, ...unhidden, ...mainPatched, ...(hostPatched.patched ? [hostPatched.path] : [])])];
   if (rewritten.length === 0) {
-    return { patched, skipped, unhidden, hostPatched, wrote: false };
+    return { patched, skipped, unhidden, hostPatched, mainPatched, wrote: false };
   }
   if (dryRun) return { patched, skipped, unhidden, hostPatched, wrote: false };
 
@@ -607,7 +678,7 @@ function patchAsar(asarPath, dryRun) {
   } else {
     fs.writeFileSync(asarPath, out);
   }
-  return { patched, skipped, unhidden, hostPatched, wrote: true, deferredMove, backup };
+  return { patched, skipped, unhidden, hostPatched, mainPatched, wrote: true, deferredMove, backup };
 }
 
 // ---------------------------------------------------------------------------
@@ -779,7 +850,11 @@ function main() {
     if (r.hostPatched?.patched) {
       console.log(`[cua-patch] app.asar: rebound CUA host stubs in ${r.hostPatched.path}`);
     }
-    if (r.patched.length || r.unhidden?.length || r.hostPatched?.patched) {
+    if (r.mainPatched?.length) {
+      console.log(`[cua-patch] app.asar: rebound CUA helper-installer stubs in:`);
+      for (const p of r.mainPatched) console.log(`            ${p}`);
+    }
+    if (r.patched.length || r.unhidden?.length || r.hostPatched?.patched || r.mainPatched?.length) {
       if (r.wrote) console.log(`            backup: ${r.backup}`);
       if (r.deferredMove) console.log("            (archive swap runs when this process exits)");
     } else if (skippedNonEmpty(r) || r.hostPatched?.skipped) {
