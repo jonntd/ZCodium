@@ -366,8 +366,37 @@ const HOST_STUB_CLASSES = [
   "CuaProductHelperWorkspaceRegistry",
 ];
 
+// cua-permission.getStatus: the renderer validator requires `available===true`
+// on success, but this build's success returns omit the field entirely (only
+// failure branches set `available:!1`), so the settings page can never show a
+// real status. Fix both success returns to set `available:!0`, and map the
+// accessibility probe from the field the broker actually returns
+// (`accessibility_probe.ok`/`classification`) instead of a phantom key.
+function fixGetStatusReturns(body) {
+  const coldRet =
+    "return{grantOwner:R.grant_owner,grantOwnerDisplayName:R.owner?.display_name??R.grant_owner,accessibility:R.accessibility,accessibilityProbeOk:R.accessibility_probe_ok===!0,screenRecording:R.screen_recording,screenCaptureProbeOk:!1}";
+  const coldRetNew =
+    "return{available:!0,grantOwner:R.grant_owner,grantOwnerDisplayName:R.owner?.display_name??R.grant_owner,accessibility:R.accessibility,accessibilityProbeOk:R.accessibility_probe?.ok===!0&&R.accessibility_probe?.classification===\"functional\",screenRecording:R.screen_recording,screenCaptureProbeOk:!1}";
+  const warmRet =
+    "return{grantOwner:ot.grant_owner,grantOwnerDisplayName:z??ot.grant_owner,accessibility:ot.accessibility,";
+  const warmRetNew =
+    "return{available:!0,grantOwner:ot.grant_owner,grantOwnerDisplayName:z??ot.grant_owner,accessibility:ot.accessibility,";
+  let fixed = false;
+  if (body.includes(coldRet)) {
+    body = body.replace(coldRet, coldRetNew);
+    fixed = true;
+  }
+  if (body.includes(warmRet)) {
+    body = body.replace(warmRet, warmRetNew);
+    fixed = true;
+  }
+  return fixed ? body : null;
+}
+
 function patchHostIndex(body, asarPath) {
-  if (body.includes(HOST_BRIDGE_MARKER)) return "already";
+  if (body.includes(HOST_BRIDGE_MARKER)) {
+    return fixGetStatusReturns(body) ?? "already";
+  }
   // Only the packaged host surface carries this exact stub pairing.
   if (!body.includes('"createProductCuaHelperHost"') || !body.includes('"reapOrphanedHelpers"')) {
     return null;
@@ -411,6 +440,8 @@ function patchHostIndex(body, asarPath) {
   const tail = body.search(/[\w$]+\([\w$]+,"reapOrphanedHelpers"\);/);
   if (tail < 0) return null;
   const insertAt = tail + body.slice(tail).indexOf(";") + 1;
+
+  body = fixGetStatusReturns(body) ?? body;
 
   const bridge =
     `\n// ${HOST_BRIDGE_MARKER}: rebind the packaged CUA host stubs to the real\n` +
