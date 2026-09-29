@@ -126,6 +126,12 @@ darwin + 未打包（app.isPackaged === false）：
 
 - `ALLOW_UNSIGNED_LOCAL=1` 仅 dev 注入：容忍 install.sh 时代遗留的 adhoc 补丁副本；
   上游原签 helper 在 dev 态走严格校验同样通过。
+- **buildId define 双来源（2026-09-30 补）**：CI 由 release-fork.yml 导出 `build-id.txt`；
+  本地打包（`pnpm bundle:desktop`）没有该 step——bundle.mjs 在 prepare 之后、build 之前
+  从 staging 读 `build-id.txt` 注入 `ZCODE_CUA_HELPER_BUILD_ID`（显式 env 优先，CI 零变化）。
+  否则打包态 plan 解析在信任门之前 fail-closed（`!localDevelopmentRuntime && !expectedBuildId`，
+  vendor :7670）——main 进程不自设 `ZCODE_RUNTIME_ENV`，`NODE_ENV=production` 折叠 compiled=false
+  后无 env 兜底。
 - **捆绑注入的另外两个 dev 信任门 env（2026-09-29 真机验收实测补上）**：
   - `ZCODE_CUA_HELPER_BUNDLE_ID=dev.zcode.cua-helper`：dev 变体默认期望 `dev.zcode.cua-helper.dev`，
     而本机/随包 helper 都是官方 stock id——缺它必报 "bundle id … does not match …"。
