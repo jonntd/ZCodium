@@ -52,9 +52,14 @@ installer scripts copy the plugins into exactly that layout.
 ```powershell
 git clone https://github.com/luxi233/ZcodePro
 cd ZcodePro
-.\install.ps1                 # auto-detects the install directory
-# or: .\install.ps1 -InstallDir D:\Apps\ZCode
+powershell -ExecutionPolicy Bypass -File .\install.ps1   # auto-detects the install directory
+# or add: -InstallDir D:\Apps\ZCode
 ```
+
+> `.\install.ps1` directly may fail on machines with a strict script
+> execution policy (`UnauthorizedAccess` / "not digitally signed") — the
+> `-ExecutionPolicy Bypass` form above sidesteps it without changing any
+> system setting.
 
 The script:
 

@@ -49,9 +49,13 @@ ZCode 启动时会从应用入口旁的 `packages` 目录（`resources/glm/zcode
 ```powershell
 git clone https://github.com/luxi233/ZcodePro
 cd ZcodePro
-.\install.ps1                 # 自动探测安装目录
-# 或: .\install.ps1 -InstallDir D:\Apps\ZCode
+powershell -ExecutionPolicy Bypass -File .\install.ps1   # 自动探测安装目录
+# 或追加: -InstallDir D:\Apps\ZCode
 ```
+
+> 直接 `.\install.ps1` 在执行策略严格的机器上会被拒（报"未进行数字签名"
+> UnauthorizedAccess）——上面的 `-ExecutionPolicy Bypass` 写法只作用于这次
+> 运行，不改系统设置。
 
 脚本会依次：
 
