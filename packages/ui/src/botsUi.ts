@@ -1,8 +1,4 @@
-import type {
-  BotConfig,
-  BotProvider,
-  BotReplyGranularity,
-} from "@zcode/shared";
+import type { BotConfig, BotProvider, BotReplyGranularity } from "@zcode/shared";
 import { getSupportedBotReplyGranularities } from "@zcode/shared";
 
 export type BotProviderEntryId = BotProvider | "dingding";
@@ -12,6 +8,8 @@ type BotProviderEntry =
   | { id: BotProviderEntryId; label: string; implemented: false };
 
 export const BOT_PROVIDERS: BotProviderEntry[] = [
+  // AstrBot 走官方 provider 化后的桥接；官方已实现适配器的平台同步开放。
+  { id: "astrbot", label: "AstrBot", implemented: true },
   { id: "weixin", label: "Weixin", implemented: true },
   { id: "feishu", label: "Feishu", implemented: true },
   { id: "lark", label: "Lark", implemented: true },
@@ -55,9 +53,7 @@ export function getBotReplyGranularitiesForProvider(
   provider: BotProvider,
 ): typeof BOT_REPLY_GRANULARITIES {
   const supportedIds = new Set(getSupportedBotReplyGranularities(provider));
-  return BOT_REPLY_GRANULARITIES.filter((granularity) =>
-    supportedIds.has(granularity.id),
-  );
+  return BOT_REPLY_GRANULARITIES.filter((granularity) => supportedIds.has(granularity.id));
 }
 
 export function getBotReplyGranularityEntryForProvider(
@@ -72,9 +68,7 @@ export function getBotReplyGranularityEntryForProvider(
   );
 }
 
-export function getBotProviderRegionTagLabelId(
-  provider: BotProviderEntryId,
-): string | null {
+export function getBotProviderRegionTagLabelId(provider: BotProviderEntryId): string | null {
   switch (provider) {
     case "lark":
       return "login.oauth.regionTag.zai";
@@ -85,10 +79,7 @@ export function getBotProviderRegionTagLabelId(
   }
 }
 
-export function buildCurrentWorkspaceId(
-  workspacePath: string,
-  workspaceIdentity?: string,
-): string {
+export function buildCurrentWorkspaceId(workspacePath: string, workspaceIdentity?: string): string {
   return workspaceIdentity?.trim() || workspacePath;
 }
 

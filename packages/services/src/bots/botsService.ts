@@ -280,6 +280,8 @@ interface BotsServiceDeps {
   settingService?: ISettingService;
   modelSelectionService: Pick<IModelSelectionService, "getView">;
   remoteWorkspaceService?: BotRemoteWorkspaceService;
+  /** 由组合根注入的 AstrBot 桥接 provider；未注入时 astrbot 出站为空。 */
+  astrBotProvider?: BotProviderAdapter;
   // 修复原因：desktop-attached 远端启动阶段不应抢跑 bot 轮询、runtime lock 和模型候选缓存；
   // 这些后台任务属于本地桌面 host，不属于 SSH/Docker 远端首屏连接路径。
   runStartupBackgroundTasks?: boolean;
@@ -745,6 +747,8 @@ export function createBotsService(
     }),
     discord: null,
     wecom: null,
+    // AstrBot 桥接 provider 由组合根注入；入站经 handleProviderCallback("astrbot", frame)。
+    astrbot: deps.astrBotProvider ?? null,
   };
   let service: IBotsService & {
     disposeAll(): void;
@@ -3374,6 +3378,9 @@ export function createBotsService(
     }
     if (action === "accept") {
       startTyping(auth.bot, actor, pending.taskId);
+      // 与 permission.respond 同理：问答提交后任务恢复，重新通知 started，
+      // 避免恢复后的出站失去 stream 归属。
+      providers[auth.bot.provider]?.notifyTaskLifecycle?.(auth.bot, actor, "started");
       // Bugfix: AskUserQuestion 只是在回复问题，不属于命令配置成功；这里保留原问答提交文案，避免误回 /status。
       return [createCompletedElicitationOutbound(actor, pending, auth.locale, action)];
     }
@@ -4036,11 +4043,13 @@ export function createBotsService(
             await sendOutbound(bot, permissionReply);
           }
         }
+        providers[bot.provider]?.notifyTaskLifecycle?.(bot, actor, "awaiting_input");
         return;
       }
       if (event.type === "elicitation_request") {
         await sealStreamingCardReply();
         await handleElicitationRequest(bot, user, actor, context, event);
+        providers[bot.provider]?.notifyTaskLifecycle?.(bot, actor, "awaiting_input");
         return;
       }
       if (event.type === "elicitation_response") {
@@ -4054,6 +4063,11 @@ export function createBotsService(
         runningTasks.delete(event.taskId);
         liveStatusProgressByTaskId.delete(event.taskId);
         stopTyping(event.taskId);
+        providers[bot.provider]?.notifyTaskLifecycle?.(
+          bot,
+          actor,
+          event.type === "task_error" ? "failed" : "completed",
+        );
         if (context.pendingElicitation?.taskId === event.taskId) {
           clearPendingElicitationSelection(context.pendingElicitation);
           await writeContext({ ...context, pendingElicitation: undefined });
@@ -4225,6 +4239,8 @@ export function createBotsService(
       },
     });
     startTyping(bot, actor, context.activeTaskId);
+    // 告诉传输型 provider 已进入任务流：此时不得提前收口 bridge 轮次。
+    providers[bot.provider]?.notifyTaskLifecycle?.(bot, actor, "started");
   }
 
   async function createSelectionReply(
@@ -6182,6 +6198,11 @@ export function createBotsService(
               },
             );
             startTyping(auth.bot, message.actor, auth.context.activeTaskId);
+            // 修复原因：权限应答成功后任务会立即恢复输出，但传输 provider 在
+            // awaiting_input 时已把任务流标记为暂停。这里重新通知 started，
+            // 让 provider 把当前轮次的 stream 提升为任务流并保留收口归属；
+            // 否则恢复后的每帧出站都落在新建的无主 stream 上（见 astrbotProvider）。
+            providers[auth.bot.provider]?.notifyTaskLifecycle?.(auth.bot, message.actor, "started");
             return [
               createOutbound(
                 message.actor,

@@ -11,6 +11,26 @@
 
 > This repository is forked from [zai-org/ZCode](https://github.com/zai-org/ZCode), open-sourced by Zhipu on September 21, 2026. The name follows the same pattern as Chrome → Chromium and VS Code → VSCodium: **ZCode → ZCodium**. Everything here is backed by code and reproducible checks.
 
+<div align="center">
+  <img src="https://zcodium-project.github.io/shots/hero-app.png" alt="ZCodium desktop app: a finished agent run with its change summary and follow-up input" width="860" />
+</div>
+
+## Features
+
+ZCodium keeps the product itself — an AI coding workspace for desktop, browser and terminal — and rebuilds it from the public source with monitoring and telemetry removed and vendor services off by default.
+
+- **One Agent, three interfaces**: the Electron desktop app, the browser workspace and the `zcode` terminal TUI share the same Agent runtime and sessions; you can also connect to a remote host over SSH, or drive the same desktop agent from your phone's browser.
+- **Plans, edits, runs, verifies**: file changes arrive as diffs, terminal commands carry their context, the agent checks its own work by running commands and tests, and a built-in browser plugin drives a real browser for web tasks.
+- **Asks before it touches your project**: every edit, command and tool call can require approval — allow once, always in this project, or full access.
+- **Multi-agent collaboration and orchestration**: sub-agents, dynamic workflows, skills and scheduled automations.
+- **Plugins, skills and MCP**: built-in skills plus a plugin system; official MCP and the plugin marketplace stay off by default, each with its own switch.
+- **Bring your own model**: built-in presets for DeepSeek, OpenAI, Anthropic, Moonshot Kimi, MiniMax, Z.AI (GLM), Alibaba, xAI, Xiaomi MiMo and OpenRouter, plus fully custom endpoints (Chat Completions, Responses, Anthropic Messages).
+
+<div align="center">
+  <img src="https://zcodium-project.github.io/shots/review-flow.png" alt="ZCodium asking for permission before editing a file: allow once, always in this project, full access, or deny" width="860" />
+  <p><em>Approval-first: the agent stops and asks before it edits a file, runs a command or calls a tool.</em></p>
+</div>
+
 ## How it compares with upstream
 
 | Item                     | ZCodium (this repo)                                                                  | Official client (closed source)                                           | Official open source             |
@@ -76,7 +96,7 @@ Compared with the upstream open-source release, this repository contains **no mo
 
 The [Releases](https://github.com/ZCodium-project/ZCodium/releases) page ships desktop clients (macOS / Windows / Linux) and the CLI distribution.
 
-**About signing**: the builds are **not signed by ZCode**, so the operating system blocks the first launch. That is expected — allow it once per platform as below. You can verify the download against the `sha256.txt` on the release page before allowing it.
+**About signing**: the builds are **not signed by ZCode**, so the operating system blocks the first launch. That is expected — allow it once per platform as below. Before allowing it you can verify the download against the `sha256.txt` on the release page — it covers every installer, the CLI package and `install.sh` (update metadata and remote runtime assets carry their own checksums). Compute the file hash with `shasum -a 256 <file>` (macOS), `sha256sum <file>` (Linux) or `certutil -hashfile <file> SHA256` (Windows) and compare it with the matching line.
 
 ### macOS (.dmg)
 
@@ -95,7 +115,7 @@ The [Releases](https://github.com/ZCodium-project/ZCodium/releases) page ships d
 1. Download `ZCodium-*-win-x64.exe` and double-click it.
 2. The installer is not signed by ZCode, so SmartScreen shows the "Windows protected your PC" warning. Click **More info** → **Run anyway** and finish the installer.
 
-   This is the expected prompt, not a sign of corruption; you can also verify the installer against the `sha256.txt` from the release page first.
+   This is the expected prompt, not a sign of corruption; you can also verify the installer against the `sha256.txt` from the release page first, e.g. `certutil -hashfile ZCodium-<version>-win-x64.exe SHA256` compared with the matching line.
 
 ### Linux (.AppImage)
 

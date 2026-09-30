@@ -9,5 +9,13 @@
   "ad2c7d0": "CI：在 GitHub 工作流中自动批准 opencode 工具权限。",
   "aadb483": "安装包内置远程资源源：连接 WSL/SSH 开箱即用，无需配置环境变量，也无需打开官方插件市场开关；显式环境变量仍优先。",
   "a6d25e6": "版本号提升至 3.14.6。",
-  "4352de7": "CI 修复：推送前剥离工作流文件改动。"
+  "4352de7": "CI 修复：推送前剥离工作流文件改动。",
+  "f16980a": "发布校验修复：sha256.txt 现在覆盖全部桌面安装包、CLI 包与 install.sh，由各构建任务的分片在发布前合并，清单缺失或重复时阻止发布（#9）。",
+  "ec8ac2c": "fa-IR 本地化与 RTL 的合并后审计修复：补齐 26 个缺失 UI 键与 CLI 帮助翻译（键提取兼容单引号与反引号）；窗口 chrome 内边距、对角光标保持物理方向，其余物理圆角工具类迁移为逻辑等价类。",
+  "a7b1f23": "发布流程支持中英双语 changelog：新增「提交短哈希 → 中文说明」翻译映射，缺翻译时输出隐藏待办注释。",
+  "93ec924": "发布收尾：把中文 changelog 键对齐到合并后的 squash 提交（#11 → f16980a，并补上 #10 的条目）。",
+  "a5157fe": "Adds external provider API-key balance lookup across the service layer, settings UI and tests (#8).",
+  "86a44b3": "Bridges AstrBot into the official BotsService as a transport provider: loopback WebSocket (bridge v2) to the AstrBot plugin, with interactive permission / question / menu selections, reconnect replay and task-stream settlement (#1).",
+  "d042521": "README 顶部新增功能总览与截图。",
+  "e701117": "版本号提升至 3.14.7。"
 }

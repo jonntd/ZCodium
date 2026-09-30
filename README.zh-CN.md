@@ -11,6 +11,26 @@
 
 > 本仓库 fork 自智谱 2026 年 9 月 21 日开源的 [zai-org/ZCode](https://github.com/zai-org/ZCode)。名字沿用 Chrome → Chromium、VS Code → VSCodium 的变形逻辑：**ZCode → ZCodium**。所有结论以代码和可复现的验证为准。
 
+<div align="center">
+  <img src="https://zcodium-project.github.io/shots/hero-app.png" alt="ZCodium 桌面端：任务完成后的改动摘要与后续输入" width="860" />
+</div>
+
+## 功能介绍
+
+ZCodium 保留了产品本身——桌面端、浏览器端和终端三端的 AI 编程工作区——并从公开源码重新构建：监控与遥测全部移除，官方服务默认关闭。
+
+- **一个 Agent，三种界面**：Electron 桌面端、浏览器工作区和 `zcode` 终端 TUI 共用同一个 Agent 运行时与会话；还可以通过 SSH 连接远程主机，或者用手机浏览器远控桌面端同一个 Agent。
+- **会规划、会改、会跑、会验证**：文件改动用 diff 呈现，终端命令带上下文，改完自己跑命令和测试复核；内置浏览器插件可驱动真实浏览器完成网页任务。
+- **动手之前先征求许可**：每一次编辑、命令和工具调用都可以要求审批——仅本次允许、本项目内一直允许，或完全放行。
+- **多智能体协作与任务编排**：子代理、动态工作流、技能与定时自动化。
+- **插件、技能与 MCP**：内置技能与插件体系；官方 MCP 与插件市场默认关闭，各自独立开关。
+- **模型自由选**：内置 DeepSeek、OpenAI、Anthropic、Moonshot Kimi、MiniMax、智谱 Z.AI（GLM）、阿里云、xAI、小米 MiMo、OpenRouter 等预设，也支持完全自定义的端点（Chat Completions / Responses / Anthropic Messages）。
+
+<div align="center">
+  <img src="https://zcodium-project.github.io/shots/review-flow.png" alt="ZCodium 在修改文件前弹出权限确认：仅本次允许 / 本项目内一直允许 / 完全放行 / 拒绝" width="860" />
+  <p><em>审批优先：改文件、跑命令、调工具之前，Agent 会先停下来征求许可。</em></p>
+</div>
+
 ## 和官方版本的对比
 
 | 对比项       | ZCodium（本仓库）                                          | 官方客户端（闭源）               | 官方开源版                 |
@@ -76,7 +96,7 @@
 
 [Releases](https://github.com/ZCodium-project/ZCodium/releases) 提供桌面客户端（macOS / Windows / Linux）和 CLI 发行包。
 
-**关于签名**：所有安装包都**没有 ZCode 官方签名**，首次打开会被系统安全机制拦截。这是预期行为，按下面各平台的方式放行一次即可。放行前可以先用 Release 页提供的 `sha256.txt` 校验下载文件。
+**关于签名**：所有安装包都**没有 ZCode 官方签名**，首次打开会被系统安全机制拦截。这是预期行为，按下面各平台的方式放行一次即可。放行前可以先按 Release 页的 `sha256.txt` 校验下载文件：该文件覆盖全部安装包、CLI 包与 `install.sh`（更新元数据与 `zz-*` 远端资产由各自的校验机制覆盖）。用 `shasum -a 256 <文件>`（macOS）、`sha256sum <文件>`（Linux）或 `certutil -hashfile <文件> SHA256`（Windows）计算后与文件中同名行比对即可。
 
 ### macOS（.dmg）
 
@@ -95,7 +115,7 @@
 1. 下载 `ZCodium-*-win-x64.exe`，双击运行。
 2. 安装包没有 ZCode 官方签名，Windows SmartScreen 会弹出“Windows 已保护你的电脑”的警告。点击“**更多信息**” → “**仍要运行**”，按提示完成安装即可。
 
-   这是预期提示，不是文件损坏；介意的话可以先按 Release 页的 `sha256.txt` 校验安装包。
+   这是预期提示，不是文件损坏；介意的话可以先按 Release 页的 `sha256.txt` 校验安装包，例如 `certutil -hashfile ZCodium-<version>-win-x64.exe SHA256`，与文件中同名行比对一致即可。
 
 ### Linux（.AppImage）
 
