@@ -63,8 +63,9 @@ node_repl：computer-use-client.mjs → Symbol bridge → broker socket（既有
 - core/adapters 只 import `frame-contract`/`request-access-contract` 纯契约（两包同版本
   0.6.3、语义一致），CLI bundle 维持 stub，不 alias。
 - 构建守卫：node-repl-host build.mjs 构建后断言产物**不含** stub marker
-  `"Computer Use is not available in this build."`（仿既有 `__ZCODE_CUA_HELPER_BUILD_ID__`
-  守卫；desktop 侧由 bundle.mjs 产物校验覆盖 host chunk）。
+  `"Computer Use is not available in this build."`（desktop 侧由 bundle.mjs 产物校验覆盖
+  host chunk）。早期的 `__ZCODE_CUA_HELPER_BUILD_ID__` define 折叠守卫已随该 define 一并
+  退役（2026-09-30，原因见 §C）。
 
 ### B. helper 随包（macOS，local-dev 补丁 + adhoc 变体）
 
@@ -80,7 +81,10 @@ electron-builder extraResources：bundled-cua-helper/<key> → Contents/Resource
   （mac.signIgnore 排除 cua-helper；afterPack 的 --deep adhoc 对相同字节确定性重签）
         ▼
 运行时信任（local_dev_unsigned 模式，vendor verifyCuaHelperBundle 的 allowUnsignedLocalDev 分支）：
-  打包态：__ZCODE_CUA_HELPER_BUILD_ID__ define ← CI 从 build-id.txt 导出；
+  期望 buildId：desktopRuntimeEnv 主进程实读随包 helper Info.plist → env 下发
+          ZCODE_CUA_HELPER_BUILD_ID（dev/打包同构；vendor env 优先 patch 消费），
+          vendor 内嵌的上游字面量只作 env 缺失时的兜底，不参与 fork 配对；
+          早期 __ZCODE_CUA_HELPER_BUILD_ID__ build-time define 已退役（§C）
           ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1 由主进程确定性下发（不继承用户 shell），
           覆盖两条消费链：host env（desktopRuntimeEnv.buildHostProcessEnv）与 onboarding
           installer env（desktopCuaHelperInstaller → applyBundledCuaHelperTrustEnv）
@@ -126,18 +130,26 @@ darwin + 未打包（app.isPackaged === false）：
 
 - `ALLOW_UNSIGNED_LOCAL=1` 仅 dev 注入：容忍 install.sh 时代遗留的 adhoc 补丁副本；
   上游原签 helper 在 dev 态走严格校验同样通过。
-- **buildId define 双来源（2026-09-30 补）**：CI 由 release-fork.yml 导出 `build-id.txt`；
-  本地打包（`pnpm bundle:desktop`）没有该 step——bundle.mjs 在 prepare 之后、build 之前
-  从 staging 读 `build-id.txt` 注入 `ZCODE_CUA_HELPER_BUILD_ID`（显式 env 优先，CI 零变化）。
-  否则打包态 plan 解析在信任门之前 fail-closed（`!localDevelopmentRuntime && !expectedBuildId`，
-  vendor :7670）——main 进程不自设 `ZCODE_RUNTIME_ENV`，`NODE_ENV=production` 折叠 compiled=false
-  后无 env 兜底。
+- **buildId 配对收敛为运行时注入单机制（2026-09-30 修订，替代「define 双来源」）**：
+  build-time define `__ZCODE_CUA_HELPER_BUILD_ID__`（desktop tsup 与 node-repl-host esbuild
+  两处）与配套折叠守卫整体退役。原因：该 define 依赖被 bundle 的源码里存在 bare 标识符，
+  而 fork 的 vendor 产物（runtimes/zcode-cua/vendor/dist-index.js）是上游预构建件——
+  buildId 在 vendor 构建期就折叠成上游字面量（pipeline-293504-ab4d5e6b），fork 侧 esbuild
+  的 define 无处可替换，守卫「env 值必须出现在产物里」在 env ≠ vendor 烙死值时**恒假**
+  （2026-09-30 v3.14.8 首次发版构建实证：CI 导出当日 CDN helper 的 buildId，五个桌面
+  job 全数在 build-desktop-agent-cli → node-repl-host 阶段失败；本地此前能过只是因为
+  staging helper 尚与 vendor 字面量同源）。打包态 plan 解析的 `!expectedBuildId`
+  fail-closed（vendor :7670）不受影响：vendor 内嵌字面量永不为空，env 缺失时兜底；
+  真实配对由主进程运行时实读 Info.plist 注入 env 钉住（§B 图）。消费面清理：
+  desktop tsup define、node-repl-host define+守卫、bundle.mjs staging 注入、
+  release-fork.yml 的 GITHUB_ENV 导出。
 - **捆绑注入的另外两个 dev 信任门 env（2026-09-29 真机验收实测补上）**：
   - `ZCODE_CUA_HELPER_BUNDLE_ID=dev.zcode.cua-helper`：dev 变体默认期望 `dev.zcode.cua-helper.dev`，
     而本机/随包 helper 都是官方 stock id——缺它必报 "bundle id … does not match …"。
   - `ZCODE_CUA_HELPER_BUILD_ID=<helper plist 实值>`（plutil 读 ZCodeCUAHelperBuildId）：vendor
-    内嵌期望值是上游某次发布的字面量，与本机 helper 不一定一致；dev 打包 define 折叠为空串时
-    env 覆盖生效（`resolveExpectedCuaHelperBuildId` 的 embedded || env 顺序）。
+    内嵌期望值是上游某次发布的字面量，与本机/随包 helper 不一定一致；fork 的 env 优先 patch
+    在 local-dev 或 opt-in 门开启时让 env 恒生效，而 desktop 主进程对两态都确定性下发 opt-in
+    （ALLOW_UNSIGNED_LOCAL=1），所以实测值在 dev 与打包态都稳赢内嵌兜底。
 - 打包态 installer env 同点位反转：上游 delete → fork 确定性置 `1`（§B 偏离第三条，
   `applyBundledCuaHelperTrustEnv`）；dev 未打包、无 bundledAppPath 时不代持。
 - `__ZCODE_LOCAL_DEVELOPMENT_RUNTIME__` define 按构建机 NODE_ENV 折叠（非 production → true）：
@@ -199,15 +211,24 @@ EEXIST → 50 轮探测白等 ≈20s → unavailable），且 §D 第 1 条的�
 ```
 main（buildHostProcessEnv，desktopCuaBrokerSocket.ts）
   ensureForkCuaBrokerSocketDir()            预创建父目录（vendor bind 不做 mkdir）
-  applyForkCuaBrokerSocketEnv(env)          用户显式注入优先，否则下发私有路径
-        ▼ host env（agent / node-repl 继承；agent 也可经 transport tuple 显式拿到）
+  applyForkCuaBrokerSocketEnv(env)          用户显式注入优先，否则写 fork 私有键
+                                            ZCODIUM_CUA_BROKER_SOCKET（标准键会被 host 启动
+                                            的 confused-deputy sanitize 剥掉，fork 键不在
+                                            剥离清单，能活着穿过 host 启动——2026-09-30 实测）
+        ▼ host env（agent / node-repl 继承）
+  services node.ts（initializeRuntimeProcessEnv 之后立即执行）
+  restoreZCodiumCuaBrokerSocketEnv()        fork 键 → 标准键 ZCODE_CUA_PERMISSION_BROKER_SOCKET
+                                            并删 fork 键（不泄入 Bash/tool 子进程，
+                                            confused-deputy 语义不变；恢复一次即全链路同源）
+        ▼
   ZCODE_CUA_PERMISSION_BROKER_SOCKET =
     darwin  /tmp/zcode-cua-zcodium-<uid>/broker.sock
     win32   \\.\pipe\zcode-cua-helper-zcodium
     linux   ~/.zcode/cua-broker-zcodium/broker.sock
         ▼
   fork getStatus / launchStandaloneCuaHelperForStatus / managed helper / MCP broker client
-  全部经 vendor resolveBrokerSocketPath 读到同一路径；helper 由 --socket argv 显式绑定
+  全部经 vendor resolveBrokerSocketPath 读到同一路径；helper 由 --socket argv 显式绑定；
+  host 启动必打一条 [cua-permission] broker socket resolved 观测日志，直接暴露注入是否穿透
 ```
 
 - 无条件下发（dev/打包同构）：fork 不复用官方 helper（peer 校验本来就互拒），
@@ -216,7 +237,8 @@ main（buildHostProcessEnv，desktopCuaBrokerSocket.ts）
   跨 socket 持续有效。
 - Preview/生产两个 fork 实例同时运行仍共享私有 socket（上游单实例语义），超出本节范围。
 - 测试：`packages/desktop/tests/desktop-cua-broker-socket.test.mjs`（平台隔离、用户
-  注入优先、父目录预创建）。
+  注入优先、父目录预创建、vendor 键懒绑定行为探针、fork 键 → 标准键恢复与删除、
+  标准键已有值时尊重现状）。
 
 ## 退役清单（野路子 → 内置）
 
@@ -242,7 +264,7 @@ main（buildHostProcessEnv，desktopCuaBrokerSocket.ts）
 1. **构建守卫**：`node scripts/build.mjs`（node-repl-host）产物不含 stub marker；
    `pnpm bundle:desktop` 产物 host chunk 同样不含；打包产物含
    `Contents/Resources/cua-helper/ZCode Computer Use.app`，其 Info.plist buildId 与
-   CI 注入的 `ZCODE_CUA_HELPER_BUILD_ID` 一致、helper 二进制含 patched
+   主进程运行时实测注入的 `ZCODE_CUA_HELPER_BUILD_ID` 一致、helper 二进制含 patched
    `allowUnsignedLauncherLocalDev = true` 字面量、外壳 `codesign --verify --strict` 通过、
    直替换更新自检不被破坏。
 2. **dev 验收**：`pnpm dev:desktop` → 设置页出现「电脑控制」分区（computerUse 解隐藏）→

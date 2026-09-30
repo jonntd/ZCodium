@@ -272,26 +272,24 @@ jobs:
         run: pnpm typecheck
 
       # CUA helper 随包（docs/spec/cua-runtime-builtin.md §B）：先跑 prepare 从官方 CDN
-      # 抽 Developer-ID helper（bundle 阶段的 prepare 会幂等复用），并把 helper 自身的
-      # buildId 注入后续构建——vendor 信任门要求 __ZCODE_CUA_HELPER_BUILD_ID__ define
-      # 与随包 helper 的 Info.plist 一致，缺了会在生产态 fail-closed 拒装。
-      # Windows 的 helper 校验走 runtime-manifest.json，不经这个 define，无需导出。
-      - name: Stage Computer Use helper and export its build id (mac)
+      # 抽 Developer-ID helper（bundle 阶段的 prepare 会幂等复用）。buildId 不再注入构建
+      # （build-time define 已退役，§C）：运行时由主进程实读随包 helper 的 Info.plist
+      # 经 env 钉住配对，构建机无需知道 buildId；build-id.txt 仅留作日志核对。
+      - name: Stage Computer Use helper (mac)
         if: ${{ matrix.target == 'mac' }}
         run: |
           pnpm --filter @zcode/desktop run prepare:cua-helper
-          BUILD_ID="$(head -n1 "packages/desktop/bundled-cua-helper/darwin-${{ matrix.arch }}/build-id.txt" | tr -d '[:space:]')"
+          BUILD_ID="$(head -n1 "packages/desktop/bundled-cua-helper/darwin-${{ matrix.arch }}/build-id.txt" 2>/dev/null | tr -d '[:space:]')"
           if [ -z "$BUILD_ID" ]; then
             echo "::warning::build-id.txt missing; Computer Use will report uninstalled in this build"
           else
-            echo "ZCODE_CUA_HELPER_BUILD_ID=$BUILD_ID" >> "$GITHUB_ENV"
+            echo "staged cua helper buildId: $BUILD_ID"
           fi
 
       - name: Bundle desktop app
         env:
           ZCODE_ENV: production
           ZCODE_APP_VERSION: ${{ needs.release.outputs.version }}
-          ZCODE_CUA_HELPER_BUILD_ID: ${{ env.ZCODE_CUA_HELPER_BUILD_ID }}
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: pnpm bundle:desktop -- --os ${{ matrix.target }} --arch ${{ matrix.arch }}
 

@@ -733,27 +733,6 @@ export function assertNoCuaStubMarkerInHostGraph(hostOutDir) {
   }
 }
 
-// CUA helper buildId 随包钉住（docs/spec/cua-runtime-builtin.md §B）：CI 有独立的
-// build-id 导出 step，本地打包没有——define 折叠空串会让打包态 plan 解析在信任门之前
-// fail-closed（"missing its embedded Computer Use Helper build identity"）。显式 env
-// 优先（CI 路径零变化），否则从 prepare:cua-helper 的 staging 产物读取。win32/linux 无
-// 此文件（win helper 走 runtimes/cua-helper 的 manifest 校验），读不到即不注入，维持
-// 既有 fail-closed 语义。
-const stagedCuaHelperOsMap = { mac: "darwin", win: "win32", linux: "linux" };
-
-function readStagedCuaHelperBuildId(os, arch) {
-  const buildIdFile = resolve(
-    desktopRoot,
-    "bundled-cua-helper",
-    `${stagedCuaHelperOsMap[os] ?? os}-${arch}`,
-    "build-id.txt",
-  );
-  if (!existsSync(buildIdFile)) {
-    return undefined;
-  }
-  return readFileSync(buildIdFile, "utf8").split("\n")[0]?.trim() || undefined;
-}
-
 async function main() {
   const { os, arch, skipPrepare, skipBuild, dryRun } = parseArgs(process.argv.slice(2));
   const buildArgs = [
@@ -795,13 +774,9 @@ async function main() {
   }
 
   // prepare 完成后 staging 必然就位（新机器首次跑会现拉 helper）。buildEnv 是对象引用，
-  // build 子进程在 spawn 时才快照 env，这里 mutate 即可生效；显式 env（CI）优先不覆盖。
-  const stagedCuaHelperBuildId = readStagedCuaHelperBuildId(os, arch);
-  if (stagedCuaHelperBuildId && !buildEnv.ZCODE_CUA_HELPER_BUILD_ID?.trim()) {
-    console.log(`[bundle] pin staged cua helper buildId ${stagedCuaHelperBuildId}`);
-    buildEnv.ZCODE_CUA_HELPER_BUILD_ID = stagedCuaHelperBuildId;
-  }
-
+  // build 子进程在 spawn 时才快照 env，这里 mutate 即可生效。helper buildId 不再注入构建
+  // （define 已退役，见 docs/spec/cua-runtime-builtin.md §C）：运行时由主进程实读随包
+  // helper Info.plist 后经 env 钉住配对，构建机无需知道 buildId。
   if (!skipBuild) {
     run(pnpmCommand, ["build"], buildEnv);
   }

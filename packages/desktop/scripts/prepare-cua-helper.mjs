@@ -5,8 +5,9 @@
 //   bundled-cua-helper/<key>/，由 electron-builder extraResources 放进
 //   Contents/Resources/cua-helper。生产态 vendor runtime 只认 bundled 来源且要求
 //   内嵌 build id 与 helper 的 Info.plist ZCodeCUAHelperBuildId 一致（信任门：
-//   非 adhoc + TeamIdentifier 8A5X4JJ39T），所以这里把 buildId 落盘 build-id.txt，
-//   CI 据此导出 ZCODE_CUA_HELPER_BUILD_ID 注入构建 define。
+//   非 adhoc + TeamIdentifier 8A5X4JJ39T；buildId 由主进程运行时实读 Info.plist
+//   注入 env 配对，build-time define 已退役，见 §C），这里把 buildId 落盘
+//   build-id.txt 供人工核对与诊断。
 // win32：helper runtime 直接引用入库的 runtimes/cua-helper（含 runtime-manifest.json
 //   + sha256，运行时由 windowsCuaDevRuntime fail-closed 校验），这里只做完整性自检。
 //

@@ -113,17 +113,14 @@ function createSharedDefines() {
     __ZCODE_ENV__: JSON.stringify(zcodeEnv),
     __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
     __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
-    // CUA 本地开发运行时开关：vendor runtime 的信任门（unsigned Helper 逃生口、buildId
-    // env 覆盖）只在 true + ZCODE_RUNTIME_ENV!=production 时放开。必须构建期折叠——
+    // CUA 本地开发运行时开关：vendor runtime 的信任门（unsigned Helper 逃生口）只在
+    // true + ZCODE_RUNTIME_ENV!=production 时放开。必须构建期折叠——
     // vendor 兜底读运行时 process.env.NODE_ENV，而桌面 host 的 NODE_ENV 被有意清空，
     // 不定义的话 dev:desktop 会被误判成生产运行时、helper 装不上。
     __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__: JSON.stringify(process.env.NODE_ENV !== "production"),
-    // Computer Use Helper build identity — helperInstaller 读它决定下载哪个 Helper bundle。
-    // 缺失时 installer 抛 "Packaged ZCode is missing its embedded Computer Use Helper build identity"。
-    // CI 构建时通过 ZCODE_CUA_HELPER_BUILD_ID env 注入；dev 为空串走兜底（dev helper 不走下载）。
-    __ZCODE_CUA_HELPER_BUILD_ID__: JSON.stringify(
-      process.env.ZCODE_CUA_HELPER_BUILD_ID?.trim() ?? "",
-    ),
+    // Helper buildId 不在此折叠（2026-09-30 退役，docs/spec/cua-runtime-builtin.md §C）：
+    // vendor 产物在自身构建期已把 buildId 折叠成上游字面量，这里 define 无处替换；
+    // 配对由 desktopRuntimeEnv 主进程运行时实测 Info.plist 后经 env 注入。
     // 客户端只有一个 CDN 配置，与发布端 OSS 目标列表分离。
     __ZCODE_CDN_BASE_URL__: JSON.stringify(env.ZCODE_CDN_BASE_URL?.trim() || ""),
     // 桌面更新源仓库坐标（GitHub provider），与 electron-builder publish 配置同源注入。
