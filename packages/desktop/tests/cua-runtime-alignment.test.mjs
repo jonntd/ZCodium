@@ -74,3 +74,50 @@ test("vendor runtime 自包含（无 bare import，内联进 bundle 不需要额
     }
   }
 });
+
+test("stub 与 runtime 的契约值谓词行为逐字一致（renderer 走 stub、host 走 vendor）", async () => {
+  // 2026-09-30 实证：stub 的 isCuaPermissionStatusAvailable 用 `available === true`，
+  // vendor 用 `available !== false`，而 host 返回的成功结果不带 available 字段——renderer
+  // （vite 无 alias，解析到 stub）把每个成功状态判成 unavailable，设置页权限永远显示
+  // 「未知」。谓词是跨 renderer/host 的共享契约，两侧必须行为一致，这里按行为对照防守。
+  const stub = await import(resolve(repoRoot, "packages/zcode-cua/broker-ports.js").replace(
+    /^file:/,
+    "file://",
+  ));
+  const vendor = await import(
+    resolve(repoRoot, "runtimes/zcode-cua/broker-ports.js").replace(/^file:/, "file://")
+  );
+
+  const successWithoutField = { grantOwner: "t", accessibility: "granted", screenRecording: "granted" };
+  const cases = [
+    [undefined, false],
+    [null, false],
+    [successWithoutField, true],
+    [{ ...successWithoutField, available: true }, true],
+    [{ ...successWithoutField, available: false }, false],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(
+      stub.isCuaPermissionStatusAvailable(input),
+      expected,
+      `stub predicate drifted on case ${JSON.stringify(input)}`,
+    );
+    assert.equal(
+      vendor.isCuaPermissionStatusAvailable(input),
+      expected,
+      `vendor predicate drifted on case ${JSON.stringify(input)}`,
+    );
+  }
+
+  // 隐私契约同源：探针是否运行由 includeFunctionalProbes 显式意图 + denied 预检决定。
+  const probeCases = [
+    ["granted", undefined, false],
+    ["granted", {}, false],
+    ["granted", { includeFunctionalProbes: true }, true],
+    ["denied", { includeFunctionalProbes: true }, false],
+  ];
+  for (const [state, options, expected] of probeCases) {
+    assert.equal(stub.shouldRunCuaScreenCaptureProbe(state, options), expected);
+    assert.equal(vendor.shouldRunCuaScreenCaptureProbe(state, options), expected);
+  }
+});

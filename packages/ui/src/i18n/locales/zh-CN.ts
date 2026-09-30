@@ -6185,7 +6185,7 @@ const zhCN: Record<string, string> = {
   "cuaPermission.status.missing": "未授权",
   "cuaPermission.status.unknown": "未知",
   "cuaPermission.status.stale": "授权状态需要重新确认",
-  "cuaPermission.status.verifying": "已授权，正在验证",
+  "cuaPermission.status.verifying": "正在验证…",
   "cuaPermission.probeVerifyingHint": "系统授权已存在，正在验证实际控制与截图能力。",
   "cuaPermission.tools.preparing":
     "系统权限与本机控制能力已就绪，正在等待当前会话加载电脑控制工具。",

@@ -28,6 +28,10 @@ import {
 import { resolvePlatformKeyForPackagedApp } from "../../scripts/target-platform.mjs";
 import { ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL_ENV } from "./desktopCuaHelperTrustEnv.js";
 import {
+  applyForkCuaBrokerSocketEnv,
+  ensureForkCuaBrokerSocketDir,
+} from "./desktopCuaBrokerSocket.js";
+import {
   getAppConfigDir,
   getDataBaseDir,
   ZCODE_CUA_BUNDLED_HELPER_APP_PATH_ENV,
@@ -580,9 +584,17 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
   const cuaHelperBuildId = bundledCuaHelperAppPath
     ? readCuaHelperBuildId(bundledCuaHelperAppPath)
     : undefined;
+  // ZCodium 私有 broker socket（docs/spec/cua-runtime-builtin.md §D 跨安装共存）：
+  // stable socket 按 user 单例，官方 ZCode.app 的托管 helper 常驻其上，fork 的
+  // 探测/拉起全落空（EEXIST + 每次查询 ~20s 白等）。这里下发独立 runtime 目录
+  // （helper 经 --socket argv、agent/node-repl 继承 host env 或 transport tuple，
+  // 全链路同源），并预创建父目录——vendor bind 不做 mkdir，私有目录没有安装器代劳。
+  // 必须在 delete ZCODE_DYNAMIC_WORKFLOW_MODE_ENV 之后做浅拷贝，避免把已删键漏回 host env。
+  ensureForkCuaBrokerSocketDir();
+  const inheritedEnvWithCuaSocket = applyForkCuaBrokerSocketEnv(inheritedEnv);
 
   return {
-    ...inheritedEnv,
+    ...inheritedEnvWithCuaSocket,
     // ZCode 运行时不再使用 NODE_ENV；它会被用户 shell、包管理器和测试框架复用。
     // 这里显式下发 ZCODE_RUNTIME_ENV，并在继承环境里清掉 NODE_ENV，避免 host/agent/Bash 被污染。
     [ZCODE_RUNTIME_ENV_KEY]: resolveHostProcessNodeEnv(),

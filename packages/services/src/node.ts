@@ -1741,12 +1741,18 @@ export function createLocalServices(options: {
       return await new Promise<string | null>((resolve) => {
         const socket = createConnection(socketPath);
         const finish = (value: string | null): void => {
+          clearTimeout(timer);
           socket.destroy();
           resolve(value);
         };
+        // 300ms 预算覆盖整个探测生命周期（connect + ping 往返），connect 成功后**不能**
+        // 清掉计时器：stable socket 可能被另一份安装（官方 ZCode.app 与本 fork 共享
+        // /tmp/<uid>/broker.sock）的 helper 持有，它对未通过 peer 校验的裸 ping 可能
+        // 既不回包也不断连（token 模式静默丢弃）——2026-09-30 实测这种沉默会把未设
+        // 回复超时的探测永久挂起，进而把 host 的 getStatus RPC 卡死、设置页权限状态
+        // 永久停在「验证中」。error 事件（ECONNREFUSED 等）同样收敛到 finish(null)。
         const timer = setTimeout(() => finish(null), 300);
         socket.on("connect", () => {
-          clearTimeout(timer);
           socket.write(`{"id":0,"method":"ping","params":{}}\n`);
           let buffer = "";
           socket.on("data", (chunk: Buffer) => {
@@ -1763,7 +1769,6 @@ export function createLocalServices(options: {
           });
         });
         socket.on("error", () => {
-          clearTimeout(timer);
           finish(null);
         });
       });

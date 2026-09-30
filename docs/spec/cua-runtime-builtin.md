@@ -146,6 +146,78 @@ darwin + 未打包（app.isPackaged === false）：
   NODE_ENV=production 兜住。host 链另有 ZCODE_RUNTIME_ENV=production 运行时兜底，但 define
   必须与打包语义一致，不留「编译期本地开发信任」进正式包。
 
+### D. 设置页权限状态查询可靠性（2026-09-30 实测补，四层修复）
+
+故障模型（真机日志 + 本地复现实证）：
+
+1. **探测挂起（本次冻结的直接根因，host 侧）**：stable socket（`/tmp/<uid>/broker.sock`）
+   按 user 全局唯一——官方 ZCode.app 与本 fork 共享。fork 的 getStatus →
+   `probeStableCuaHelperSocket` → connect 上**官方 helper** 的 socket；官方 helper 是
+   token 模式，对未过 peer 校验的裸 ping 既不回包也不断连（helper 日志
+   "peer verification failed" 与 fork 侧"EEXIST/already in use"同一战场）。而 probe 在
+   connect 成功后 `clearTimeout`，对沉默对端**无限等待**→ host 的 getStatus RPC 永不
+   完成（rpc 日志只在完成时打）→ 全场零条 getStatus 日志。
+2. **store 永久锁（renderer 侧放大器）**：inFlight 去重把后续所有 fetch（开关 refresh /
+   focus / 重新挂载）合并进 rerunRequested 且永不发出，UI 永久卡在 settled=false 的
+   「已授权，正在验证 + 未知」，唯一交互入口还 `disabled={!settled}`。
+3. **传输静默丢请求（renderer 侧潜在点）**：ChannelClient.sendRequest 的 send 异常被
+   `catch { /* noop */ }` 吞掉，请求 promise 永久 pending——与 dispose() 的 fail-closed
+   原则相悖。
+4. **stub/vendor 谓词漂移（结果侧）**：成功结果**不带** available 字段；vendor 谓词是
+   `available !== false`，stub 是 `available === true`。renderer（vite 无 alias，解析
+   stub）把每个成功状态判成 unavailable——即使查询正常返回，设置页也只能显示「未知」。
+
+修复分层，责任分明：
+
+```
+node.ts probeStableCuaHelperSocket      cuaPermissionStatusStore（ui）      ChannelClient（rpc）
+  300ms 覆盖整个探测生命周期               fetch 发起查询 ── 武装看门狗 30s     sendRequest 返回是否送出
+  （connect 后不清计时器，对沉默            ├─ 查询 settle → 解除看门狗         └─ send 抛错 → 立即 reject
+    对端有界收敛 null）                    └─ 超时触发 → 丢弃迟到 settle           （fail-closed）
+                                              ├─ rerunRequested? → 立即补查
+                                              ├─ 否则按既有有界退避重试（1s/2s/4s）
+                                              └─ 额度用尽 → lastKnown + fresh=false
+  packages/zcode-cua（stub 契约副本）
+    broker-ports.js 两个值谓词与 vendor 逐字一致（alignment 测试按行为对照防守）
+```
+
+- 看门狗阈值 30s：host 最坏路径的 2 倍余量，正常慢查询不误杀；触发即落 warn 日志。
+- 看门狗与退避重试共用「查询失败是环境瞬态而非授权终态」的既有语义；迟到 settle 整体
+  丢弃，不把旧世界结果发布进新一代查询（与 rerunRequested 防的同一类竞态）。
+- 跨安装 socket 共享语义：probe 对官方 helper 的 socket 只会返回 null（沉默超时 /
+  拒绝），fork 随后走 launchStandaloneCuaHelperForStatus；socket 被占时 helper 端
+  EEXIST 失败、getStatus 如实报 unavailable——这是诚实终态，不再挂起。
+
+### E. 跨安装共存（ZCodium 私有 broker socket，2026-09-30 补）
+
+stable socket 按 user 单例（darwin `/tmp/zcode-cua-<uid>/broker.sock`），官方 ZCode.app
+的托管 PiP helper 常驻其上——官方运行期间 fork 的 CUA 完全不可用（探测失败 → launch
+EEXIST → 50 轮探测白等 ≈20s → unavailable），且 §D 第 1 条的沉默对端正是它。vendor 的
+`resolveBrokerSocketPath` 首选 `ZCODE_CUA_PERMISSION_BROKER_SOCKET`，fork 借此获得
+**私有 socket**，与官方 app 彻底解耦：
+
+```
+main（buildHostProcessEnv，desktopCuaBrokerSocket.ts）
+  ensureForkCuaBrokerSocketDir()            预创建父目录（vendor bind 不做 mkdir）
+  applyForkCuaBrokerSocketEnv(env)          用户显式注入优先，否则下发私有路径
+        ▼ host env（agent / node-repl 继承；agent 也可经 transport tuple 显式拿到）
+  ZCODE_CUA_PERMISSION_BROKER_SOCKET =
+    darwin  /tmp/zcode-cua-zcodium-<uid>/broker.sock
+    win32   \\.\pipe\zcode-cua-helper-zcodium
+    linux   ~/.zcode/cua-broker-zcodium/broker.sock
+        ▼
+  fork getStatus / launchStandaloneCuaHelperForStatus / managed helper / MCP broker client
+  全部经 vendor resolveBrokerSocketPath 读到同一路径；helper 由 --socket argv 显式绑定
+```
+
+- 无条件下发（dev/打包同构）：fork 不复用官方 helper（peer 校验本来就互拒），
+  私有路径在官方 app 是否运行时行为一致，没有状态翻转。
+- TCC 授权归属 helper bundle（`ZCode Computer Use`），与 socket 路径无关——已有授权
+  跨 socket 持续有效。
+- Preview/生产两个 fork 实例同时运行仍共享私有 socket（上游单实例语义），超出本节范围。
+- 测试：`packages/desktop/tests/desktop-cua-broker-socket.test.mjs`（平台隔离、用户
+  注入优先、父目录预创建）。
+
 ## 退役清单（野路子 → 内置）
 
 | 旧机制 | 处置 | 替代 |
@@ -187,6 +259,13 @@ darwin + 未打包（app.isPackaged === false）：
    打包版 → 设置页「电脑控制」→ 授权 onboarding/drag → helper 经 local_dev_unsigned 安装验证
    通过（desktopCuaHelperInstaller 置 `1` 链路）；信任门单测 `cua-helper-trust-env.test.mjs`
    通过（含 vendor patch 被 vendored 升级冲掉的回归守卫）。
+8. **状态查询看门狗**（ui 单测）：getStatus 永不返回时看门狗在阈值后释放查询槽并按退避
+   重试（服务调用次数递增）；随后服务恢复正常结果时，下一次 refresh 能把状态收敛到
+   settled=true 的真实值——单次查询丢失不再造成永久冻结。stub/vendor 谓词行为对照
+   （alignment 测试）通过，防止契约副本再漂移。
+9. **跨安装 socket 占用**（dev 真机）：官方 ZCode.app 持有 stable socket 时，fork 的
+   getStatus 在 300ms 探测预算内有界返回 unavailable（不再挂起）；socket 空闲时 fork
+   拉起自己的 dev helper 并返回真实 TCC 状态。
 
 ## 回滚边界
 

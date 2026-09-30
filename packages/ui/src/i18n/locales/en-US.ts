@@ -6482,7 +6482,7 @@ const enUS: Record<string, string> = {
   "cuaPermission.status.missing": "Missing",
   "cuaPermission.status.unknown": "Unknown",
   "cuaPermission.status.stale": "Authorization needs verification",
-  "cuaPermission.status.verifying": "Granted, verifying",
+  "cuaPermission.status.verifying": "Verifying…",
   "cuaPermission.probeVerifyingHint":
     "System permission is present. Verifying real control and screen capture now.",
   "cuaPermission.tools.preparing":

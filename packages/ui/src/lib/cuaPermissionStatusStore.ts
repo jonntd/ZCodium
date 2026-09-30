@@ -18,6 +18,7 @@ import type {
   ICuaPermissionService,
 } from "@zcode/services";
 
+import { logger } from "../logger.js";
 import {
   persistCuaPermissionStatus,
   readCachedCuaPermissionStatus,
@@ -71,6 +72,11 @@ interface Slot {
   /** 已用掉的重试次数，索引 TRANSIENT_RETRY_DELAYS_MS。 */
   retryAttempt: number;
   /**
+   * 在飞查询的看门狗计时器。每次 fetchCuaPermissionStatus 发起查询时武装、
+   * 查询 settle 时解除；触发即强制释放 inFlight（见 fetchCuaPermissionStatus 内注释）。
+   */
+  watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+  /**
    * 已就绪快照：一旦观察到 fully-ready（TCC 双项 granted + 两个功能探针都 ok），
    * 后续只读刷新里只要 TCC 双项仍 granted，就沿用已确认 ok 的探针结果。
    * 只读查询本来就不会跑截图探针（上游 shouldRunCuaScreenCaptureProbe 要求显式
@@ -113,6 +119,7 @@ function ensureSlot(key: string): Slot {
     pendingFunctionalProbe: false,
     retryTimer: undefined,
     retryAttempt: 0,
+    watchdogTimer: undefined,
     stickyReady: null,
   };
   slots.set(key, created);
@@ -211,6 +218,23 @@ function withStickyProbes(
 const TRANSIENT_RETRY_DELAYS_MS = [1000, 2000, 4000];
 
 /**
+ * 单次 getStatus 查询的在飞看门狗。
+ *
+ * 为什么必须存在：host 侧 getStatus 所有分支都有界（standalone 拉起 ≈ open 5s + ping 5s +
+ * broker 3s；托管路径 ≈ 三个 5s 探针），但 renderer→host 的 RPC 传输存在无法归因的静默
+ * 丢失路径（ChannelClient.sendRequest 的 send 异常被吞、请求 promise 永不 settle）。一旦
+ * 发生，slot.inFlight 永久为 true，后续所有 fetch（开关 refresh / focus / 重新挂载）都被
+ * 去重合并进 rerunRequested 而永远不会真正发出，且迟到的 settle 不存在——UI 就永久卡在
+ * settled=false 的「已授权，正在验证 + 未知」，连唯一可点的授权入口都 disabled。2026-09-30
+ * 实测：dev 实例设置页从挂载起零条 getStatus 到达 host，状态整场冻结。
+ *
+ * 看门狗把「一次查询未返回」降级为普通瞬态失败：强制释放 inFlight，走既有的有界退避
+ * 重试/如实放弃路径，slot 永远可以在下一次真实事件自愈。阈值取 30s，对 host 最坏路径
+ * （≈13-15s）留两倍余量，正常慢查询不会误杀。
+ */
+const DEFAULT_QUERY_WATCHDOG_MS = 30_000;
+
+/**
  * 安排一次退避重试；额度用尽返回 false，由调用方如实发布结果。
  * 重试不带 options：主动截图探针是显式用户意图，不该被自动重试放大。
  */
@@ -225,8 +249,14 @@ function scheduleTransientRetry(slot: Slot, params: FetchCuaPermissionStatusPara
   clearTransientRetry(slot);
   slot.retryTimer = setTimeout(() => {
     slot.retryTimer = undefined;
-    const { service, workspacePath, workspaceIdentity } = params;
-    fetchCuaPermissionStatus({ service, workspacePath, workspaceIdentity, mode: "retry" });
+    const { service, workspacePath, workspaceIdentity, watchdogMs } = params;
+    fetchCuaPermissionStatus({
+      service,
+      workspacePath,
+      workspaceIdentity,
+      mode: "retry",
+      ...(watchdogMs !== undefined ? { watchdogMs } : {}),
+    });
   }, delay);
   return true;
 }
@@ -236,6 +266,11 @@ interface FetchCuaPermissionStatusParams {
   workspacePath: string;
   workspaceIdentity?: string;
   options?: CuaPermissionStatusQueryOptions;
+  /**
+   * 单次查询的在飞看门狗阈值；默认 DEFAULT_QUERY_WATCHDOG_MS。
+   * 仅测试会注入小值以缩短等待，生产路径一律走默认。
+   */
+  watchdogMs?: number;
   /**
    * "refresh"（默认）= 外部状态可能刚变（焦点返回、Helper 重启、插件开关），进行中的查询
    * 可能读的是旧世界，必须补一次；
@@ -252,7 +287,14 @@ interface FetchCuaPermissionStatusParams {
  * 避免原生授权 prompt / 系统设置来回切换连续产生 focus 时把 AX + 截图探针叠成一串。
  */
 export function fetchCuaPermissionStatus(params: FetchCuaPermissionStatusParams): void {
-  const { service, workspacePath, workspaceIdentity, options, mode = "refresh" } = params;
+  const {
+    service,
+    workspacePath,
+    workspaceIdentity,
+    options,
+    mode = "refresh",
+    watchdogMs = DEFAULT_QUERY_WATCHDOG_MS,
+  } = params;
   const key = cuaPermissionStatusKey(workspacePath, workspaceIdentity);
   const slot = ensureSlot(key);
   slot.pendingFunctionalProbe ||= options?.includeFunctionalProbes === true;
@@ -272,6 +314,37 @@ export function fetchCuaPermissionStatus(params: FetchCuaPermissionStatusParams)
   // 查询期间旧结果不可用于决策：用户可能刚在系统设置里改过授权，或 Helper 正在换代。
   publish(slot, { status: slot.snapshot.status, fresh: false, settled: slot.snapshot.settled });
 
+  // 看门狗：查询若在阈值内未 settle，视为本次查询已丢失，强制释放查询槽。
+  // 迟到的 settle 通过 abandoned 丢弃——slot 此时已属于新一次查询/重试，把旧世界的结果
+  // 发布进新一代会复现 rerunRequested 注释里防的同一类竞态。
+  let abandoned = false;
+  const watchdog = setTimeout(() => {
+    slot.watchdogTimer = undefined;
+    abandoned = true;
+    // 丢失本身（传输静默丢消息 / send 被吞）在 host 与 renderer 日志里都不可见，
+    // 这条 warn 是唯一可观测信号：出现即说明 RPC 通道存在丢请求问题，而非授权终态。
+    logger.warn(
+      "cuaPermissionStatusStore: getStatus 超时未返回，看门狗强制释放查询槽并将按退避重试",
+      { workspacePath, watchdogMs },
+    );
+    slot.inFlight = false;
+    if (slot.rerunRequested) {
+      // 查询挂起期间有新刷新到达：立即补一次，别让用户等到退避计时器。
+      slot.rerunRequested = false;
+      fetchCuaPermissionStatus({ service, workspacePath, workspaceIdentity, watchdogMs });
+      return;
+    }
+    // 与 reject 同型：查询失败是环境瞬态而非授权终态。还有额度就保留上一状态退避重试；
+    // 额度用尽则如实停在 lastKnown + fresh=false，等下一次真实事件重新采样。
+    scheduleTransientRetry(slot, params);
+    publish(slot, {
+      status: slot.snapshot.status,
+      fresh: false,
+      settled: slot.snapshot.settled,
+    });
+  }, watchdogMs);
+  slot.watchdogTimer = watchdog;
+
   let completed: CuaPermissionStatusResult | null = null;
   void Promise.resolve()
     .then(() => service.getStatus(workspacePath, workspaceIdentity, { includeFunctionalProbes }))
@@ -282,6 +355,9 @@ export function fetchCuaPermissionStatus(params: FetchCuaPermissionStatusParams)
       // 保留 lastKnown 展示；由下方的退避重试收敛。
     })
     .finally(() => {
+      if (abandoned) return;
+      clearTimeout(watchdog);
+      slot.watchdogTimer = undefined;
       slot.inFlight = false;
       if (slot.rerunRequested) {
         // 刷新发生在查询过程中：旧结果可能来自重启前的 Helper，不发布，只补一次新查询。

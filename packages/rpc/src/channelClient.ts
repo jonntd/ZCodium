@@ -117,7 +117,15 @@ export class ChannelClient implements IChannelClient, IDisposable {
         };
 
         this.handlers.set(id, handler);
-        this.sendRequest(RequestType.Promise, id, channelName, name, arg);
+        if (!this.sendRequest(RequestType.Promise, id, channelName, name, arg)) {
+          // 传输 send 抛错（端口关闭 / 序列化失败）时必须 fail-closed：promise 静默
+          // 永久 pending 会让上层 in-flight 去重槽位被单次丢失请求永久占用（与
+          // dispose() 注释里的 fail-closed 原则一致，send 路径此前漏了）。
+          this.handlers.delete(id);
+          this.pendingRejections.delete(id);
+          reject(new Error("ChannelClient failed to send request (transport error)"));
+          return;
+        }
       };
 
       if (this.state === State.Idle) {
@@ -175,21 +183,28 @@ export class ChannelClient implements IChannelClient, IDisposable {
     return emitter.event;
   }
 
+  /**
+   * 发送一条请求。返回是否成功送出：false = protocol.send 抛错（端口已关闭等），
+   * 调用方据此对在飞 promise fail-closed，而不是让它永久 pending。
+   * EventListen 沿用旧语义（订阅失败静默），仅 Promise 请求消费返回值。
+   */
   private sendRequest(
     type: RequestType,
     id: number,
     channelName: string,
     name: string,
     arg?: any,
-  ): void {
+  ): boolean {
     const writer = new BufferWriter();
     serialize(writer, [type, id, channelName, name]);
     serialize(writer, arg);
     try {
       this.protocol.send(writer.buffer);
     } catch {
-      /* noop */
+      /* send 失败由返回值表达，不再静默吞掉 Promise 请求的存活信号 */
+      return false;
     }
+    return true;
   }
 
   private sendCancelOrDispose(
