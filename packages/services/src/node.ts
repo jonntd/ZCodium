@@ -454,6 +454,7 @@ import {
   buildOfficialServiceEnvPatch,
   createOfficialMcpTrustedOriginRegistry,
   OFFICIAL_MCP_DEV_TRUSTED_ORIGINS_ENV,
+  restoreZCodiumCuaBrokerSocketEnv,
 } from "@zcode/shared";
 import {
   BROKER_SOCKET_ENV,
@@ -1373,6 +1374,11 @@ export function createLocalServices(options: {
   // 这里在所有本地服务启动前统一修正运行时环境，并顺带把内置 rg 注入 PATH，
   // 让 ZCode Agent、终端、认证 runtime 共用同一套命令解析结果。
   initializeRuntimeProcessEnv(options?.runtimeProcessEnvPatch);
+  // §E 跨安装共存（docs/spec/cua-runtime-builtin.md）：上一步的 confused-deputy sanitize
+  // 把标准 CUA socket 键从 process.env 剥掉；main 经 fork 键（ZCODIUM_CUA_BROKER_SOCKET）
+  // 下发的私有 socket 在这里恢复成标准键——probe / standalone launch / managed 链全部
+  // 按调用时 process.env 走 vendor resolveBrokerSocketPath，恢复一次即全链路同源。
+  restoreZCodiumCuaBrokerSocketEnv();
 
   const desktopContextPromptEnabledRaw =
     process.env[ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV]?.trim();
@@ -1870,6 +1876,12 @@ export function createLocalServices(options: {
     platform: process.platform,
     serviceAuthorityMode: options?.serviceAuthorityMode ?? null,
     lifecycleWired: options?.serviceAuthorityMode === "desktop-local",
+  });
+  // §D/§E 观测点（docs/spec/cua-runtime-builtin.md）：host 进程内解析出的 broker socket。
+  // probe/launch/agent env 全部以此为唯一事实源；历史上 main 注入失败时这里读到默认路径、
+  // 全链路零日志只能靠 helper exit log 反推。每次 host 启动必打一条，直接暴露 env 覆盖是否穿透。
+  createServiceLogger("cua-pip-session").info(undefined, "[cua-permission] broker socket resolved", {
+    socketPath: resolveBrokerSocketPath(),
   });
   // Computer Use Helper macOS 权限状态服务：renderer 经 host RPC 查询当前 Helper 的运行态与权限，并在
   // 用户授权后从明确入口精确重启一次 Helper。重启**必须走 resolver.restart()**（不是裸 host.restart），

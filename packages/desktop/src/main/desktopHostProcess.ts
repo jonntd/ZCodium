@@ -46,6 +46,7 @@ import {
 } from "./desktopRuntimeEnv.js";
 import { createFeedbackLogArchiveFromExportLogs } from "./exportLogs.js";
 import { buildHostE2ECoverageEnv } from "./e2eCoverage.js";
+import { FORK_CUA_BROKER_SOCKET_ENV } from "./desktopCuaBrokerSocket.js";
 
 export interface WindowBootstrapOptions {
   restoreSession?: boolean;
@@ -244,30 +245,30 @@ export function spawnHostProcess(
     ...(RUNTIME_ZCODE_DEBUG ? [`--inspect-brk=${RUNTIME_ZCODE_DEBUG}`] : []),
     "--no-warnings",
   ];
+  const hostForkEnv = {
+    ...buildHostProcessEnv(dependencies.hostProcessLocalEnv),
+    ...buildHostE2ECoverageEnv(),
+    ZCODE_PROCESS_LABEL: label,
+    // macOS-only: the Computer Use Helper launcher runs inside this forked host utilityProcess, whose
+    // code-signing identity is a nested Electron helper (NOT dev.zcode.app). Publish THIS (main
+    // Electron) process's pid — which IS dev.zcode.app — so helperLauncher passes it as
+    // `--launcher-pid` and the Helper's signature/peer verification succeeds instead of
+    // health-timing out. Env-name mirror of services' LAUNCHER_PID_ENV. Not set on
+    // Windows/Linux (CUA is macOS-only; nothing reads it there) to keep the host env pristine.
+    ...(process.platform === "darwin" ? { ZCODE_CUA_LAUNCHER_PID: String(process.pid) } : {}),
+    ...(dependencies.desktopContextPromptEnabled
+      ? {
+          [ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV]: dependencies.desktopContextPromptEnabled()
+            ? "1"
+            : "0",
+        }
+      : {}),
+  };
   const child = electronUtilityProcess.fork(hostModulePath, [], {
     serviceName: formatZCodeHostProcessName(label),
     execArgv,
-    env: {
-      ...buildHostProcessEnv(dependencies.hostProcessLocalEnv),
-      ...buildHostE2ECoverageEnv(),
-      ZCODE_PROCESS_LABEL: label,
-      // macOS-only: the Computer Use Helper launcher runs inside this forked host utilityProcess, whose
-      // code-signing identity is a nested Electron helper (NOT dev.zcode.app). Publish THIS (main
-      // Electron) process's pid — which IS dev.zcode.app — so helperLauncher passes it as
-      // `--launcher-pid` and the Helper's signature/peer verification succeeds instead of
-      // health-timing out. Env-name mirror of services' LAUNCHER_PID_ENV. Not set on
-      // Windows/Linux (CUA is macOS-only; nothing reads it there) to keep the host env pristine.
-      ...(process.platform === "darwin" ? { ZCODE_CUA_LAUNCHER_PID: String(process.pid) } : {}),
-      ...(dependencies.desktopContextPromptEnabled
-        ? {
-            [ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV]: dependencies.desktopContextPromptEnabled()
-              ? "1"
-              : "0",
-          }
-        : {}),
-    },
+    env: hostForkEnv,
   });
-
   dependencies.logger.info(
     `[spawnHostProcess] forked host process for (${label}), pid=${child.pid}`,
   );
@@ -275,6 +276,11 @@ export function spawnHostProcess(
   dependencies.logger.info(`[spawnHostProcess] glm binary path: ${glmBinaryPath ?? "<not found>"}`);
   dependencies.logger.info(
     `[spawnHostProcess] BIGMODEL_OAUTH_APP_SECRET source: ${process.env.BIGMODEL_OAUTH_APP_SECRET ? "process" : dependencies.hostProcessLocalEnv.BIGMODEL_OAUTH_APP_SECRET ? "dotenv" : "fallback"}`,
+  );
+  // §D/§E 观测点（docs/spec/cua-runtime-builtin.md）：fork env 里下发的 broker socket。
+  // 历史上注入失败时全链路零日志，只能靠 helper exit log 反推；这行让 main 侧注入结果直接可见。
+  dependencies.logger.info(
+    `[spawnHostProcess] cua broker socket for (${label}): ${hostForkEnv[FORK_CUA_BROKER_SOCKET_ENV] ?? "<not set>"}`,
   );
 
   // 远程连接与本地服务共享 window Host，进程级 stdout 没有请求身份。

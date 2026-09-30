@@ -12,6 +12,37 @@ export const ZCODE_TOOL_ENV_PASSTHROUGH_ENV_KEY = "ZCODE_TOOL_ENV_PASSTHROUGH_JS
 export const ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV = "ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED";
 export const ZCODE_CUA_PRODUCT_HELPER_ENV_KEY = "ZCODE_CUA_PRODUCT_HELPER";
 export const ZCODE_CUA_BROKER_SOCKET_ENV_KEY = "ZCODE_CUA_PERMISSION_BROKER_SOCKET";
+
+// ZCodium fork 私有 broker socket 的下发键（docs/spec/cua-runtime-builtin.md §E 跨安装共存）。
+// 为什么不是直接用上面的标准键：host/agent 启动时 initializeRuntimeProcessEnv →
+// sanitizeZCodeRuntimeEnvInPlace(process.env) 会把标准键当作 broker 凭据剥掉（confused-deputy
+// 防护），main 注入的值到不了任何 CUA 消费者。fork 键不在剥离清单里，能活着穿过 host 启动；
+// services 侧在 sanitize 之后立即把它恢复成标准键（restoreForkCuaBrokerSocketEnv），vendor
+// 的 resolveBrokerSocketPath 读到的仍是标准键，全链路同源。
+export const ZCODIUM_CUA_BROKER_SOCKET_ENV_KEY = "ZCODIUM_CUA_BROKER_SOCKET";
+
+/**
+ * ZCodium fork（§E 跨安装共存）：host 侧恢复私有 broker socket。
+ *
+ * 必须在 initializeRuntimeProcessEnv **之后**调用——那次 sanitize 会把标准键
+ * ZCODE_CUA_PERMISSION_BROKER_SOCKET 当作 broker 凭据从 process.env 剥掉（confused-deputy
+ * 防护），main 经 fork 键下发的私有 socket 在这里恢复成标准键并删掉 fork 键。标准键已有值
+ * 时尊重现状；fork 键缺失（CLI 直跑等未注入场景）no-op。直接改写传入的 env（默认
+ * process.env）：vendor 的 resolveBrokerSocketPath / managed 链 / standalone launch 全部
+ * 按调用时 process.env 解析，恢复一次即全链路同源；fork 键随之删除，不泄入 Bash/tool 子进程。
+ */
+export function restoreZCodiumCuaBrokerSocketEnv(env: Record<string, string | undefined> = process.env): void {
+  const forkSocket = env[ZCODIUM_CUA_BROKER_SOCKET_ENV_KEY]?.trim();
+  if (!forkSocket) {
+    // 空白残留同样清掉：fork 键不该以任何形态泄入 Bash/tool 子进程。
+    delete env[ZCODIUM_CUA_BROKER_SOCKET_ENV_KEY];
+    return;
+  }
+  if (!env[ZCODE_CUA_BROKER_SOCKET_ENV_KEY]?.trim()) {
+    env[ZCODE_CUA_BROKER_SOCKET_ENV_KEY] = forkSocket;
+  }
+  delete env[ZCODIUM_CUA_BROKER_SOCKET_ENV_KEY];
+}
 /** Shared node_repl host marker; unlike the broker bearer values it is not a secret. */
 export const ZCODE_CUA_NODE_REPL_HOST_ENV_KEY = "ZCODE_CUA_NODE_REPL_HOST";
 // One-knob local-development bundle. Setting ZCODE_CUA_DEV_MODE implies the internal feature
