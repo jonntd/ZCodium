@@ -2,6 +2,7 @@ import { Bot, Webhook } from "lucide-react";
 import type { BotConfig, BotServiceStatus } from "@zcode/shared";
 import { ALL_BOT_WORKSPACES, BOT_BIND_CODE_TTL_MS } from "@zcode/shared";
 import {
+  AstrBotChannelIcon,
   DingDingChannelIcon,
   DiscordChannelIcon,
   FeishuChannelIcon,
@@ -64,19 +65,21 @@ export function ProviderIcon({
   className?: string;
 }) {
   const iconSrc =
-    provider === "telegram"
-      ? TelegramChannelIcon
-      : provider === "weixin"
-        ? WeixinChannelIcon
-        : provider === "feishu" || provider === "lark"
-          ? FeishuChannelIcon
-          : provider === "dingding"
-            ? DingDingChannelIcon
-            : provider === "discord"
-              ? DiscordChannelIcon
-              : provider === "wecom"
-                ? WeComChannelIcon
-                : null;
+    provider === "astrbot"
+      ? AstrBotChannelIcon
+      : provider === "telegram"
+        ? TelegramChannelIcon
+        : provider === "weixin"
+          ? WeixinChannelIcon
+          : provider === "feishu" || provider === "lark"
+            ? FeishuChannelIcon
+            : provider === "dingding"
+              ? DingDingChannelIcon
+              : provider === "discord"
+                ? DiscordChannelIcon
+                : provider === "wecom"
+                  ? WeComChannelIcon
+                  : null;
 
   if (iconSrc) {
     return (

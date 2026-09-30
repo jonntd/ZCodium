@@ -11,6 +11,26 @@
 
 > This repository is forked from [zai-org/ZCode](https://github.com/zai-org/ZCode), open-sourced by Zhipu on September 21, 2026. The name follows the same pattern as Chrome → Chromium and VS Code → VSCodium: **ZCode → ZCodium**. Everything here is backed by code and reproducible checks.
 
+<div align="center">
+  <img src="https://zcodium-project.github.io/shots/hero-app.png" alt="ZCodium desktop app: a finished agent run with its change summary and follow-up input" width="860" />
+</div>
+
+## Features
+
+ZCodium keeps the product itself — an AI coding workspace for desktop, browser and terminal — and rebuilds it from the public source with monitoring and telemetry removed and vendor services off by default.
+
+- **One Agent, three interfaces**: the Electron desktop app, the browser workspace and the `zcode` terminal TUI share the same Agent runtime and sessions; you can also connect to a remote host over SSH, or drive the same desktop agent from your phone's browser.
+- **Plans, edits, runs, verifies**: file changes arrive as diffs, terminal commands carry their context, the agent checks its own work by running commands and tests, and a built-in browser plugin drives a real browser for web tasks.
+- **Asks before it touches your project**: every edit, command and tool call can require approval — allow once, always in this project, or full access.
+- **Multi-agent collaboration and orchestration**: sub-agents, dynamic workflows, skills and scheduled automations.
+- **Plugins, skills and MCP**: built-in skills plus a plugin system; official MCP and the plugin marketplace stay off by default, each with its own switch.
+- **Bring your own model**: built-in presets for DeepSeek, OpenAI, Anthropic, Moonshot Kimi, MiniMax, Z.AI (GLM), Alibaba, xAI, Xiaomi MiMo and OpenRouter, plus fully custom endpoints (Chat Completions, Responses, Anthropic Messages).
+
+<div align="center">
+  <img src="https://zcodium-project.github.io/shots/review-flow.png" alt="ZCodium asking for permission before editing a file: allow once, always in this project, full access, or deny" width="860" />
+  <p><em>Approval-first: the agent stops and asks before it edits a file, runs a command or calls a tool.</em></p>
+</div>
+
 ## How it compares with upstream
 
 | Item                     | ZCodium (this repo)                                                                  | Official client (closed source)                                           | Official open source             |

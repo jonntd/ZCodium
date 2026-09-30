@@ -45,6 +45,7 @@ import {
   BotReplyGranularityCard,
   BotSummaryCard,
 } from "@/BotsDialog/BotSummaryCard.js";
+import { AstrBotSettingsCard, ASTRBOT_PLUGIN_URL } from "@/BotsDialog/AstrBotSettingsCard.js";
 import { ProviderSettingsCard } from "@/BotsDialog/ProviderSettingsCard.js";
 import { WorkspaceAccessCard } from "@/BotsDialog/WorkspaceAccessCard.js";
 import { SettingsGroupCard } from "@/settings/SettingsPageParts.js";
@@ -1202,30 +1203,45 @@ export function BotsDialog({
                   onPatchBot={patchSelectedBot}
                 />
 
-                <ProviderSettingsCard
-                  bot={selectedBot}
-                  runtime={selectedRuntime}
-                  credentialValue={credentialValue}
-                  bindCode={bindCode}
-                  bindExpired={bindExpired}
-                  bindRemainingMs={bindRemainingMs}
-                  bindCountdownProgress={bindCountdownProgress}
-                  feishuRegistration={feishuRegistration}
-                  feishuRegistrationLoading={feishuRegistrationLoading}
-                  weixinRegistration={weixinRegistration}
-                  weixinRegistrationLoading={weixinRegistrationLoading}
-                  weixinActivated={Boolean(selectedBotState?.weixinActivatedAt)}
-                  secretSaving={secretSaving}
-                  onCredentialValueChange={setCredentialValue}
-                  onSaveSecret={() => void handleSaveSecret()}
-                  onRemoveSecret={() => void handleRemoveSecret()}
-                  onOpenTelegramBotFather={handleOpenTelegramBotFather}
-                  onStartWeixinRegistration={() => void handleStartWeixinRegistration()}
-                  onStartFeishuRegistration={() => void handleStartFeishuRegistration()}
-                  onCreateBindCode={() => void handleCreateBindCode()}
-                  onUnbind={() => void handleUnbind()}
-                  onCopyBindCommand={() => void copyBindCommand()}
-                />
+                {selectedBot.provider === "astrbot" ? (
+                  <AstrBotSettingsCard
+                    bot={selectedBot}
+                    runtime={selectedRuntime}
+                    bindCode={bindCode}
+                    bindExpired={bindExpired}
+                    bindRemainingMs={bindRemainingMs}
+                    bindCountdownProgress={bindCountdownProgress}
+                    onCreateBindCode={() => void handleCreateBindCode()}
+                    onUnbind={() => void handleUnbind()}
+                    onCopyBindCommand={() => void copyBindCommand()}
+                    onOpenPlugin={() => platform.openExternal(ASTRBOT_PLUGIN_URL)}
+                  />
+                ) : (
+                  <ProviderSettingsCard
+                    bot={selectedBot}
+                    runtime={selectedRuntime}
+                    credentialValue={credentialValue}
+                    bindCode={bindCode}
+                    bindExpired={bindExpired}
+                    bindRemainingMs={bindRemainingMs}
+                    bindCountdownProgress={bindCountdownProgress}
+                    feishuRegistration={feishuRegistration}
+                    feishuRegistrationLoading={feishuRegistrationLoading}
+                    weixinRegistration={weixinRegistration}
+                    weixinRegistrationLoading={weixinRegistrationLoading}
+                    weixinActivated={Boolean(selectedBotState?.weixinActivatedAt)}
+                    secretSaving={secretSaving}
+                    onCredentialValueChange={setCredentialValue}
+                    onSaveSecret={() => void handleSaveSecret()}
+                    onRemoveSecret={() => void handleRemoveSecret()}
+                    onOpenTelegramBotFather={handleOpenTelegramBotFather}
+                    onStartWeixinRegistration={() => void handleStartWeixinRegistration()}
+                    onStartFeishuRegistration={() => void handleStartFeishuRegistration()}
+                    onCreateBindCode={() => void handleCreateBindCode()}
+                    onUnbind={() => void handleUnbind()}
+                    onCopyBindCommand={() => void copyBindCommand()}
+                  />
+                )}
 
                 <SettingsGroupCard>
                   <BotReplyGranularityCard bot={selectedBot} onPatchBot={patchSelectedBot} />

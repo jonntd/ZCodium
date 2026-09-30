@@ -11,6 +11,26 @@
 
 > 本仓库 fork 自智谱 2026 年 9 月 21 日开源的 [zai-org/ZCode](https://github.com/zai-org/ZCode)。名字沿用 Chrome → Chromium、VS Code → VSCodium 的变形逻辑：**ZCode → ZCodium**。所有结论以代码和可复现的验证为准。
 
+<div align="center">
+  <img src="https://zcodium-project.github.io/shots/hero-app.png" alt="ZCodium 桌面端：任务完成后的改动摘要与后续输入" width="860" />
+</div>
+
+## 功能介绍
+
+ZCodium 保留了产品本身——桌面端、浏览器端和终端三端的 AI 编程工作区——并从公开源码重新构建：监控与遥测全部移除，官方服务默认关闭。
+
+- **一个 Agent，三种界面**：Electron 桌面端、浏览器工作区和 `zcode` 终端 TUI 共用同一个 Agent 运行时与会话；还可以通过 SSH 连接远程主机，或者用手机浏览器远控桌面端同一个 Agent。
+- **会规划、会改、会跑、会验证**：文件改动用 diff 呈现，终端命令带上下文，改完自己跑命令和测试复核；内置浏览器插件可驱动真实浏览器完成网页任务。
+- **动手之前先征求许可**：每一次编辑、命令和工具调用都可以要求审批——仅本次允许、本项目内一直允许，或完全放行。
+- **多智能体协作与任务编排**：子代理、动态工作流、技能与定时自动化。
+- **插件、技能与 MCP**：内置技能与插件体系；官方 MCP 与插件市场默认关闭，各自独立开关。
+- **模型自由选**：内置 DeepSeek、OpenAI、Anthropic、Moonshot Kimi、MiniMax、智谱 Z.AI（GLM）、阿里云、xAI、小米 MiMo、OpenRouter 等预设，也支持完全自定义的端点（Chat Completions / Responses / Anthropic Messages）。
+
+<div align="center">
+  <img src="https://zcodium-project.github.io/shots/review-flow.png" alt="ZCodium 在修改文件前弹出权限确认：仅本次允许 / 本项目内一直允许 / 完全放行 / 拒绝" width="860" />
+  <p><em>审批优先：改文件、跑命令、调工具之前，Agent 会先停下来征求许可。</em></p>
+</div>
+
 ## 和官方版本的对比
 
 | 对比项       | ZCodium（本仓库）                                          | 官方客户端（闭源）               | 官方开源版                 |
