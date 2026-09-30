@@ -57,8 +57,16 @@
   "ec8ac2c": "fa-IR 本地化与 RTL 的合并后审计修复：补齐 26 个缺失 UI 键与 CLI 帮助翻译（键提取兼容单引号与反引号）；窗口 chrome 内边距、对角光标保持物理方向，其余物理圆角工具类迁移为逻辑等价类。",
   "a7b1f23": "发布流程支持中英双语 changelog：新增「提交短哈希 → 中文说明」翻译映射，缺翻译时输出隐藏待办注释。",
   "93ec924": "发布收尾：把中文 changelog 键对齐到合并后的 squash 提交（#11 → f16980a，并补上 #10 的条目）。",
-  "a5157fe": "Adds external provider API-key balance lookup across the service layer, settings UI and tests (#8).",
-  "86a44b3": "Bridges AstrBot into the official BotsService as a transport provider: loopback WebSocket (bridge v2) to the AstrBot plugin, with interactive permission / question / menu selections, reconnect replay and task-stream settlement (#1).",
+  "a5157fe": "新增外接 API Key 余额查询：服务层、设置 UI 与测试全链路（#8）。",
+  "86a44b3": "接入 AstrBot 桥接：作为官方 BotsService 的传输 provider，经 bridge v2 回环 WebSocket 对接 AstrBot 插件，支持交互式权限/问题/菜单选择、重连重放与任务流结算（#1）。",
   "d042521": "README 顶部新增功能总览与截图。",
-  "e701117": "版本号提升至 3.14.7。"
+  "e701117": "版本号提升至 3.14.7。",
+  "0c4e115": "发布收尾：补齐 v3.14.7 的中英双语 changelog 条目。",
+  "91c8a85": "新增 ZcodePro 上游同步手册：plugin 镜像合并流程与冲突决策表落成文档。",
+  "389cfb0": "安装文档改用可穿越 Windows 执行策略的安装命令（-ExecutionPolicy Bypass，规避 Mark-of-the-Web 拦截）。",
+  "238a6f1": "放宽 CLI bundle 中 zcode-guide 的 seed 门：requiredSeedPaths 重写为包内真实存在的必需路径，修复市场安装报「Bundled plugin cache directory missing」。",
+  "058f090": "修复屏幕录制状态在 warm path 永远显示「未知」：预检结果接受字符串形态，warm 查询失败后停掉陈旧 host 并走一次冷探测自愈，无需重启应用。",
+  "d24d155": "桥接 main 进程 helper-installer 的 stub：打包态设置页权限状态走真实查询。",
+  "f122765": "修复 getStatus 成功结果缺少 available 字段导致 renderer 判成 unavailable。",
+  "7c02065": "打包 CUA host 面板补丁：设置页显示真实权限状态。"
 }
