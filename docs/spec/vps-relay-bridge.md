@@ -489,3 +489,168 @@ AGPL 的 copyleft 传染，且它带**网络条款**（通过网络提供服务�
 
 **不改变 §3/§9 的方案**。若采纳 §11.4 第 1 点，则 §9.5 的「配对码放 DO/KV」
 应改为「**桌面公钥派生 ID + 配对时校验**」，安全性更好。这一点建议在实现 `relayClient` 前定。
+
+---
+
+# 12. 落地实现方案（最终交付形态）
+
+> §1–§11 是设计依据与选型论证；本节是可执行的落地计划。
+
+## 12.1 整体实现思路
+
+**在 VPS 上放一个「哑转发器」，让桌面主动拨出、把自己的窗口 Host 借给它；手机用现有的
+Web bundle 连上转发器。全程不改协议、不改 Host、不改手机。**
+
+三个「不改」是本方案的全部价值所在：
+
+| 不改的东西 | 为什么能做到 |
+| --- | --- |
+| **协议** | `SocketProtocol` 原样使用。转发器与桌面之间是同一套帧格式 ⇒ 转发器**不需要理解协议**，逐字节转发即可 |
+| **Host** | 复用既有 `AttachServicePort` + `scope: { kind: "local" }`。**已核实**：`windowHostAttachmentRegistry` 按 `attachmentId` 索引，**没有 per-scope 单例限制**，渲染器的 base attachment（`base-${randomUUID()}`）与 relay attachment **可并存** |
+| **手机** | web bundle 由 VPS 静态托管；`resolveDefaultWsOrigin()`（`packages/web/src/main.tsx:271-280`）由 `window.location` 推导 wsUrl ⇒ 同源命中转发器的 `/ws`。配对直接复用既有 `?token=` → `zcode_lite_token` cookie 流程 |
+
+## 12.2 核心模块与职责
+
+| 模块 | 位置 | 职责 | 规模 |
+| --- | --- | --- | --- |
+| `relay.mjs` | `deploy/vps-relay/relay.mjs`（新增，VPS 侧） | 静态托管 + `/api/server-info` + `/ws`↔`/host` 配对与逐字节转发 | ~140 行 |
+| 部署物 | `deploy/vps-relay/{Dockerfile,docker-compose.yml,Caddyfile,README.md}` | 一键部署 + 自动 TLS + 运维手册 | — |
+| `remoteRelayClient` | `packages/desktop/src/main/remoteRelayClient.ts`（新增） | 出站连接、**帧格式转码桥**、attach、心跳与重连 | ~130 行 |
+| 接线 | `packages/desktop/src/main/index.ts`（修改） | 读 env、注入依赖、启动 client | ~15 行 |
+| 依赖暴露 | `packages/desktop/src/main/desktopRemoteSessions.ts`（修改） | 暴露闭包内私有的 `getWindowHost` | ~3 行 |
+
+**不动**：`packages/web/**`、`packages/desktop/src/host/**`、`packages/shared`（协议）、
+`packages/server/**`。
+
+## 12.3 组件协作与事件顺序
+
+### 启动期（桌面侧）
+
+```text
+桌面启动
+ └─ 窗口 Host 进程 ready（databaseStartup.phase === "ready"）
+     └─ Main 读 env；未配置 ZCODE_REMOTE_RELAY_URL → 什么都不做（默认关闭）
+         └─ remoteRelayClient.connect()
+             ├─ 1. 打开 wss://<vps>/host（Authorization: Bearer <HOST_SECRET>）
+             ├─ 2. POST https://<vps>/api/host-report 上报工作区
+             │      （独立 HTTP，不复用数据面 WS —— 否则会污染通道协议帧流）
+             ├─ 3. new SocketProtocol(wrapWebSocket(ws))          ← WS 侧，负责 13B 帧头
+             ├─ 4. createMessageChannel() → port1 / port2
+             ├─ 5. 转码桥：
+             │      wsProto.onMessage(buf => port1.postMessage(buf.buffer))
+             │      port1.on("message", e => wsProto.send(VSBuffer.wrap(new Uint8Array(e.data))))
+             └─ 6. getWindowHost(win).postMessage({
+                      type: AttachServicePort, requestId, attachmentId,
+                      clientMode: "web-remote-replayable",
+                      scope: { kind: "local" },          // .strict()：只能有这一个字段
+                    }, [port2])
+                    └─ Host: windowHostAttachmentRegistry.attach(...)
+                       未 ready 时进 pendingStartupAttachments 自动挂起（无需自行重试）
+```
+
+### 使用期（手机侧）
+
+```text
+手机打开 https://<vps>/?token=<RELAY_TOKEN>
+ └─ relay 校验 token → Set-Cookie: zcode_lite_token=...（HttpOnly）
+     └─ 加载 web bundle（VPS 静态托管）
+         └─ resolveWebBootstrap() fetch /api/server-info
+             └─ relay 返回缓存的工作区（来自桌面的 /api/host-report）
+                 └─ 连 wss://<vps>/ws（带 cookie）
+                     └─ relay 校验 cookie → 与已连接的 host 配对
+                         └─ 此后 relay 逐字节双向转发
+                             └─ 手机 UI 看到的是【桌面 Host 的服务面】：
+                                任务列表、会话历史、终端、文件、Git
+```
+
+### 断开与恢复
+
+| 事件 | 行为 |
+| --- | --- |
+| 桌面 WS 断开 | relay 以明确 close code 关闭手机侧 → 手机 UI 提示「桌面离线」，不静默卡死 |
+| 桌面重连 | client 先 `DetachServicePort`（旧 attachmentId）释放旧 attachment → 重新 attach（**新 attachmentId**，避免撞上 §12.2 的 `previous` 处置逻辑） |
+| 手机断网/锁屏 | 重连 `/ws` → 走 `replayable` 档的 snapshot + gap repair（协议已支持，无需新代码） |
+| 心跳 | client 每 30s 发 WS ping；relay 60s 无活动则关闭该侧 |
+
+## 12.4 关键接口契约
+
+### relay 的端点
+
+| 端点 | 方向 | 鉴权 | 说明 |
+| --- | --- | --- | --- |
+| `GET /` + 静态 | 手机 → relay | 无 | 托管 `packages/web/dist` |
+| `GET /api/server-info` | 手机 → relay | 无 | 返回桌面通过 `/api/host-report` 上报的 `ServerRemoteInfo` 形状 |
+| `POST /api/host-report` | 桌面 → relay | `HOST_SECRET` | 上报 `{ workspacePath, workspaceIdentity, hostLabel }` |
+| `GET /ws`（upgrade） | 手机 → relay | `zcode_lite_token` cookie | 与当前 host 配对，**逐字节转发** |
+| `GET /host`（upgrade） | 桌面 → relay | `HOST_SECRET` | 注册为**唯一** host（已有连接则拒绝或顶替，需定） |
+
+### 环境变量
+
+**relay（VPS）**：`PORT`、`RELAY_TOKEN`（手机配对码）、`HOST_SECRET`（桌面密钥）、`WEB_ROOT`
+**桌面**：`ZCODE_REMOTE_RELAY_URL`（如 `wss://vps.example`）、
+`ZCODE_REMOTE_RELAY_HOST_SECRET`、`ZCODE_REMOTE_RELAY_WINDOW`（可选，缺省跟随 focused window）
+
+## 12.5 分阶段实施与验证
+
+### 阶段 0：本机打通（不碰 VPS，能验证全部代码路径）
+
+1. 本机跑 relay：`node relay.mjs`（监听 `127.0.0.1:3180`，`WEB_ROOT=packages/web/dist`）
+2. 桌面 env 指向 `ws://127.0.0.1:3180`
+3. 浏览器打开 `http://127.0.0.1:3180/?token=…`
+4. **验证**：看到**桌面当前工作区**的任务列表与会话历史（而非 relay 自己起的任何东西）；
+   发一条提示词 → 桌面 App 里同一会话被推进；`ps` 确认**桌面侧没有新增 Agent 进程**
+
+> 这一步**零外部依赖**，是主要工作量所在。阶段 0 通过即说明设计成立。
+
+### 阶段 1：上 VPS
+
+1. 把 `deploy/vps-relay/` 与 `packages/web/dist` 传到 VPS
+2. `docker compose up -d`（或 systemd），Caddy 自动签发 TLS
+3. 桌面 env 换成 `wss://<vps>`
+4. **验证**：外网手机可用；隧道/域名变更不触发任何 Origin 校验
+   （已核实 `packages/server/src/http.ts` 无 Origin/Host 白名单）
+
+### 阶段 2：加固
+
+- **E2EE**（搬 `packages/crypto/src/noise.ts` + 握手编排）——CF/VPS 都属第三方，TLS 在服务端终结
+- 「仅允许一个 host」、配对码轮换与限速、失败告警
+- 把 `replayable` 档 `flushWindowMs` 按实测带宽调优（当前 150ms）
+
+## 12.6 最终交付成果形式
+
+| 交付物 | 形态 | 使用方式 |
+| --- | --- | --- |
+| **VPS 侧** | `deploy/vps-relay/` 一个目录 | `docker compose up -d` 或 `systemctl start zcode-relay`；`Caddyfile` 自动 TLS |
+| ↳ `relay.mjs` | 单文件 Node 脚本，无构建步骤 | `node relay.mjs` |
+| ↳ `README.md` | 运维手册 | 端口、环境变量、配对码生成、排障 |
+| **桌面侧** | 仓库内 3 处改动（1 新增 + 2 小改） | 配 env 即启用；**不配 env 等于不存在** |
+| **手机侧** | **无交付物** | 直接用浏览器打开 `https://<vps>/?token=…` |
+| **文档** | 本文件（§1–§12） | 设计与落地依据 |
+
+## 12.7 需先定的三个决策
+
+1. **relay 落点**：建议新建 `deploy/vps-relay/`（`harness/` 语义是测试基建，不合适）。
+2. **配对机制**：第一版用 **token/cookie**（复用既有流程，手机零改动）。
+   公钥派生 ID（§11.4）更安全，但**要在手机侧校验就不再是零改动** ⇒ 留到阶段 2。
+3. **多窗口**：缺省跟随 focused window；`ZCODE_REMOTE_RELAY_WINDOW` 可显式指定。
+
+## 12.8 风险与回滚
+
+| 风险 | 缓解 | 回滚 |
+| --- | --- | --- |
+| 桌面侧改动引入回归 | 全部逻辑在 env 开关后 | **不设 env 即等于不存在**，无需回滚代码 |
+| relay 被未授权访问 | `/host` 用强 `HOST_SECRET` + TLS；`/ws` 用一次性/短时效 `RELAY_TOKEN` | 停掉 relay 进程 |
+| `@zcode/rpc` 的 `SocketProtocol` 语义理解偏差 | 阶段 0 先在本机验证（§12.5） | — |
+| `connection-flow-v1` 控制帧是否必需 | 阶段 0 实测；必要时改用 `MessagePortProtocol` 包装 port1（差异约 3 行） | — |
+| 多 attachment 影响渲染器 | 已核实 registry 无单例限制；用独立 `attachmentId` | 断开 WS 即自动 `dispose` |
+
+## 12.9 验收清单
+
+沿用 §6 的 7 条，并补充：
+
+8. **默认关闭**：不设 `ZCODE_REMOTE_RELAY_URL` 时，桌面**不建立任何连接**，行为与改动前完全一致。
+9. **复用而非新起**：手机侧发指令后，桌面侧**不出现新的 Agent 进程**。
+10. **并存不互斥**：relay attachment 与渲染器 base attachment 同时存在，
+    桌面本地 UI 功能不受影响（`windowHostAttachmentRegistry.size()` ≥ 2）。
+11. **桌面离线有明确提示**：关闭桌面 App → 手机侧提示「桌面离线」，不静默卡死。
+12. **回归**：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 全绿。
