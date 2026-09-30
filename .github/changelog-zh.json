@@ -49,5 +49,8 @@
   "986c692": "桌面 dev 接线候选顺序把 staged 补丁件提前，避免回退到 home 目录的旧 pristine 副本。",
   "17c4626": "Computer Use vendor buildId 期望值改为环境变量优先：桌面 dev 与打包两种形态都注入实测 buildId。",
   "b65764e": "Computer Use 设置页权限状态查询四层修复（探测超时 / store 看门狗 / 传输 fail-closed / stub 谓词对齐），并经私有 broker socket 与官方 ZCode.app 跨安装共存。",
-  "344efda": "新增两份规划 spec：多端会话准入控制（同 session 单 owner）与 VPS 中继桥接（手机浏览器接管本机桌面 Host）。"
+  "344efda": "新增两份规划 spec：多端会话准入控制（同 session 单 owner）与 VPS 中继桥接（手机浏览器接管本机桌面 Host）。",
+  "7400cda": "退役 Computer Use helper buildId 构建期 define：vendor 预构建产物中标识符不存在导致发版守卫恒假，配对收敛为主进程运行时实测注入单机制。",
+  "519f808": "私有 broker socket 改两段式注入：标准键被 host 启动 sanitize 剥离导致跨安装共存失效，改为 fork 键穿越 + services 侧恢复，新增全链路观测日志。",
+  "e60b28c": "VPS 中继桥接 spec 补落地实现方案：VPS 哑转发器 + 桌面主动拨出借出窗口 Host，协议与手机侧零改动。"
 }
