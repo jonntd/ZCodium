@@ -1497,9 +1497,11 @@ export function createProductCuaHelperHost(options = {}) {
           timeoutMs: 5_000,
         });
         const state =
-          typeof result === "object" && result !== null
-            ? (result.screen_recording ?? result.screenRecording)
-            : undefined;
+          typeof result === "string"
+            ? result
+            : typeof result === "object" && result !== null
+              ? (result.screen_recording ?? result.screenRecording)
+              : undefined;
         return state === "granted" || state === "denied" ? state : "unknown";
       } catch {
         return undefined;
