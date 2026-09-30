@@ -537,8 +537,10 @@ jobs:
           TAG: ${{ needs.release.outputs.tag }}
         run: |
           set -euo pipefail
+          # 本 job 不做 checkout：工作目录没有 git 仓库，gh 无法从 remote 推断目标仓库，
+          # 必须显式 --repo（其余 job 靠 checkout 提供上下文，此处不重复拉取仓库）。
           for attempt in 1 2 3; do
-            if gh release upload "$TAG" sha256.txt --clobber; then
+            if gh release upload "$TAG" sha256.txt --clobber --repo "$GITHUB_REPOSITORY"; then
               exit 0
             fi
             echo "::warning::gh release upload failed (attempt $attempt/3), retrying in 10s"
