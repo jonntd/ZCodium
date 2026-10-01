@@ -18,7 +18,12 @@ import {
 } from "@zcode/provider";
 import { createServiceDescriptor } from "../descriptors.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
+import type {
+  ModelhubFetchModelsRequest,
+  ModelhubFetchModelsResult,
+} from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
+import { fetchModelhubModels } from "./modelhubFetchModels.js";
 
 export type {
   ProviderSettingsProviderView,
@@ -68,6 +73,14 @@ export interface IProviderSettingsService {
   testModelConnectivity(
     input: ProviderSettingsConnectivityRequest,
   ): Promise<ModelConnectivityResult>;
+  /**
+   * 拉取自定义渠道的模型列表（modelhub）。由 **Host/Server 的 Node 侧**执行，
+   * 因此没有浏览器 CORS 限制：桌面渲染进程走 main IPC，Web 端经本方法（RPC）转发。
+   *
+   * 可选：Web 端以它是否存在判断「当前 Host 是否支持拉取模型」，
+   * 决定 `platform.modelhubFetchModels` 是否暴露（UI 的按钮可见性依赖该探测）。
+   */
+  fetchModels?(payload: ModelhubFetchModelsRequest): Promise<ModelhubFetchModelsResult>;
 }
 
 export const IProviderSettingsService = createServiceDescriptor<IProviderSettingsService>(
@@ -206,6 +219,8 @@ export function createProviderSettingsService(
         modelId: input.modelId,
       });
     },
+    // 不需要 ensureReady：拉取只用到 renderer 给的 baseUrl/apiKey，不读 Host 的 provider 配置视图。
+    fetchModels: (payload) => fetchModelhubModels(payload),
   };
 }
 

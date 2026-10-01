@@ -142,6 +142,12 @@ export type {
   AccountProviderCredentialStoreOptions,
 } from "./model-provider/accountProviderCredentialStore.js";
 export { importLegacyPersonalProviderConfig } from "./model-provider/legacyPersonalProviderConfigImporter.js";
+// 模型拉取（modelhub）：Node 侧唯一实现，桌面 main IPC 与 Host/Server RPC 服务共用。
+export {
+  buildModelhubHeaders,
+  candidateModelListUrls,
+  fetchModelhubModels,
+} from "./model-provider/modelhubFetchModels.js";
 export {
   createAccountProviderConfigSource,
   createAccountProviderConnectionResolver,
