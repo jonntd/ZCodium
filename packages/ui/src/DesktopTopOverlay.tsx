@@ -10,6 +10,7 @@ import {
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { UpdateStatusButton } from "@/UpdateStatusButton.js";
 import { DesktopTopOverlayActionButton } from "@/DesktopTopOverlayActionButton.js";
+import { resolveSidebarTogglePresentation } from "@/desktopTopOverlayModel.js";
 import {
   createWindowsCaptionControlsStyle,
   WINDOWS_CAPTION_CONTROLS_RIGHT_INSET_VAR,
@@ -78,6 +79,14 @@ export function DesktopTopOverlay({
   const SidebarToggleIcon = isSidebarVisible ? PanelLeftClose : PanelLeftOpen;
   const isLinuxDesktop = Boolean(isDesktop && !isMacDesktop && !isWindowsDesktop);
   const usesCustomCaptionArea = isWindowsDesktop || isLinuxDesktop;
+  // 按钮呈现统一收敛到呈现模型：桌面三平台维持原形态，Web（isDesktop 缺省 false）与
+  // macOS 一致展示图标按钮——Web 与桌面共用 isSidebarVisible 状态与 ⌘B，缺按钮会变成
+  // 侧栏收起后唯一的可见入口（见 docs/spec/sidebar-toggle-button.md）。
+  const sidebarTogglePresentation = resolveSidebarTogglePresentation({
+    isDesktop,
+    isMacDesktop,
+    isWindowsDesktop,
+  });
   const toggleSidebarTitle = intl.formatMessage({
     id: "workspaceSidebar.toggleSidebar",
   });
@@ -137,7 +146,7 @@ export function DesktopTopOverlay({
             "pointer-events-auto flex items-center gap-1 shrink-0 [app-region:no-drag]",
           )}
         >
-          {usesCustomCaptionArea && (
+          {sidebarTogglePresentation === "logo-hover" && (
             <DesktopTopOverlayActionButton
               title={toggleSidebarTitle}
               shortcut={toggleSidebarShortcutLabel}
@@ -155,7 +164,7 @@ export function DesktopTopOverlay({
             </DesktopTopOverlayActionButton>
           )}
 
-          {isMacDesktop && (
+          {sidebarTogglePresentation === "icon" && (
             <DesktopTopOverlayActionButton
               title={toggleSidebarTitle}
               shortcut={toggleSidebarShortcutLabel}
