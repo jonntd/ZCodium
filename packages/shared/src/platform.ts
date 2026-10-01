@@ -6,6 +6,10 @@ import type {
   WSLConnectOptions,
 } from "./remoteTarget.js";
 import type {
+  RemoteRelaySetConfigRequest,
+  RemoteRelayStatus,
+} from "./remote-relay.js";
+import type {
   LoadCliMcpFromUserDirectoryRequest,
   LoadCliMcpFromUserDirectoryResult,
   MigrateLegacyCommonMcpRequest,
@@ -598,12 +602,13 @@ export interface IPlatformService {
   ): Promise<CreateTempTextAttachmentResult>;
 
   /**
-   * 模型拉取（zcode-patcher modelhub 原生版）：由 main 进程请求自定义渠道端点的
-   * /models 列表。必须在 main 侧执行以绕过 renderer 的 CORS 限制；Web 端不实现。
+   * 模型拉取（zcode-patcher modelhub 原生版）：请求自定义渠道端点的 `/models` 列表。
+   * 必须在 **Node 侧**执行以绕过浏览器 CORS：桌面渲染进程走 main IPC，Web 端经 Host 的
+   * `IProviderSettingsService.fetchModels` 转发（该服务未实现时保持 undefined）。
    */
   modelhubFetchModels?(payload: ModelhubFetchModelsRequest): Promise<ModelhubFetchModelsResult>;
 
-  /** 模型视觉能力探测（modelhub）：main 进程发送 1x1 图片按响应判定；Web 端不实现。 */
+  /** 模型视觉能力探测（modelhub）：Node 侧发送 1x1 图片按响应判定；Web 端暂不实现。 */
   modelhubProbeVision?(payload: ModelhubProbeVisionRequest): Promise<ModelhubProbeVisionResult>;
 
   /** 订阅当前窗口内远程连接过程日志，返回 disposer */
@@ -653,6 +658,18 @@ export interface IPlatformService {
 
   /** 列出当前机器 SSH config 中可用于快速填表的 alias */
   listSSHConfigAliases(): Promise<SSHConfigAliasOption[]>;
+
+  /** VPS 中继状态（仅桌面 preload 桥实现；缺省表示当前环境不支持中继功能）。 */
+  remoteRelayGetStatus?(): Promise<RemoteRelayStatus>;
+
+  /** 启动 VPS 中继客户端（仅桌面）。 */
+  remoteRelayStart?(): Promise<RemoteRelayStatus>;
+
+  /** 停止 VPS 中继客户端（仅桌面）。 */
+  remoteRelayStop?(): Promise<RemoteRelayStatus>;
+
+  /** 校验并写入中继配置文件，缺省热重启客户端（仅桌面）。 */
+  remoteRelaySetConfig?(request: RemoteRelaySetConfigRequest): Promise<RemoteRelayStatus>;
 
   /** 读取宿主环境中的原生 MCP 用户目录配置；手机远控通过已连接桌面 host 转发。 */
   loadMcpFromUserDirectory?(

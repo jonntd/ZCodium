@@ -67,6 +67,8 @@ import type {
   ModelhubProbeVisionRequest,
   ModelhubProbeVisionResult,
   OpenCuaPermissionOnboardingOptions,
+  RemoteRelaySetConfigRequest,
+  RemoteRelayStatus,
 } from "@zcode/shared";
 import { InternalChannels, PlatformChannels, formatZCodeRendererProcessName } from "@zcode/shared";
 import { createOAuthCallbackHandler } from "./oauthCallbackBridge.js";
@@ -246,6 +248,16 @@ contextBridge.exposeInMainWorld("zcode", {
   disposeRemoteSession: (sessionId: string): Promise<void> =>
     ipcRenderer.invoke(PlatformChannels.DisposeRemoteSession, sessionId),
   isDockerAvailable: (): Promise<boolean> => ipcRenderer.invoke(PlatformChannels.IsDockerAvailable),
+  remoteRelayGetStatus: (): Promise<RemoteRelayStatus> =>
+    ipcRenderer.invoke(PlatformChannels.RemoteRelayGetStatus),
+  remoteRelayStart: (): Promise<RemoteRelayStatus> =>
+    ipcRenderer.invoke(PlatformChannels.RemoteRelayStart),
+  remoteRelayStop: (): Promise<RemoteRelayStatus> =>
+    ipcRenderer.invoke(PlatformChannels.RemoteRelayStop),
+  // 契约是**单个请求对象**（RemoteRelaySetConfigRequest）。这里曾经写成 (config, apply)
+  // 并再次包一层，导致保存时把 { config, apply } 信封当成 config 写进配置文件 —— 配置损坏、掉线。
+  remoteRelaySetConfig: (request: RemoteRelaySetConfigRequest): Promise<RemoteRelayStatus> =>
+    ipcRenderer.invoke(PlatformChannels.RemoteRelaySetConfig, request),
   listWSLDistros: () => ipcRenderer.invoke(PlatformChannels.ListWSLDistros),
   listDockerContainers: () => ipcRenderer.invoke(PlatformChannels.ListDockerContainers),
   listSSHConfigAliases: (): Promise<SSHConfigAliasOption[]> =>

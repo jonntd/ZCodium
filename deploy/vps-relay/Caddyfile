@@ -1,0 +1,39 @@
+# ZCode VPS 中继 —— Caddy 反向代理（自动签发/续期 HTTPS）
+#
+# 用法：
+#   1) 把下面第一行的域名换成你自己的（A 记录指向本机公网 IP）
+#   2) sudo cp Caddyfile /etc/caddy/Caddyfile
+#   3) sudo systemctl reload caddy
+#
+# 为什么用 Caddy 而不是 nginx：
+#   - 自动 HTTPS，不用管证书续期
+#   - **自动处理 WebSocket 升级**，不需要手写 Upgrade / Connection 头
+#   - 没有 nginx 那种 60s proxy_read_timeout 掐断长连接的问题
+#     （本中继是长连接，nginx 必须手动把超时调大）
+
+relay.example.com {
+	# 压缩静态资源；对 WebSocket 帧无影响。
+	encode zstd gzip
+
+	# 反向代理到本机的 relay。Caddy 自动转发 WebSocket 升级。
+	reverse_proxy 127.0.0.1:3180
+
+	# 静态资源长缓存（文件名带 hash 的构建产物）；/api 与 /ws 不缓存。
+	@immutable path /assets/* /material-icons/* /pdfjs/*
+	header @immutable Cache-Control "public, max-age=86400"
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		# 配对入口是 /?token=…（中继会立刻 302 到干净 URL）；
+		# 这条策略是第二道防线，避免 token 经 Referer 泄漏到外部站点。
+		Referrer-Policy "no-referrer"
+		# 不回 Server 头，减少指纹信息。
+		-Server
+	}
+
+	log {
+		output file /var/log/caddy/zcode-relay.log
+		format console
+	}
+}

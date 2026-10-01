@@ -33,6 +33,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  MessageChannelMain,
   nativeImage,
   protocol,
   session,
@@ -41,7 +42,7 @@ import {
 import type { UtilityProcess as ElectronUtilityProcess } from "electron";
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import {
   createSettingService,
   buildRuntimeProcessEnvPatch,
@@ -162,6 +163,7 @@ import {
   isWorkspaceOpenUrl,
 } from "./desktopDeepLinkUrl.js";
 import { createRemoteWorkspaceSessionManager } from "./desktopRemoteSessions.js";
+import { createRemoteRelayControl } from "./remoteRelayControlIpc.js";
 import { resolveCanonicalWslTarget } from "./desktopWslTargetResolver.js";
 import {
   listRegisteredHostAgentProcessIds,
@@ -561,6 +563,12 @@ const windowWorkspaceMap = new Map<number, Set<string>>();
 const windowTaskRealtimeHostIdMap = new Map<number, string>();
 const windowUnreadCountMap = new Map<number, number>();
 const windowHostProcessMap = new Map<number, ElectronUtilityProcess>();
+/**
+ * VPS 中继控制面句柄（可选功能）。
+ * 只有配置了中继（env 或 ~/.zcode/v2/remote-relay.json）才会启动客户端；
+ * 未配置时保持 null，桌面行为与引入本功能前完全一致。
+ */
+let remoteRelayControl: ReturnType<typeof createRemoteRelayControl> | null = null;
 const cuaPipFocusRouter = createCuaPipFocusRouter({
   send: (windowId, event) => {
     windowHostProcessMap.get(windowId)?.postMessage({
@@ -1840,6 +1848,38 @@ app.whenReady().then(async () => {
     }
   });
 
+  // VPS 中继（可选）：把本窗口的 Local Host 借给远端手机。
+  // 配置来自 env（优先）或 ~/.zcode/v2/remote-relay.json；两者都没有时完全不启用，
+  // 桌面行为与引入本功能前一致。放在 Host 数据库就绪之后：此时 attachment 一定能成功
+  // （Host 侧另有 pendingStartupAttachments 兜底）。
+  remoteRelayControl = createRemoteRelayControl({
+    logger,
+    hostLabel: hostname(),
+    appVersion: ZCODE_VERSION,
+    createChannel: () => new MessageChannelMain(),
+    resolveTargetWindow: (pinnedWindowId) => {
+      // 缺省跟随聚焦窗口；pinnedWindowId（env/配置文件）非空时钉住指定窗口 id。
+      const win = pinnedWindowId
+        ? BrowserWindow.fromId(pinnedWindowId)
+        : (BrowserWindow.getFocusedWindow() ?? getMainApplicationWindows()[0] ?? null);
+      if (!win) {
+        return null;
+      }
+      const hostProcess = windowHostProcessMap.get(win.webContents.id);
+      return hostProcess ? { windowId: win.webContents.id, hostProcess } : null;
+    },
+    resolveWorkspace: (windowId, pinnedPath) => {
+      // pinnedPath（env/配置文件）非空时直接采用，无需在 App 界面里打开工作区。
+      if (pinnedPath) {
+        return { workspacePath: pinnedPath };
+      }
+      const workspacePath = [...(windowWorkspaceMap.get(windowId) ?? [])][0];
+      return workspacePath ? { workspacePath } : null;
+    },
+  });
+  remoteRelayControl.register();
+  void remoteRelayControl.autoStart();
+
   if (process.platform === "win32") {
     // 打包态必须与 NSIS 快捷方式使用同一 AUMID，否则 Shell 把它们当成不同应用。
     // 使用构建期产品身份，不依赖用户机器环境；开发态继续保持独立身份。
@@ -2133,6 +2173,9 @@ app.on("before-quit", (event) => {
 
   if (!hasPreparedAppQuit) {
     localMediaPreviewPathRegistry.clear();
+    // 中继连接随应用退出断开；端口关闭会让 Host 侧的 attachment 自动释放。
+    void remoteRelayControl?.stop();
+    remoteRelayControl = null;
     event.preventDefault();
     void prepareAppQuit("app-before-quit").finally(() => {
       // mac 直替换安装要在 host/agent 回收之后、真正退出之前完成（ready 态存在时）。

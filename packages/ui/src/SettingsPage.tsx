@@ -107,6 +107,7 @@ import {
   resolveSettingsSectionForPlatform,
 } from "./settingsPageHelpers.js";
 import { AppearanceSectionContent } from "./settingsCodePreview.js";
+import { RemoteRelaySection } from "./settings/RemoteRelaySection.js";
 import type { SettingsSectionId } from "@/lib/settingsNavigation.js";
 import { requestPluginStoreOpen } from "@/lib/pluginStoreNavigation.js";
 
@@ -1507,6 +1508,8 @@ export function SettingsPage({
                             switches={sharedSettings?.officialServices}
                             onToggle={handleOfficialServiceToggle}
                           />
+                        ) : activeSection === "remoteRelay" ? (
+                          <RemoteRelaySection />
                         ) : activeSection === "plugin" ? (
                           <PluginsSection
                             key={`plugin:${settingsSectionNavigationVersion}`}

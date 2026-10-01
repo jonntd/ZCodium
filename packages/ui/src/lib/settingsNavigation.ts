@@ -20,7 +20,8 @@ export type SettingsSectionId =
   | "computerUse"
   | "automations"
   | "shortcuts"
-  | "officialServices";
+  | "officialServices"
+  | "remoteRelay";
 
 type SettingsUsageTabTarget = "app" | "codingPlan";
 type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "commands";

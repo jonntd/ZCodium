@@ -1,0 +1,15 @@
+# 不要把 secrets 或大体积产物打进镜像层。
+# 尤其 .env —— 它会留在镜像历史里，即使后续删除也仍可被读出。
+
+.env
+.env.*
+!.env.example
+
+# web bundle 走 bind mount，不进镜像
+web/
+
+# 杂项
+node_modules/
+*.log
+.DS_Store
+.git/

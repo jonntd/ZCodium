@@ -6,6 +6,8 @@ import type {
   MigrateLegacyCommonMcpRequest,
   MigrateLegacyCommonMcpResult,
   SaveCliMcpToUserDirectoryRequest,
+  RemoteRelaySetConfigRequest,
+  RemoteRelayStatus,
 } from "./index.js";
 import type { OAuthStateRegistration } from "./oauth.js";
 import type { AppSettings, Locale } from "./protocol.js";
@@ -189,6 +191,14 @@ export const PlatformChannels = {
   DisposeRemoteSession: "zcode:dispose-remote-session",
   /** Renderer → Main：检查本机 Docker daemon 是否可用 */
   IsDockerAvailable: "zcode:is-docker-available",
+  /** Renderer → Main：读取 VPS 中继状态（配置来源 / 连接 / 分享链接） */
+  RemoteRelayGetStatus: "zcode:remote-relay-get-status",
+  /** Renderer → Main：启动 VPS 中继客户端 */
+  RemoteRelayStart: "zcode:remote-relay-start",
+  /** Renderer → Main：停止 VPS 中继客户端 */
+  RemoteRelayStop: "zcode:remote-relay-stop",
+  /** Renderer → Main：写入 VPS 中继配置文件（~/.zcode/v2/remote-relay.json） */
+  RemoteRelaySetConfig: "zcode:remote-relay-set-config",
   /** Renderer → Main：列出本机可用的 WSL 发行版 */
   ListWSLDistros: "zcode:list-wsl-distros",
   /** Renderer → Main：列出当前可连接的 Docker 容器 */
@@ -1107,5 +1117,21 @@ export interface PlatformChannelMap {
   [PlatformChannels.SetTitleBarTheme]: {
     request: DesktopTitleBarTheme;
     response: void;
+  };
+  [PlatformChannels.RemoteRelayGetStatus]: {
+    request: void;
+    response: RemoteRelayStatus;
+  };
+  [PlatformChannels.RemoteRelayStart]: {
+    request: void;
+    response: RemoteRelayStatus;
+  };
+  [PlatformChannels.RemoteRelayStop]: {
+    request: void;
+    response: RemoteRelayStatus;
+  };
+  [PlatformChannels.RemoteRelaySetConfig]: {
+    request: RemoteRelaySetConfigRequest;
+    response: RemoteRelayStatus;
   };
 }

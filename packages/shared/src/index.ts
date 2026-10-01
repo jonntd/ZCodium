@@ -34,6 +34,12 @@ export type { HelloMessage, HelloAckMessage } from "./handshake.js";
 export type { ZCodeEnv, ZCodeProductFlavor } from "./env.js";
 export type { RemoteAssetInstallMode } from "./remoteAssetInstallMode.js";
 export type {
+  RemoteRelayFileConfig,
+  RemoteRelayStatus,
+  RemoteRelaySetConfigRequest,
+} from "./remote-relay.js";
+export { deriveRemoteRelayPublicUrl } from "./remote-relay.js";
+export type {
   RemoteResourcePackageId,
   RemoteResourcePackageSelection,
 } from "./remoteResourcePackages.js";

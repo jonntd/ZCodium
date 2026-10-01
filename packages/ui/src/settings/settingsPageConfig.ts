@@ -19,6 +19,7 @@ import {
   Keyboard,
   FileSearch,
   ShieldCheck,
+  Smartphone,
 } from "lucide-react";
 import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
 import type { Theme } from "@/useTheme.js";
@@ -163,12 +164,20 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.officialServicesTitle",
     groupId: "dataAndStats",
   },
+  // 远程访问（VPS 中继）：把本窗口 Host 借给手机浏览器；依赖桌面 Main 的
+  // remoteRelayControlIpc，Web 视图不可用（见下方两处过滤 + createSettingsPageConfig 门控）。
+  {
+    id: "remoteRelay",
+    icon: Smartphone,
+    titleId: "settings.remoteRelay.title",
+    groupId: "dataAndStats",
+  },
 ];
 
 // 兼容既有只读消费者：默认配置代表不带桌面平台能力的 Web 视图；
 // macOS/Windows/Linux 必须继续通过 createSettingsPageConfig 动态加入 Computer Use。
 export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
-  (section) => section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
+  (section) => section.id !== "computerUse" && section.id !== "remoteRelay" && isSettingsSectionEnabled(section.id),
 );
 
 interface SettingsPageConfigOptions {
@@ -185,6 +194,8 @@ export function createSettingsPageConfig({
   const showComputerUse = isDesktop || isMacDesktop || isWindowsDesktop;
   const settingsSections = BASE_SETTINGS_SECTIONS.filter((section) => {
     if (section.id === "computerUse" && !showComputerUse) return false;
+    // 远程访问只在桌面 App 里有意义：中继客户端跑在桌面 Main 进程。
+    if (section.id === "remoteRelay" && !showComputerUse) return false;
     return isSettingsSectionEnabled(section.id);
   });
   const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({

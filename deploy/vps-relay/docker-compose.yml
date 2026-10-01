@@ -1,0 +1,35 @@
+# ZCode VPS 中继
+#
+# 用法：
+#   mkdir -p web && cp -r <repo>/packages/web/dist/* web/
+#   cp .env.example .env && 填入两个密钥
+#   docker compose up -d
+#
+# 只把端口绑在 127.0.0.1，由宿主机的 Caddy 做 TLS 终结与反代（见 Caddyfile）。
+# 这样 relay 本身不直接暴露在公网。
+
+services:
+  relay:
+    build: .
+    image: zcode-vps-relay:local
+    restart: unless-stopped
+    ports:
+      # 只在回环上监听：公网流量必须经 Caddy 进来（TLS + 统一入口）。
+      - "127.0.0.1:3180:3180"
+    environment:
+      # :? 语法让 compose 在变量缺失时直接报错退出，避免用空密钥起服务。
+      RELAY_TOKEN: ${RELAY_TOKEN:?RELAY_TOKEN 未设置，请先填 .env}
+      HOST_SECRET: ${HOST_SECRET:?HOST_SECRET 未设置，请先填 .env}
+      PORT: "3180"
+      WEB_ROOT: /app/web
+    volumes:
+      # web bundle 只读挂载：更新前端只需替换 web/ 内容并 restart，不用重建镜像。
+      - ./web:/app/web:ro
+    security_opt:
+      - no-new-privileges:true
+    # 纯转发、几乎不耗 CPU；给个上限防止异常时打满宿主机。
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 256M

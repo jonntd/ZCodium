@@ -209,6 +209,11 @@ Main 侧直接用裸 `postMessage` 即可；**若 Host 侧依赖 flow control �
 4. **多窗口选谁**（§5.7）。
 5. **`/api/server-info` 之外的其它 `/api`**：手机端还可能有别的同源 REST 调用，
    需要按 `packages/web/src` 的实际 fetch 点逐个确认是否需要 VPS 代理。
+6. **`connectViaWebSocket` 的 resolve 语义**（2026-09-30 提出，**已解决**）：
+   原先 WS `open` 即 resolve，close-before-ready 之后的 4002 会被静默吞掉（§12.3.1 刷新白屏）。
+   现已改为**等 ChannelClient 收到 `Initialize` 才算交付**，close/超时一律 reject，由
+   `bootstrapWebApp` 渲染「Web 启动失败 + Retry」错误页。契约、前置不变式与验收见
+   `docs/spec/web-bootstrap-delivery-point.md`；改动后必须重建 web dist。
 
 ## 8. P2P（WebRTC）作为可选增强的可行性评估
 
@@ -492,6 +497,357 @@ AGPL 的 copyleft 传染，且它带**网络条款**（通过网络提供服务�
 
 ---
 
+## 12.10 阶段 0 的验证状态（含一条环境限制）
+
+### 已完成的验证
+
+| 层次 | 手段 | 结果 |
+| --- | --- | --- |
+| relay HTTP 面 | 9 项 curl | ✅ 全通过（静态/SPA fallback/配对 302+cookie/两处 401/host-report 更新 server-info） |
+| relay WS 转发 | 两个模拟端 | ✅ 5/5（含 512 KiB 大帧逐字节一致、`host` 断开 → `code 4002`） |
+| **Main ↔ Host 接缝** | `packages/desktop/tests/remote-relay-client.test.mjs` | ✅ **3/3** |
+| **relay 集成（真实进程）** | `packages/desktop/tests/vps-relay-forward.test.mjs` | ✅ **2/2** |
+| 类型 / lint / 架构 | `tsc -b`（main+host）/ `oxlint` / `architecture:check --changed` | ✅ 零新增错误、0 warning、0 违规 |
+| desktop 全量回归 | `pnpm --filter @zcode/desktop test` | ✅ **73/73** |
+
+**接缝测试覆盖的内容**（这是原先唯一未验证的一环）：
+
+1. 桌面拨出并连上 relay 的 `/host`
+2. 经**独立 HTTP** 上报工作区（不污染数据面帧流）
+3. `AttachServicePort` 的 `clientMode` 与 `scope` **精确匹配**，且 `port2` 被转移给 Host
+4. ★ **WS → Host 转码**：relay 发一个 `SocketProtocol` 帧，Host 侧收到的是**裸 `Uint8Array`**，
+   且**逐字节一致**（13 字节帧头已剥掉）
+5. ★ **Host → WS 转码**：Host 侧发裸 payload，relay 侧收到的是**合法的 `SocketProtocol` 帧**，
+   逐字节一致（帧头已加上）
+6. 重连**复用同一 `attachmentId`**（Host registry 靠它做原子替换）
+7. 无可用窗口时进入退避重试，且**日志带原因**
+8. 工作区晚于 WS 连接就绪时会**补报**（心跳兜底，不算失败）
+
+**relay 集成测试覆盖的内容**（真实拉起 `deploy/vps-relay/relay.mjs` 子进程）：
+
+1. host 先连、手机后开：配对前 host 帧被**回放**（`Initialize` 缓冲，spec §12.3.1）
+2. host 不在线时手机侧收到明确 `close code 4002`，不静默卡死
+
+> 第 4/5 条正是 §12.1 强调的「两侧帧格式不同、必须由两个协议实例各自成帧」。
+> 测试用**真实的** `remoteRelayClient`（不是复刻逻辑），因此它证明的是产品代码本身。
+
+### ⚠ 环境限制：Electron 无法在本沙箱内启动
+
+尝试用 `pnpm dev:desktop` 做真端到端时失败，原因**不在代码**：
+
+```text
+sandbox initialization failed: Operation not permitted
+GPU process exited unexpectedly: exit_code=6
+FATAL:content/browser/gpu/gpu_data_manager_impl_private.cc:417] GPU process isn't usable. Goodbye.
+```
+
+Chromium 的沙箱在 WorkBuddy 沙箱内无法初始化。**但日志证明桌面侧代码已正确执行**：
+
+```text
+[main] [remote-relay] 已启用，目标 ws://127.0.0.1:3180
+[main] 中继将在 1000ms 后重连（尚无可用窗口）
+```
+
+（第二条是首次 `connect()` 时窗口尚未创建 —— 因为 GPU 崩了窗口没建出来。
+这两条日志也促使我把重连日志从「中继断开」改成带原因，否则会误导排查方向。）
+
+**⇒ 真端到端必须在沙箱外运行**（用户自己在终端执行 §12.5 阶段 0 的三步）。
+
+### 两个顺带修掉的问题
+
+1. **重连日志缺原因**：原先一律打「中继断开」，而启动早期窗口未就绪也会走到该分支。
+   已改为 `中继将在 <delay>ms 后重连（<原因>）`。
+2. **模块依赖 electron 导致无法单测**：`MessageChannelMain` 是值导入，纯 Node 里导入本模块会失败。
+   已改为**注入** `createChannel`（与 `desktopRemoteSessions.ts` 的
+   `options.createMessageChannel` 同一惯例），模块现在完全不依赖 electron，
+   由 `main/index.ts` 传入 `() => new MessageChannelMain()`。
+
+### 运行接缝测试
+
+```bash
+cd packages/desktop
+node --import tsx --test tests/remote-relay-client.test.mjs
+```
+
+（该文件已被 `pnpm --filter @zcode/desktop test` 的 `tests/*.test.mjs` glob 覆盖。）
+
+---
+
+## 13. 官方 `/remote/v4` 云 relay 的真实实现（逆向官方 asar 得到）
+
+用户指出了官方实现的关键性质（**全出站 + 云转发，桌面不起任何服务**），
+并在官方 asar（`/Applications/ZCode.app/Contents/Resources/app.asar`，3.14.4）里逐条得到验证。
+本节记录**已核实的实现细节**，用于与 §3/§9 的自建方案对照。
+
+### 13.1 实现本体
+
+模块日志前缀 `[web-remote-control]`，含 `external relay device connecting` 等日志。
+
+```js
+// 连接：relay URL 上带 mid 查询参数 + X-Device-ID 头
+let t = new URL(this.options.relayWsUrl);
+t.searchParams.set("mid", this.options.deviceMid);
+let r = new ll(t.toString(), {
+  perMessageDeflate: true,
+  headers: { "X-Device-ID": this.options.deviceMid },
+});
+r.on("open", () => {
+  if (this.activeAuth.mode === "register") {
+    this.setState("registering");
+    this.send({ type: "device_register_init", ... });
+  }
+});
+```
+
+### 13.2 relay 地址怎么来 —— **和 API 同源**
+
+```js
+a = new URL(endpointOrigin);
+i = `${a.protocol === "https:" ? "wss:" : "ws:"}//${a.host}`;
+c = MA(appVersion) ? "v4" : "v3";
+return {
+  origin: endpointOrigin,
+  apiBaseUrl: `${origin}/api/v1`,
+  remoteUrl: `${origin}/remote/${c}`,   // ← 链接里的 /remote/v4
+  relayWsUrl: `${i}/ws`,                // ← relay 就在 <origin>/ws
+  ...
+};
+```
+
+⇒ **官方 relay 就是 `wss://<endpointOrigin>/ws`**，与 API 同域同端口、不同路径。
+这也解释了我早前「`/remote/v4` 路由不在源码」的观察：它由 endpointOrigin + 版本号**推导**，
+不是硬编码路由。
+
+### 13.3 relay 应用层协议（5 种消息）
+
+从 asar 提取到的 `type` 字面量：
+
+| 消息 | 作用 |
+| --- | --- |
+| `auth_init` | 设备与云端开始互相认证 |
+| `auth_response` | 认证响应（配合持久化的 `deviceSid` + `passHash`） |
+| `device_register_init` | 把设备注册成一个待配对房间 |
+| `pair_status_query` | 查询配对状态（对应 `lastPairStatusAckAt`） |
+| `warning` | 服务端下行告警 |
+
+⇒ **官方 relay 不是哑管道**：配对、鉴权、房间路由都在 relay 侧完成。
+
+### 13.4 认证与配对模型
+
+- 持久化凭据：`authStorageProvider.load()` → `{ deviceSid, passHash }`
+- 注册后进入 **"QR-ready"** 状态；超时文案：
+  `"External relay device did not reach QR-ready state before timeout."`
+- 上报设备元信息 `meta: { platform, version, name }`，`name` = hostname
+  ⇒ 对应链接里的 `name=macmini.local`
+- 存在 `createQrUrl` —— 二维码/链接生成
+- 连接状态机 `connecting` → `registering` →（QR-ready），含
+  `connectAttempt` / `socketGeneration` / `connectStartedAt` 与重连定时器
+
+### 13.5 链接参数与实现的对应（交叉验证）
+
+| 参数 | 官方实现中的来源 | 此前的独立验证 |
+| --- | --- | --- |
+| `mid` | `options.deviceMid`（同时进查询参数与 `X-Device-ID`） | 与 `~/.zcode/v2/telemetry-state.json` 的 `deviceMid` **逐位一致** ✅ |
+| `name` | `meta.name` = hostname | 与本机 `hostname` 一致 ✅ |
+| `t` | 签发时间戳 | 解码为 2026-09-30 12:55:15 ✅ |
+| `hash` | 服务端签名（防伪造） | 实测 **32 字节 base64** —— 与 HMAC-SHA256 长度吻合，**支持「签名」读法** ✅ |
+| `sid` | 云端签发的配对房间号 | `d_` 前缀 + 16 字节 ✅ |
+| `app_version` | `meta.version` | 与 ZCode.app 版本一致 ✅ |
+
+### 13.6 ⭐ 官方 App 支持指向自建 relay（对项目有直接价值）
+
+```js
+IP = process.env.ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL?.trim(),
+EP = process.env.ZCODE_WEB_REMOTE_CONTROL_URL?.trim();
+relayWsUrl: ic({ endpointOrigin, overrideUrl: IP }),
+remoteUrl:  EP || mV.remoteUrl,
+```
+
+| 环境变量 | 作用 |
+| --- | --- |
+| `ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` | **覆盖 relay 地址** |
+| `ZCODE_WEB_REMOTE_CONTROL_URL` | 覆盖 `/remote/v4` 页面地址 |
+
+ZCodium 是同一代码库的 fork：**`packages/web/src/env.d.ts:17` 已声明
+`VITE_ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` 但源码零引用**（上游残留）；
+`packages/shared/src/officialPlatformPolicy.ts:190` 也已把 `/api/v1/remote-control` 登记进白名单。
+
+⇒ **存在两条自建路线**：
+
+| | 路线 A（本 spec 已实现） | 路线 B（贴官方） |
+| --- | --- | --- |
+| relay | 自建，**纯字节转发** | 自建，**实现官方 5 种消息的协议** |
+| 桌面侧 | 新增出站桥（复用 `AttachServicePort`） | 复用官方 Main 的出站桥 |
+| 手机侧 | 现有 web bundle（VPS 托管） | **官方 SPA** 或 ZCodium web bundle |
+| 配对 | `RELAY_TOKEN` cookie | `sid` 房间 + `hash` 签名 + `t` 时效 |
+| 多房间 / 多设备 | ❌ 单 host 单 client | ✅ |
+| 能否复用官方 App | ❌ | ✅（`ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL`） |
+| 工作量 | ~290 行（**已完成**） | 需复刻 4 种消息的完整语义，量级大得多 |
+
+**结论**：若目标只是自己用，路线 A 已足够（且已独立验证）。
+若希望复用官方 App 的远控 UI、或支持多设备/多链接共存，路线 B 价值更高——
+协议消息名与 env 覆盖点都已明确，可行性可进一步挖。
+
+---
+
+## 14. 路线 B 的完整协议（已还原）与成本重估
+
+> 来源：桌面侧从官方 asar 逆向（`[web-remote-control]` 模块 + `createNodeWebRemoteControlRelayAuthProvider`），
+> 手机侧从社区 fork `jchanghong023/zcode-mobile` 的 `packages/web/src/remote-v4/`（1315 行）。
+> **本节不记录任何凭据值。**
+
+### 14.1 控制面：8 种消息（已全部确认）
+
+```text
+桌面 → relay   {type:"device_register_init", device_mid, pass_hash, meta, client_ts}
+relay → 桌面   {type:"device_register_ack", device_sid}
+双方 → relay   {type:"auth_init", role:"device"|"terminal", device_sid, meta, client_ts}
+relay → 对端   {type:"auth_challenge", nonce}
+双方 → relay   {type:"auth_response", device_sid, proof, client_ts}
+relay → 对端   {type:"auth_ack", pair_status}
+桌面 → relay   {type:"pair_status_query", device_sid, client_ts}   // 心跳
+relay → 对端   {type:"pair_status_ack", pair_status}
+relay → 对端   {type:"error", code, message}
+```
+
+- **`pair_status` 取值**：至少 `"waiting"` 与 `"matched"`（`matched` = 配对成功）
+- **心跳**：`pair_status_query` 每 `heartbeatIntervalMs ?? 10_000` 带 jitter 发送，
+  并有 `armHeartbeatAckWatchdog()` 期待 ack；连续 stale 会触发恢复
+- **状态机**：`idle → connecting → authenticating → registering → paired → waiting_terminal → error`
+- 角色区分：桌面 `role:"device"`，手机 `role:"terminal"`
+
+### 14.2 鉴权算法（完全可复现，仅 3 行）
+
+```js
+createPassword: () => randomBytes(24).toString("base64url")          // 设备口令
+createPassHash: (pw) => sha256(pw).digest("base64")                   // 注册时上传
+calculateProof: (key, nonce, role, sid) =>
+  HMAC_SHA256(key, `${nonce}|${role}|${sid}`).digest("base64url")     // challenge-response
+```
+
+| 端 | HMAC key | role | sid |
+| --- | --- | --- | --- |
+| 桌面（device） | 持久化的 `passHash` | `"device"` | `deviceSid` |
+| 手机（terminal） | **链接里的 `hash` 参数** | `"terminal"` | 链接里的 `sid` |
+
+⇒ **`hash` 的双重身份**：它既是链接的防伪造签名（§13.5），
+**同时也是手机端做 challenge-response 的 HMAC 密钥**。这解释了为什么它是 32 字节。
+
+- 凭据落盘：`deviceSid` 存在设置的 `webRemoteControlExternalRelayDevice`；
+  `passHash` 存在 credentialService 的 key `web-remote-control:external-relay:pass_hash`
+- 官方**刻意不打印完整凭据**：`safeAuthLogFields()` 只输出 `hasDeviceSid` 与
+  `deviceSidSuffix`（后 6 位）。**自建实现必须照做。**
+
+### 14.3 ⚠ 数据面是**独立的 JSON 信封协议**，不是裸 `SocketProtocol`
+
+这是路线 B 成本的关键。官方远控的数据面：
+
+```js
+{type:"data", payload:{ zcode_type:"bootstrap-request",  requestId }}
+{type:"data", payload:{ zcode_type:"bootstrap-response", requestId, ... }}
+{type:"data", payload:{ zcode_type:"workspace-bridge-open", ... }}
+{type:"data", payload:{ zcode_type:"workspace-bridge-ready", bridge }}
+{type:"data", payload:{ zcode_type:"rpc-frame", ... }}
+{type:"data", payload:{ zcode_type:"rpc-frame-ack", ... }}
+```
+
+- 有 `bootstrap-request` → `bootstrap-response` 的**首轮握手**
+- 有 `workspace-bridge-open` → `workspace-bridge-ready` 的**工作区桥建立**
+- `rpc-frame` / `rpc-frame-ack` 自带 **ack 与 `replayUnacknowledged()` 重放**
+- 桌面包里还有 `bridgeSessionId` / `bridgeGeneration` / `recoveryId` 的恢复语义
+  （`createWebRemoteControlManager` 内）
+
+⇒ **官方远控的传输层与桌面内部的 `SocketProtocol`（MessagePort / 13B 帧头）
+完全是两套东西**，中间需要一层翻译。
+
+### 14.4 成本重估（推翻 §13.6 的乐观估计）
+
+| 部分 | 难度 | 说明 |
+| --- | --- | --- |
+| relay 控制面 | **中** | 8 种消息 + 房间路由；鉴权只有 3 行 crypto，不难 |
+| relay 数据面 | **小** | `type:"data"` 的信封转发 + `seq` |
+| **桌面侧数据面适配** | **大** | 要把 Host 的 `SocketProtocol`/MessagePort 世界翻译成 JSON 信封 + bootstrap + workspace-bridge + ack/replay + recoveryId |
+| 手机侧 | **中** | 必须用**官方 SPA**；或移植 fork 的 `remote-v4/`（1315 行，含 `connection.ts` 356 / `frame.ts` 346 / `MobileRemoteApp.tsx` 413） |
+
+**关键结论**：路线 B 的成本**不在 relay**（那部分不难），而在
+**两端的数据面适配**——因为官方远控跑的是一套独立的 JSON 信封协议。
+
+⇒ **反过来也解释了路线 A 为什么只要 ~290 行**：它**复用了同一套 `SocketProtocol`**，
+把整个信封层绕过去了（中继只搬字节，Host 直接对端）。
+
+### 14.5 A 与 B 不能混搭
+
+| 组合 | 可行？ |
+| --- | --- |
+| A 的 relay（字节管道）+ ZCodium 现有 web bundle | ✅ **已实现并验证** |
+| A 的 relay + 官方 SPA | ❌ 官方 SPA 说 JSON 信封，A 的管道只搬 `SocketProtocol` 帧 |
+| B 的 relay + 官方 App / 官方 SPA | ✅（但需完整实现 §14.1–14.3） |
+| B 的 relay + ZCodium 现有 web bundle | ❌ 同上，帧格式不同 |
+
+⇒ **两条路线是两套独立技术栈，必须整体选一条。**
+
+### 14.6 建议
+
+| 你的目标 | 选 |
+| --- | --- |
+| 自己远程用，尽快可用 | **A**（已完成，只差端到端验证） |
+| 想复用官方 App 当客户端 | **B**（`ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL` 已确认可用） |
+| 要多设备 / 多链接 / 链接时效与撤销 | **B** |
+| 要最小维护面 | **A**（290 行 vs 需复刻一整套信封协议） |
+
+**如果选 B**，最省力的切入点是**先只做控制面**（§14.1 + §14.2），
+用官方 App 验证到 `pair_status:"matched"`——这一步能证明 relay 侧协议正确，
+且不涉及最贵的数据面适配。数据面（§14.3）留作第二阶段。
+
+### 14.7 ✅ 控制面已实现并验证（13/13 通过）
+
+实现：`deploy/vps-relay/relay-official.mjs`（仅控制面：注册 / 鉴权 / 配对 / 心跳 / `data` 信封转发）。
+
+验证方式：写了一个**模拟客户端**（同时扮演官方 device 与 terminal），
+用 §14.2 的算法自行计算 proof —— 若协议还原有误，鉴权必然失败。
+
+| # | 用例 | 结果 |
+| --- | --- | --- |
+| 1 | `device_register_init` → `device_register_ack` 返回 `device_sid` | ✅ |
+| 2 | `auth_init(device)` → `auth_challenge` 带 `nonce` | ✅ |
+| 3 | device 用 `passHash` 算 proof → `auth_ack`（`waiting`） | ✅ |
+| 4 | 链接含 `sid/hash/t/mid/name/app_version`，且 `sid === device_sid` | ✅ |
+| 5 | terminal 用**链接里的 `hash`** 算 proof → `auth_ack` | ✅ |
+| 6 | 配对成功 → device 收到 `pair_status:"matched"` | ✅ |
+| 7 | `pair_status_query` → `pair_status_ack` | ✅ |
+| 8 | `data` 信封 device → terminal 原样转发 | ✅ |
+| 9 | `data` 信封 terminal → device 原样转发 | ✅ |
+| 10 | 错误 proof → `error(auth_failed)` | ✅ |
+| 11 | 同房间第二个 terminal（首个仍在线）→ `error(terminal_busy)` | ✅ |
+| 12 | 未绑定房间就发 `data` → `error(sid_invalid)` | ✅ |
+| 13 | 未知 `device_sid` → `error(sid_invalid)` | ✅ |
+
+**⇒ §14.1 / §14.2 的协议还原被证实正确。** 剩下的只有 §14.3 的数据面适配。
+
+#### 实现中发现的语义细节（测试时暴露出来的）
+
+1. **单 terminal 是「同时在线」语义，不是「曾经连过」**：第一个 terminal 断开后，
+   第二个可以正常接入。测试第一版误以为是一次性占用。
+2. **`auth_ack` 与 `pair_status_ack` 会重复投递**：鉴权成功后服务端先回 `auth_ack`，
+   再广播一次 `pair_status_ack`；两端状态相同时 `broadcastPairStatus` 仍会推一条。
+   官方客户端把两者放在同一个 `case` 里处理（`case "auth_ack": case "pair_status_ack":`），
+   所以这是**设计内**的冗余，不是 bug。但**客户端实现必须把队列里的旧 `pair_status` 排掉**，
+   否则会读到过期的 `waiting`。
+3. **自建时踩到并修掉的一个真 bug**：`socket.__room = room` 若写在准入检查**之前**，
+   被 `terminal_busy` 拒绝的连接也会绑定房间；它断开时会在 close 里改动房间状态并
+   **广播一条假的 `pair_status:"matched"`**。修法：绑定必须放在所有准入检查之后。
+   （这是读日志发现的，不是靠类型检查。）
+
+#### 仍未验证的部分
+
+- **`auth_challenge` 的 `nonce` 长度/来源**：本实现用 32 字节随机，官方未从 asar 中确认具体长度。
+  只要两端都按「原样回传 nonce 参与 HMAC」处理，长度不影响互通。
+- **数据面**（`bootstrap-*` / `workspace-bridge-*` / `rpc-frame-ack`）：未实现、未验证。
+- **与官方 App 的真实互通**：未做（需要重启用户的桌面 App 并设置
+  `ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL`）。这是把「协议正确」升级为「与官方互通」的最后一环。
+
+---
+
 # 12. 落地实现方案（最终交付形态）
 
 > §1–§11 是设计依据与选型论证；本节是可执行的落地计划。
@@ -513,7 +869,7 @@ Web bundle 连上转发器。全程不改协议、不改 Host、不改手机。*
 
 | 模块 | 位置 | 职责 | 规模 |
 | --- | --- | --- | --- |
-| `relay.mjs` | `deploy/vps-relay/relay.mjs`（新增，VPS 侧） | 静态托管 + `/api/server-info` + `/ws`↔`/host` 配对与逐字节转发 | ~140 行 |
+| `relay.mjs` | `deploy/vps-relay/relay.mjs`（新增，VPS 侧） | 静态托管 + `/api/server-info` + `/ws`↔`/host` 配对与逐字节转发 + 配对前 host 帧的有界缓冲回放（§12.3.1） | ~140 行 |
 | 部署物 | `deploy/vps-relay/{Dockerfile,docker-compose.yml,Caddyfile,README.md}` | 一键部署 + 自动 TLS + 运维手册 | — |
 | `remoteRelayClient` | `packages/desktop/src/main/remoteRelayClient.ts`（新增） | 出站连接、**帧格式转码桥**、attach、心跳与重连 | ~130 行 |
 | 接线 | `packages/desktop/src/main/index.ts`（修改） | 读 env、注入依赖、启动 client | ~15 行 |
@@ -558,19 +914,119 @@ Web bundle 连上转发器。全程不改协议、不改 Host、不改手机。*
              └─ relay 返回缓存的工作区（来自桌面的 /api/host-report）
                  └─ 连 wss://<vps>/ws（带 cookie）
                      └─ relay 校验 cookie → 与已连接的 host 配对
-                         └─ 此后 relay 逐字节双向转发
-                             └─ 手机 UI 看到的是【桌面 Host 的服务面】：
-                                任务列表、会话历史、终端、文件、Git
+                         └─ relay 先回放配对前的 host 帧缓冲（见 §12.3.1）
+                             └─ 此后 relay 逐字节双向转发
+                                 └─ 手机 UI 看到的是【桌面 Host 的服务面】：
+                                    任务列表、会话历史、终端、文件、Git
 ```
+
+### 12.3.1 Initialize 握手帧与配对时序（必须缓冲，否则手机白屏）
+
+RPC 层的启动顺序是**非对称的**：`ChannelServer`（Host 侧）构造时立即发出 `Initialize`
+帧（`packages/rpc/src/channelServer.ts`，`deferInit=false`），而 `ChannelClient`
+（手机侧）必须**先收到 `Initialize` 才会发出任何请求**（`whenInitialized()` 门控）。
+
+relay attachment 走的是 `deferInit=false` 路径（Host 日志
+`creating ChannelServer (deferInit=false)`），于是存在一个无法靠桌面侧消除的时序竞争：
+
+```text
+桌面连上 relay → attach → Host 构造 ChannelServer → 立即发 Initialize
+                    ↓
+        此刻手机多半还没打开页面 → relay 无可转发对象 → 帧被丢弃
+                    ↓
+手机稍后配对 → ChannelClient 停在 Uninitialized → 永远等 Initialize
+        ⇒ 一个 RPC 都不发、无任何报错 ⇒ 渲染空 RootShell（白屏）
+```
+
+正常使用顺序恰恰就是「桌面先在线、手机后打开」，所以**必须在 relay 侧修复**：
+
+| 规则 | 说明 |
+| --- | --- |
+| 缓冲 | host 在**无手机配对期间**发出的帧进入有界缓冲（32 帧 / 1 MiB，超限丢最旧） |
+| 回放 | 手机配对成功时**先回放缓冲**，再挂活转发；Initialize 对新 ChannelClient 恰是所需语义 |
+| 清空 | host 断开/被顶替时清空缓冲（旧连接的帧不再有意义，新 attach 会重发 Initialize） |
+| 宽限等待 | 手机连上 `/ws` 时若 host 暂时缺位，**等待 `HOST_WAIT_GRACE_MS`（默认 5s，env 可调）**而不是立刻 4002；期间 host 回来即正常配对并回放 Initialize |
+| 只配 OPEN 的 host | `tryPair()` 必须校验 `hostSocket.readyState === OPEN`。host 已发出 close、但 close 握手尚未走完（CLOSING）期间，手机连接要进入宽限等待，**不得**配给这个垂死连接（否则新页面会被连坐 4002 秒杀，见下节「残留竞态 3」） |
+| 宽限到期重判 | 宽限定时器到期时**重新判断 host 是否已就绪**：就绪则补配对，确实仍无 host 才回 4002。否则「host 已回来但配对被跳过」会让客户端既不被服务也不被拒绝，形成新的静默白屏 |
+| host 顶替摘监听 | 新 host 拨入时，先 `pipe().dispose()` **摘掉旧 pair 的全部监听**（不关任何 socket）再与新 host 配对：旧 host 稍后的 close 不得连坐关掉正被新 host 服务的手机端。注意与「手机端顶替」不对称——那条路径必须让 host 换代（连坐保持不变），新页面才有属于它的 Initialize |
+| 快速补位 | 桌面收到 close **4003**（手机离线连坐，属预期事件）时以固定 100ms 立即重连，**不走指数退避**——退避留给真实故障（网络/密钥/服务不可用，4001/4002/1006 等） |
+| 不改协议 | 仍然逐字节搬运，relay 不解析帧内容；未知 id 的旧广播帧被 ChannelClient 静默忽略（`handlers.get(id)?.()`），回放无害 |
+
+### 刷新白屏（第二个时序竞争，与上表同源）
+
+单配对 + 连坐设计意味着**每次手机刷新都会杀掉 host 连接**（旧 WS 断 → pipe shutdown →
+host 关闭），桌面重连前存在空窗。修复前空窗 ≈ 1.1s（1s 退避 + 建连），新页面的 WS 撞进
+空窗会被 relay 以 4002 秒踢；而当时的 `connectViaWebSocket`
+（`packages/client/src/websocket.ts`）在 WS `open` 即 resolve（`settled = true`，之后到达的
+4002 只走 no-op `onClose`），bootstrap 误判成功 → 渲染空 RootShell 白屏、无任何报错。
+
+修复 = 上表两条：**快速补位**把空窗压到 ~0.1s，刷新撞窗概率趋近于零；**宽限等待**兜住
+仍撞窗的连接——host 回来后照样收到回放的 Initialize，无需页面重试。
+
+残留缺口（**已修**，2026-09-30）：宽限到期仍回 4002 时，页面曾因 resolve-on-open 语义白屏
+而非错误提示页。现在 `connectViaWebSocket` 以「收到服务端 `Initialize`」为交付点，
+close/超时都 reject，`bootstrapWebApp` 渲染「Web 启动失败 + Retry」错误页
+（契约见 `docs/spec/web-bootstrap-delivery-point.md`）。
+⚠ 这是 **web bundle 侧**的改动：relay 托管的 `packages/web/dist` 必须重新构建后才生效。
+
+反面结论（为什么不走别的路）：桌面侧延迟 attach 需要 relay 新增「client 已配对」控制信令，
+deferInit + `ready()` 触发需要新增 Main→Host 协议消息——都扩大协议面；缓冲是唯一
+**桌面、Host、协议零改动**的修复。
+
+#### 残留竞态 3（已修）：与「正在关闭」的 host 配对，新页面被连坐秒杀
+
+`pipe()` 的连坐是**异步**的：手机端 WS 关闭后 relay 立即对 host 调 `close(4003)`，但 host
+侧的 `close` 事件要等 close 握手完成（WAN 上一个 RTT，本机 ~1ms）。这段窗口里 `hostSocket`
+仍是那个 **CLOSING** 的 socket：
+
+```text
+手机刷新（连坐路径）:
+t0  旧 client close → clearPair() → pipe shutdown(4003) 关闭 host（已发出 close 帧）
+    └─ hostSocket 仍指向旧 socket，readyState = CLOSING（等对端回 close 帧：WAN 一个 RTT）
+t1  新页面 /ws 到达
+    └─ 修复前 tryPair() 只判断「hostSocket 是否存在」⇒ 与新 client 建 pipe
+t2  旧 host 的 close 事件到达 → 新 pipe 的 a.on("close") → shutdown(4002, host-offline)
+    ⇒ 刚连上的新页面被连坐关闭
+    ⇒ web 端 `connectViaWebSocket` 已在 open 时 resolve ⇒ 空壳白屏且不重试
+```
+
+⇒ 规则见 §12.3.1 表的「只配 OPEN 的 host」与「宽限到期重判」两行。两条规则都不改协议、
+不改桌面侧，只在 relay 的配对准入上收紧。
+
+#### 运维不变式：改 `relay.mjs` / 桌面 Main 必须重启对应进程
+
+本次现象（`http://127.0.0.1:3180/` 刷新一次空白、再刷一次出界面）的实测放大器就是**进程在跑旧代码**：
+
+| 进程 | 启动时间 | 源码/产物时间 | 后果 |
+| --- | --- | --- | --- |
+| relay | 23:12:09 | `relay.mjs` 23:40:10 | 宽限等待逻辑未加载 ⇒ 缺位窗口内到达的手机连接被立刻 4002 |
+| 桌面 Main | 22:35:59 | `remoteRelayClient.ts` / `out/main/index.js` 23:40:42 | 快速补位未加载，4003 后仍按 1s 退避重连（tsup watch 只重建 bundle，Electron 主进程不重载） |
+
+日志特征：62 次 `client connected` 中 30 次在**同毫秒**被断开，且从未出现
+`host offline; holding client for up to …`。⇒ relay 与桌面 Main 的改动都**必须重启进程**才生效；
+排查任何「源码已修但现象不变」时先比对进程启动时间与文件 mtime。
+
+#### 验收场景
+
+| 场景 | 期望 | 测试 |
+| --- | --- | --- |
+| 桌面先在线、手机后开 | 回放缓冲的 Initialize，之后双向转发 | `vps-relay-forward.test.mjs` 用例 1 |
+| 刷新撞进 host 缺位窗口 | 宽限内等待，host 回来即配对并收到 Initialize | 用例 2 |
+| host 真离线 | 宽限到期回明确 4002，不静默卡死 | 用例 3 |
+| 新页面到达时 host 正在关闭（CLOSING） | **不**与新页面配对、不秒杀；host 回来后正常配对服务 | 用例 4 |
+| host 在旧连接未断开时拨入（顶替） | 手机端存活并继续被新 host 服务（双向转发成立）；旧 host 关闭无副作用 | 用例 5 |
+| relay 配对重定向 | 只摘 `token`，保留 `autoReconnect` 等参数 | 用例 6 |
+| 一侧不回 pong（僵尸连接） | 超过 `IDLE_TIMEOUT_MS` 被关闭并记日志；会自动回 pong 的健康连接不被误关 | 用例 7 |
+
 
 ### 断开与恢复
 
 | 事件 | 行为 |
 | --- | --- |
 | 桌面 WS 断开 | relay 以明确 close code 关闭手机侧 → 手机 UI 提示「桌面离线」，不静默卡死 |
-| 桌面重连 | client 先 `DetachServicePort`（旧 attachmentId）释放旧 attachment → 重新 attach（**新 attachmentId**，避免撞上 §12.2 的 `previous` 处置逻辑） |
-| 手机断网/锁屏 | 重连 `/ws` → 走 `replayable` 档的 snapshot + gap repair（协议已支持，无需新代码） |
-| 心跳 | client 每 30s 发 WS ping；relay 60s 无活动则关闭该侧 |
+| 桌面重连 | 复用**稳定 attachmentId** 重新 attach（`windowHostAttachmentRegistry` 对同一 id 原子替换前一个，无需显式 DetachServicePort） |
+| 手机断网/锁屏 | 重连 `/ws` → 重新配对 → 回放最新一轮 host 帧缓冲（含新 attach 的 Initialize）→ 走 `replayable` 档的 snapshot + gap repair（协议已支持，无需新代码） |
+| 心跳与空闲回收 | relay 每 `HEARTBEAT_INTERVAL_MS`（默认 30s）ping **两侧**；一侧超过 `IDLE_TIMEOUT_MS`（默认 60s）没有任何活动（消息/ping/pong）即视为僵尸连接（手机被回收、桌面卡死、网络半开）并关闭：host 用 4003（桌面侧快速补位 100ms），client 用 4000。两端都按 RFC 自动回 pong，所以「空闲但健康」的连接不会被误关（`vps-relay-forward.test.mjs` 用例 7） |
 
 ## 12.4 关键接口契约
 
@@ -582,11 +1038,13 @@ Web bundle 连上转发器。全程不改协议、不改 Host、不改手机。*
 | `GET /api/server-info` | 手机 → relay | 无 | 返回桌面通过 `/api/host-report` 上报的 `ServerRemoteInfo` 形状 |
 | `POST /api/host-report` | 桌面 → relay | `HOST_SECRET` | 上报 `{ workspacePath, workspaceIdentity, hostLabel }` |
 | `GET /ws`（upgrade） | 手机 → relay | `zcode_lite_token` cookie | 与当前 host 配对，**逐字节转发** |
-| `GET /host`（upgrade） | 桌面 → relay | `HOST_SECRET` | 注册为**唯一** host（已有连接则拒绝或顶替，需定） |
+| `GET /host`（upgrade） | 桌面 → relay | `HOST_SECRET` | 注册为**唯一** host：已有连接时以 4001 `host-replaced` 顶替（`onHostOpen`） |
 
 ### 环境变量
 
-**relay（VPS）**：`PORT`、`RELAY_TOKEN`（手机配对码）、`HOST_SECRET`（桌面密钥）、`WEB_ROOT`
+**relay（VPS）**：`PORT`、`RELAY_TOKEN`（手机配对码）、`HOST_SECRET`（桌面密钥）、`WEB_ROOT`、
+`HOST_WAIT_GRACE_MS`（host 缺位时手机等待宽限，默认 5000，见 §12.3.1）、
+`HEARTBEAT_INTERVAL_MS`（心跳间隔，默认 30000）、`IDLE_TIMEOUT_MS`（空闲回收阈值，默认 60000）
 **桌面**：`ZCODE_REMOTE_RELAY_URL`（如 `wss://vps.example`）、
 `ZCODE_REMOTE_RELAY_HOST_SECRET`、`ZCODE_REMOTE_RELAY_WINDOW`（可选，缺省跟随 focused window）
 
@@ -654,3 +1112,83 @@ Web bundle 连上转发器。全程不改协议、不改 Host、不改手机。*
     桌面本地 UI 功能不受影响（`windowHostAttachmentRegistry.size()` ≥ 2）。
 11. **桌面离线有明确提示**：关闭桌面 App → 手机侧提示「桌面离线」，不静默卡死。
 12. **回归**：`pnpm typecheck`、`pnpm lint`、`pnpm architecture:check --changed` 全绿。
+13. **握手时序**（§12.3.1）：桌面先连、手机后开的正常顺序下，手机配对后必须能完成
+    RPC 初始化（收到回放的 Initialize）并渲染出工作区 UI，而不是白屏；
+    桌面重连/手机刷新任意顺序组合均成立。
+
+## 15. 官方 UI 触发链路逆向（为什么官方不需要任何配置）
+
+用户视角：打开 App → UI 里点「远程访问」→ 直接拿到移动端链接。逆向确认的实现：
+
+### 15.1 关键 API（Main 进程 `[web-remote-control]` 模块导出面）
+
+```js
+{
+  authorizeStart(windowId, workspace),        // → 一次性令牌 {token, expiresAt, windowId, workspaceKey}
+  startAuthorized(windowId, workspace, {token}), // 校验令牌（单次有效）→ start()
+  start(windowId, {workspacePath, remoteSessionId}),
+  resetPairing(windowId, {reason:"leaked-qr"}),  // 链接泄漏 → 清除持久化身份并重新注册
+  getStatus(windowId),                        // → {status:"idle"|...} 供 UI 轮询
+  createQrUrl(windowId, workspace, theme),    // → 拼链接，hash 用 passHash + 新 timestamp 现算
+}
+```
+
+### 15.2 流程
+
+1. **身份自举（仅首次）**：Main 生成 `password=randomBytes(24).base64url`、`passHash=sha256(password)`，
+   连**内置云 relay**（`wss://<账户端点>/ws`）发 `device_register_init` → 得 `device_sid`，
+   `{deviceSid, passHash}` 持久化到 authStorage。
+2. **UI 触发**：renderer 先 `authorizeStart` 拿**一次性令牌**（绑定 windowId + workspaceKey，过期作废），
+   再 `startAuthorized` 换取真正启动 —— 防渲染进程静默启动/重复启动。
+3. **链接生成**：`createQrUrl` 用持久化的 `passHash` + **新鲜的 `timestamp`** 现算 `hash` 参数，
+   拼 `https://<origin>/remote/v4?sid=&hash=&t=&mid=&name=&app_version=&theme=` → UI 展示二维码/链接。
+4. **状态回传**：`mapTransportState` 把传输层状态映射为 UI 状态；失败带
+   `{result:"failure", pairKind:"reconnect"|"initial", errorCategory:"relay"}`。
+5. **吊销**：`resetPairing("leaked-qr")` 重新生成身份 ⇒ 所有旧链接立即失效。
+6. **门控**：`featureGate.assertEnabled()`（构建/服务端开关），`getStatus` 在未启用时返回
+   `idle + unsupported-action`。
+
+### 15.3 官方「零配置」的三个来源
+
+| 来源 | 说明 |
+|---|---|
+| relay 端点**内置** | 从账户端点推导 `wss://<origin>/ws`，无需用户填 |
+| 身份**自动生成并持久化** | 首次注册后永久复用，无需用户输入 |
+| 链接**按需现算** | 每次点击都生成新 `t`/`hash`，无需预配置 |
+
+⇒ 我们要复刻这个 UX，差的不是协议（§14 已还原），是 **Main 侧 IPC 面板 + 渲染层入口**。
+
+### 15.4 映射到 ZCodium 的实现清单
+
+| 官方组件 | ZCodium 对应 | 工作量 |
+|---|---|---|
+| authorizeStart/startAuthorized 一次性令牌 | 新增 IPC handlers（~60 行） | 小 |
+| start/stop/getStatus | `remoteRelayClient` 已有 start/stop/state，补 IPC 暴露（~40 行） | 小 |
+| 内置端点 | 自建 relay 地址 → **配置文件** `~/.zcode/v2/remote-relay.json`（或 UI 输入一次） | 小 |
+| createQrUrl（sid/hash/t 签名链接） | 简化版：`https://<vps>/?token=RELAY_TOKEN&autoReconnect=1`（relay 已实现 cookie 配对，并保留非 token 参数）；后续可升级为签名链接 | 小 |
+| resetPairing | 清空设置页的「配对码」并保存 → 下一次读取自动重新生成（`remoteRelayControlIpc.ensurePairingToken`），再把新值填到 relay 的 `RELAY_TOKEN` | — |
+| **配对码来源** | **自动生成**：配置文件缺失 `pairingToken` 时由 Main 生成 24 字节 base64url 并落盘（避免出现 `devtoken` 这类全局弱口令）。UI 里可直接看到/复制 | 小 |
+| **公开地址** | 与中继地址**通常是同一主机的不同协议**（桌面 WS 拨出 / 手机 HTTP 访问），因此缺省由中继地址推导：`deriveRemoteRelayPublicUrl`（`@zcode/shared`，`ws→http` / `wss→https`，主进程与 UI 共用同一实现）。设置页默认只显示「中继地址」，仅当同源推导不成立（反向代理、端口映射、内网拨入）时才打开「公开地址与中继地址不同」覆盖项 | 小 |
+| **UI 入口** | 设置页「远程访问」：状态 + 启停 + 链接/复制；其余配置收进默认折叠的「高级设置」（中继地址/密钥/公开地址/配对码/工作区/自启动） | 中 |
+
+⇒ 总量 ~300 行，其中唯一的新东西是渲染层 UI；协议、relay、桌面客户端全部已就绪。
+
+### 15.5 ⚠ 已知坑：`remoteRelaySetConfig` 是**单个请求对象**
+
+`IPlatformService.remoteRelaySetConfig(request: RemoteRelaySetConfigRequest)` 的契约是
+**一个** `{ config, apply }` 对象。preload 曾把它写成 `(config, apply?)` 并再次包一层，
+渲染层透传整个请求时 `config` 就变成了信封本身 —— 一次「保存并应用」把
+`{ config: {...}, apply: true }` 写进了 `~/.zcode/v2/remote-relay.json`，
+App 重启后读不到 `url`、中继客户端根本不会启动（表现为「莫名掉线且设置页全空」）。
+
+修复（三层，缺一不可）：
+
+| 层 | 做法 |
+| --- | --- |
+| preload | 签名改回 `(request: RemoteRelaySetConfigRequest)`，原样透传 |
+| Main 校验 | 白名单字段校验（`packages/desktop/src/main/remoteRelayConfigPayload.ts`）：出现未知字段（尤其嵌套 `config`）**直接报错**，让这类签名错误在写入前失败，而不是静默写坏配置 |
+| 读取兜底 | `readConfigFile` 识别历史信封形状 → 还原成扁平配置并立刻修回文件（日志一条 warn） |
+
+回归测试：`packages/desktop/tests/remote-relay-config-payload.test.mjs`（信封 payload 必被拒 + 坏文件可还原）。
+⇒ 分享链接默认带 `autoReconnect=1`（手机断线自动整页重载恢复）；默认行为仍是「只提示 + 一键重连」，
+开关语义见 `docs/spec/web-bootstrap-delivery-point.md` §2.4。
