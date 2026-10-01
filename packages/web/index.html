@@ -147,6 +147,88 @@
         color: #ffffff;
       }
     </style>
+    <script>
+      /*
+       * 启动失败自诊断（整段刻意写成 ES5：连不支持的浏览器也要能运行）。
+       *
+       * 为什么需要：打包产物用到 `class static {}` 与 Tailwind v4 的 `@property`，下限是
+       * iOS/Safari 16.4；更低版本会在**解析阶段**失败 —— React 永不挂载，页面永远停在
+       * loading logo，用户和排查者都拿不到任何信息（"一直卡 logo"）。
+       * 这里把三种失败变成一条可见提示：脚本网络加载失败、脚本运行报错、15s 内始终没接手。
+       */
+      (function () {
+        var shown = false;
+        function detectPlatformHint() {
+          var ua = navigator.userAgent || "";
+          var ios = /OS (\d+)[._](\d+)/.exec(ua);
+          if (/iPhone|iPad|iPod/.test(ua) && ios) {
+            var v = parseInt(ios[1], 10) + "." + ios[2];
+            return /^zh/i.test(navigator.language || "")
+              ? "检测到 iOS " + v + "：本页需要 iOS 16.4 及以上。"
+              : "Detected iOS " + v + ": this page requires iOS 16.4 or newer.";
+          }
+          var android = /Android (\d+)/.exec(ua);
+          if (android) {
+            return /^zh/i.test(navigator.language || "")
+              ? "检测到 Android " + android[1] + "：请使用最新版 Chrome。"
+              : "Detected Android " + android[1] + ": please use an up-to-date Chrome.";
+          }
+          return "";
+        }
+        function showBootFailure(reason) {
+          if (shown) return;
+          var root = document.getElementById("root");
+          var shell = root && root.querySelector(".zcode-boot-loading");
+          // 已经渲染成功（壳被 React 替换）或已显示其它错误页时不动。
+          if (!root || !shell) return;
+          shown = true;
+          var zh = /^zh/i.test(navigator.language || "");
+          var hint = detectPlatformHint();
+          var box = document.createElement("div");
+          box.className = "zcode-boot-loading";
+          box.setAttribute("role", "alert");
+          box.innerHTML =
+            '<div style="max-width:34rem;padding:1rem 1.25rem;font:13px/1.6 -apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif">' +
+            '<div style="font-weight:600;margin-bottom:.5rem">' +
+            (zh ? "页面未能启动" : "Page failed to start") +
+            "</div><div>" +
+            (zh
+              ? "常见原因：① 浏览器版本过旧（本页需要 iOS/Safari 16.4+）；② 脚本没有加载成功（网络/证书）。"
+              : "Common causes: (1) the browser is too old (this page needs iOS/Safari 16.4+); (2) the script failed to load (network/TLS).") +
+            "</div>" +
+            (hint ? '<div style="margin-top:.5rem">' + hint + "</div>" : "") +
+            '<div style="margin-top:.5rem;opacity:.7;word-break:break-all">' + reason + "</div>" +
+            '<div style="margin-top:.5rem;opacity:.5;word-break:break-all;font-size:11px">' +
+            (navigator.userAgent || "") +
+            "</div></div>";
+          shell.parentNode.replaceChild(box, shell);
+        }
+        try {
+          window.addEventListener(
+            "error",
+            function (event) {
+              var target = event && event.target;
+              if (target && target.tagName === "SCRIPT") {
+                showBootFailure("script failed to load: " + (target.src || "inline"));
+                return;
+              }
+              if (event && event.message) showBootFailure("script error: " + event.message);
+            },
+            true,
+          );
+          window.addEventListener("unhandledrejection", function (event) {
+            var reason = event && event.reason;
+            showBootFailure("unhandled rejection: " + ((reason && reason.message) || reason || ""));
+          });
+          // 老浏览器解析失败时不会触发上面的 error，只能靠超时兜底（4G 首包 + 5.8MB bundle 留足余量）。
+          setTimeout(function () {
+            showBootFailure("bundle did not take over within 15s");
+          }, 15000);
+        } catch (error) {
+          /* 极老浏览器：连监听都装不上时保持原样，不额外报错 */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root">

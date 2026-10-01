@@ -11,11 +11,18 @@ import {
 } from "@zcode/ui";
 import "@zcode/ui/styles.css";
 import { connectViaWebSocket } from "@zcode/client";
+import { connectWithBoundedRetry } from "./bootstrapRetry.js";
+import { resolveConnectionLostAction, resolveConnectionLostNoticePolicy } from "./connectionLostNotice.js";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
 import { createWebAuthService } from "./auth/webAuthService.js";
 import { parseOAuthState, resolveSafeAppReturnTo } from "./auth/oauthStateCodec.js";
 import { resolveWebCommunityUrl, resolveWebHelpConfig } from "./communityUrl.js";
-import type { IPlatformService, RemoteTarget, ServerRemoteInfo } from "@zcode/shared";
+import type {
+  IPlatformService,
+  ModelhubFetchModelsRequest,
+  RemoteTarget,
+  ServerRemoteInfo,
+} from "@zcode/shared";
 import { WEB_DEFAULT_THEME, resolveWebInitialTheme } from "./webThemeSeed.js";
 
 function resolveWebThemePreference(defaultTheme: Theme = WEB_DEFAULT_THEME): Theme {
@@ -98,7 +105,16 @@ function renderWebAuthCallbackPage(): void {
   );
 }
 
-function createWebPlatform(): IPlatformService {
+function createWebPlatform(
+  services: Awaited<ReturnType<typeof connectViaWebSocket>>,
+): IPlatformService {
+  // 拉取模型（modelhub）：浏览器直连渠道端点会被 CORS 拦，所以经 **Host 的 RPC 服务**
+  // （`IProviderSettingsService.fetchModels`，Node 侧执行）透传。
+  // UI 用 `platform.modelhubFetchModels != null` 探测按钮可见性，因此「Host 不支持」时必须
+  // 保持 undefined（不能给一个必失败的实现），这也是旧 Host 上的降级行为。
+  const fetchHostModels = services.providerSettingsService.fetchModels?.bind(
+    services.providerSettingsService,
+  );
   return {
     canSelectFilePath: false,
     // Web 端无法打开系统目录选择框
@@ -109,11 +125,13 @@ function createWebPlatform(): IPlatformService {
     getPathForFile: () => null,
     createTempTextAttachment: () =>
       Promise.reject(new Error("Temporary text attachments require a desktop host")),
-    // modelhub 在桌面 main 进程读取本机配置并直连渠道端点，Web 端不可用。
-    // 这两个能力在 IPlatformService 上是可选方法，Web 端保持未实现（undefined）：
-    // UI 层用 `platform.xxx? != null` 探测可用性来决定按钮是否渲染（bugfix：曾以
-    // 显式拒绝 no-op 实现，探测失效导致按钮在 Web 上渲染出来、点击才报错）。
-    // 调用点均有空值守卫（ProviderCardSections），不会 NPE。
+    ...(fetchHostModels
+      ? {
+          modelhubFetchModels: (payload: ModelhubFetchModelsRequest) => fetchHostModels(payload),
+        }
+      : {}),
+    // 视觉探测（modelhubProbeVision）仍未实现：它要向渠道发一张图片，同样受 CORS 限制，
+    // 而 Host 侧暂无对应服务；保持 undefined 以免按钮可点却必失败。
     // 提示词增强已迁到 prompt-assist 统一服务链路（对 desktop/web 全量暴露），
     // 不再是 IPlatformService 可选方法，Web 端按钮照常渲染。
     onRemoteConnectionLog: () => () => {},
@@ -339,6 +357,79 @@ function renderWebBootstrapError(error: unknown): void {
   );
 }
 
+/** 断线提示的挂载点 id（独立于 `root`，见 showWebConnectionLostNotice）。 */
+const WEB_CONNECTION_LOST_NOTICE_ID = "zcode-web-connection-lost-notice";
+
+/** 自动重连（opt-in）限流：同一标签 10s 内只自动重载一次，避免桌面长期离线时无限刷新。 */
+const AUTO_RECONNECT_MIN_INTERVAL_MS = 10_000;
+const AUTO_RECONNECT_STORAGE_KEY = "zcode-web-auto-reconnect-at";
+
+/**
+ * 领取一次自动重载配额。拿不到 sessionStorage（隐私模式等）时返回 false ——
+ * 宁可不自动重载（横幅 + 手动重连仍可用），也不要冒险形成刷新循环。
+ */
+function claimAutoReconnectSlot(): boolean {
+  try {
+    const last = Number(sessionStorage.getItem(AUTO_RECONNECT_STORAGE_KEY) ?? 0);
+    if (Date.now() - last < AUTO_RECONNECT_MIN_INTERVAL_MS) return false;
+    sessionStorage.setItem(AUTO_RECONNECT_STORAGE_KEY, String(Date.now()));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function WebConnectionLostNotice({ code, reason }: { code: number; reason: string }) {
+  const isZh = /^zh\b/i.test(navigator.language);
+  // 4004 = 被另一个页面顶替（多标签/换设备）：提示语必须与「桌面离线」区分，
+  // 且**不**引导重连：否则两个标签会互相抢连接，形成刷新拉锯（见 connectionLostNotice.ts）。
+  const { kind, showReconnect } = resolveConnectionLostNoticePolicy(code);
+  const replaced = kind === "replaced";
+  const title = replaced
+    ? isZh
+      ? "此页面已被其他窗口接管"
+      : "This page was taken over by another window"
+    : isZh
+      ? "与桌面的连接已断开"
+      : "Connection to the desktop was lost";
+  const detail = reason || `code ${code}`;
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[9999] flex justify-center px-4">
+      <section className="pointer-events-auto flex w-full max-w-lg items-center gap-3 rounded-xl border border-card-border bg-card p-3 text-ui-xs shadow-lg">
+        <span className="size-2 shrink-0 rounded-full bg-destructive" />
+        <h1 className="font-medium">{title}</h1>
+        {replaced ? null : <span className="truncate text-foreground-subtle">{detail}</span>}
+        {showReconnect ? (
+          <button
+            type="button"
+            className="ml-auto shrink-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-foreground-subtle hover:bg-surface-hover"
+            onClick={() => {
+              window.location.reload();
+            }}
+          >
+            {isZh ? "重连" : "Reconnect"}
+          </button>
+        ) : null}
+      </section>
+    </div>
+  );
+}
+
+/**
+ * 交付（已收到 `Initialize`）之后传输断开：叠加一条**非破坏性**提示，而不是卸载界面或自动刷新。
+ *
+ * 为什么不在 `root` 里渲染：那会卸载用户界面、丢掉未提交草稿。为什么不自动刷新：
+ * 自动刷新同样丢草稿，且多标签下两个页面会互相顶替形成刷新拉锯。重连交给用户一键触发——
+ * 整页重载 = 新 attachment = `replayable` 快照恢复，这是已验证的恢复路径。
+ */
+function showWebConnectionLostNotice(event: { code: number; reason: string }): void {
+  if (document.getElementById(WEB_CONNECTION_LOST_NOTICE_ID)) return;
+  const container = document.createElement("div");
+  container.id = WEB_CONNECTION_LOST_NOTICE_ID;
+  document.body.append(container);
+  createRoot(container).render(<WebConnectionLostNotice code={event.code} reason={event.reason} />);
+}
+
 async function bootstrapWebApp() {
   const params = new URLSearchParams(window.location.search);
   if (isWebOAuthCallback(params)) {
@@ -354,11 +445,34 @@ async function bootstrapWebApp() {
     return;
   }
 
+  const autoReconnect = params.get("autoReconnect") === "1";
+
+  let delivered = false;
   try {
-    const services = await connectViaWebSocket(bootstrap.wsUrl, {
-      onClose: () => {},
-    });
-    const platform = createWebPlatform();
+    // 连接阶段做**有界**自动重试：瞬时失败（桌面刚重启、relay 宽限到期）自动再来一次，
+    // 真实离线仍落到错误页。策略、上限与依据见 bootstrapRetry.ts 与对应 spec。
+    const services = await connectWithBoundedRetry(() =>
+      connectViaWebSocket(bootstrap.wsUrl, {
+        // 交付之前的断开由 reject + 重试/错误页处理；这里只管交付之后。
+        onClose: (event) => {
+          if (!delivered) return;
+          // 先问策略「是否应当自动重载」（默认关闭，且 4004 永不自动重载），再用限流决定能否执行。
+          const wantsReload =
+            resolveConnectionLostAction({
+              closeCode: event.code,
+              autoReconnect,
+              reloadAllowed: true,
+            }) === "reload";
+          if (wantsReload && claimAutoReconnectSlot()) {
+            window.location.reload();
+            return;
+          }
+          showWebConnectionLostNotice(event);
+        },
+      }),
+    );
+    delivered = true;
+    const platform = createWebPlatform(services);
     document.title = "ZCodium - Web + Server";
 
     root.render(
