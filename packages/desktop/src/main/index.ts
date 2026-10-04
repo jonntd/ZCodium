@@ -566,7 +566,7 @@ const windowUnreadCountMap = new Map<number, number>();
 const windowHostProcessMap = new Map<number, ElectronUtilityProcess>();
 /**
  * VPS 中继控制面句柄（可选功能）。
- * 只有配置了中继（env 或 ~/.zcode/v2/remote-relay.json）才会启动客户端；
+ * 只有配置了中继（env 或 ~/.zcodium/v2/remote-relay.json）才会启动客户端；
  * 未配置时保持 null，桌面行为与引入本功能前完全一致。
  */
 let remoteRelayControl: ReturnType<typeof createRemoteRelayControl> | null = null;
@@ -1862,7 +1862,7 @@ app.whenReady().then(async () => {
   });
 
   // VPS 中继（可选）：把本窗口的 Local Host 借给远端手机。
-  // 配置来自 env（优先）或 ~/.zcode/v2/remote-relay.json；两者都没有时完全不启用，
+  // 配置来自 env（优先）或 ~/.zcodium/v2/remote-relay.json；两者都没有时完全不启用，
   // 桌面行为与引入本功能前一致。放在 Host 数据库就绪之后：此时 attachment 一定能成功
   // （Host 侧另有 pendingStartupAttachments 兜底）。
   remoteRelayControl = createRemoteRelayControl({

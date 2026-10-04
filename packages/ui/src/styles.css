@@ -2114,3 +2114,35 @@ body {
 .prompt-mention[data-mention-category="plugins"]::before {
   border-radius: var(--radius-sm);
 }
+
+/* 运行中工作状态胶囊的动态省略号（docs/spec/assistant-working-status-pill.md）：
+   三点错相位呼吸表达「仍在进行」，替代长驻旋转 loader 的资源开销。 */
+[data-zcode-working-pill="true"] [data-working-pill-dot="true"] {
+  animation: zcode-working-pill-dot 1.2s ease-in-out infinite;
+}
+
+[data-zcode-working-pill="true"] [data-working-pill-dot="true"]:nth-child(2) {
+  animation-delay: 150ms;
+}
+
+[data-zcode-working-pill="true"] [data-working-pill-dot="true"]:nth-child(3) {
+  animation-delay: 300ms;
+}
+
+@keyframes zcode-working-pill-dot {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+
+  40% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-zcode-working-pill="true"] [data-working-pill-dot="true"] {
+    animation: none;
+    opacity: 0.55;
+  }
+}

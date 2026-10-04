@@ -4396,6 +4396,8 @@ const enUS: Record<string, string> = {
   "chat.history.workedFor": "Worked for {duration}",
   "chat.history.worked": "Worked",
   "chat.history.stopped": "Stopped",
+  "chat.history.workingPill.status": "Working",
+  "chat.history.workingPill.elapsed": "{duration} elapsed",
   "chat.history.duration.day": "d",
   "chat.history.duration.hour": "h",
   "chat.history.duration.minute": "m",

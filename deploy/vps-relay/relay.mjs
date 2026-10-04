@@ -11,7 +11,8 @@
  *
  * 端点：
  *   GET  /                   静态托管 web bundle（SPA fallback 到 index.html）
- *   GET  /api/server-info    手机端启动时读工作区；数据来自桌面的 /api/host-report
+ *   GET  /api/server-info    手机端启动时读工作区；数据来自桌面的 /api/host-report。
+ *                            与 /ws 同一 cookie 门禁，未配对方拿不到（fail-closed）
  *   POST /api/host-report    桌面上报工作区（Bearer HOST_SECRET）
  *   GET  /ws    (upgrade)    手机接入；鉴权用 zcode_lite_token cookie
  *   GET  /host  (upgrade)    桌面拨入；鉴权用 Bearer HOST_SECRET
@@ -275,6 +276,13 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/api/server-info") {
+    // 与 /ws 同一 cookie 门禁（fail-closed）：工作区路径/主机标签不向未配对方暴露。
+    // 未带 cookie 的调用方收到 401 —— web 端 resolveWebBootstrap() 对非 200 优雅降级
+    // （只少拿初始工作区提示，不会失败），正常配对流程（?token= → cookie → fetch）不受影响。
+    if (!safeEqual(readCookie(req, COOKIE_NAME), RELAY_TOKEN)) {
+      sendJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
     sendJson(res, 200, buildServerInfo());
     return;
   }

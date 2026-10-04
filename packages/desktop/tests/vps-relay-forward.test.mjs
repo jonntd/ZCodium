@@ -329,6 +329,40 @@ test("配对重定向只摘 token，保留其它参数（autoReconnect 开关不
   assert.equal(clean.headers.get("location"), "/");
 });
 
+test("/api/server-info 鉴权：无/错 cookie 一律 401（fail-closed），配对后才放行", async (t) => {
+  const relay = await startRelayServer(t);
+  const base = `http://127.0.0.1:${relay.port}`;
+
+  // 未配对（无 cookie）→ 401：工作区路径/主机标签不向匿名探测暴露。
+  const anonymous = await fetch(`${base}/api/server-info`);
+  assert.equal(anonymous.status, 401);
+
+  // 错误 cookie 同样拒绝（不是只认「有 cookie」）。
+  const wrong = await fetch(`${base}/api/server-info`, {
+    headers: { cookie: `zcode_lite_token=wrong-token` },
+  });
+  assert.equal(wrong.status, 401);
+
+  // 正常配对流程：?token= → Set-Cookie → 带 cookie 读取 → 200（host 未上报时工作区为空）。
+  const paired = await fetch(`${base}/?token=${RELAY_TOKEN}`, { redirect: "manual" });
+  const cookie = (paired.headers.get("set-cookie") ?? "").split(";")[0];
+  assert.ok(cookie.startsWith("zcode_lite_token="));
+  const empty = await fetch(`${base}/api/server-info`, { headers: { cookie } });
+  assert.equal(empty.status, 200);
+  assert.deepEqual(await empty.json().then((b) => b.workspaces), []);
+
+  // 桌面上报工作区后，同一 cookie 能读到完整 server-info。
+  await fetch(`${base}/api/host-report`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${HOST_SECRET}`, "content-type": "application/json" },
+    body: JSON.stringify({ workspacePath: "/tmp/demo-workspace", hostLabel: "test-host" }),
+  });
+  const reported = await fetch(`${base}/api/server-info`, { headers: { cookie } });
+  assert.equal(reported.status, 200);
+  const body = await reported.json();
+  assert.equal(body.workspaces[0].path, "/tmp/demo-workspace");
+});
+
 test("空闲回收：不回 pong 的僵尸连接被关闭，健康连接不受影响", async (t) => {
   // 心跳 80ms / 空闲 250ms：把生产默认值（30s / 60s）压缩到测试可接受的时间。
   const relay = await startRelayServer(t, { heartbeatMs: 80, idleMs: 250 });

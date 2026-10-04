@@ -320,7 +320,7 @@ export function RemoteRelaySection() {
         />
       </SettingsGroupCard>
 
-      {/* 配置：默认收起。写 ~/.zcode/v2/remote-relay.json 并热应用。 */}
+      {/* 配置：默认收起。写 ~/.zcodium/v2/remote-relay.json 并热应用。 */}
       <SettingsGroupCard>
         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
           <CollapsibleTrigger asChild>
@@ -345,7 +345,7 @@ export function RemoteRelaySection() {
           <CollapsibleContent>
             <div className="border-t border-border px-4 py-3 text-ui-sm leading-5 text-foreground-subtle">
               {t("settings.remoteRelay.configDescription", {
-                path: status?.configFilePath ?? "~/.zcode/v2/remote-relay.json",
+                path: status?.configFilePath ?? "~/.zcodium/v2/remote-relay.json",
               })}
             </div>
             {/* 场景决定 url 的协议（内网 ws:// / 公网 wss://），地址框只填主机 */}

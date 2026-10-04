@@ -60,3 +60,15 @@ export function shouldShowTurnChatLoading({
     !hasChatLoadingBlockingMaintenanceRow(rows)
   );
 }
+
+/**
+ * 运行中的「仍在工作」反馈已由状态胶囊承载（AssistantHistoryStatus → working pill，
+ * docs/spec/assistant-working-status-pill.md），胶囊可见时尾部裸 ChatLoading 是重复状态。
+ * apiRetry 状态有自己的显示阈值（第 3 次起），不经过这条规则，保持独立。
+ */
+export function shouldShowTurnChatLoadingWithRunningPill(options: {
+  showLoading: boolean;
+  hasRunningWorkSegment: boolean;
+}): boolean {
+  return options.showLoading && !options.hasRunningWorkSegment;
+}

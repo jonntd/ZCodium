@@ -5,10 +5,11 @@
  * 配置来源有两个，**环境变量优先于配置文件**：
  * - 环境变量：`ZCODE_REMOTE_RELAY_URL` / `ZCODE_REMOTE_RELAY_HOST_SECRET` /
  *   `ZCODE_REMOTE_RELAY_WORKSPACE` / `ZCODE_REMOTE_RELAY_WINDOW`
- * - 配置文件：`~/.zcode/v2/remote-relay.json`（正常打开 App 即生效，无需终端 env）
+ * - 配置文件：`~/.zcodium/v2/remote-relay.json`（getAppConfigDir，跟随 ZCODE_DATA_BASE_DIR
+ *   隔离；正常打开 App 即生效，无需终端 env）
  */
 
-/** `~/.zcode/v2/remote-relay.json` 的形状。全部字段可省略。 */
+/** `~/.zcodium/v2/remote-relay.json` 的形状。全部字段可省略。 */
 export interface RemoteRelayFileConfig {
   /** 中继主机端点，如 `wss://relay.example.com`（本机验证可用 `ws://127.0.0.1:3180`）。 */
   url?: string;

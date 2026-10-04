@@ -1035,7 +1035,7 @@ t2  旧 host 的 close 事件到达 → 新 pipe 的 a.on("close") → shutdown(
 | 端点 | 方向 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
 | `GET /` + 静态 | 手机 → relay | 无 | 托管 `packages/web/dist` |
-| `GET /api/server-info` | 手机 → relay | 无 | 返回桌面通过 `/api/host-report` 上报的 `ServerRemoteInfo` 形状 |
+| `GET /api/server-info` | 手机 → relay | `zcode_lite_token` cookie | 返回桌面通过 `/api/host-report` 上报的 `ServerRemoteInfo` 形状。**fail-closed**：未配对（无/错 cookie）返回 401，工作区路径与主机标签不向匿名探测暴露。web 端 `resolveWebBootstrap()`（`packages/web/src/main.tsx`）对非 200 **优雅降级**——只少拿 `initialWorkspaceAbsPath` 提示，不 fail bootstrap，因此加门禁不改变正常配对流程（同源 fetch 默认携带 cookie） |
 | `POST /api/host-report` | 桌面 → relay | `HOST_SECRET` | 上报 `{ workspacePath, workspaceIdentity, hostLabel }` |
 | `GET /ws`（upgrade） | 手机 → relay | `zcode_lite_token` cookie | 与当前 host 配对，**逐字节转发** |
 | `GET /host`（upgrade） | 桌面 → relay | `HOST_SECRET` | 注册为**唯一** host：已有连接时以 4001 `host-replaced` 顶替（`onHostOpen`） |
@@ -1097,7 +1097,7 @@ t2  旧 host 的 close 事件到达 → 新 pipe 的 a.on("close") → shutdown(
 | 风险 | 缓解 | 回滚 |
 | --- | --- | --- |
 | 桌面侧改动引入回归 | 全部逻辑在 env 开关后 | **不设 env 即等于不存在**，无需回滚代码 |
-| relay 被未授权访问 | `/host` 用强 `HOST_SECRET` + TLS；`/ws` 用一次性/短时效 `RELAY_TOKEN` | 停掉 relay 进程 |
+| relay 被未授权访问 | `/host` 用强 `HOST_SECRET` + TLS；`/ws` 与 `/api/server-info` 用 `RELAY_TOKEN` cookie 门禁。**当前实现是静态 token + 30 天 cookie**（spec §5.5 的「一次性短时效」是强化方向，尚未实现）；轮换 = 设置页清空配对码重新生成并同步 relay 的 `RELAY_TOKEN` | 停掉 relay 进程 |
 | `@zcode/rpc` 的 `SocketProtocol` 语义理解偏差 | 阶段 0 先在本机验证（§12.5） | — |
 | `connection-flow-v1` 控制帧是否必需 | 阶段 0 实测；必要时改用 `MessagePortProtocol` 包装 port1（差异约 3 行） | — |
 | 多 attachment 影响渲染器 | 已核实 registry 无单例限制；用独立 `attachmentId` | 断开 WS 即自动 `dispose` |
@@ -1164,7 +1164,7 @@ t2  旧 host 的 close 事件到达 → 新 pipe 的 a.on("close") → shutdown(
 |---|---|---|
 | authorizeStart/startAuthorized 一次性令牌 | 新增 IPC handlers（~60 行） | 小 |
 | start/stop/getStatus | `remoteRelayClient` 已有 start/stop/state，补 IPC 暴露（~40 行） | 小 |
-| 内置端点 | 自建 relay 地址 → **配置文件** `~/.zcode/v2/remote-relay.json`（或 UI 输入一次） | 小 |
+| 内置端点 | 自建 relay 地址 → **配置文件** `~/.zcodium/v2/remote-relay.json`（或 UI 输入一次） | 小 |
 | createQrUrl（sid/hash/t 签名链接） | 简化版：`https://<vps>/?token=RELAY_TOKEN&autoReconnect=1`（relay 已实现 cookie 配对，并保留非 token 参数）；后续可升级为签名链接 | 小 |
 | resetPairing | 清空设置页的「配对码」并保存 → 下一次读取自动重新生成（`remoteRelayControlIpc.ensurePairingToken`），再把新值填到 relay 的 `RELAY_TOKEN` | — |
 | **配对码来源** | **自动生成**：配置文件缺失 `pairingToken` 时由 Main 生成 24 字节 base64url 并落盘（避免出现 `devtoken` 这类全局弱口令）。UI 里可直接看到/复制 | 小 |
@@ -1178,7 +1178,7 @@ t2  旧 host 的 close 事件到达 → 新 pipe 的 a.on("close") → shutdown(
 `IPlatformService.remoteRelaySetConfig(request: RemoteRelaySetConfigRequest)` 的契约是
 **一个** `{ config, apply }` 对象。preload 曾把它写成 `(config, apply?)` 并再次包一层，
 渲染层透传整个请求时 `config` 就变成了信封本身 —— 一次「保存并应用」把
-`{ config: {...}, apply: true }` 写进了 `~/.zcode/v2/remote-relay.json`，
+`{ config: {...}, apply: true }` 写进了 `~/.zcodium/v2/remote-relay.json`，
 App 重启后读不到 `url`、中继客户端根本不会启动（表现为「莫名掉线且设置页全空」）。
 
 修复（三层，缺一不可）：

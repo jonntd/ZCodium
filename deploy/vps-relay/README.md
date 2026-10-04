@@ -156,7 +156,7 @@ Caddy 会自动签发/续期证书，**并自动处理 WebSocket 升级**，不�
 
 ### 方式 A：配置文件（推荐 —— 正常打开 App 即生效，无需终端 env）
 
-写 `~/.zcode/v2/remote-relay.json`：
+写 `~/.zcodium/v2/remote-relay.json`：
 
 ```json
 {
@@ -203,7 +203,7 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 1. 桌面 ZCode：**设置 → 远程访问**（设置页「数据和统计」分组）。
    卡片里直接填中继地址 / 主机密钥 / 公开地址 / 配对码，**「保存并应用」立即生效**，无需重启；
    连接状态实时显示，「手机访问链接」一键复制——等价于官方的远程控制链接。
-   （配置同样落在 `~/.zcode/v2/remote-relay.json`，两种方式互通。）
+   （配置同样落在 `~/.zcodium/v2/remote-relay.json`，两种方式互通。）
 2. 手机浏览器打开 `https://relay.example.com/?token=<RELAY_TOKEN>`
 3. 中继下发 cookie 并跳转（**只摘掉 `token`，其它参数保留**），之后正常使用
 4. 手机上看到的就是**桌面那个 Host 的服务面**：任务列表、会话历史、终端、文件、Git
@@ -262,7 +262,7 @@ WEB_ROOT=packages/web/dist PORT=3180 \
 桌面用 `ZCODE_REMOTE_RELAY_URL=ws://127.0.0.1:3180` 启动，
 设置页 →「远程访问」→「手机访问链接」里复制链接（形如
 `http://127.0.0.1:3180/?token=<自动生成的配对码>&autoReconnect=1`）。
-**注意**：配对码由桌面自动生成并写进 `~/.zcode/v2/remote-relay.json`，
+**注意**：配对码由桌面自动生成并写进 `~/.zcodium/v2/remote-relay.json`，
 中继侧的 `RELAY_TOKEN` 必须与它一致——直接用上面命令里 `openssl` 生成的值即可，
 或改成设置页里显示的值后重启 relay。
 

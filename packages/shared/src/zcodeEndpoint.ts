@@ -1,8 +1,12 @@
 import type { ZCodeEnv } from "./env.js";
+// 本文件被 vite.config 的 Node 加载链 import（子路径契约见 packages/web/vite.config.ts）。
+// Node 的 type stripping 对 ".js" 字面量不做 ".ts" 映射（#17 引入 env-names 依赖后，
+// web build 在 config bootstrap 阶段 ERR_MODULE_NOT_FOUND，上游尚未跑过 vite build 未暴露），
+// 因此这里必须用 ".ts" 物理后缀；打包器与 tsc（allowImportingTsExtensions）均支持。
 import {
   readExternalEnvVar,
   RENAMED_EXTERNAL_ENV_KEYS,
-} from "./env-names.js";
+} from "./env-names.ts";
 
 export const DEFAULT_ZCODE_ENDPOINT_ORIGIN = "https://zcode.z.ai";
 export const DEFAULT_BIGMODEL_API_ORIGIN = "https://bigmodel.cn";

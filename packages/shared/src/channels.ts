@@ -199,7 +199,7 @@ export const PlatformChannels = {
   RemoteRelayStart: "zcode:remote-relay-start",
   /** Renderer → Main：停止 VPS 中继客户端 */
   RemoteRelayStop: "zcode:remote-relay-stop",
-  /** Renderer → Main：写入 VPS 中继配置文件（~/.zcode/v2/remote-relay.json） */
+  /** Renderer → Main：写入 VPS 中继配置文件（~/.zcodium/v2/remote-relay.json） */
   RemoteRelaySetConfig: "zcode:remote-relay-set-config",
   /** Renderer → Main：列出本机可用的 WSL 发行版 */
   ListWSLDistros: "zcode:list-wsl-distros",

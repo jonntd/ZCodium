@@ -4282,6 +4282,8 @@ const faIR: Record<string, string> = {
   "chat.history.workedFor": "به مدت {duration} کار کرد",
   "chat.history.worked": "کار کرد",
   "chat.history.stopped": "متوقف شد",
+  "chat.history.workingPill.status": "در حال کار",
+  "chat.history.workingPill.elapsed": "به مدت {duration}",
   "chat.history.duration.day": "روز",
   "chat.history.duration.hour": "ساعت",
   "chat.history.duration.minute": "دقیقه",
