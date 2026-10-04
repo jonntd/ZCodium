@@ -1,12 +1,4 @@
 import type { ZCodeEnv } from "./env.js";
-// 本文件被 vite.config 的 Node 加载链 import（子路径契约见 packages/web/vite.config.ts）。
-// Node 的 type stripping 对 ".js" 字面量不做 ".ts" 映射（#17 引入 env-names 依赖后，
-// web build 在 config bootstrap 阶段 ERR_MODULE_NOT_FOUND，上游尚未跑过 vite build 未暴露），
-// 因此这里必须用 ".ts" 物理后缀；打包器与 tsc（allowImportingTsExtensions）均支持。
-import {
-  readExternalEnvVar,
-  RENAMED_EXTERNAL_ENV_KEYS,
-} from "./env-names.ts";
 
 export const DEFAULT_ZCODE_ENDPOINT_ORIGIN = "https://zcode.z.ai";
 export const DEFAULT_BIGMODEL_API_ORIGIN = "https://bigmodel.cn";
@@ -95,9 +87,15 @@ function readRuntimeEnvValue(
 ): string | undefined {
   const value = env[key]?.trim();
   if (value) return value;
-  // P1a 改名兼容：ZCODIUM_ 新名优先级等于旧名，读到旧名时由 env-names 记弃用提示。
+  // P1a 改名兼容（按前缀推导新名）：ZCODIUM_ 新名优先级等于旧名。本文件被
+  // packages/web/vite.config.ts 的 Node 加载链 import（子路径契约：避开含源码
+  // re-export 的根入口），vite 8 三种 config loader 都按字面 ".js" 解析相对导入、
+  // 不做 ".ts" 映射，因此这里不能 import env-names（#17 引入后 web build 在
+  // config bootstrap 阶段 ERR_MODULE_NOT_FOUND），只能按同一约定内联前缀推导。
+  // 完整改名名单与弃用告警见 env-names.ts；endpoint 键（ZCODE_BASE_URL）在名单内，
+  // 前缀推导对其行为一致，对名单外的 ZCODE_* 键仅多认 ZCODIUM_* 别名（放宽无害）。
   if (key.startsWith("ZCODE_")) {
-    return readExternalEnvVar(env, key as keyof typeof RENAMED_EXTERNAL_ENV_KEYS & string);
+    return env[`ZCODIUM_${key.slice("ZCODE_".length)}`]?.trim() || undefined;
   }
   return undefined;
 }

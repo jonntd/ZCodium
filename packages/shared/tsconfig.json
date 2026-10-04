@@ -4,9 +4,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "types": ["node"],
-    "allowJs": true,
-    "allowImportingTsExtensions": true,
-    "emitDeclarationOnly": true
+    "allowJs": true
   },
   "include": ["src"]
 }
