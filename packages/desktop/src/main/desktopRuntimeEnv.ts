@@ -554,7 +554,7 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
         ? join(process.resourcesPath, "cua-helper", HELPER_APP_NAME)
         : resolveDevCuaHelperAppPath({
             envOverride: rawInheritedEnv.ZCODE_CUA_BUNDLED_HELPER_APP_PATH?.trim() || undefined,
-            zcodeHome: rawInheritedEnv.ZCODE_HOME?.trim() || join(homedir(), ".zcode"),
+            zcodeHome: rawInheritedEnv.ZCODE_HOME?.trim() || join(homedir(), ".zcodium"),
             platformKey: resolvePlatformKeyForPackagedApp(),
           });
   const windowsAppInstallDir = resolveWindowsAppInstallDirForDataBaseDirGuard();
@@ -609,7 +609,9 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
     // 模型请求默认 header 由 agent 进程构造，过去只继承 shell env 导致桌面启动时拿不到 app 版本。
     // 这里从 main 进程显式下发，agent 子进程继承 host env 后即可稳定写入请求 header。
     [ZCODE_APP_VERSION_ENV]: ZCODE_VERSION,
-    ...(dataBaseDir !== homedir() ? { ZCODE_DATA_BASE_DIR: dataBaseDir } : {}),
+    ...(dataBaseDir !== homedir()
+      ? { ZCODIUM_DATA_BASE_DIR: dataBaseDir, ZCODE_DATA_BASE_DIR: dataBaseDir }
+      : {}),
     ...(windowsAppInstallDir ? { [ZCODE_WINDOWS_APP_INSTALL_DIR_ENV]: windowsAppInstallDir } : {}),
     ...(bundledCuaHelperAppPath
       ? {

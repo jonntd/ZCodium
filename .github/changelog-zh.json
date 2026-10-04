@@ -68,5 +68,6 @@
   "058f090": "修复屏幕录制状态在 warm path 永远显示「未知」：预检结果接受字符串形态，warm 查询失败后停掉陈旧 host 并走一次冷探测自愈，无需重启应用。",
   "d24d155": "桥接 main 进程 helper-installer 的 stub：打包态设置页权限状态走真实查询。",
   "f122765": "修复 getStatus 成功结果缺少 available 字段导致 renderer 判成 unavailable。",
-  "7c02065": "打包 CUA host 面板补丁：设置页显示真实权限状态。"
+  "7c02065": "打包 CUA host 面板补丁：设置页显示真实权限状态。",
+  "b95b5a8": "P0 用户可见命名统一 zcode → zcodium：bin 命令、deep link 协议、i18n 文案与 README；内部包名与 ZCODE_* 环境变量留待 P1a/P2（#17）。"
 }
