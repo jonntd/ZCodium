@@ -12,6 +12,7 @@ export function createDesktopPlatform(options: {
     selectDirectory: () => window.zcode.selectDirectory(),
     selectFile: () => window.zcode.selectFile(),
     selectFiles: () => window.zcode.selectFiles?.() ?? Promise.resolve([]),
+    openDataRootImport: () => window.zcode.openDataRootImport?.(),
     createTempTextAttachment: (payload) => window.zcode.createTempTextAttachment(payload),
     modelhubFetchModels: (payload) =>
       window.zcode.modelhubFetchModels?.(payload) ??

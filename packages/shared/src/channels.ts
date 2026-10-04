@@ -163,6 +163,8 @@ export const PlatformChannels = {
   SelectFile: "zcode:select-file",
   /** 打开系统多文件选择框 */
   SelectFiles: "zcode:select-files",
+  /** Renderer → Main：打开“从旧数据目录再次导入”独立窗口（设置页入口） */
+  OpenDataRootImport: "zcode:open-data-root-import",
   /** Renderer → Main：写入宿主 ~/.zcodium 临时文本附件 */
   CreateTempTextAttachment: "zcode:create-temp-text-attachment",
   /** Renderer → Main：拉取自定义渠道端点的模型列表（modelhub，main 侧绕过 CORS） */
@@ -663,6 +665,10 @@ export interface PlatformChannelMap {
   [PlatformChannels.SelectFiles]: {
     request: void;
     response: string[];
+  };
+  [PlatformChannels.OpenDataRootImport]: {
+    request: void;
+    response: void;
   };
   [PlatformChannels.CreateTempTextAttachment]: {
     request: CreateTempTextAttachmentRequest;

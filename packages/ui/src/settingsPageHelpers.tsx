@@ -111,6 +111,7 @@ export function GeneralSectionContent({
   onBatchDeleteApprovalThresholdChange = async () => {},
   onModelIoFullRetentionEnabledChange = async () => {},
   onOpenOnboardingDialog,
+  onOpenDataRootImport,
 }: {
   localePreference: LocalePreference;
   interfaceMode?: InterfaceMode;
@@ -178,6 +179,7 @@ export function GeneralSectionContent({
   onBatchDeleteApprovalThresholdChange?: (threshold: number) => Promise<void>;
   onModelIoFullRetentionEnabledChange?: (enabled: boolean) => Promise<void>;
   onOpenOnboardingDialog: () => void;
+  onOpenDataRootImport?: () => void;
 }) {
   const { intl } = useZCodeIntl();
   const hasServices = Boolean(useOptionalServices());
@@ -962,6 +964,7 @@ export function GeneralSectionContent({
               defaultHomeDir={defaultHomeDir}
               onDataBaseDirChange={onDataBaseDirChange}
               onSelectDataBaseDir={onSelectDataBaseDir}
+              {...(onOpenDataRootImport ? { onOpenDataRootImport } : {})}
             />
           }
         />
