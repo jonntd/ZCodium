@@ -8,7 +8,6 @@ import {
    与 automation 共用 tasks-index.sqlite 与 Repo 模式，但表/状态机/常量全部独立，
    禁止往 automations 表或 ZCodeAutomation 类型上加字段。 */
 import { mkdir } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import {

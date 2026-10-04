@@ -32,7 +32,7 @@ test("fork broker socket path is namespaced per platform (no clash with official
     platform: "linux",
     home: "/home/tester",
   });
-  assert.equal(linux, "/home/tester/.zcode/cua-broker-zcodium/broker.sock");
+  assert.equal(linux, "/home/tester/.zcodium/cua-broker-zcodium/broker.sock");
 });
 
 test("applyForkCuaBrokerSocketEnv injects the fork key by default and respects explicit values", () => {

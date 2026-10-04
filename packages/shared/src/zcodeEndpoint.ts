@@ -1,6 +1,5 @@
 import type { ZCodeEnv } from "./env.js";
 import {
-  emitLegacyEnvDeprecation,
   readExternalEnvVar,
   RENAMED_EXTERNAL_ENV_KEYS,
 } from "./env-names.js";

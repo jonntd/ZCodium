@@ -8,7 +8,6 @@ import {
   ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV,
 } from "@zcode/services/node";
 import { IZCodeAgentService } from "@zcode/services";
-import { readExternalEnvVar } from "@zcode/shared";
 import { ZCODE_VERSION } from "@zcode/shared";
 import { createCoreHttpServer } from "./http.js";
 import { installParentDisconnectHandler } from "./parentDisconnect.js";

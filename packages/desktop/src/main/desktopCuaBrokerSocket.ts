@@ -49,7 +49,9 @@ export function resolveForkCuaBrokerSocketPath({
   if (platform === "darwin") {
     return `/tmp/zcode-cua-zcodium-${uid}/broker.sock`;
   }
-  return join(home, ".zcode", "cua-broker-zcodium", "broker.sock");
+  // linux 跟随 #19 数据根新家族（~/.zcodium）：fork 私有目录无迁移数据，
+  // 直接切新根；~/.zcode 属官方 ZCode.app（dev.zcode.app）所有，不再落 fork 文件。
+  return join(home, ".zcodium", "cua-broker-zcodium", "broker.sock");
 }
 
 /**

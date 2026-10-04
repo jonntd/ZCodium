@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir, networkInterfaces } from "node:os";
+import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { ipcMain } from "electron";
+import { getAppConfigDir } from "@zcode/services/node";
 import {
   deriveRemoteRelayPublicUrl,
   PlatformChannels,
@@ -27,7 +28,7 @@ import {
 /**
  * VPS 中继的控制面（spec §15）：
  * 把 `remoteRelayClient` 的启停/状态暴露成 IPC，供设置页 UI 使用；
- * 配置读 `~/.zcode/v2/remote-relay.json`（env 优先），因此**正常打开 App 即可启用**，无需终端 env。
+ * 配置读 `~/.zcodium/v2/remote-relay.json`（env 优先），因此**正常打开 App 即可启用**，无需终端 env。
  *
  * 与官方 `[web-remote-control]` 的差异（有意简化）：
  * - 不做 authorizeStart 一次性令牌（那是防渲染进程被攻破后静默开启的加固，后续可补）；
@@ -64,7 +65,9 @@ interface EffectiveRelayConfig {
 }
 
 export function getConfigFilePath(): string {
-  return join(homedir(), ".zcode", "v2", "remote-relay.json");
+  // 收口到 services 数据根（~/.zcodium/v2，跟随 ZCODE_DATA_BASE_DIR 隔离），与 #19
+  // 数据根迁移后其他 main 侧配置文件同源；迁移「只复制」会把旧配置带入新根。
+  return join(getAppConfigDir(), "remote-relay.json");
 }
 
 /** 公开地址是否指向本机（127.0.0.1 / localhost / ::1）—— 这种地址手机永远访问不到。 */
