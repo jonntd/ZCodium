@@ -14,7 +14,7 @@ if (!home) {
   throw new Error("ZCODE_DESKTOP_HOME_DIR is required");
 }
 
-const { createSettingService } = await import(
+const { createSettingService, getSettingsFile } = await import(
   new URL("../../../services/src/setting/settingService.ts", import.meta.url).href
 );
 const policy = await import(
@@ -227,7 +227,9 @@ if (mode === "baseline") {
     officialServices: OPENED,
   }).officialServices?.account;
   await service.update({ officialServices: OPENED });
-  const disk = JSON.parse(readFileSync(join(home, ".zcode", "v2", "setting.json"), "utf8"));
+  // 路径必须与 settingService 同一事实源（数据根迁移 #19 曾把 .zcode 改为 .zcodium，
+  // 这里硬编码导致 ENOENT）；getSettingsFile 会跟随 ZCODE_DESKTOP_HOME_DIR 解析。
+  const disk = JSON.parse(readFileSync(getSettingsFile(), "utf8"));
   result.diskAccount = disk.officialServices?.account;
   result.diskClientConfig = disk.officialServices?.clientConfig;
   const readBack = await service.get();

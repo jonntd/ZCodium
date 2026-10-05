@@ -57,7 +57,8 @@ function getSettingsDir() {
   return join(resolveUserHomeDir(), ".zcodium", "v2");
 }
 
-function getSettingsFile() {
+/** settings 文件的绝对路径。导出给测试探针等外部读取方，避免复制路径后随数据根迁移漂移。 */
+export function getSettingsFile() {
   return join(getSettingsDir(), "setting.json");
 }
 
