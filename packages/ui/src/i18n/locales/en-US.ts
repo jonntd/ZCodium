@@ -2441,6 +2441,8 @@ const enUS: Record<string, string> = {
   "settings.remoteRelay.e2eeDescription": 'The relay only forwards ciphertext and cannot read session content. Update the phone-side web bundle first, then enable; old links will be asked to re-pair.',
   "settings.remoteRelay.channelKey": 'E2EE channel key',
   "settings.remoteRelay.channelKeyDescription": "Delivered to the phone via the link's #k= fragment (never sent to the relay). Generated automatically when empty; clear it and save to rotate — old links stop working.",
+  "settings.remoteRelay.slots": 'Concurrent clients',
+  "settings.remoteRelay.slotsDescription": 'How many browsers/phones may access simultaneously (each with its own encrypted connection), 1-8. Re-copy the link after changing.',
   "settings.remoteRelay.workspace": 'Workspace override',
   "settings.remoteRelay.workspaceDescription": 'Pin the reported workspace path; follows the active window when empty.',
   "settings.remoteRelay.autoStart": 'Start with app',

@@ -114,10 +114,13 @@ function nextClose(ws, timeoutMs = 3000) {
   });
 }
 
-async function openHost(relay) {
-  return openWebSocket(`ws://127.0.0.1:${relay.port}/host`, {
-    headers: { authorization: `Bearer ${HOST_SECRET}` },
-  });
+async function openHost(relay, slot) {
+  return openWebSocket(
+    `ws://127.0.0.1:${relay.port}/host${slot === undefined ? "" : `?slot=${slot}`}`,
+    {
+      headers: { authorization: `Bearer ${HOST_SECRET}` },
+    },
+  );
 }
 
 async function openClient(relay) {
@@ -407,6 +410,85 @@ test("SPA fallback：无扩展名路径回 index.html，缺失资产 404（不�
   const stale = await fetch(`${base}/assets/index-OLDHASH.js`);
   assert.equal(stale.status, 404);
   assert.match(stale.headers.get("content-type") ?? "", /text\/plain/);
+});
+
+test("连接池：两个客户端各占一个槽位，帧互不串扰", async (t) => {
+  const relay = await startRelayServer(t);
+  const host1 = await openHost(relay); // slot 0
+  const host2 = await openHost(relay, 1); // slot 1
+  t.after(() => host1.close());
+  t.after(() => host2.close());
+
+  const clientA = await openClient(relay);
+  const clientB = await openClient(relay);
+  t.after(() => clientA.close());
+  t.after(() => clientB.close());
+
+  // client→host 方向按槽位隔离：A 的帧只到 host1，B 的帧只到 host2。
+  const got1 = [];
+  const got2 = [];
+  host1.on("message", (d) => got1.push(d.toString()));
+  host2.on("message", (d) => got2.push(d.toString()));
+  clientA.send(Buffer.from("from-A"));
+  clientB.send(Buffer.from("from-B"));
+  await wait(200);
+  assert.deepEqual(got1, ["from-A"], "A 的帧必须只到 host1");
+  assert.deepEqual(got2, ["from-B"], "B 的帧必须只到 host2");
+
+  // host→client 方向同样按槽位隔离。
+  const recvA = nextMessage(clientA);
+  const recvB = nextMessage(clientB);
+  host1.send(Buffer.from("to-A"));
+  host2.send(Buffer.from("to-B"));
+  assert.equal(await recvA, "to-A");
+  assert.equal(await recvB, "to-B");
+});
+
+test("槽位满员：第三个客户端宽限后 4002 no-free-host，不静默挂死", async (t) => {
+  const relay = await startRelayServer(t, { graceMs: 300 });
+  const host1 = await openHost(relay);
+  const host2 = await openHost(relay, 1);
+  t.after(() => host1.close());
+  t.after(() => host2.close());
+
+  const clientA = await openClient(relay);
+  const clientB = await openClient(relay);
+  t.after(() => clientA.close());
+  t.after(() => clientB.close());
+  await relay.waitForLog("paired host↔client");
+
+  // 两个槽位都占满：第三个客户端宽限到期后明确 4002（reason no-free-host）。
+  const client3 = await openClient(relay);
+  t.after(() => client3.close());
+  assert.equal(await nextClose(client3, 2000), 4002);
+  await relay.waitForLog("grace elapsed without host; rejecting client (4002)");
+});
+
+test("槽位替换：同 slot 重连顶替旧连接，其它槽位不受影响", async (t) => {
+  const relay = await startRelayServer(t);
+  await openHost(relay); // slot 0
+  const host2 = await openHost(relay, 1); // slot 1
+  t.after(() => host2.close());
+
+  const clientA = await openClient(relay); // → slot 0
+  const clientB = await openClient(relay); // → slot 1
+  t.after(() => clientB.close());
+
+  // host1 重连（同 slot 0）→ 顶替旧连接；clientA 由新连接接管。
+  const host1b = await openHost(relay);
+  t.after(() => host1b.close());
+  await relay.waitForLog("replacing existing host connection");
+
+  // 其它槽位（slot 1）完全不受影响。
+  host2.send(Buffer.from("still-fine"));
+  assert.equal(await nextMessage(clientB), "still-fine");
+
+  // 被顶替槽位的客户端被新 host 接管：双向仍通。
+  clientA.send(Buffer.from("via-new-host"));
+  assert.equal(await nextMessage(host1b), "via-new-host");
+  host1b.send(Buffer.from("back-to-A"));
+  assert.equal(await nextMessage(clientA), "back-to-A");
+  await wait(200);
 });
 
 test("空闲回收：不回 pong 的僵尸连接被关闭，健康连接不受影响", async (t) => {

@@ -27,6 +27,7 @@ const ALLOWED_CONFIG_KEYS = new Set([
   "autoStart",
   "e2ee",
   "channelKey",
+  "slots",
 ]);
 
 function isNonEmptyString(value: unknown): value is string {
@@ -83,6 +84,17 @@ export function parseRemoteRelaySetConfigRequest(payload: unknown): RemoteRelayS
   }
   if (c.e2ee !== undefined && typeof c.e2ee !== "boolean") {
     throw new Error("e2ee 必须是布尔值");
+  }
+  // 并发客户端槽位数（spec §17）：1..8，上不封顶会打爆 Host attachment 与中继连接。
+  if (c.slots !== undefined) {
+    if (
+      typeof c.slots !== "number" ||
+      !Number.isInteger(c.slots) ||
+      c.slots < 1 ||
+      c.slots > 8
+    ) {
+      throw new Error("slots 必须是 1..8 的整数");
+    }
   }
   // 非空时必须是合法的 32B base64url：把 typo 在写入前拦住（否则 client 拨出时才失败）。
   if (!isBlank(c.channelKey)) {

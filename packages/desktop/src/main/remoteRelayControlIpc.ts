@@ -64,6 +64,8 @@ interface EffectiveRelayConfig {
   pairingToken: string | null;
   /** 端到端加密开关（spec vps-relay-bridge.md §16）。 */
   e2ee: boolean;
+  /** 并发客户端槽位数（spec §17）。 */
+  slots: number;
   channelKey: string | null;
   source: "env" | "file";
 }
@@ -182,6 +184,10 @@ function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRe
   // E2EE 是显式开关（默认关）：两端必须同时具备能力（spec §16.6 灰度顺序）。
   const envE2ee = /^(1|true)$/i.test(process.env.ZCODE_REMOTE_RELAY_E2EE?.trim() ?? "");
   const e2ee = envE2ee || file?.e2ee === true;
+  // 并发客户端槽位数（spec §17）：每槽位一条独立连接 + 独立 Host attachment。
+  const envSlots = Number.parseInt(process.env.ZCODE_REMOTE_RELAY_SLOTS?.trim() ?? "", 10);
+  const rawSlots = Number.isInteger(envSlots) ? envSlots : file?.slots;
+  const slots = Math.min(8, Math.max(1, Number.isInteger(rawSlots) ? (rawSlots as number) : 1));
 
   // 公开地址缺省由中继地址推导（ws→http / wss→https）：两者通常是同一主机的不同协议。
   const publicUrl = file?.publicUrl?.trim() || deriveRemoteRelayPublicUrl(url);
@@ -200,6 +206,7 @@ function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRe
     publicUrl,
     pairingToken,
     e2ee,
+    slots,
     channelKey: file?.channelKey?.trim() || null,
     source: envUrl ? "env" : "file",
   };
@@ -235,7 +242,8 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
   stop: () => Promise<RemoteRelayStatus>;
 } {
   const logger = deps.logger;
-  let client: RemoteRelayClient | null = null;
+  /** 每个槽位一个独立客户端实例（独立连接/attachment/E2EE 握手/重连循环，spec §17）。 */
+  let clients: RemoteRelayClient[] = [];
   let currentConfig: EffectiveRelayConfig | null = null;
   let lastFileConfig: RemoteRelayFileConfig | null = null;
 
@@ -243,9 +251,10 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     return {
       configured: currentConfig !== null,
       running,
-      connected: client?.isConnected() ?? false,
+      connected: clients.some((client) => client.isConnected()),
       source: currentConfig?.source ?? null,
       e2ee: currentConfig?.e2ee ?? false,
+      slots: currentConfig?.slots ?? 1,
       shareUrl:
         currentConfig?.pairingToken != null && currentConfig.pairingToken !== ""
           ? // 链接自带 autoReconnect=1：手机锁屏/切网断线后自动整页重载恢复，不用手点「重连」。
@@ -266,7 +275,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
   }
 
   async function start(): Promise<RemoteRelayStatus> {
-    if (client) return buildStatus(true);
+    if (clients.length) return buildStatus(true);
     const file = await readConfigFile(logger);
     lastFileConfig = file;
     let config = resolveEffectiveConfig(file);
@@ -280,25 +289,33 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     lastFileConfig = withChannelKey.file;
     config = withChannelKey.config;
     currentConfig = config;
-    client = createRemoteRelayClient({
-      url: config.url,
-      hostSecret: config.hostSecret,
-      hostLabel: deps.hostLabel,
-      appVersion: deps.appVersion,
-      logger,
-      createChannel: deps.createChannel,
-      e2eeChannelKey: config.e2ee && config.channelKey ? config.channelKey : undefined,
-      resolveTargetWindow: () => deps.resolveTargetWindow(config.pinnedWindowId),
-      resolveWorkspace: (windowId) => deps.resolveWorkspace(windowId, config.pinnedWorkspacePath),
-    });
-    client.start();
-    logger?.info(`[remote-relay] 已启用，目标 ${config.url}（来源 ${config.source}）`);
+    // 每个槽位一个独立客户端实例：独立连接、独立 attachmentId、独立 E2EE 握手与重连
+    // 循环（spec §17）。同一窗口 Host 可并存多个 attachment（官方预留设计，已验证）。
+    for (let slot = 0; slot < config.slots; slot += 1) {
+      const client = createRemoteRelayClient({
+        url: config.url,
+        hostSecret: config.hostSecret,
+        hostLabel: deps.hostLabel,
+        appVersion: deps.appVersion,
+        logger,
+        createChannel: deps.createChannel,
+        e2eeChannelKey: config.e2ee && config.channelKey ? config.channelKey : undefined,
+        slot,
+        resolveTargetWindow: () => deps.resolveTargetWindow(config.pinnedWindowId),
+        resolveWorkspace: (windowId) => deps.resolveWorkspace(windowId, config.pinnedWorkspacePath),
+      });
+      clients.push(client);
+      client.start();
+    }
+    logger?.info(
+      `[remote-relay] 已启用，目标 ${config.url}（来源 ${config.source}，槽位 ${config.slots}）`,
+    );
     return buildStatus(true);
   }
 
   async function stop(): Promise<RemoteRelayStatus> {
-    client?.stop();
-    client = null;
+    for (const client of clients) client.stop();
+    clients = [];
     return buildStatus(false);
   }
 
@@ -306,7 +323,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     ipcMain.handle(PlatformChannels.RemoteRelayGetStatus, async (): Promise<RemoteRelayStatus> => {
       const file = await readConfigFile(logger);
       lastFileConfig = file;
-      if (client) {
+      if (clients.length) {
         if (currentConfig) {
           const ensured = await ensureLanPublicUrl(file, currentConfig, logger);
           lastFileConfig = ensured.file;
@@ -348,7 +365,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
           lastFileConfig = file;
           const previous = currentConfig;
           currentConfig = resolveEffectiveConfig(file) ?? previous;
-          return buildStatus(client !== null);
+          return buildStatus(clients.length > 0);
         }
         await stop();
         return start();

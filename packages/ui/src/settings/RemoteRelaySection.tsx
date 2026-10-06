@@ -50,6 +50,7 @@ const EMPTY_FORM: RemoteRelayFileConfig = {
   pairingToken: "",
   e2ee: false,
   channelKey: "",
+  slots: 1,
   workspace: "",
   autoStart: true,
 };
@@ -64,6 +65,7 @@ function toForm(config: RemoteRelayFileConfig | null): RemoteRelayFileConfig {
     // channelKey 抹掉（下次启动重新生成 → 旧链接全部失效）且 e2ee 被静默关闭。
     e2ee: config?.e2ee ?? false,
     channelKey: config?.channelKey ?? "",
+    slots: config?.slots ?? 1,
     workspace: config?.workspace ?? "",
     windowId: config?.windowId,
     autoStart: config?.autoStart ?? true,
@@ -476,6 +478,21 @@ export function RemoteRelaySection() {
                 onChange={updateField("channelKey")}
               />
             ) : null}
+            {/* 并发客户端槽位（spec §17）：每槽位一条独立连接 + 独立 attachment。 */}
+            <ConfigField
+              id="remote-relay-slots"
+              label={t("settings.remoteRelay.slots")}
+              description={t("settings.remoteRelay.slotsDescription")}
+              placeholder="1"
+              value={String(form.slots ?? 1)}
+              onChange={(value) => {
+                const parsed = Number.parseInt(value, 10);
+                setForm((previous) => ({
+                  ...previous,
+                  slots: Number.isInteger(parsed) ? Math.min(8, Math.max(1, parsed)) : 1,
+                }));
+              }}
+            />
             <ConfigField
               id="remote-relay-workspace"
               label={t("settings.remoteRelay.workspace")}

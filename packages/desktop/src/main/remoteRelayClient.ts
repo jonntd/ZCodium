@@ -121,6 +121,12 @@ export interface RemoteRelayClientOptions {
    */
   e2eeChannelKey?: string;
   /**
+   * 中继槽位号（spec §17）：拨出 URL 变为 `/host?slot=<k>`，同槽位重连在 relay 侧
+   * 顶替旧连接。多槽位时控制层为每个槽位创建独立的本客户端实例（各自的连接、
+   * attachment、E2EE 握手、重连循环）。
+   */
+  slot?: number;
+  /**
    * 建一个 MessageChannel。由调用方注入 Electron 的 `MessageChannelMain`，
    * 使本模块**不依赖 electron**（单测可用纯 JS 替身）。
    * 与 `desktopRemoteSessions.ts` 的 `options.createMessageChannel` 是同一惯例。
@@ -316,7 +322,7 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
 
     let ws: WebSocket;
     try {
-      ws = new WebSocket(`${options.url}/host`, {
+      ws = new WebSocket(`${options.url}/host${options.slot ? `?slot=${options.slot}` : ""}`, {
         headers: { authorization: `Bearer ${options.hostSecret}` },
       });
     } catch (error) {

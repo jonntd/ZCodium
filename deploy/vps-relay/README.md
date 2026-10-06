@@ -164,6 +164,7 @@ Caddy 会自动签发/续期证书，**并自动处理 WebSocket 升级**，不�
   "hostSecret": "<与 VPS 上 HOST_SECRET 相同>",
   "publicUrl": "https://relay.example.com",
   "pairingToken": "<VPS 上 RELAY_TOKEN>",
+  "slots": 2,
   "autoStart": true
 }
 ```
@@ -179,6 +180,7 @@ Caddy 会自动签发/续期证书，**并自动处理 WebSocket 升级**，不�
 | `workspace` | — | 覆盖上报的工作区路径；缺省跟随窗口当前工作区 |
 | `windowId` | — | 钉住借出 Host 的窗口 id；缺省跟随聚焦窗口 |
 | `autoStart` | — | App 启动即连接（缺省 true） |
+| `slots` | — | 并发客户端槽位数（1..8，缺省 1）；每槽位一条独立加密连接，允许 N 个浏览器/手机同时访问 |
 
 删掉这个文件即完全停用中继（行为与改动前一致）。
 也可以在 App 内通过 IPC（`zcode:remote-relay-set-config`）写入，或直接在「设置 → 远程访问」卡片里编辑后「保存并应用」。
@@ -196,6 +198,7 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 | `ZCODE_REMOTE_RELAY_WINDOW=<windowId>` | 钉住指定窗口借出 Host；缺省跟随聚焦窗口 |
 | `ZCODE_REMOTE_RELAY_WORKSPACE=<绝对路径>` | **直接指定上报的工作区路径**，无需在 App 界面里打开任何工作区（App 只需在跑，不需要交互） |
 | `ZCODE_REMOTE_RELAY_E2EE=1` | 启用端到端加密（与配置文件 `e2ee: true` 等价） |
+| `ZCODE_REMOTE_RELAY_SLOTS=<n>` | 并发客户端槽位数（与配置文件 `slots` 等价） |
 
 **两者都没配时中继功能完全不启用**，行为与改动前一致。
 

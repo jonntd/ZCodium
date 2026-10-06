@@ -14,8 +14,10 @@
  *   GET  /api/server-info    手机端启动时读工作区；数据来自桌面的 /api/host-report。
  *                            cookie 或 ?token= 双通道门禁，未配对方拿不到（fail-closed）
  *   POST /api/host-report    桌面上报工作区（Bearer HOST_SECRET）
- *   GET  /ws    (upgrade)    手机接入；鉴权用 zcode_lite_token cookie 或 ?token= 查询参数
- *   GET  /host  (upgrade)    桌面拨入；鉴权用 Bearer HOST_SECRET
+ *   GET  /ws    (upgrade)    手机接入；鉴权用 zcode_lite_token cookie 或 ?token= 查询参数；
+ *                            从连接池认领空闲槽位（spec §17）
+ *   GET  /host  (upgrade)    桌面拨入；鉴权用 Bearer HOST_SECRET；?slot=<k> 声明槽位，
+ *                            同槽位重连顶替旧连接（4001 host-replaced），注册为该槽位唯一 host
  *
  * 环境变量：
  *   PORT               监听端口，默认 3180
@@ -96,14 +98,23 @@ const MIME = {
 
 /** 桌面上报的工作区信息，用于回答手机的 /api/server-info。 */
 let hostReport = null;
-/** 当前唯一的桌面连接与手机连接。 */
-let hostSocket = null;
-let clientSocket = null;
 
+/**
+ * 连接池（spec §17）：slotId → 槽位状态。
+ * slotId 来自桌面拨出时的 `/host?slot=<k>`（缺省 0 = 兼容单槽位旧行为）。
+ * 每个槽位独立持有：host ws、认领的 client ws、配对句柄、配对前帧缓冲——
+ * 多个槽位互不影响，协议/E2EE/手机端零改动。
+ */
+const hostSlots = new Map();
+/** 等待槽位的客户端（FIFO）：ws → { timer }（宽限计时器，spec §12.3.1）。 */
+const waitingClients = new Map();
+/** ws → 角色（"host" | "client"），空闲回收用（含已被顶替但尚未走完 close 的连接）。 */
+const socketRoles = new Map();
 /** socket → 最近一次活动时间。心跳用它区分「空闲但健康」与「僵尸连接」。 */
 const socketActivity = new Map();
 
-function trackSocketActivity(ws) {
+function trackSocketActivity(ws, role) {
+  socketRoles.set(ws, role);
   socketActivity.set(ws, Date.now());
   for (const event of ["message", "ping", "pong"]) {
     ws.on(event, () => socketActivity.set(ws, Date.now()));
@@ -111,35 +122,30 @@ function trackSocketActivity(ws) {
 }
 
 /**
- * host→client 方向的配对前帧缓冲（spec §12.3.1）。
- * host 连上后立刻会发出 ChannelServer 的 Initialize 握手帧，而手机通常还没打开页面；
- * 不缓冲的话这帧被丢弃，手机的 ChannelClient 永远停在 Uninitialized，白屏。
+ * host→client 方向的配对前帧缓冲（spec §12.3.1）：**按槽位独立**。
+ * host 连上后立刻会发出 ChannelServer 的 Initialize 握手帧，而客户端通常还没认领；
+ * 不缓冲的话这帧被丢弃，客户端的 ChannelClient 永远停在 Uninitialized，白屏。
  * 有界：超限丢最旧（握手帧在最前，正常远小于上限；极端积压时保新弃旧）。
  */
 const PENDING_FRAMES_MAX = 32;
 const PENDING_BYTES_MAX = 1024 * 1024;
-let pendingHostFrames = [];
-let pendingHostFrameBytes = 0;
 
 function frameByteLength(data) {
   return typeof data === "string" ? Buffer.byteLength(data) : data.length;
 }
 
-function bufferHostFrame(data, isBinary) {
-  pendingHostFrames.push({ data, isBinary });
-  pendingHostFrameBytes += frameByteLength(data);
-  while (
-    pendingHostFrames.length > PENDING_FRAMES_MAX ||
-    pendingHostFrameBytes > PENDING_BYTES_MAX
-  ) {
-    const dropped = pendingHostFrames.shift();
-    pendingHostFrameBytes -= frameByteLength(dropped.data);
+function bufferSlotFrame(slot, data, isBinary) {
+  slot.buffer.push({ data, isBinary });
+  slot.bufferBytes += frameByteLength(data);
+  while (slot.buffer.length > PENDING_FRAMES_MAX || slot.bufferBytes > PENDING_BYTES_MAX) {
+    const dropped = slot.buffer.shift();
+    slot.bufferBytes -= frameByteLength(dropped.data);
   }
 }
 
-function clearHostBuffer() {
-  pendingHostFrames = [];
-  pendingHostFrameBytes = 0;
+function clearSlotBuffer(slot) {
+  slot.buffer = [];
+  slot.bufferBytes = 0;
 }
 
 const log = (msg, extra) =>
@@ -373,7 +379,15 @@ server.on("upgrade", (req, socket, head) => {
       rejectUpgrade(socket, 401, "Unauthorized");
       return;
     }
-    wss.handleUpgrade(req, socket, head, onHostOpen);
+    // 槽位号（spec §17）：缺省 0 = 兼容单槽位旧桌面；0..99。
+    const slotParam = (url.searchParams.get("slot") ?? "0").trim() || "0";
+    const slotId = Number.parseInt(slotParam, 10);
+    if (!Number.isInteger(slotId) || slotId < 0 || slotId > 99) {
+      log("host upgrade rejected: bad slot", { slot: slotParam });
+      rejectUpgrade(socket, 400, "Bad Request");
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => onHostOpen(ws, String(slotId)));
     return;
   }
 
@@ -391,18 +405,18 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 /**
- * 配对后的连接治理：client→host 逐字节转发 + 任一侧关闭/出错时连坐另一侧
- * （close code 用于手机端区分「桌面离线」）。
- * host→client 方向不在这里挂：host 连上时就要开始接收帧（无人配对时进缓冲，
- * 见 bufferHostFrame），由 onHostOpen 的转发器负责。
+ * 配对后的连接治理（spec §17）：client→host 逐字节转发 + 任一侧关闭/出错时连坐另一侧
+ * （close code 用于客户端区分「桌面离线」）。每个 pair 绑定一个槽位。
+ * host→client 方向不在这里挂：host 连上时就要开始接收帧（无人认领时进槽位缓冲，
+ * 见 bufferSlotFrame），由 onHostOpen 的转发器负责。
  */
-function pipe(a, b) {
+function pipe(slotId, slot, a, b) {
   let closed = false;
   // client→host 的活转发。命名保存是为了 dispose 时能精确摘掉（漏摘会让旧连接继续注入）。
   const forwardToHost = (data, isBinary) => {
     if (a.readyState !== a.OPEN) return;
-    if (a.bufferedAmount > BACKPRESSURE_WARN_BYTES) {
-      log("backpressure on client→host", { bufferedAmount: a.bufferedAmount });
+    if (b.bufferedAmount > BACKPRESSURE_WARN_BYTES) {
+      log("backpressure on client→host", { bufferedAmount: b.bufferedAmount, slot: slotId });
     }
     a.send(data, { binary: isBinary });
   };
@@ -418,10 +432,17 @@ function pipe(a, b) {
         socket.terminate();
       }
     }
+    // 释放槽位与客户端登记（任一侧 close 都会走到这里，closed 保证幂等）。
+    if (hostSlots.get(slotId) === slot) {
+      slot.client = null;
+      slot.pair = null;
+    }
+    waitingClients.delete(b);
+    socketActivity.delete(b);
   };
 
   // 连坐监听集中登记（on/off 用同一张表），避免 dispose 漏摘 —— 漏摘会让旧 host 的 close
-  // 误关手机端。
+  // 误关客户端。
   const listeners = [
     [a, "close", () => shutdown(4002, "host-offline")],
     [a, "error", () => shutdown(4002, "host-error")],
@@ -432,9 +453,8 @@ function pipe(a, b) {
 
   /**
    * 摘掉本 pair 的全部监听并让 shutdown 失效，**不关任何 socket**。
-   * 只用于「host 被顶替」：旧 host 的 close 不得连坐关掉正被新 host 服务的手机端。
-   * 反过来「client 被顶替」不能这么做 —— 新页面需要换一个新 attachment 才有属于它的
-   * Initialize，所以那条路径继续依赖本 pair 的连坐把 host 换代（见 onClientOpen）。
+   * 只用于「同槽位 host 被顶替」：旧 host 的 close 不得连坐关掉正被服务的客户端，
+   * 新 host 会接管同一客户端（syncPairingAll 里按 slot.client 重新建 pipe）。
    */
   const dispose = () => {
     closed = true;
@@ -445,47 +465,34 @@ function pipe(a, b) {
   return { shutdown, dispose };
 }
 
-let activePair = null;
-
-/** 手机在 host 缺位期间的宽限定时器：到期仍无 host 才回 4002（spec §12.3.1）。 */
-let clientWaitTimer = null;
-
-function clearClientWait() {
-  // clearTimeout(null|undefined) 本身就是 no-op，不必为「当前没有定时器」再分一个分支。
-  clearTimeout(clientWaitTimer);
-  clientWaitTimer = null;
+/** 供宽限日志用的 host 状态描述（措辞沿用单槽位版，集成测试断言依赖它）。 */
+function hostStateForLog() {
+  for (const slot of hostSlots.values()) {
+    if (slot.ws && slot.ws.readyState !== slot.ws.OPEN) {
+      return `not OPEN (readyState=${slot.ws.readyState})`;
+    }
+  }
+  return "offline";
 }
 
 /**
- * host 是否**可用**：不仅存在，还必须已 OPEN。
- *
- * 刷新时序（spec §12.3.1「残留竞态 3」）：手机端 WS 断开时 pipe 连坐对 host 调 `close(4003)`，
- * 但 host 的 `close` 事件要等 close 握手完成（WAN 上一个 RTT）。这段窗口里 `hostSocket`
- * 仍指向那个 CLOSING 的 socket —— 若此时把新页面配给它，垂死连接一到 close 就会用
- * `shutdown(4002, "host-offline")` 把刚连上的新页面一起关掉，而 web 端
- * `connectViaWebSocket` 在 open 时已 resolve，于是渲染空壳白屏且不重试。
- */
-function isHostReady() {
-  return Boolean(hostSocket) && hostSocket.readyState === hostSocket.OPEN;
-}
-
-/**
- * 让当前手机端进入宽限等待：期间 host 回来即配对并回放 Initialize，到期仍无 host 才 4002。
+ * 客户端进入宽限等待：期间有空闲槽位即被配对，到期仍无槽位才 4002（reason no-free-host）。
  * 立刻 4002 只会让 web 端（open 即 resolve）误判成功 → 空壳白屏。
  */
-function holdClientUntilHost(ws) {
-  if (!ws || ws.readyState !== ws.OPEN || clientWaitTimer) return;
-  const hostState = hostSocket ? `not OPEN (readyState=${hostSocket.readyState})` : "offline";
-  log(`host ${hostState}; holding client for up to ${HOST_WAIT_GRACE_MS}ms`);
-  clientWaitTimer = setTimeout(() => {
-    clientWaitTimer = null;
-    if (clientSocket !== ws) return;
-    // 到期必须重判 host：宽限期内 host 可能已经回来但没走到配对（例如被旧 pair 挡住）。
-    // 直接结束会让客户端既不被服务也不被拒绝 —— 又是一个静默白屏。
-    if (isHostReady()) return syncPairing();
+function armClientGrace(ws) {
+  const entry = waitingClients.get(ws);
+  if (!entry || entry.timer) return;
+  log(`host ${hostStateForLog()}; holding client for up to ${HOST_WAIT_GRACE_MS}ms`);
+  entry.timer = setTimeout(() => {
+    if (!waitingClients.has(ws)) return; // 已配对或已断开
+    // 到期必须重判：宽限期内可能有槽位回来但没走到配对。直接结束会让客户端
+    // 既不被服务也不被拒绝 —— 又一个静默白屏。
+    syncPairingAll();
+    if (!waitingClients.has(ws)) return;
+    waitingClients.delete(ws);
     log("grace elapsed without host; rejecting client (4002)");
     try {
-      ws.close(4002, "host-offline");
+      ws.close(4002, "no-free-host");
     } catch {
       ws.terminate();
     }
@@ -493,130 +500,122 @@ function holdClientUntilHost(ws) {
 }
 
 /**
- * 配对的**唯一决策点**：host 可用就配对（先回放 Initialize 等缓冲帧），否则让手机端进宽限等待。
- *
- * 所有路径（host 连上 / 手机连上 / host 断开 / 宽限到期）都调用它，避免出现
- * 「有的路径配对、有的路径直接踢掉」的分叉 —— 那正是刷新后白屏的来源（spec §12.3.1）。
- * 只配 OPEN 的 host 与 OPEN 的 client：配给正在关闭的 socket 等于给新页面埋一个立刻触发的雷。
+ * 配对的**唯一决策点**（spec §17）：每个「OPEN 且空闲」的槽位按 FIFO 认领一个等待客户端，
+ * 认领后先回放该槽位的缓冲帧（含 Initialize）。被顶替后仍持有 client 的槽位直接与新
+ * host 重新建 pipe（dispose 语义，client 存活）。所有路径（host 连上 / 客户端连上 /
+ * host 断开 / 宽限到期）都调用它 —— 单一决策点是刷新白屏修复的根基（spec §12.3.1）。
+ * 只配 OPEN 的 host 与 OPEN 的 client：配给正在关闭的 socket 等于给新页面埋雷。
  */
-function syncPairing() {
-  if (activePair) return;
-  if (!clientSocket || clientSocket.readyState !== clientSocket.OPEN) return;
-  if (!isHostReady()) {
-    holdClientUntilHost(clientSocket);
-    return;
+function syncPairingAll() {
+  for (const [slotId, slot] of hostSlots) {
+    if (slot.pair || !slot.ws || slot.ws.readyState !== slot.ws.OPEN) continue;
+    let clientWs = slot.client;
+    if (!clientWs || clientWs.readyState !== clientWs.OPEN) {
+      clientWs = waitingClients.keys().next().value;
+      if (!clientWs) continue;
+      const entry = waitingClients.get(clientWs);
+      if (entry?.timer) clearTimeout(entry.timer);
+      waitingClients.delete(clientWs);
+      slot.client = clientWs;
+    }
+    if (slot.buffer.length > 0) {
+      slot.buffer.forEach((frame) => clientWs.send(frame.data, { binary: frame.isBinary }));
+      log("replayed buffered host frames", {
+        slot: slotId,
+        count: slot.buffer.length,
+        bytes: slot.bufferBytes,
+      });
+    }
+    clearSlotBuffer(slot);
+    slot.pair = pipe(slotId, slot, slot.ws, clientWs);
+    log("paired host↔client", { slot: slotId });
   }
-  clearClientWait();
-  if (pendingHostFrames.length > 0) {
-    pendingHostFrames.forEach((frame) => clientSocket.send(frame.data, { binary: frame.isBinary }));
-    log("replayed buffered host frames", {
-      count: pendingHostFrames.length,
-      bytes: pendingHostFrameBytes,
-    });
-  }
-  clearHostBuffer();
-  activePair = pipe(hostSocket, clientSocket);
-  log("paired host↔client");
 }
 
-function clearPair() {
-  activePair = null;
-}
-
-function onHostOpen(ws) {
-  if (hostSocket && hostSocket !== ws) {
-    log("replacing existing host connection");
-    const previous = hostSocket;
-    hostSocket = null;
-    clearHostBuffer();
+function onHostOpen(ws, slotId) {
+  const existing = hostSlots.get(slotId);
+  if (existing && existing.ws && existing.ws !== ws) {
+    log("replacing existing host connection", { slot: slotId });
     // 旧 pair 必须被摘掉监听而不能只置空：否则旧 host 稍后的 close 会用 4002
-    // 连坐关掉正被新 host 服务的手机端（手机端不需要重连，它会拿到新 attachment 的 Initialize）。
-    activePair?.dispose();
-    clearPair();
+    // 连坐关掉正被服务的客户端。已认领的 client 保留，由新 host 接管。
+    existing.pair?.dispose();
+    // dispose 只摘监听，不清槽位登记：这里必须显式置空，否则 syncPairingAll 会认为
+    // 槽位仍在配对中而跳过重建，客户端的帧就发进了没有转发器的死管道。
+    existing.pair = null;
+    clearSlotBuffer(existing);
+    const previous = existing.ws;
     try {
       previous.close(4001, "host-replaced");
     } catch {
       previous.terminate();
     }
+    existing.ws = ws;
+  } else if (existing) {
+    existing.ws = ws;
+  } else {
+    hostSlots.set(slotId, { ws, client: null, pair: null, buffer: [], bufferBytes: 0 });
   }
-  hostSocket = ws;
-  trackSocketActivity(ws);
-  log("host connected");
+  const slot = hostSlots.get(slotId);
+  trackSocketActivity(ws, "host");
+  log("host connected", { slot: slotId });
   // host→client 转发从 host 连上就开始（而不是配对时才挂）：
-  // ChannelServer 构造即发 Initialize，此刻手机多半还没配对，必须缓冲（spec §12.3.1）。
+  // ChannelServer 构造即发 Initialize，此刻客户端多半还没认领，必须缓冲（spec §12.3.1）。
   ws.on("message", (data, isBinary) => {
-    // 已被顶替的旧 host 仍在关闭过程中时，不得再往手机端注入帧。
-    if (hostSocket !== ws) return;
-    const target = clientSocket;
+    // 已被顶替的旧 host 仍在关闭过程中时，不得再往客户端注入帧。
+    if (hostSlots.get(slotId)?.ws !== ws) return;
+    const target = slot.client;
     if (target && target.readyState === target.OPEN) {
       if (target.bufferedAmount > BACKPRESSURE_WARN_BYTES) {
-        log("backpressure on host→client", { bufferedAmount: target.bufferedAmount });
+        log("backpressure on host→client", { bufferedAmount: target.bufferedAmount, slot: slotId });
       }
       target.send(data, { binary: isBinary });
     } else {
-      bufferHostFrame(data, isBinary);
+      bufferSlotFrame(slot, data, isBinary);
     }
   });
   ws.on("close", () => {
-    if (hostSocket !== ws) return;
-    hostSocket = null;
+    if (hostSlots.get(slotId)?.ws !== ws) return;
+    hostSlots.delete(slotId);
     socketActivity.delete(ws);
-    clearHostBuffer();
-    clearPair();
-    log("host disconnected");
-    // host 走了但手机端可能还连着且没被配对（例如新页面在旧 pair 被摘掉前就已顶替）：
-    // 这里补一次配对决策，让宽限计时器兜住它，否则桌面不再回来时会静默挂死。
-    syncPairing();
+    log("host disconnected", { slot: slotId });
+    // 该槽位的 pair 会经 a-close 监听连坐关闭其客户端（4002）并自行释放登记；
+    // 其它槽位不受影响。这里补一次配对决策，让等待中的客户端认领其它空闲槽位。
+    syncPairingAll();
   });
   ws.on("error", () => {});
-  syncPairing();
+  syncPairingAll();
 }
 
 function onClientOpen(ws) {
-  if (clientSocket && clientSocket !== ws) {
-    log("replacing existing client connection");
-    const previous = clientSocket;
-    clientSocket = null;
-    // 不需要在这里单独清宽限定时器：下面紧跟一次 clearClientWait()。
-    try {
-      previous.close(4004, "client-replaced");
-    } catch {
-      previous.terminate();
-    }
-  }
-  clientSocket = ws;
-  clearClientWait();
-  trackSocketActivity(ws);
+  trackSocketActivity(ws, "client");
   log("client connected");
   ws.on("close", () => {
-    if (clientSocket !== ws) return;
-    clientSocket = null;
+    // 配对中的断开由 pipe 的 b-close 监听连坐处理；这里只清等待登记。
+    waitingClients.delete(ws);
     socketActivity.delete(ws);
-    clearClientWait();
-    clearPair();
     log("client disconnected");
   });
   ws.on("error", () => {});
-  // host 缺位（手机刷新连坐了桌面连接，桌面 ~0.1s 内快速补位）或已发 close 但握手未完成：
-  // syncPairing 会把它放进宽限等待，而不是配给垂死 host、更不是立刻 4002 踢掉（都会白屏）。
-  syncPairing();
+  // 连接池下新客户端不再互相顶替：认领空闲槽位；无空闲则进宽限等待
+  // （armClientGrace 布防计时器），而不是配给垂死 host、更不是立刻 4002（都会白屏）。
+  waitingClients.set(ws, { timer: null });
+  armClientGrace(ws);
+  syncPairingAll();
 }
 
 /**
  * 心跳与空闲回收（spec §12.3.1「断开与恢复」）。
  *
- * 定期 ping 两侧：既保活（移动网络/NAT 不会静默丢弃空闲连接），也探活——
- * 一侧超过 IDLE_TIMEOUT_MS 没有任何活动就视为僵尸连接（手机被回收、桌面卡死、
- * 网络半开）并关闭，避免它长期占住唯一 host/client 槽位。
- * 两端都按 RFC 自动回 pong，因此「空闲但健康」的连接不会被误关。
+ * 定期 ping 所有连接：既保活（移动网络/NAT 不会静默丢弃空闲连接），也探活——
+ * 一侧超过 IDLE_TIMEOUT_MS 没有任何活动就视为僵尸连接（客户端被回收、桌面卡死、
+ * 网络半开）并关闭，腾出槽位。遍历 socketRoles（含已被顶替但尚未走完 close 的
+ * 连接），保证僵尸无论是否还在槽位表里都会被回收。两端都按 RFC 自动回 pong，
+ * 因此「空闲但健康」的连接不会被误关。
  */
 setInterval(() => {
   const now = Date.now();
-  for (const [ws, label] of [
-    [hostSocket, "host"],
-    [clientSocket, "client"],
-  ]) {
-    if (!ws || ws.readyState !== ws.OPEN) continue;
+  for (const [ws, role] of socketRoles) {
+    if (ws.readyState !== ws.OPEN) continue;
     if (now - (socketActivity.get(ws) ?? now) <= IDLE_TIMEOUT_MS) {
       try {
         ws.ping();
@@ -625,11 +624,12 @@ setInterval(() => {
       }
       continue;
     }
-    log(`closing idle ${label} connection`);
+    log(`closing idle ${role} connection`);
+    socketRoles.delete(ws);
     socketActivity.delete(ws);
     // host 用 4003：桌面侧按「快速补位」100ms 重连；client 用 4000（通用应用层关闭）。
     try {
-      ws.close(label === "host" ? 4003 : 4000, "idle-timeout");
+      ws.close(role === "host" ? 4003 : 4000, "idle-timeout");
     } catch {
       ws.terminate();
     }

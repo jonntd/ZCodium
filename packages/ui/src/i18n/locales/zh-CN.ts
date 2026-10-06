@@ -2292,6 +2292,8 @@ const zhCN: Record<string, string> = {
   "settings.remoteRelay.e2eeDescription": '中继只转发密文，服务器看不到会话内容。需先更新手机端 web 版本，再开启；旧链接会提示重新配对。',
   "settings.remoteRelay.channelKey": 'E2EE 密钥',
   "settings.remoteRelay.channelKeyDescription": '经分享链接的 #k= 片段下发给手机（不会发给中继）。留空自动生成；清空保存即可轮换，旧链接全部失效。',
+  "settings.remoteRelay.slots": '并发客户端数',
+  "settings.remoteRelay.slotsDescription": '允许多少个浏览器/手机同时访问（每台各一条独立加密连接），1-8。改动后需重新复制链接。',
   "settings.remoteRelay.workspace": '工作区覆盖',
   "settings.remoteRelay.workspaceDescription": '固定上报的工作区路径；不填则跟随当前窗口。',
   "settings.remoteRelay.autoStart": '随应用启动',

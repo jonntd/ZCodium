@@ -19,6 +19,12 @@ export interface RemoteRelayFileConfig {
   workspace?: string;
   /** 钉住借出 Host 的窗口 id；不填则跟随聚焦窗口。 */
   windowId?: number;
+  /**
+   * 并发客户端槽位数（1..8，缺省 1；spec vps-relay-bridge.md §17）。
+   * 每个槽位 = 一条独立的中继连接 + 独立 Host attachment + 独立 E2EE 握手，
+   * 允许 N 个客户端（手机/浏览器 tab）**同时**访问同一桌面。
+   */
+  slots?: number;
   /** App 启动时自动连接（缺省 true —— 写了配置文件即视为要用）。 */
   autoStart?: boolean;
   /** 浏览器侧访问的公开源（用于拼分享链接）；缺省由 url 推导（wss→https / ws→http）。 */
@@ -51,6 +57,8 @@ export interface RemoteRelayStatus {
   source: "env" | "file" | null;
   /** 是否已启用端到端加密（启用时分享链接带 `#k=`）。 */
   e2ee: boolean;
+  /** 并发客户端槽位数（spec §17；缺省 1）。 */
+  slots: number;
   /** 分享链接（手机浏览器打开即配对）；缺 publicUrl/pairingToken 时为 null。 */
   shareUrl: string | null;
   /** 当前借出 Host 的窗口 id（尽力而为，连接建立后才有意义）。 */
