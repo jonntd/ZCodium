@@ -15,9 +15,11 @@ import { WebSocket } from "ws";
 
 import {
   createRemoteOfficialDeviceClient,
+} from "../src/main/remoteOfficialDeviceClient.ts";
+import {
   getOfficialRelayConfigFilePath,
   loadOfficialRelayStartConfig,
-} from "../src/main/remoteOfficialDeviceClient.ts";
+} from "../src/main/remoteOfficialConfig.ts";
 
 const DEVICE_MID = `mid-${randomBytes(8).toString("base64url")}`;
 const DEVICE_PASSWORD = `pw-${randomBytes(18).toString("base64url")}`;
@@ -274,15 +276,63 @@ test("同房间第二个 terminal（首个仍在线）→ error(terminal_busy)",
   client.stop();
 });
 
-test("stop/start 后重新注册：device_sid 更新（重连即换新 room）", async () => {
+test("stop/start 后持久化复用：device_sid 不变（手机链接跨重启有效）", async () => {
   const { client, terminal } = await pairDeviceAndTerminal();
   const sidBefore = client.getStatus().deviceSid;
-  client.stop();
+  try {
+    client.stop();
+    client.start();
+    const sidAfter = await waitFor(() => client.getStatus().deviceSid, "重连后的 device_sid");
+    assert.equal(sidAfter, sidBefore, "持久化模式复用同一房间，不再换新 sid（spec §14.8）");
+    // terminal 仍在线时重鉴权直接广播 matched；离线时是 waiting。
+    await waitFor(
+      () => ["waiting", "matched"].includes(client.getStatus().pairStatus ?? ""),
+      "复用房间后重新鉴权",
+    );
+  } finally {
+    // 失败路径也必须停掉客户端：心跳/重连 timer 会让 node --test 事件循环永不排空。
+    client.stop();
+    terminal.ws.close();
+  }
+});
+
+test("持久化 deviceSid：跳过注册直接 auth_init，复用同一房间（rooms 数不增）", async () => {
+  // 先造一个已注册房间并拿到 sid，再断开原始 socket（模拟桌面重启）。
+  const raw = await openRawDevice();
+  const persistedSid = raw.sid;
+  const roomsBefore = (await (await fetch(`${httpUrl}/healthz`)).json()).rooms;
+  raw.ws.close();
+  // 等 relay 的 close 处理落定（healthz 不暴露单房间 socket 状态）。
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 250));
+
+  const { client, events } = makeDevice({ deviceSid: persistedSid });
   client.start();
-  const sidAfter = await waitFor(() => client.getStatus().deviceSid, "重连后的 device_sid");
-  assert.notEqual(sidAfter, sidBefore, "重连即重新注册，必须换新 sid（spec §14.8）");
+  const sidAfter = await waitFor(() => client.getStatus().deviceSid, "复用的 device_sid");
+  assert.equal(sidAfter, persistedSid, "必须复用持久化的房间 id，不得新建房间");
+  const roomsAfter = (await (await fetch(`${httpUrl}/healthz`)).json()).rooms;
+  assert.equal(roomsAfter, roomsBefore, "rooms 数不变 = 未走注册");
+  await waitFor(() => events.statuses.includes("waiting"), "复用房间后完成鉴权");
   client.stop();
-  terminal.ws.close();
+});
+
+test("持久化 sid 失效（ghost）→ 自愈回退注册并重写持久化", async () => {
+  const persistedCalls = [];
+  const { client } = makeDevice({
+    deviceSid: "ghost-sid-does-not-exist",
+    onPersistDeviceSid: (sid) => persistedCalls.push(sid),
+  });
+  client.start();
+  const newSid = await waitFor(
+    () => {
+      const sid = client.getStatus().deviceSid;
+      return sid && sid !== "ghost-sid-does-not-exist" ? sid : null;
+    },
+    "自愈后的新 device_sid",
+  );
+  assert.deepEqual(persistedCalls[0], null, "失效先清除持久化");
+  assert.equal(persistedCalls[persistedCalls.length - 1], newSid, "注册成功后写入新 sid");
+  await waitFor(() => client.getStatus().pairStatus === "waiting", "自愈后完成鉴权");
+  client.stop();
 });
 
 test("loadOfficialRelayStartConfig：缺失→null；启用→生成并持久化凭据；禁用→null；env url 不回写", async (t) => {
@@ -309,6 +359,14 @@ test("loadOfficialRelayStartConfig：缺失→null；启用→生成并持久化
   assert.equal(persisted.devicePassword, first.devicePassword);
   const second = await loadOfficialRelayStartConfig();
   assert.deepEqual(second, first, "第二次读取复用同一凭据，不重新生成");
+
+  await writeFile(
+    configPath,
+    `${JSON.stringify({ enabled: true, url: "ws://relay.example", deviceSid: "sid-persisted" })}\n`,
+    "utf8",
+  );
+  const withSid = await loadOfficialRelayStartConfig();
+  assert.equal(withSid?.deviceSid, "sid-persisted", "持久化的 deviceSid 应随启动配置返回");
 
   await writeFile(configPath, `${JSON.stringify({ enabled: false, url: "ws://relay.example" })}\n`, "utf8");
   assert.equal(await loadOfficialRelayStartConfig(), null, "enabled=false 不启用");

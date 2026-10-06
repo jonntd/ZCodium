@@ -165,10 +165,11 @@ import {
 } from "./desktopDeepLinkUrl.js";
 import { createRemoteWorkspaceSessionManager } from "./desktopRemoteSessions.js";
 import { createRemoteRelayControl } from "./remoteRelayControlIpc.js";
+import { createRemoteOfficialDeviceClient } from "./remoteOfficialDeviceClient.js";
 import {
-  createRemoteOfficialDeviceClient,
   loadOfficialRelayStartConfig,
-} from "./remoteOfficialDeviceClient.js";
+  persistOfficialRelayDeviceSid,
+} from "./remoteOfficialConfig.js";
 import { createOfficialDataPlane } from "./remoteOfficialDataPlane.js";
 import { resolveCanonicalWslTarget } from "./desktopWslTargetResolver.js";
 import {
@@ -1943,6 +1944,12 @@ app.whenReady().then(async () => {
       ...officialRelayConfig,
       meta: { name: hostname(), version: ZCODE_VERSION },
       logger,
+      // deviceSid 持久化（spec §14.8）：注册成功写入、失效清除——手机链接跨重启有效。
+      onPersistDeviceSid: (deviceSid) => {
+        void persistOfficialRelayDeviceSid(deviceSid).catch((error) => {
+          logger?.warn("官方中继 deviceSid 持久化失败", error);
+        });
+      },
       onData: (payload) => remoteOfficialDataPlane?.handlePayload(payload),
     });
     remoteOfficialDevice.start();

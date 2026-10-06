@@ -32,8 +32,9 @@ const LINK_ORIGIN = (process.env.LINK_ORIGIN || `http://127.0.0.1:${PORT}`).repl
 const MAX_PAYLOAD = 64 * 1024 * 1024;
 /** challenge 有效期：超时未回 auth_response 则断开。 */
 const AUTH_TIMEOUT_MS = 30_000;
-/** 心跳 watchdog：超过该时间没收到 pair_status_query 就认为对端已死。 */
-const HEARTBEAT_TIMEOUT_MS = 45_000;
+/** 空房间回收 TTL：持久化 deviceSid 后（spec §14.8），桌面离线期间房间须保持可用，
+ * 否则手机链接跨桌面重启失效。可用 env ROOM_TTL_MS 覆盖。 */
+const ROOM_TTL_MS = Number(process.env.ROOM_TTL_MS) || 24 * 60 * 60 * 1000;
 
 const log = (msg, detail) =>
   console.log(
@@ -402,12 +403,12 @@ server.listen(PORT, () => {
   log(`listening on :${PORT}`, { linkOrigin: LINK_ORIGIN });
 });
 
-// 心跳 watchdog：长时间无 pair_status_query 的房间做清理。
+// 空 room 回收：两端都不在线且超过 TTL 的房间清掉（链接 hash 随之失效）。
 setInterval(() => {
   const now = Date.now();
   for (const [sid, room] of rooms) {
     if (room.device || room.terminal) continue;
-    if (now - room.lastHeartbeatAt > HEARTBEAT_TIMEOUT_MS) {
+    if (now - room.lastHeartbeatAt > ROOM_TTL_MS) {
       rooms.delete(sid);
       log("room expired", { sidSuffix: sid.slice(-6) });
     }

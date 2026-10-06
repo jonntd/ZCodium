@@ -917,6 +917,18 @@ idle → connecting → registering（device_register_init → ack 得 device_si
 套件入库 `deploy/vps-relay/relay-official.test.mjs`（`node --test`，spawn 真实 relay +
 真实 device 客户端），取代 §14.7 的一次性双端模拟。
 
+#### 持久化 deviceSid（官方对齐；否则手机每次桌面重连都要重扫码）
+
+- 首次 `device_register_ack` 后把 `deviceSid` 持久化进配置文件（官方语义，§14.2）；
+  后续连接**跳过注册**直接 `auth_init(role:"device", device_sid)`（relay 对无 device
+  socket 的房间照常 challenge，passHash 即 HMAC key）。
+- relay 空房间回收 TTL 延长（env `ROOM_TTL_MS`，默认 24h，取代原 45s watchdog）——
+  桌面离线期间房间与链接 hash 保持有效，**手机扫一次码即可长期使用**。
+- 自愈路径：`auth_init` 收到 `sid_invalid`（relay 重启丢房）或 `auth_failed`
+  （passHash 轮换）⇒ 清除持久化 sid 回退注册，重新拿新 sid 并再次持久化。
+  `device_register_init` 语义不变：永远是全新房间。
+
+
 ### 14.9 数据面信封契约（官方 asar 还原）与桌面适配器设计
 
 > 来源：官方 app.asar 主进程 chunk 的只读逆向（`routePayload` / `createWorkspaceBridge` /

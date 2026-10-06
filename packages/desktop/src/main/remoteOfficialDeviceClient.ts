@@ -11,11 +11,8 @@
  * 日志纪律（对齐官方 safeAuthLogFields，§14.2/§14.8）：passHash、proof、完整
  * device_sid、链接 hash 一律不打，只允许 deviceSidSuffix（后 6 位）。
  */
-import { createHash, createHmac, randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { createHash, createHmac } from "node:crypto";
 
-import { getAppConfigDir } from "@zcode/services/node";
 import { WebSocket } from "ws";
 
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
@@ -29,23 +26,17 @@ const DEFAULT_AUTH_TIMEOUT_MS = 30_000;
 
 export type OfficialPairStatus = "waiting" | "matched";
 
-export interface RemoteOfficialRelayFileConfig {
-  enabled?: boolean;
-  url?: string;
-  deviceMid?: string;
-  devicePassword?: string;
-}
-
-export interface OfficialRelayStartConfig {
-  url: string;
-  deviceMid: string;
-  devicePassword: string;
-}
-
 export interface RemoteOfficialDeviceClientOptions {
   url: string;
   deviceMid: string;
   devicePassword: string;
+  /**
+   * 上次会话持久化的 deviceSid（spec §14.8 持久化模式）：非空时跳过注册直接
+   * auth_init；收到 sid_invalid / auth_failed 即清除并回退注册（自愈）。
+   */
+  deviceSid?: string | null;
+  /** deviceSid 持久化钩子：注册成功后写入新值、失效时回 null。 */
+  onPersistDeviceSid?: (deviceSid: string | null) => void;
   /** 随 `device_register_init` 上报、随配对链接下发的展示信息。 */
   meta?: { name?: string; version?: string };
   logger?: {
@@ -80,54 +71,6 @@ export interface RemoteOfficialDeviceClient {
   getStatus(): { state: string; deviceSid: string | null; pairStatus: OfficialPairStatus | null };
 }
 
-export function getOfficialRelayConfigFilePath(): string {
-  return join(getAppConfigDir(), "remote-official-relay.json");
-}
-
-/**
- * 解析路线 B 启动配置；不满足启用条件（文件缺失 / enabled 非 true / 无 url）时
- * 返回 null，调用方完全不实例化客户端。env `ZCODE_OFFICIAL_RELAY_WS_URL` 优先于
- * 文件 url，但**不回写**文件里的 url。`deviceMid` / `devicePassword` 首次自动生成
- * 并持久化（与路线 A 的 pairingToken/channelKey/slotBase 同模式）：这两个值没有
- * 用户可读语义，手填只会退化成弱口令；轮换 = 清空字段重启。
- */
-export async function loadOfficialRelayStartConfig(
-  logger?: RemoteOfficialDeviceClientOptions["logger"],
-): Promise<OfficialRelayStartConfig | null> {
-  const envUrl = process.env.ZCODE_OFFICIAL_RELAY_WS_URL?.trim() || null;
-  let file: RemoteOfficialRelayFileConfig | null = null;
-  try {
-    const raw = await readFile(getOfficialRelayConfigFilePath(), "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      file = parsed as RemoteOfficialRelayFileConfig;
-    } else {
-      logger?.warn("官方中继配置文件不是 JSON 对象，已忽略", getOfficialRelayConfigFilePath());
-    }
-  } catch {
-    file = null;
-  }
-
-  const fileUrl = typeof file?.url === "string" ? file.url.trim() : "";
-  const url = envUrl ?? (fileUrl || null);
-  if (file?.enabled !== true || !url) return null;
-
-  const deviceMid = file.deviceMid || randomBytes(16).toString("base64url");
-  const devicePassword = file.devicePassword || randomBytes(24).toString("base64url");
-  if (!file.deviceMid || !file.devicePassword) {
-    // 只在生成凭据时落盘，且保留文件里的 url/enabled 原值（env 只影响本次运行）。
-    const nextFile: RemoteOfficialRelayFileConfig = { ...file, deviceMid, devicePassword };
-    try {
-      const path = getOfficialRelayConfigFilePath();
-      await mkdir(join(path, ".."), { recursive: true });
-      await writeFile(path, `${JSON.stringify(nextFile, null, 2)}\n`, "utf8");
-    } catch (error) {
-      logger?.warn("官方中继配置写入失败，凭据仅在本次会话内有效", error);
-    }
-  }
-  return { url, deviceMid, devicePassword };
-}
-
 /** 与 §14.2 官方算法逐字对应（relay-official.mjs 同款）。 */
 function calculateProof(key: string, nonce: string, role: string, sid: string): string {
   return createHmac("sha256", key).update(`${nonce}|${role}|${sid}`).digest("base64url");
@@ -157,6 +100,8 @@ export function createRemoteOfficialDeviceClient(
 
   let socket: WebSocket | null = null;
   let deviceSid: string | null = null;
+  /** 持久化的 sid（spec §14.8）：非空时跳过注册直接 auth_init，失效即清空回退注册。 */
+  let persistedSid = options.deviceSid ?? null;
   let state: "idle" | "connecting" | "registering" | "authenticating" | "paired" = "idle";
   let pairStatus: OfficialPairStatus | null = null;
   let linkFetched = false;
@@ -271,6 +216,9 @@ export function createRemoteOfficialDeviceClient(
           return;
         }
         deviceSid = sid;
+        // 首次注册成功 → 持久化 sid（官方语义）：后续连接直接 auth_init。
+        persistedSid = sid;
+        options.onPersistDeviceSid?.(sid);
         lastHeartbeatAckAt = Date.now();
         send({
           type: "auth_init",
@@ -303,7 +251,27 @@ export function createRemoteOfficialDeviceClient(
         return;
       }
       case "error": {
-        logger?.warn(`官方中继错误 ${String(msg.code ?? "unknown")}`, sidLogFields(deviceSid));
+        const code = String(msg.code ?? "unknown");
+        logger?.warn(`官方中继错误 ${code}`, sidLogFields(deviceSid));
+        // 持久化 sid 失效（relay 丢房 / passHash 轮换）→ 自愈回退注册（§14.8）。
+        if (persistedSid && (code === "sid_invalid" || code === "auth_failed")) {
+          persistedSid = null;
+          options.onPersistDeviceSid?.(null);
+          deviceSid = null;
+          // relay 对 sid_invalid 不关连接：同一 socket 上直接回退注册；
+          // auth_failed 时 relay 会关连接，close 后的下次连接自然走注册。
+          if (socket && socket.readyState === WebSocket.OPEN) {
+            setState("registering");
+            send({
+              type: "device_register_init",
+              device_mid: options.deviceMid,
+              pass_hash: passHash,
+              meta: options.meta ?? {},
+              client_ts: Date.now(),
+            });
+          }
+          return;
+        }
         socket?.close();
         return;
       }
@@ -346,6 +314,19 @@ export function createRemoteOfficialDeviceClient(
     socket = ws;
     ws.on("open", () => {
       if (socket !== ws) return;
+      startHeartbeat();
+      if (persistedSid) {
+        // 持久化模式（spec §14.8）：跳过注册直接 auth_init——手机链接跨桌面重启有效。
+        deviceSid = persistedSid;
+        send({
+          type: "auth_init",
+          role: "device",
+          device_sid: persistedSid,
+          ...(options.meta ? { meta: options.meta } : {}),
+          client_ts: Date.now(),
+        });
+        return;
+      }
       setState("registering");
       send({
         type: "device_register_init",
@@ -354,7 +335,6 @@ export function createRemoteOfficialDeviceClient(
         meta: options.meta ?? {},
         client_ts: Date.now(),
       });
-      startHeartbeat();
     });
     ws.on("message", (raw) => {
       if (socket !== ws) return;
