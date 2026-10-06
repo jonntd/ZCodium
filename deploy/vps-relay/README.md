@@ -53,7 +53,7 @@
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `RELAY_TOKEN` | ✅ | **手机配对码**。手机打开 `https://<域名>/?token=<它>` 一次即可 |
+| `RELAY_TOKEN` | ✅ | **手机配对码**。手机打开 `https://<域名>/?token=<它>` 一次即可；它同时是**时效签名链接**（桌面设置页可生成，spec vps-relay-bridge.md §18）的 HMAC 密钥——轮换它即可让所有旧链接/旧 cookie 全部失效 |
 | `HOST_SECRET` | ✅ | **桌面共享密钥**。桌面用它连 `/host`，也用它调 `/api/host-report` |
 | `PORT` | | 监听端口，默认 `3180` |
 | `WEB_ROOT` | | web bundle 目录，默认 `./web` |
@@ -229,6 +229,12 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 2. 手机浏览器打开 `https://relay.example.com/?token=<RELAY_TOKEN>`
 3. 中继下发 cookie 并跳转（**只摘掉 `token`，其它参数保留**），之后正常使用
 4. 手机上看到的就是**桌面那个 Host 的服务面**：任务列表、会话历史、终端、文件、Git
+
+> **推荐：时效签名链接（spec §18）**。桌面「远程访问 → 二维码」里可生成带有效期的
+> 签名链接（1 小时 / 24 小时 / 7 天）并展示二维码，手机扫码即用。链接形状是
+> `?s=<房间>&t=<签发>&e=<过期>&h=<HMAC>`（对齐官方 `sid/hash/t`）：**不含长期密钥**，
+> 泄露暴露窗口 = 有效期；配对后下发的派生 cookie 过期由服务端强制判定。
+> 永久 token 链接继续可用（两种互不影响）；撤销所有访问 = 轮换 `RELAY_TOKEN`。
 
 > **可选：无人值守自动恢复**。配对链接再加 `&autoReconnect=1`（即
 > `https://relay.example.com/?token=<RELAY_TOKEN>&autoReconnect=1`）再加进主屏，

@@ -86,6 +86,23 @@ export interface RemoteRelaySetConfigRequest {
   apply?: boolean;
 }
 
+/** `zcode:remote-relay-get-share-link` 的请求（spec §18）：按需生成分享链接。 */
+export interface RemoteRelayShareLinkRequest {
+  /**
+   * 有效期秒数（越界 clamp 到 1h..30d）：非空 = 时效签名链接（§18.2）；
+   * null/缺省 = 永久 legacy token 链接（现状，PWA/书签兼容）。
+   */
+  ttlSeconds?: number | null;
+}
+
+/** `zcode:remote-relay-get-share-link` 的响应。 */
+export interface RemoteRelayShareLink {
+  /** 分享链接（手机浏览器打开即配对）；缺 publicUrl/pairingToken 时为 null。 */
+  shareUrl: string | null;
+  /** 时效链接的过期时刻（epoch 毫秒）；永久链接为 null。 */
+  expiresAt: number | null;
+}
+
 /**
  * 由中继地址推导手机浏览器可访问的公开地址：`wss://` → `https://`、`ws://` → `http://`，
  * 并去掉结尾斜杠。

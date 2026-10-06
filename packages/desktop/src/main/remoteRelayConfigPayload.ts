@@ -14,6 +14,7 @@ import {
   decodeRelayChannelKey,
   type RemoteRelayFileConfig,
   type RemoteRelaySetConfigRequest,
+  type RemoteRelayShareLinkRequest,
 } from "@zcode/shared";
 
 /** 允许写入配置文件的字段（与 `RemoteRelayFileConfig` 对齐）。 */
@@ -118,6 +119,23 @@ export function parseRemoteRelaySetConfigRequest(payload: unknown): RemoteRelayS
   }
 
   return { config: c as RemoteRelayFileConfig, apply: apply !== false };
+}
+
+/**
+ * `remoteRelayGetShareLink` 请求的解析（spec §18）：null/缺省 = 永久 legacy token 链接。
+ * 与配置解析同模块同理由：必须可单测、不依赖 electron、越界在进 Main 前拦住。
+ */
+export function parseRemoteRelayShareLinkRequest(payload: unknown): RemoteRelayShareLinkRequest {
+  if (payload == null) return {};
+  if (typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("payload 必须是对象");
+  }
+  const { ttlSeconds } = payload as { ttlSeconds?: unknown };
+  if (ttlSeconds === undefined || ttlSeconds === null) return {};
+  if (typeof ttlSeconds !== "number" || !Number.isFinite(ttlSeconds) || ttlSeconds <= 0) {
+    throw new Error("ttlSeconds 必须是正数或 null");
+  }
+  return { ttlSeconds };
 }
 
 /**

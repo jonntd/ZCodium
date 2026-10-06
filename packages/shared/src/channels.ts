@@ -7,6 +7,8 @@ import type {
   MigrateLegacyCommonMcpResult,
   SaveCliMcpToUserDirectoryRequest,
   RemoteRelaySetConfigRequest,
+  RemoteRelayShareLink,
+  RemoteRelayShareLinkRequest,
   RemoteRelayStatus,
 } from "./index.js";
 import type { OAuthStateRegistration } from "./oauth.js";
@@ -201,6 +203,8 @@ export const PlatformChannels = {
   RemoteRelayStop: "zcode:remote-relay-stop",
   /** Renderer → Main：写入 VPS 中继配置文件（~/.zcodium/v2/remote-relay.json） */
   RemoteRelaySetConfig: "zcode:remote-relay-set-config",
+  /** Renderer → Main：生成分享链接（时效签名链接或永久 token 链接，spec §18） */
+  RemoteRelayGetShareLink: "zcode:remote-relay-get-share-link",
   /** Renderer → Main：列出本机可用的 WSL 发行版 */
   ListWSLDistros: "zcode:list-wsl-distros",
   /** Renderer → Main：列出当前可连接的 Docker 容器 */
@@ -1139,5 +1143,9 @@ export interface PlatformChannelMap {
   [PlatformChannels.RemoteRelaySetConfig]: {
     request: RemoteRelaySetConfigRequest;
     response: RemoteRelayStatus;
+  };
+  [PlatformChannels.RemoteRelayGetShareLink]: {
+    request: RemoteRelayShareLinkRequest;
+    response: RemoteRelayShareLink;
   };
 }

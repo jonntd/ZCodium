@@ -1356,3 +1356,85 @@ Host↔客户端的帧里没有会话身份：两个客户端共用一条 Host �
 | 3 | 同 slotId 重连 | 顶替旧连接，**其它槽位不受影响** |
 | 4 | 客户端断开 | 连坐关闭其 Host 连接，槽位释放，其它槽位不受影响 |
 | 5 | 既有单槽位测试（不带 slot） | 全部保持通过 |
+
+## 18. 官方 UX 对齐：二维码扫码接入 + 时效签名链接
+
+官方远控的链接是「`sid`（房间）+ `hash`（HMAC 签名，兼手机端认证密钥）+ `t`（签发时间）」
+的**签名时效凭据**（§13.5），而路线 A 现状是「永久有效的 `?token=` 链接」。
+本节把这两项差距补齐：**扫码接入**与**链接时效**。中继保持哑管道（无状态 HMAC 验证），
+不引入房间路由。
+
+### 18.1 威胁模型与密钥
+
+- HMAC 密钥 = 桌面 `pairingToken` = 中继 `RELAY_TOKEN`（两端已共享，与 legacy token 同源）。
+- 签名链接泄露的暴露窗口 = `e`（过期时刻），**不再是永久**；撤销仍靠轮换 pairingToken。
+- `#k=`（E2EE channelKey）继续走 fragment：不进任何请求，中继拿不到（§16.2 不变）。
+
+### 18.2 链接格式与签名算法（对齐官方形状）
+
+```text
+<publicUrl>/?s=<sid>&t=<issuedAtSec>&e=<expiresAtSec>&h=<sig>&autoReconnect=1#k=<channelKey>
+
+sid = base64url(randomBytes(16))            // 房间 id（官方 d_ + 16B 同形；预留撤销钩子）
+sig = base64url(HMAC_SHA256(pairingToken, `${sid}|${t}|${e}`))   // 32 字节，官方 hash 同量级
+```
+
+校验规则（relay，全部常量时间比较）：
+
+1. `h` 与重算值相等；
+2. `|now - t| ≤ 300s`（时钟偏移容差）；
+3. `now < e`（过期即 401）。
+
+### 18.3 派生会话 cookie（服务端强制过期）
+
+配对入口验证通过后，除沿用 legacy cookie 外，下发**派生凭据**：
+
+```text
+zcode_lite_token = v1.<e>.<base64url(HMAC_SHA256(RELAY_TOKEN, `cookie|${e}`))>
+Max-Age = e - now
+```
+
+- `v1.` 前缀区分裸 `RELAY_TOKEN` cookie；`e` 编进值内，**过期由服务端判定**（Max-Age 只是浏览器提示）。
+- 无状态：relay 不存会话表，重启不失效（`e` 之前）。
+
+### 18.4 客户端凭据四通道（isClientAuthorized）
+
+| 通道 | 载荷 | 说明 |
+| --- | --- | --- |
+| legacy cookie | `zcode_lite_token = RELAY_TOKEN` | 现状不变 |
+| legacy query | `?token=` | §12.4 双通道，现状不变 |
+| 派生 cookie | `v1.<e>.<sig>` | §18.3，过期服务端拒绝 |
+| signed query | `?s=&t=&e=&h=` 全参数验证 | §12.4 教训（Set-Cookie 可能不落地）的对等通道 |
+
+配对入口（非 `/api/` 的 GET 带 `?s=&t=&e=&h=`）验证通过 → 302 时**保留** s/t/e/h
+（与 token 被摘除相反）：signed 参数就是本次会话凭据，web bundle 要把它们附到
+wsUrl / server-info（等价于 token 通道）；过期前留在浏览器历史/Referer 的暴露
+窗口有限，这是相对永久 token 的改进。`#k=` fragment 由浏览器在 302 后继承
+（RFC 9110 §15.4.4），E2EE 链路不受影响。
+
+### 18.5 桌面侧签名与 IPC
+
+- 新 IPC `RemoteRelayGetShareLink`，请求 `{ ttlSeconds: number | null }`
+  （null = 永久 legacy token 链接；正整数 clamp 到 1h..30d），响应
+  `{ shareUrl: string | null, expiresAt: number | null }`。
+- 签名只发生在 Main（`remoteRelayShareLink.ts`），渲染层不持有 HMAC 逻辑。
+- **默认分享链接不变**（永久 token 链接，PWA/书签兼容）；时效链接按次生成。
+
+### 18.6 UI（设置页）
+
+分享链接行新增「二维码」按钮：弹层内选时效（永久 / 1 小时 / 24 小时 / 7 天，默认 24 小时），
+实时生成链接 + QR（`qrcode.toDataURL`，与 BotsDialog 同模式）+ 复制。QR 编码完整链接
+（含 `#k=`；扫码打开后 fragment 不进请求，302 后浏览器继承）。
+
+### 18.7 兼容性与验收
+
+- legacy token 链接/cookie、E2EE、多槽位行为全部不变；旧链接继续可用。
+- 验收：
+
+| # | 场景 | 期望 |
+| --- | --- | --- |
+| 1 | 打开时效签名链接 | 302 + v1 cookie；页面 bootstrap 成功（含 /ws 升级） |
+| 2 | 过期签名链接 / 过期 v1 cookie | 401 fail-closed，不降级放行 |
+| 3 | 篡改 h / s / e 任一参数 | 401 |
+| 4 | legacy `?token=` 链接 | 行为与现状完全一致（302 + RELAY_TOKEN cookie） |
+| 5 | QR 扫码 | 手机浏览器打开即进入桌面会话；E2EE 开启时含 #k= 仍可解密 |

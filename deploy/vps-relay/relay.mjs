@@ -33,6 +33,12 @@
  * 非 token 参数会被保留：`&autoReconnect=1` 是手机侧「断线自动重载」的显式开关。
  * 这与 `zcode --web --host 0.0.0.0` 的既有 token 机制完全一致，所以手机侧零改动。
  *
+ * 时效签名链接（spec §18）：桌面可生成官方形状的签名凭据
+ * `?s=<sid>&t=<签发秒>&e=<过期秒>&h=<HMAC(RELAY_TOKEN, "s|t|e")>`，
+ * 验证全部无状态（常量时间比较），配对成功下发**派生会话 cookie**
+ * `v1.<e>.<HMAC(RELAY_TOKEN, "cookie|e")>`（过期由服务端判定，非 Max-Age 提示）。
+ * 客户端凭据共四通道：legacy cookie / legacy ?token= / v1 cookie / signed query。
+ *
  * 帧缓冲（spec §12.3.1）：host 在无手机配对期间发出的帧（含 ChannelServer 构造时
  * 立即发出的 Initialize 握手帧）进入有界缓冲，配对成功时先回放。否则手机侧
  * ChannelClient 永远等不到 Initialize、一个 RPC 都不发，页面静默白屏。
@@ -46,6 +52,7 @@
  * 超过 IDLE_TIMEOUT_MS 没有任何活动的一侧被关闭。host 用 4003（桌面侧按
  * 「快速补位」100ms 重连），client 用 4000。
  */
+import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
@@ -210,18 +217,64 @@ function safeEqual(a, b) {
 }
 
 /**
- * 手机侧配对凭据的**双通道**校验：cookie 或 `?token=` 查询参数，二者等价。
+ * 手机侧配对凭据的**多通道**校验：cookie 或查询参数，二者等价。
  *
  * 为什么需要查询参数通道：实测发现 Electron 内置浏览器（webview 分区）里 302 的
  * Set-Cookie 可能不落地（分区 cookie 为空），页面只能带着无 cookie 的 WS 撞 401，
  * 表现为空白/启动失败（spec §12.4「token 双通道」）。RELAY_TOKEN 本来就是 relay
  * 自己签发的凭据（经 `?token=` 明文到达 relay），放进查询参数没有新增暴露面；
  * E2EE 的 `#k=` 在 fragment 里，永远不会进请求。
+ *
+ * 通道清单（spec §18.4）：
+ *   1. legacy cookie      `zcode_lite_token = RELAY_TOKEN`
+ *   2. legacy query       `?token=<RELAY_TOKEN>`
+ *   3. 派生 cookie        `v1.<e>.<sig>`（时效链接配对后下发，服务端判过期）
+ *   4. signed query       `?s=&t=&e=&h=` 全参数签名验证
  */
 function isClientAuthorized(req, url) {
-  if (safeEqual(readCookie(req, COOKIE_NAME), RELAY_TOKEN)) return true;
+  const cookie = readCookie(req, COOKIE_NAME);
+  if (safeEqual(cookie, RELAY_TOKEN)) return true;
+  if (isSessionCookieValid(cookie)) return true;
   const queryToken = (url.searchParams.get("token") || "").trim();
-  return queryToken.length > 0 && safeEqual(queryToken, RELAY_TOKEN);
+  if (queryToken.length > 0 && safeEqual(queryToken, RELAY_TOKEN)) return true;
+  return isSignedShareQueryValid(url);
+}
+
+/** 时钟偏移容差（秒）：签名校验允许 |now - t| 的偏差（spec §18.2）。 */
+const CLOCK_SKEW_SECONDS = 300;
+
+function hmacRelayToken(message) {
+  return createHmac("sha256", RELAY_TOKEN).update(message).digest("base64url");
+}
+
+/**
+ * 派生会话 cookie（spec §18.3）：值里编入过期时刻 `e`，验证时服务端重算 HMAC 并判
+ * `now < e` —— 过期是**服务端强制**的（Max-Age 只是浏览器提示）。无状态，重启不失效。
+ */
+function deriveSessionCookie(expiresAtSec) {
+  return `v1.${expiresAtSec}.${hmacRelayToken(`cookie|${expiresAtSec}`)}`;
+}
+
+function isSessionCookieValid(value) {
+  if (!value.startsWith("v1.")) return false;
+  const parts = value.split(".");
+  if (parts.length !== 3) return false;
+  const expiresAtSec = Number.parseInt(parts[1], 10);
+  if (!Number.isInteger(expiresAtSec) || expiresAtSec * 1000 <= Date.now()) return false;
+  return safeEqual(parts[2], hmacRelayToken(`cookie|${expiresAtSec}`));
+}
+
+/** §18.2 签名四元组校验：h 常量时间比对，t 在 ±300s 内，e 必须在未来。 */
+function isSignedShareQueryValid(url) {
+  const sid = (url.searchParams.get("s") || "").trim();
+  const t = Number.parseInt(url.searchParams.get("t") || "", 10);
+  const e = Number.parseInt(url.searchParams.get("e") || "", 10);
+  const h = (url.searchParams.get("h") || "").trim();
+  if (!sid || !Number.isInteger(t) || !Number.isInteger(e)) return false;
+  const nowSec = Math.floor(Date.now() / 1000);
+  if (Math.abs(nowSec - t) > CLOCK_SKEW_SECONDS) return false;
+  if (e * 1000 <= Date.now()) return false;
+  return safeEqual(h, hmacRelayToken(`${sid}|${t}|${e}`));
 }
 
 function buildServerInfo() {
@@ -301,6 +354,25 @@ const server = createServer(async (req, res) => {
     const query = remaining.toString();
     res.writeHead(302, { location: query ? `${url.pathname}?${query}` : url.pathname });
     res.end();
+    return;
+  }
+
+  // 时效签名链接配对入口（spec §18.2/§18.4）：验证通过即下发派生 cookie 并**直接
+  // 返回页面**。与 token 入口不同，这里不能 302：signed 参数要保留在地址栏（它们
+  // 就是本次会话凭据，web bundle 会附到 /ws 与 /api），原样保留参数的 302 会造成
+  // 重定向循环。serveStatic 的 writeHead 会与 setHeader 合并，cookie 随页面下发。
+  if (url.searchParams.get("s") && url.searchParams.get("h") && !url.pathname.startsWith("/api/")) {
+    if (!isSignedShareQueryValid(url)) {
+      sendJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    const expiresAtSec = Number.parseInt(url.searchParams.get("e"), 10);
+    const maxAge = Math.max(0, expiresAtSec - Math.floor(Date.now() / 1000));
+    res.setHeader(
+      "set-cookie",
+      `${COOKIE_NAME}=${deriveSessionCookie(expiresAtSec)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`,
+    );
+    await serveStatic(res, url.pathname);
     return;
   }
 

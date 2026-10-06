@@ -37,6 +37,8 @@ export type {
   RemoteRelayFileConfig,
   RemoteRelayStatus,
   RemoteRelaySetConfigRequest,
+  RemoteRelayShareLink,
+  RemoteRelayShareLinkRequest,
 } from "./remote-relay.js";
 export { deriveRemoteRelayPublicUrl } from "./remote-relay.js";
 export {

@@ -68,6 +68,8 @@ import type {
   ModelhubProbeVisionResult,
   OpenCuaPermissionOnboardingOptions,
   RemoteRelaySetConfigRequest,
+  RemoteRelayShareLink,
+  RemoteRelayShareLinkRequest,
   RemoteRelayStatus,
 } from "@zcode/shared";
 import { InternalChannels, PlatformChannels, formatZCodeRendererProcessName } from "@zcode/shared";
@@ -258,6 +260,9 @@ contextBridge.exposeInMainWorld("zcode", {
   // 并再次包一层，导致保存时把 { config, apply } 信封当成 config 写进配置文件 —— 配置损坏、掉线。
   remoteRelaySetConfig: (request: RemoteRelaySetConfigRequest): Promise<RemoteRelayStatus> =>
     ipcRenderer.invoke(PlatformChannels.RemoteRelaySetConfig, request),
+  // 时效签名链接（spec §18）：签名在 Main，渲染层只传 ttl。
+  remoteRelayGetShareLink: (request: RemoteRelayShareLinkRequest): Promise<RemoteRelayShareLink> =>
+    ipcRenderer.invoke(PlatformChannels.RemoteRelayGetShareLink, request),
   listWSLDistros: () => ipcRenderer.invoke(PlatformChannels.ListWSLDistros),
   listDockerContainers: () => ipcRenderer.invoke(PlatformChannels.ListDockerContainers),
   listSSHConfigAliases: (): Promise<SSHConfigAliasOption[]> =>

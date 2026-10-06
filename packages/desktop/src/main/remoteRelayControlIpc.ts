@@ -9,6 +9,7 @@ import {
   generateRelayChannelKey,
   PlatformChannels,
   type RemoteRelayFileConfig,
+  type RemoteRelayShareLink,
   type RemoteRelayStatus,
 } from "@zcode/shared";
 import {
@@ -17,8 +18,10 @@ import {
 } from "./remoteRelayLanAddresses.js";
 import {
   parseRemoteRelaySetConfigRequest,
+  parseRemoteRelayShareLinkRequest,
   unwrapLegacyRemoteRelayConfigFile,
 } from "./remoteRelayConfigPayload.js";
+import { buildRelayShareLink } from "./remoteRelayShareLink.js";
 import {
   createRemoteRelayClient,
   type RelayMessagePort,
@@ -33,7 +36,8 @@ import {
  *
  * 与官方 `[web-remote-control]` 的差异（有意简化）：
  * - 不做 authorizeStart 一次性令牌（那是防渲染进程被攻破后静默开启的加固，后续可补）；
- * - 链接用 relay 已实现的 `?token=` cookie 配对，不做 sid/hash/t 签名链接。
+ * - 配对沿用 relay 的 `?token=` cookie 通道，另提供官方形状的时效签名链接
+ *   （spec §18，签名在 remoteRelayShareLink.ts）；不做官方的多设备房间路由。
  */
 
 /** 由 index.ts 注入的窗口/工作区解析（依赖模块级 Map，必须留在 index.ts）。 */
@@ -290,14 +294,17 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       slots: currentConfig?.slots ?? 1,
       shareUrl:
         currentConfig?.pairingToken != null && currentConfig.pairingToken !== ""
-          ? // 链接自带 autoReconnect=1：手机锁屏/切网断线后自动整页重载恢复，不用手点「重连」。
+          ? // 永久 legacy token 链接（与时效签名链接共用同一构造器，spec §18.5）。
+            // 链接自带 autoReconnect=1：手机锁屏/切网断线后自动整页重载恢复，不用手点「重连」。
             // 代价是重载会丢弃未发送输入（默认行为仍是「只提示」，见 web-bootstrap-delivery-point.md §2.4）。
             // E2EE 启用时追加 `#k=`：fragment 不会发给服务器，中继拿不到 channelKey（spec §16.2）。
-            `${currentConfig.publicUrl}/?token=${encodeURIComponent(currentConfig.pairingToken)}&autoReconnect=1${
-              currentConfig.e2ee && currentConfig.channelKey
-                ? `#k=${encodeURIComponent(currentConfig.channelKey)}`
-                : ""
-            }`
+            (buildRelayShareLink({
+              url: currentConfig.url,
+              publicUrl: currentConfig.publicUrl,
+              pairingToken: currentConfig.pairingToken,
+              channelKey: currentConfig.e2ee ? currentConfig.channelKey : null,
+              ttlSeconds: null,
+            })?.shareUrl ?? null)
           : null,
       windowId: null,
       // 每次读取都重新探测：切网/VPN 变化后建议地址要跟着变。
@@ -403,6 +410,29 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
         }
         await stop();
         return start();
+      },
+    );
+
+    // 时效签名链接（spec §18）：按次生成，签名只发生在 Main。与「读状态」同样
+    // 惯例——配对码缺失时自动补齐，首次打开设置页就能直接生成链接。
+    ipcMain.handle(
+      PlatformChannels.RemoteRelayGetShareLink,
+      async (_event, payload: unknown): Promise<RemoteRelayShareLink> => {
+        const request = parseRemoteRelayShareLinkRequest(payload);
+        const file = await readConfigFile(logger);
+        lastFileConfig = file;
+        const config = resolveEffectiveConfig(file);
+        if (!config) return { shareUrl: null, expiresAt: null };
+        const withToken = await ensurePairingToken(file, config, logger);
+        lastFileConfig = withToken.file;
+        const link = buildRelayShareLink({
+          url: withToken.config.url,
+          publicUrl: withToken.config.publicUrl,
+          pairingToken: withToken.config.pairingToken ?? "",
+          channelKey: withToken.config.e2ee ? withToken.config.channelKey : null,
+          ttlSeconds: request.ttlSeconds ?? null,
+        });
+        return link ?? { shareUrl: null, expiresAt: null };
       },
     );
   }

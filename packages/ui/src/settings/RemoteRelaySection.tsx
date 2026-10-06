@@ -1,12 +1,14 @@
 /* eslint-disable max-lines -- 远程访问设置卡片集中维护状态轮询、分享链接与配置表单（含场景/公开地址联动）；
    拆开会把同一份表单状态与 status 轮询跨文件传递，可读性更差（与 McpSettingsSection 等同处理）。 */
 import { useCallback, useEffect, useRef, useState } from "react";
+import QRCode from "qrcode";
 import {
   Check,
   ChevronRight,
   Copy,
   LoaderCircle,
   Play,
+  QrCode,
   RefreshCw,
   Square,
   TriangleAlert,
@@ -27,12 +29,20 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.js";
 import { Input } from "@/components/ui/input.js";
 import { Label } from "@/components/ui/label.js";
 import { Switch } from "@/components/ui/switch.js";
 import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { formatDateTime } from "@/settings/automationFormat.js";
 import { SettingsBadge, SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
 
 /**
@@ -42,6 +52,14 @@ import { SettingsBadge, SettingsGroupCard, SettingsRow } from "@/settings/Settin
  */
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
+
+/** 时效档位（spec §18.6）：null = 永久 legacy token 链接；其余为签名链接的秒数。 */
+const LINK_TTL_OPTIONS: ReadonlyArray<{ value: number | null; labelId: string }> = [
+  { value: null, labelId: "settings.remoteRelay.ttlPermanent" },
+  { value: 3600, labelId: "settings.remoteRelay.ttl1h" },
+  { value: 86_400, labelId: "settings.remoteRelay.ttl24h" },
+  { value: 7 * 86_400, labelId: "settings.remoteRelay.ttl7d" },
+];
 
 const EMPTY_FORM: RemoteRelayFileConfig = {
   url: "",
@@ -126,9 +144,20 @@ export function RemoteRelaySection() {
   const [copied, setCopied] = useState(false);
   // 默认收起：多数用户只需要上面那条链接；中继地址/密钥/工作区属于一次性的高级配置。
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // 二维码弹层（spec §18.6）：时效按次生成签名链接，默认 24 小时。
+  const [qrOpen, setQrOpen] = useState(false);
+  const [linkTtl, setLinkTtl] = useState<number | null>(86_400);
+  const [generatedLink, setGeneratedLink] = useState<{
+    shareUrl: string | null;
+    expiresAt: number | null;
+    qrDataUrl: string | null;
+  } | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const remoteRelayGetStatus = platform.remoteRelayGetStatus?.bind(platform);
+  const remoteRelayGetShareLink = platform.remoteRelayGetShareLink?.bind(platform);
   const supported = remoteRelayGetStatus != null;
 
   const refresh = useCallback(async () => {
@@ -209,6 +238,49 @@ export function RemoteRelaySection() {
       console.warn("[remote-relay] copy failed", error);
     }
   }, [status?.shareUrl]);
+
+  // 弹层打开或切换时效时重新生成（spec §18.5）：签名链接按次现签，Main 持有 HMAC。
+  useEffect(() => {
+    if (!qrOpen || !remoteRelayGetShareLink) return;
+    let cancelled = false;
+    setLinkLoading(true);
+    (async () => {
+      try {
+        const link = await remoteRelayGetShareLink({ ttlSeconds: linkTtl });
+        let qrDataUrl: string | null = null;
+        if (link.shareUrl) {
+          try {
+            qrDataUrl = await QRCode.toDataURL(link.shareUrl, { margin: 1, width: 220 });
+          } catch (error) {
+            console.warn("[remote-relay] QR encode failed", error);
+          }
+        }
+        if (!cancelled) setGeneratedLink({ shareUrl: link.shareUrl, expiresAt: link.expiresAt, qrDataUrl });
+      } catch (error) {
+        console.warn("[remote-relay] share link generation failed", error);
+        if (!cancelled) setGeneratedLink(null);
+        toast(intl.formatMessage({ id: "settings.remoteRelay.qrGenerateFailed" }), {
+          variant: "warning",
+        });
+      } finally {
+        if (!cancelled) setLinkLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [qrOpen, linkTtl, remoteRelayGetShareLink, intl]);
+
+  const handleCopyGeneratedLink = useCallback(async () => {
+    if (!generatedLink?.shareUrl) return;
+    try {
+      await navigator.clipboard.writeText(generatedLink.shareUrl);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2_000);
+    } catch (error) {
+      console.warn("[remote-relay] copy failed", error);
+    }
+  }, [generatedLink?.shareUrl]);
 
   const updateField = (key: keyof RemoteRelayFileConfig) => (value: string) => {
     setForm((previous) => ({ ...previous, [key]: value }));
@@ -311,15 +383,27 @@ export function RemoteRelaySection() {
           label={t("settings.remoteRelay.shareLink")}
           description={t("settings.remoteRelay.shareLinkDescription")}
           control={
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!status?.shareUrl || copied}
-              onClick={() => void handleCopyLink()}
-            >
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-              {copied ? t("settings.remoteRelay.copied") : t("settings.remoteRelay.copy")}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!status?.shareUrl}
+                aria-haspopup="dialog"
+                onClick={() => setQrOpen(true)}
+              >
+                <QrCode className="size-4" />
+                {t("settings.remoteRelay.qr")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={!status?.shareUrl || copied}
+                onClick={() => void handleCopyLink()}
+              >
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {copied ? t("settings.remoteRelay.copied") : t("settings.remoteRelay.copy")}
+              </Button>
+            </div>
           }
           detail={
             status?.shareUrl ? (
@@ -527,6 +611,66 @@ export function RemoteRelaySection() {
           <span className="text-ui-sm text-foreground-subtle">{t("settings.remoteRelay.saveHint")}</span>
         </div>
       </SettingsGroupCard>
+
+      {/* 扫码接入弹层（spec §18.6）：选时效 → 现签链接 + QR。永久档即上方的 legacy 链接。 */}
+      <Dialog open={qrOpen} onOpenChange={setQrOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{t("settings.remoteRelay.qrTitle")}</DialogTitle>
+            <DialogDescription>{t("settings.remoteRelay.qrDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4">
+            <div className="flex flex-wrap items-center justify-center gap-2" role="group" aria-label={t("settings.remoteRelay.linkTtl")}>
+              {LINK_TTL_OPTIONS.map((option) => (
+                <Button
+                  key={option.labelId}
+                  type="button"
+                  size="sm"
+                  variant={linkTtl === option.value ? "default" : "outline"}
+                  aria-pressed={linkTtl === option.value}
+                  onClick={() => setLinkTtl(option.value)}
+                >
+                  {t(option.labelId)}
+                </Button>
+              ))}
+            </div>
+            {linkLoading ? (
+              <div className="flex size-44 items-center justify-center rounded-lg border border-border bg-surface">
+                <LoaderCircle className="size-6 animate-spin text-foreground-subtle" />
+              </div>
+            ) : generatedLink?.qrDataUrl ? (
+              <img
+                src={generatedLink.qrDataUrl}
+                alt={t("settings.remoteRelay.qrTitle")}
+                className="size-44 shrink-0 rounded-lg border border-border bg-surface p-2"
+              />
+            ) : (
+              <div className="flex size-44 items-center justify-center rounded-lg border border-border bg-surface px-3 text-center text-ui-sm text-foreground-subtle">
+                {t("settings.remoteRelay.shareLinkEmpty")}
+              </div>
+            )}
+            {generatedLink?.expiresAt ? (
+              <span className="text-ui-sm text-foreground-subtle">
+                {t("settings.remoteRelay.qrExpiresAt", { time: formatDateTime(generatedLink.expiresAt) })}
+              </span>
+            ) : null}
+            {generatedLink?.shareUrl ? (
+              <code className="block max-w-full truncate rounded-md bg-surface px-2 py-1 text-ui-sm text-foreground">
+                {generatedLink.shareUrl}
+              </code>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!generatedLink?.shareUrl || linkCopied}
+              onClick={() => void handleCopyGeneratedLink()}
+            >
+              {linkCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
+              {linkCopied ? t("settings.remoteRelay.copied") : t("settings.remoteRelay.copy")}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

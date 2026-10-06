@@ -314,16 +314,29 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
   // 不会进任何请求。
   const relayToken = params.get("token")?.trim();
   const tokenQuery = relayToken ? `?token=${encodeURIComponent(relayToken)}` : "";
+  // 时效签名链接（spec §18.4）：signed 四元组与 token 同理——302 保留参数在地址栏，
+  // 页面把它们附加到 wsUrl/server-info，作为 cookie 之外的对等凭据通道。
+  const shareSid = params.get("s")?.trim();
+  const shareT = params.get("t")?.trim();
+  const shareE = params.get("e")?.trim();
+  const shareH = params.get("h")?.trim();
+  const signedQuery =
+    shareSid && shareT && shareE && shareH
+      ? `?s=${encodeURIComponent(shareSid)}&t=${encodeURIComponent(shareT)}&e=${encodeURIComponent(
+          shareE,
+        )}&h=${encodeURIComponent(shareH)}`
+      : "";
+  const credentialQuery = tokenQuery || signedQuery;
   const wsUrl = remoteId
     ? `${resolveDefaultWsOrigin()}/ws/remote/${remoteId}`
-    : `${resolveDefaultWsOrigin()}/ws${tokenQuery}`;
+    : `${resolveDefaultWsOrigin()}/ws${credentialQuery}`;
 
   if (remoteId) {
     return { wsUrl };
   }
 
   try {
-    const response = await fetch(`/api/server-info${tokenQuery}`, {
+    const response = await fetch(`/api/server-info${credentialQuery}`, {
       cache: "no-store",
     });
     if (!response.ok) {

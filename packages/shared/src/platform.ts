@@ -7,6 +7,8 @@ import type {
 } from "./remoteTarget.js";
 import type {
   RemoteRelaySetConfigRequest,
+  RemoteRelayShareLink,
+  RemoteRelayShareLinkRequest,
   RemoteRelayStatus,
 } from "./remote-relay.js";
 import type {
@@ -676,6 +678,9 @@ export interface IPlatformService {
 
   /** 校验并写入中继配置文件，缺省热重启客户端（仅桌面）。 */
   remoteRelaySetConfig?(request: RemoteRelaySetConfigRequest): Promise<RemoteRelayStatus>;
+
+  /** 生成分享链接：时效签名链接或永久 token 链接（spec §18；仅桌面）。 */
+  remoteRelayGetShareLink?(request: RemoteRelayShareLinkRequest): Promise<RemoteRelayShareLink>;
 
   /** 读取宿主环境中的原生 MCP 用户目录配置；手机远控通过已连接桌面 host 转发。 */
   loadMcpFromUserDirectory?(
