@@ -415,3 +415,55 @@ export class RelayE2eeChannel {
     this.options.onPlaintext(plaintext);
   }
 }
+
+// ─── host-report 信封加密（spec §16.9）──────────────────────────────────────
+//
+// WS 数据面密文化之外的最后一条明文旁路：桌面的 POST /api/host-report（工作区
+// 路径/主机标签）。e2ee 开启时桌面加密上报、relay 原样存取、web 用 `#k=` 解密——
+// 中继全程不接触明文。密钥从 channelKey 经 HKDF 派生（info 即协议域），
+// 与 WS 会话密钥隔离，同一 key material 不跨协议复用。
+
+const REPORT_INFO = "zcode-relay-report-v1";
+const REPORT_NONCE_BYTES = 12;
+
+export interface RelayReportEnvelope {
+  v: 1;
+  e2ee: true;
+  nonce: string;
+  ciphertext: string;
+}
+
+function deriveReportKey(channelKeyBytes: Uint8Array): Uint8Array {
+  return hkdf(sha256, channelKeyBytes, new Uint8Array(0), utf8(REPORT_INFO), 32);
+}
+
+/** 加密 host-report 明文（JSON 字符串）；nonce 每次随机，AAD 绑定协议域。 */
+export function encryptRelayReport(channelKey: string, plaintext: string): RelayReportEnvelope {
+  const key = deriveReportKey(decodeRelayChannelKey(channelKey));
+  const nonce = new Uint8Array(REPORT_NONCE_BYTES);
+  globalThis.crypto.getRandomValues(nonce);
+  const ciphertext = chacha20poly1305(key, nonce, utf8(REPORT_INFO)).encrypt(utf8(plaintext));
+  return {
+    v: 1,
+    e2ee: true,
+    nonce: encodeBase64Url(nonce),
+    ciphertext: encodeBase64Url(ciphertext),
+  };
+}
+
+/** 解密 host-report 信封；被篡改 / key 不对时抛错（Poly1305 校验失败，fail-closed）。 */
+export function decryptRelayReport(
+  channelKey: string,
+  envelope: RelayReportEnvelope,
+): string {
+  if (envelope.v !== 1 || envelope.e2ee !== true) {
+    throw new Error("unsupported report envelope");
+  }
+  const key = deriveReportKey(decodeRelayChannelKey(channelKey));
+  const plaintext = chacha20poly1305(
+    key,
+    decodeBase64Url(envelope.nonce),
+    utf8(REPORT_INFO),
+  ).decrypt(decodeBase64Url(envelope.ciphertext));
+  return new TextDecoder().decode(plaintext);
+}

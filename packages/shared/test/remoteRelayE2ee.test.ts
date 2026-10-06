@@ -12,6 +12,8 @@ import { test } from "node:test";
 import {
   RelayE2eeChannel,
   decodeRelayChannelKey,
+  decryptRelayReport,
+  encryptRelayReport,
   generateRelayChannelKey,
   type RelayE2eeRole,
 } from "../src/remote-relay-e2ee.ts";
@@ -232,3 +234,29 @@ test("出站缓冲溢出 → fatal（保流完整，不静默丢帧）", () => {
   assert.ok(host.fatal, "超过 64 条应 fatal");
   assert.match(host.fatal?.message ?? "", /缓冲溢出/u);
 });
+
+// ─── host-report 信封加密（spec §16.9）──────────────────────────────────────
+
+test("report 信封：加解密往返逐字节保真", () => {
+  const plaintext = JSON.stringify({
+    workspacePath: "/Users/demo/project",
+    hostLabel: "demo-mac",
+    appVersion: "3.14.9",
+  });
+  const envelope = encryptRelayReport(KEY, plaintext);
+  assert.equal(envelope.v, 1);
+  assert.equal(envelope.e2ee, true);
+  assert.equal(decryptRelayReport(KEY, envelope), plaintext);
+});
+
+test("report 信封：篡改 ciphertext / 错 key 都必须抛错（fail-closed）", () => {
+  const envelope = encryptRelayReport(KEY, '{"workspacePath":"/x"}');
+  const tampered = {
+    ...envelope,
+    ciphertext: envelope.ciphertext.slice(0, -4) + "AAAA",
+  };
+  assert.throws(() => decryptRelayReport(KEY, tampered));
+  const otherKey = generateRelayChannelKey();
+  assert.throws(() => decryptRelayReport(otherKey, envelope));
+});
+

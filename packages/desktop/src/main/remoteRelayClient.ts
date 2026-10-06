@@ -34,7 +34,7 @@ import {
   type MessagePortLike,
   type MessagePortPayload,
 } from "@zcode/rpc";
-import { HostMessageTypes, RelayE2eeChannel } from "@zcode/shared";
+import { HostMessageTypes, RelayE2eeChannel, encryptRelayReport } from "@zcode/shared";
 import { WebSocket } from "ws";
 
 /** 只要求 Host 进程的 postMessage 能力，便于单测替身。 */
@@ -283,6 +283,19 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
     if (!workspace) return;
     // 路径没变就不重复上报；变了（用户切换工作区）则重报。
     if (workspace.workspacePath === lastReportedWorkspacePath) return;
+    // host-report 端到端加密（spec §16.9）：e2ee 开启时报文体就是信封，
+    // 中继不解析不落明文日志——「中继只见密文」涵盖最后一条旁路。
+    const report = {
+      workspacePath: workspace.workspacePath,
+      ...(workspace.workspaceIdentity
+        ? { workspaceIdentity: workspace.workspaceIdentity }
+        : {}),
+      ...(options.hostLabel ? { hostLabel: options.hostLabel } : {}),
+      ...(options.appVersion ? { appVersion: options.appVersion } : {}),
+    };
+    const body = options.e2eeChannelKey
+      ? JSON.stringify(encryptRelayReport(options.e2eeChannelKey, JSON.stringify(report)))
+      : JSON.stringify(report);
     try {
       const response = await fetch(`${httpOrigin}/api/host-report`, {
         method: "POST",
@@ -290,14 +303,7 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
           authorization: `Bearer ${options.hostSecret}`,
           "content-type": "application/json",
         },
-        body: JSON.stringify({
-          workspacePath: workspace.workspacePath,
-          ...(workspace.workspaceIdentity
-            ? { workspaceIdentity: workspace.workspaceIdentity }
-            : {}),
-          ...(options.hostLabel ? { hostLabel: options.hostLabel } : {}),
-          ...(options.appVersion ? { appVersion: options.appVersion } : {}),
-        }),
+        body,
       });
       if (!response.ok) {
         logger?.warn(`上报工作区失败 status=${response.status}`);

@@ -45,9 +45,12 @@ export {
   RELAY_E2EE_CHANNEL_KEY_BYTES,
   RelayE2eeChannel,
   decodeRelayChannelKey,
+  decryptRelayReport,
+  encryptRelayReport,
   generateRelayChannelKey,
   type RelayE2eeChannelOptions,
   type RelayE2eeRole,
+  type RelayReportEnvelope,
 } from "./remote-relay-e2ee.js";
 export type {
   RemoteResourcePackageId,

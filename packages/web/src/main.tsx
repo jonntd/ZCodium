@@ -11,6 +11,7 @@ import {
 } from "@zcode/ui";
 import "@zcode/ui/styles.css";
 import { connectViaWebSocket } from "@zcode/client";
+import { decryptRelayReport } from "@zcode/shared";
 import { connectWithBoundedRetry } from "./bootstrapRetry.js";
 import { resolveConnectionLostAction, resolveConnectionLostNoticePolicy } from "./connectionLostNotice.js";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
@@ -342,7 +343,62 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     if (!response.ok) {
       return { wsUrl, e2eeChannelKey: resolveE2eeChannelKey() };
     }
-    const serverInfo = (await response.json()) as Partial<ServerRemoteInfo>;
+    const raw = (await response.json()) as Partial<ServerRemoteInfo> & {
+      e2ee?: boolean;
+      v?: number;
+      nonce?: string;
+      ciphertext?: string;
+    };
+    // host-report 端到端加密（spec §16.9）：relay 只回不透明信封，这里用 #k=
+    // 派生密钥解密并在客户端组合同一形状。缺 #k= / 密文损坏 ⇒ fail-closed
+    // （报错上屏，不降级——中继没存明文，降级只会得到误导性的空信息）。
+    let serverInfo: Partial<ServerRemoteInfo>;
+    if (raw.e2ee === true) {
+      const channelKey = resolveE2eeChannelKey();
+      if (!channelKey || typeof raw.nonce !== "string" || typeof raw.ciphertext !== "string") {
+        throw new RelayReportDecryptError(
+          "server-info 已端到端加密，但链接缺少 #k=（channelKey），无法解密——请使用带密钥的完整分享链接",
+        );
+      }
+      let report: {
+        workspacePath?: string;
+        workspaceIdentity?: string;
+        hostLabel?: string;
+        appVersion?: string;
+      };
+      try {
+        report = JSON.parse(
+          decryptRelayReport(channelKey, {
+            v: 1,
+            e2ee: true,
+            nonce: raw.nonce,
+            ciphertext: raw.ciphertext,
+          }),
+        ) as typeof report;
+      } catch {
+        throw new RelayReportDecryptError(
+          "server-info 解密失败：链接密钥不匹配或数据被篡改",
+        );
+      }
+      const path = typeof report.workspacePath === "string" ? report.workspacePath : null;
+      serverInfo = {
+        serverId: report.hostLabel || "zcode-relay",
+        version: report.appVersion || "relay",
+        workspaces: path
+          ? [
+              {
+                path,
+                label: path.split("/").filter(Boolean).pop() || path,
+                ...(report.workspaceIdentity
+                  ? { workspaceIdentity: report.workspaceIdentity }
+                  : {}),
+              },
+            ]
+          : [],
+      };
+    } else {
+      serverInfo = raw;
+    }
     const workspace = Array.isArray(serverInfo.workspaces) ? serverInfo.workspaces[0] : undefined;
     return {
       wsUrl,
@@ -352,10 +408,15 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
         ? { initialWorkspaceIdentity: workspace.workspaceIdentity }
         : {}),
     };
-  } catch {
+  } catch (error) {
+    // 解密失败必须上屏（fail-closed），其余网络错误维持优雅降级。
+    if (error instanceof RelayReportDecryptError) throw error;
     return { wsUrl, e2eeChannelKey: resolveE2eeChannelKey() };
   }
 }
+
+/** server-info 信封解密失败（缺 #k= / 篡改 / 错 key）：bootstrap 直接报错而非降级。 */
+class RelayReportDecryptError extends Error {}
 
 function WebBootstrapErrorScreen({ message }: { message: string }) {
   return (

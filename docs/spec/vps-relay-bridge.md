@@ -1458,6 +1458,46 @@ E2EE 适配器的**收包侧**必须是「单一 FIFO 队列 + 泵守卫」，�
   「密钥事后泄露」的情形。缓解：链接当凭据、轮换即作废旧链接。
 - 不防 DoS/可用性。
 
+## 16.9 host-report 端到端加密（补齐「中继只见密文」的最后一块）
+
+§16 之前，WS 数据面已密文化，但桌面的 `POST /api/host-report`（工作区路径/主机标签）
+仍是**明文 HTTP**——中继日志能直接看到本地路径，`/api/server-info` 也原样回给
+（已鉴权的）手机。本节把这条旁路纳入 E2EE：**e2ee 开启时，中继全程不接触明文**。
+
+#### 加密方案
+
+- 密钥：从 channelKey 经 HKDF-SHA256 派生子密钥（info=`"zcode-relay-report-v1"`，
+  空盐）——与 WS 会话密钥隔离，同一 key material 不跨协议复用。
+- 算法：ChaCha20-Poly1305，随机 12B nonce，AAD=`"zcode-relay-report-v1"`。
+- 实现落在 shared（`encryptRelayReport` / `decryptRelayReport`，b64url 编码），
+  桌面（上报方）与 web（消费方）共用同一份。
+
+#### 各端契约
+
+| 端 | e2ee=false（现状） | e2ee=true |
+| --- | --- | --- |
+| 桌面 POST | `{workspacePath, …}` 明文 | `{v:1, e2ee:true, nonce, ciphertext}` |
+| relay 存储 | 明文字段（回包时组合 workspaces） | **原样存信封**，不解析不落日志 |
+| relay 日志 | ~~`host report updated {workspacePath}`~~ | 一律改打 `{hasWorkspacePath: bool}`（明文模式也不再打路径） |
+| GET /api/server-info | `{workspaces:[…], serverId, version}` | `{v:1, e2ee:true, nonce, ciphertext}` |
+| web bootstrap | 直接消费 | `#k=` 派生密钥解密 → 客户端侧组合同一形状；**无 `#k=` ⇒ bootstrap 失败**（fail-closed，与 §16 一致） |
+
+- 鉴权不变：POST 仍 Bearer HOST_SECRET，GET 仍 cookie/`?token=`/signed 双通道门禁。
+- 信封整体替换（last-write-wins）：加密与明文上报互斥，后到者覆盖。
+- 灰度顺序沿用 §16.6：先更新 relay 与 web dist，桌面再开 e2ee——旧桌面（明文上报）
+  配新 relay 仍工作（信封分支只在 `e2ee:true` 时走）。
+
+#### 验收
+
+| # | 场景 | 期望 |
+| --- | --- | --- |
+| 1 | e2ee 桌面上报 → GET server-info | 只含 `{v:1,e2ee:true,nonce,ciphertext}`，无任何明文字段 |
+| 2 | relay 日志 | 「host report updated」行不含 workspacePath（两种模式都不含） |
+| 3 | web 有 `#k=` | 解密成功，`workspaces[0].path` 与桌面一致（label 客户端侧推导） |
+| 4 | web 无 `#k=` 遇加密信封 | bootstrap 失败，错误信息明确（不降级明文） |
+| 5 | 篡改 ciphertext / 错 key | 解密抛错（Poly1305 校验失败） |
+| 6 | 明文上报（e2ee=false） | server-info 形状与现状一致（回归） |
+
 ---
 
 # 17. 多槽位（一台 relay 服务多个客户端）

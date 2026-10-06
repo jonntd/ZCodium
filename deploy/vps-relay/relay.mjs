@@ -105,6 +105,8 @@ const MIME = {
 
 /** 桌面上报的工作区信息，用于回答手机的 /api/server-info。 */
 let hostReport = null;
+/** E2EE 信封版上报（spec §16.9）：中继不解析、不落明文，server-info 原样回给手机解密。 */
+let hostReportEncrypted = null;
 
 /**
  * 连接池（spec §17）：slotId → 槽位状态。
@@ -281,6 +283,10 @@ function isSignedShareQueryValid(url) {
 }
 
 function buildServerInfo() {
+  // E2EE 信封（spec §16.9）：原样回给手机解密，中继不组表明文。
+  if (hostReportEncrypted) {
+    return { ...hostReportEncrypted };
+  }
   const workspace = hostReport?.workspacePath
     ? {
         path: hostReport.workspacePath,
@@ -409,6 +415,22 @@ const server = createServer(async (req, res) => {
     }
     try {
       const body = await readJson(req);
+      if (
+        body &&
+        body.e2ee === true &&
+        body.v === 1 &&
+        typeof body.nonce === "string" &&
+        typeof body.ciphertext === "string"
+      ) {
+        // E2EE 信封（spec §16.9）：原样存储。中继没有 channelKey，无从解析——
+        // 日志只记密文规模，路径/标签永不出现。
+        hostReport = null;
+        hostReportEncrypted = { v: 1, e2ee: true, nonce: body.nonce, ciphertext: body.ciphertext };
+        log("host report updated", { e2ee: true, ciphertextBytes: body.ciphertext.length });
+        sendJson(res, 200, { ok: true });
+        return;
+      }
+      hostReportEncrypted = null;
       hostReport = {
         workspacePath: typeof body.workspacePath === "string" ? body.workspacePath : null,
         workspaceIdentity:
@@ -416,7 +438,10 @@ const server = createServer(async (req, res) => {
         hostLabel: typeof body.hostLabel === "string" ? body.hostLabel : null,
         appVersion: typeof body.appVersion === "string" ? body.appVersion : null,
       };
-      log("host report updated", { workspacePath: hostReport.workspacePath });
+      // 日志一律不带工作区路径（spec §16.9：即使明文模式也不在日志落路径）。
+      log("host report updated", {
+        hasWorkspacePath: typeof hostReport.workspacePath === "string",
+      });
       sendJson(res, 200, { ok: true });
     } catch {
       sendJson(res, 400, { error: "Invalid body" });
