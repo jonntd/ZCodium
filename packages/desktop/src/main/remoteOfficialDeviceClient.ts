@@ -61,11 +61,21 @@ export interface RemoteOfficialDeviceClientOptions {
   onLink?: (link: string) => void;
   /** 配对状态变化；`matched` = 官方手机端已接入。 */
   onPairStatus?: (status: OfficialPairStatus) => void;
+  /**
+   * 数据面信封入口（spec §14.9）：`type:"data"` 的 payload 原样交出，
+   * 由 remoteOfficialDataPlane 按 zcode_type 分派。未提供时 debug 丢弃。
+   */
+  onData?: (payload: Record<string, unknown>) => void;
 }
 
 export interface RemoteOfficialDeviceClient {
   start(): void;
   stop(): void;
+  /**
+   * 数据面出口（spec §14.9）：把 payload 包成 `type:"data"` 信封发往对端。
+   * 返回 false = 连接不可用。控制面状态机不感知数据面内容。
+   */
+  sendData(payload: Record<string, unknown>): boolean;
   /** 观测面：连接建立前 deviceSid 为 null。不作为跨重启的身份恢复依据（§14.8）。 */
   getStatus(): { state: string; deviceSid: string | null; pairStatus: OfficialPairStatus | null };
 }
@@ -298,11 +308,19 @@ export function createRemoteOfficialDeviceClient(
         return;
       }
       case "data": {
-        // 数据面未实现（§14.3 留待第二阶段）：留痕后丢弃，不静默吞。
-        const payload = msg.payload as { zcode_type?: unknown } | null | undefined;
-        logger?.debug?.("收到数据面信封（第二阶段前忽略）", {
-          zcode_type: payload?.zcode_type ?? null,
-        });
+        // 数据面（spec §14.9）：交给分派器；未接线时留痕丢弃，不静默吞。
+        const payload = msg.payload;
+        if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+          if (options.onData) {
+            options.onData(payload as Record<string, unknown>);
+          } else {
+            logger?.debug?.("收到数据面信封（未接分派器，丢弃）", {
+              zcode_type: (payload as { zcode_type?: unknown }).zcode_type ?? null,
+            });
+          }
+        } else {
+          logger?.warn("收到非法数据面信封（payload 不是对象）");
+        }
         return;
       }
       default:
@@ -358,6 +376,11 @@ export function createRemoteOfficialDeviceClient(
       stopped = false;
       reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
       void connect();
+    },
+    sendData(payload: Record<string, unknown>): boolean {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+      send({ type: "data", payload });
+      return true;
     },
     stop() {
       stopped = true;

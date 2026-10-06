@@ -169,6 +169,7 @@ import {
   createRemoteOfficialDeviceClient,
   loadOfficialRelayStartConfig,
 } from "./remoteOfficialDeviceClient.js";
+import { createOfficialDataPlane } from "./remoteOfficialDataPlane.js";
 import { resolveCanonicalWslTarget } from "./desktopWslTargetResolver.js";
 import {
   listRegisteredHostAgentProcessIds,
@@ -579,6 +580,8 @@ let remoteRelayControl: ReturnType<typeof createRemoteRelayControl> | null = nul
  * 仅当 remote-official-relay.json enabled 且有 url（或 env）时启动；未配置保持 null。
  */
 let remoteOfficialDevice: ReturnType<typeof createRemoteOfficialDeviceClient> | null = null;
+/** 路线 B 数据面分派器（spec §14.9）：随 device 客户端一起启停。 */
+let remoteOfficialDataPlane: ReturnType<typeof createOfficialDataPlane> | null = null;
 const cuaPipFocusRouter = createCuaPipFocusRouter({
   send: (windowId, event) => {
     windowHostProcessMap.get(windowId)?.postMessage({
@@ -1908,10 +1911,39 @@ app.whenReady().then(async () => {
   // 不能用 app.isDestroyed() 兜底——Electron 的 app 没有这个方法（实测踩过）。
   void loadOfficialRelayStartConfig(logger).then((officialRelayConfig) => {
     if (!officialRelayConfig) return;
+    // 数据面分派器（spec §14.9）：与控制面经 onData/sendData 对接。主进程的窗口
+    // 工作区映射只有路径（Set<string>），identity key 退化为路径本身。
+    remoteOfficialDataPlane = createOfficialDataPlane({
+      logger,
+      appVersion: ZCODE_VERSION,
+      getDeviceSid: () => remoteOfficialDevice?.getStatus().deviceSid ?? null,
+      listWorkspaces: () => {
+        const workspaces: Array<{ workspacePath: string }> = [];
+        for (const paths of windowWorkspaceMap.values()) {
+          for (const path of paths) workspaces.push({ workspacePath: path });
+        }
+        return workspaces;
+      },
+      resolveBridgeTarget: (workspaceKey) => {
+        for (const [windowId, paths] of windowWorkspaceMap) {
+          const hostProcess = windowHostProcessMap.get(windowId);
+          if (!hostProcess || ![...paths].includes(workspaceKey)) continue;
+          return { windowId, hostProcess };
+        }
+        return null;
+      },
+      resolveWindowWorkspace: (windowId) => {
+        const workspacePath = [...(windowWorkspaceMap.get(windowId) ?? [])][0];
+        return workspacePath ? { workspacePath } : null;
+      },
+      createChannel: () => new MessageChannelMain(),
+      sendData: (payload) => remoteOfficialDevice?.sendData(payload) ?? false,
+    });
     remoteOfficialDevice = createRemoteOfficialDeviceClient({
       ...officialRelayConfig,
       meta: { name: hostname(), version: ZCODE_VERSION },
       logger,
+      onData: (payload) => remoteOfficialDataPlane?.handlePayload(payload),
     });
     remoteOfficialDevice.start();
   });
@@ -2214,6 +2246,8 @@ app.on("before-quit", (event) => {
     remoteRelayControl = null;
     remoteOfficialDevice?.stop();
     remoteOfficialDevice = null;
+    remoteOfficialDataPlane?.dispose();
+    remoteOfficialDataPlane = null;
     event.preventDefault();
     void prepareAppQuit("app-before-quit").finally(() => {
       // mac 直替换安装要在 host/agent 回收之后、真正退出之前完成（ready 态存在时）。

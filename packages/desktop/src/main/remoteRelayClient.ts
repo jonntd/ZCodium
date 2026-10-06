@@ -64,8 +64,9 @@ export interface RelayMessagePort {
  * （`addEventListener/removeEventListener`）。`packages/desktop/src/host/electronPort.ts`
  * 有同功能实现，但那个文件属于 `tsconfig.host.json` 工程，**main 工程引用它会被 TS6307 挡住**
  * （两个工程各自 `include` 自己的 src 子目录）。因此这里按同样方式本地实现。
+ * 导出供路线 B 的数据面桥（remoteOfficialDataPlane）复用，避免第三份拷贝。
  */
-function wrapElectronPort(port: RelayMessagePort): MessagePortLike {
+export function wrapElectronPort(port: RelayMessagePort): MessagePortLike {
   return {
     addEventListener(_type: "message", listener: (e: { data: MessagePortPayload }) => void) {
       // MessagePortMain 的 message 事件已经是 { data } 结构，直接转发。

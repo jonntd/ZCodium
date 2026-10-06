@@ -917,6 +917,69 @@ idle → connecting → registering（device_register_init → ack 得 device_si
 套件入库 `deploy/vps-relay/relay-official.test.mjs`（`node --test`，spawn 真实 relay +
 真实 device 客户端），取代 §14.7 的一次性双端模拟。
 
+### 14.9 数据面信封契约（官方 asar 还原）与桌面适配器设计
+
+> 来源：官方 app.asar 主进程 chunk 的只读逆向（`routePayload` / `createWorkspaceBridge` /
+> `routeRpcTransportPayload` / frame codec 类，函数注册名一一对照）。本节不记录任何凭据值。
+
+#### 信封分派表（device 收到 `type:"data"` 后按 `payload.zcode_type` 路由）
+
+| `zcode_type`（phone→device） | 响应（device→phone） |
+| --- | --- |
+| `bootstrap-request {requestId}` | `bootstrap-response {requestId, success:true, result:{windowControlSessionId, desktopAppVersion, workspaces, tasks, initialViewState, mobileViewState}}` |
+| `workspace-list-request {requestId}` | `workspace-list-response {requestId, success:true, result:{workspaces, tasks, activeWorkspaceKey, activeTaskId}}` |
+| `platform-request {requestId, method, …}` | `platform-response {requestId, method, success:true, result}` 或 `{success:false, error}` |
+| `mobile-view-state-update {viewState, deviceInfo}` | 无响应（device 记忆 viewState） |
+| `workspace-bridge-open {requestId, bridgeSessionId, bridgeGeneration?, recoveryId?, workspaceKey, taskId?}` | `workspace-bridge-ready {requestId, bridgeSessionId, bridgeGeneration?, recoveryId?, bridge}` 或 `workspace-bridge-error {…, reason, error}` |
+| `workspace-reconnect-request {requestId, workspaceKey}` | `workspace-reconnect-response {requestId, workspaceKey, success, error?}` |
+| `rpc-frame` / `rpc-frame-ack` | **raw transport**（见下），不进 routePayload |
+| `telemetry-report {event}` / `mobile-diagnostic` | 转发渲染层 / 仅日志 |
+
+`workspaceKey` = 工作区身份 key（与 `workspaceIdentity?.trim() || workspacePath` 同语义）。
+device 侧 bridge 对象：`{bridgeSessionId, bridgeGeneration, recoveryId, hostEntryId,
+attachmentId, kind, workspaceKey, workspacePath, workspaceIdentity, remoteSessionId,
+initialTaskId, readyAnnounced, degraded}`；open 处理 = `attachWorkspaceHost(windowId,
+{workspacePath, workspaceIdentity, remoteSessionId, initialTaskId, kind}) → {entryId,
+attachmentId, port}`——**与路线 A 共用同一 window Host attachment 机制**，port 桥
+`MessagePortProtocol ↔ rpc-frame codec`，ready 回包后才 `readyAnnounced=true` 并
+`flushPendingFrames()`。
+
+#### rpc-frame 帧协议（zod strict schema，官方常量）
+
+```text
+rpc-frame      { zcode_type:"rpc-frame", bridgeSessionId, bridgeGeneration?, recoveryId?,
+                 seq, messageSeq, fragmentIndex(0..63), fragmentCount(1..64),
+                 messageBytes(≤16MiB, ≥fragmentCount),
+                 checksum:{algorithm:"crc32", value:/^[0-9a-f]{8}$/}, data(canonical base64) }
+rpc-frame-ack  { zcode_type:"rpc-frame-ack", bridgeSessionId, bridgeGeneration?, recoveryId?,
+                 ackMessageSeq }
+```
+
+- 上限：`maxFrameBytes` 1MiB（单帧）、`maxMessageBytes` 16MiB（单逻辑消息）、
+  `maxFragments` 64、物理信封 ≈ base64 膨胀（4×⌈n/3⌉）。
+- **seq** = 物理帧序号（gap 检测 → `bridge-degraded`），**messageSeq** = 逻辑消息
+  序号（ack 的对象）；`messageBytes` = 整条逻辑消息的长度；checksum 按 crc32
+  （标准多项式，8 位小写 hex）对**分片解码后字节**计算。
+- **ack 语义**：每条收到的 messageSeq 都要 ack（重复投递 → 重复 ack，幂等）；
+  发送侧维护未 ack 队列，`replayUnacknowledged()` 在重连 send-ready 时重放。
+- **流控**：codec 的 saturated/drained 事件转成 host 侧 `connection-flow-v1` 帧
+  （`sendFlowState`）；degraded 后停止发送（`readyAnnounced && !degraded` 门控）。
+- `bridge-degraded {bridgeSessionId, …, reason:"rpc-transport-fault"|"rpc-frame-gap"|
+  "buffer-overflow"|"buffer-timeout", seq?, expectedSeq?, droppedCount?}`（device→phone）。
+
+#### 桌面适配器（本仓库实现）
+
+- `remoteOfficialDeviceClient` 扩展 `onData(payload)` 回调与 `sendData(payload)`：
+  data 信封的**唯一入口/出口**，控制面状态机不感知数据面。
+- `remoteOfficialDataPlane`：routePayload 分派 + frame codec + host attachment 桥。
+  依赖注入 `resolveBridgeTarget`（复用路线 A 的窗口/Host 解析）与 `createChannel`
+  （MessageChannelMain），attachmentId 形如 `official-bridge-<uuid>`（稳定 id =
+  原子替换语义，与路线 A 一致）。
+- bootstrap result 的 fork 语义：`workspaces` 取当前窗口工作区（identity key 用
+  统一构造工具），`tasks` 返回空数组（fork 不做任务列表下发），`windowControlSessionId`
+  = deviceSid。platform-request 未支持的方法回 `{success:false, error}`（不假装支持）。
+- **验证边界**：本阶段用**同 codec 模拟 terminal** 验证自洽（bootstrap → bridge →
+  rpc-frame 往返 + ack/replay）；与官方手机端的真互通需官方 SPA/真机，是下一步。
 
 ---
 
