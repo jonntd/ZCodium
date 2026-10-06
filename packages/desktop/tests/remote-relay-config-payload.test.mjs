@@ -73,6 +73,22 @@ test("E2EE 字段（e2ee/channelKey）可保存：布尔 + 32B base64url", () =>
   assert.equal(parsed.config.channelKey, channelKey);
 });
 
+test("多槽位字段（slots/slotBase）可保存且校验边界", () => {
+  const parsed = parseRemoteRelaySetConfigRequest({
+    config: { ...VALID_CONFIG, slots: 3, slotBase: 42 },
+  });
+  assert.equal(parsed.config.slots, 3);
+  assert.equal(parsed.config.slotBase, 42);
+  assert.throws(
+    () => parseRemoteRelaySetConfigRequest({ config: { slots: 9 } }),
+    /slots 必须是 1..8/,
+  );
+  assert.throws(
+    () => parseRemoteRelaySetConfigRequest({ config: { slotBase: 92 } }),
+    /slotBase 必须是 0..91/,
+  );
+});
+
 test("E2EE 校验：channelKey 非法（长度/base64url）必须在写入前被拒", () => {
   assert.throws(
     () => parseRemoteRelaySetConfigRequest({ config: { e2ee: true, channelKey: "not-base64!!" } }),

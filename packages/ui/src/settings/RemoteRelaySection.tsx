@@ -51,6 +51,7 @@ const EMPTY_FORM: RemoteRelayFileConfig = {
   e2ee: false,
   channelKey: "",
   slots: 1,
+  slotBase: undefined,
   workspace: "",
   autoStart: true,
 };
@@ -66,6 +67,9 @@ function toForm(config: RemoteRelayFileConfig | null): RemoteRelayFileConfig {
     e2ee: config?.e2ee ?? false,
     channelKey: config?.channelKey ?? "",
     slots: config?.slots ?? 1,
+    // slotBase 必须随表单 round-trip：漏掉的话下一次保存会把自动生成的基址抹掉，
+    // 重启后重新生成 → 槽位号漂移（多桌面场景会互相顶替）。
+    slotBase: config?.slotBase,
     workspace: config?.workspace ?? "",
     windowId: config?.windowId,
     autoStart: config?.autoStart ?? true,

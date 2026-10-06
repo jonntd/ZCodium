@@ -25,6 +25,11 @@ export interface RemoteRelayFileConfig {
    * 允许 N 个客户端（手机/浏览器 tab）**同时**访问同一桌面。
    */
   slots?: number;
+  /**
+   * 槽位基址（0..91，缺省首次自动生成并持久化）：实际槽位号 = slotBase + k。
+   * 多桌面共用一台 relay 时各桌面 slotBase 随机错开（碰撞 ≈1%，冲突时手工覆盖）。
+   */
+  slotBase?: number;
   /** App 启动时自动连接（缺省 true —— 写了配置文件即视为要用）。 */
   autoStart?: boolean;
   /** 浏览器侧访问的公开源（用于拼分享链接）；缺省由 url 推导（wss→https / ws→http）。 */

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomInt } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
@@ -66,6 +66,8 @@ interface EffectiveRelayConfig {
   e2ee: boolean;
   /** 并发客户端槽位数（spec §17）。 */
   slots: number;
+  /** 槽位基址（spec §17）：实际槽位号 = slotBase + k。null = 尚未生成。 */
+  slotBase: number | null;
   channelKey: string | null;
   source: "env" | "file";
 }
@@ -188,6 +190,14 @@ function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRe
   const envSlots = Number.parseInt(process.env.ZCODE_REMOTE_RELAY_SLOTS?.trim() ?? "", 10);
   const rawSlots = Number.isInteger(envSlots) ? envSlots : file?.slots;
   const slots = Math.min(8, Math.max(1, Number.isInteger(rawSlots) ? (rawSlots as number) : 1));
+  const envSlotBase = Number.parseInt(process.env.ZCODE_REMOTE_RELAY_SLOT_BASE?.trim() ?? "", 10);
+  const cfgSlotBase = Number.isInteger(file?.slotBase) ? (file?.slotBase as number) : null;
+  const slotBase =
+    envSlotBase !== null && Number.isInteger(envSlotBase) && envSlotBase >= 0 && envSlotBase <= 91
+      ? envSlotBase
+      : cfgSlotBase !== null && cfgSlotBase >= 0 && cfgSlotBase <= 91
+        ? cfgSlotBase
+        : null;
 
   // 公开地址缺省由中继地址推导（ws→http / wss→https）：两者通常是同一主机的不同协议。
   const publicUrl = file?.publicUrl?.trim() || deriveRemoteRelayPublicUrl(url);
@@ -207,9 +217,32 @@ function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRe
     pairingToken,
     e2ee,
     slots,
+    slotBase,
     channelKey: file?.channelKey?.trim() || null,
     source: envUrl ? "env" : "file",
   };
+}
+
+/**
+ * 槽位基址缺失时自动生成并落盘（spec §17）：
+ * 多桌面共用一台 relay 时各桌面的 slotBase 随机错开（0..91，碰撞 ≈1%），
+ * 单桌面无感。与 pairingToken/channelKey 同一套「首次自动生成」惯例。
+ */
+async function ensureSlotBase(
+  file: RemoteRelayFileConfig | null,
+  config: EffectiveRelayConfig,
+  logger?: RemoteRelayControlDeps["logger"],
+): Promise<{ file: RemoteRelayFileConfig | null; config: EffectiveRelayConfig }> {
+  if (config.slotBase !== null) return { file, config };
+  const slotBase = randomInt(0, 92);
+  const nextFile: RemoteRelayFileConfig = { ...file, slotBase };
+  try {
+    await writeConfigFile(nextFile);
+    logger?.info(`[remote-relay] 已生成槽位基址 ${slotBase} 并写入 ${getConfigFilePath()}`);
+  } catch (error) {
+    logger?.warn("[remote-relay] 槽位基址写入失败，仅在本次会话内有效", error);
+  }
+  return { file: nextFile, config: { ...config, slotBase } };
 }
 
 /**
@@ -286,8 +319,9 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     const withToken = await ensurePairingToken(file, config, logger);
     const withPublicUrl = await ensureLanPublicUrl(withToken.file, withToken.config, logger);
     const withChannelKey = await ensureE2eeChannelKey(withPublicUrl.file, withPublicUrl.config, logger);
-    lastFileConfig = withChannelKey.file;
-    config = withChannelKey.config;
+    const withSlotBase = await ensureSlotBase(withChannelKey.file, withChannelKey.config, logger);
+    lastFileConfig = withSlotBase.file;
+    config = withSlotBase.config;
     currentConfig = config;
     // 每个槽位一个独立客户端实例：独立连接、独立 attachmentId、独立 E2EE 握手与重连
     // 循环（spec §17）。同一窗口 Host 可并存多个 attachment（官方预留设计，已验证）。
@@ -300,7 +334,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
         logger,
         createChannel: deps.createChannel,
         e2eeChannelKey: config.e2ee && config.channelKey ? config.channelKey : undefined,
-        slot,
+        slot: (config.slotBase ?? 0) + slot,
         resolveTargetWindow: () => deps.resolveTargetWindow(config.pinnedWindowId),
         resolveWorkspace: (windowId) => deps.resolveWorkspace(windowId, config.pinnedWorkspacePath),
       });

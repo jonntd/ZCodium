@@ -28,6 +28,7 @@ const ALLOWED_CONFIG_KEYS = new Set([
   "e2ee",
   "channelKey",
   "slots",
+  "slotBase",
 ]);
 
 function isNonEmptyString(value: unknown): value is string {
@@ -84,6 +85,17 @@ export function parseRemoteRelaySetConfigRequest(payload: unknown): RemoteRelayS
   }
   if (c.e2ee !== undefined && typeof c.e2ee !== "boolean") {
     throw new Error("e2ee 必须是布尔值");
+  }
+  // 槽位基址（spec §17）：0..91，多桌面共用 relay 时错开槽位号。
+  if (c.slotBase !== undefined) {
+    if (
+      typeof c.slotBase !== "number" ||
+      !Number.isInteger(c.slotBase) ||
+      c.slotBase < 0 ||
+      c.slotBase > 91
+    ) {
+      throw new Error("slotBase 必须是 0..91 的整数");
+    }
   }
   // 并发客户端槽位数（spec §17）：1..8，上不封顶会打爆 Host attachment 与中继连接。
   if (c.slots !== undefined) {

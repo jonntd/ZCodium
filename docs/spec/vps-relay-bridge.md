@@ -1339,6 +1339,7 @@ Host↔客户端的帧里没有会话身份：两个客户端共用一条 Host �
 | E2EE | **每条连接独立握手**（同一 channelKey，会话密钥按连接独立派生，PFS 按连接）；relay 仍零改动哑管道 |
 | host-report | 全局一份（同一桌面多槽位上报相同元数据，幂等覆写） |
 | 桌面槽位数 | 配置 `slots`（1..8，缺省 1）或 env `ZCODE_REMOTE_RELAY_SLOTS`；每个槽位一条独立连接 + 独立 attachmentId + 独立重连/心跳 |
+| 桌面槽位基址 | 配置 `slotBase`（0..91，缺省自动生成并持久化）或 env `ZCODE_REMOTE_RELAY_SLOT_BASE`；实际槽位号 = slotBase + k。**多桌面共用一台 relay 时各桌面的 slotBase 天然错开**（随机 92 取值，两台碰撞概率 ≈1%，冲突时手工覆盖）；单桌面无感 |
 | 状态 | `RemoteRelayStatus.slots` = 槽位数；`connected` = 任一槽位已连接 |
 
 ## 17.3 兼容性
