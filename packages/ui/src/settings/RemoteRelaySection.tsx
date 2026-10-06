@@ -616,9 +616,11 @@ export function RemoteRelaySection() {
         </div>
       </SettingsGroupCard>
 
-      {/* 扫码接入弹层（spec §18.6）：选时效 → 现签链接 + QR。永久档即上方的 legacy 链接。 */}
+      {/* 扫码接入弹层（spec §18.6）：选时效 → 现签链接 + QR。永久档即上方的 legacy 链接。
+          grid-cols-1 必须显式声明：DialogContent 的隐式 auto 列会被不可断行的长链接
+          撑到 max-content 宽，整块内容溢出 384px 面板（实测踩过）。 */}
       <Dialog open={qrOpen} onOpenChange={setQrOpen}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="grid-cols-1 max-w-sm">
           <DialogHeader>
             <DialogTitle>{t("settings.remoteRelay.qrTitle")}</DialogTitle>
             <DialogDescription>{t("settings.remoteRelay.qrDescription")}</DialogDescription>
@@ -659,7 +661,7 @@ export function RemoteRelaySection() {
               </span>
             ) : null}
             {generatedLink?.shareUrl ? (
-              <code className="block max-w-full truncate rounded-md bg-surface px-2 py-1 text-ui-sm text-foreground">
+              <code className="block w-full truncate rounded-md bg-surface px-2 py-1 text-ui-sm text-foreground">
                 {generatedLink.shareUrl}
               </code>
             ) : null}
