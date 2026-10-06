@@ -423,13 +423,16 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
         lastFileConfig = file;
         const config = resolveEffectiveConfig(file);
         if (!config) return { shareUrl: null, expiresAt: null };
+        // 与「读状态」同一套补齐链：配对码 / E2EE channelKey 缺失时自动生成并落盘，
+        // 否则 E2EE 开着但链接缺 #k=，手机端会卡在 confirm 校验失败。
         const withToken = await ensurePairingToken(file, config, logger);
-        lastFileConfig = withToken.file;
+        const withChannelKey = await ensureE2eeChannelKey(withToken.file, withToken.config, logger);
+        lastFileConfig = withChannelKey.file;
         const link = buildRelayShareLink({
-          url: withToken.config.url,
-          publicUrl: withToken.config.publicUrl,
-          pairingToken: withToken.config.pairingToken ?? "",
-          channelKey: withToken.config.e2ee ? withToken.config.channelKey : null,
+          url: withChannelKey.config.url,
+          publicUrl: withChannelKey.config.publicUrl,
+          pairingToken: withChannelKey.config.pairingToken ?? "",
+          channelKey: withChannelKey.config.e2ee ? withChannelKey.config.channelKey : null,
           ttlSeconds: request.ttlSeconds ?? null,
         });
         return link ?? { shareUrl: null, expiresAt: null };

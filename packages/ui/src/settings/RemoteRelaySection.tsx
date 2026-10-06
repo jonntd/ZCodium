@@ -157,7 +157,6 @@ export function RemoteRelaySection() {
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const remoteRelayGetStatus = platform.remoteRelayGetStatus?.bind(platform);
-  const remoteRelayGetShareLink = platform.remoteRelayGetShareLink?.bind(platform);
   const supported = remoteRelayGetStatus != null;
 
   const refresh = useCallback(async () => {
@@ -239,14 +238,16 @@ export function RemoteRelaySection() {
     }
   }, [status?.shareUrl]);
 
-  // 弹层打开或切换时效时重新生成（spec §18.5）：签名链接按次现签，Main 持有 HMAC。
-  useEffect(() => {
-    if (!qrOpen || !remoteRelayGetShareLink) return;
-    let cancelled = false;
-    setLinkLoading(true);
-    (async () => {
+  // 弹层打开或切换时效时生成一次（spec §18.5）：签名链接按次现签，Main 持有 HMAC。
+  // 依赖必须是稳定的 platform 引用：如果把每次 render 重建的 bound 方法放进 effect 依赖，
+  // 生成完成 → setState → 重渲染 → 新引用 → effect 重跑 → 无限重新生成（实测踩过）。
+  const generateShareLink = useCallback(
+    async (ttl: number | null) => {
+      const method = platform.remoteRelayGetShareLink;
+      if (!method) return;
+      setLinkLoading(true);
       try {
-        const link = await remoteRelayGetShareLink({ ttlSeconds: linkTtl });
+        const link = await method.call(platform, { ttlSeconds: ttl });
         let qrDataUrl: string | null = null;
         if (link.shareUrl) {
           try {
@@ -255,21 +256,24 @@ export function RemoteRelaySection() {
             console.warn("[remote-relay] QR encode failed", error);
           }
         }
-        if (!cancelled) setGeneratedLink({ shareUrl: link.shareUrl, expiresAt: link.expiresAt, qrDataUrl });
+        setGeneratedLink({ shareUrl: link.shareUrl, expiresAt: link.expiresAt, qrDataUrl });
       } catch (error) {
         console.warn("[remote-relay] share link generation failed", error);
-        if (!cancelled) setGeneratedLink(null);
+        setGeneratedLink(null);
         toast(intl.formatMessage({ id: "settings.remoteRelay.qrGenerateFailed" }), {
           variant: "warning",
         });
       } finally {
-        if (!cancelled) setLinkLoading(false);
+        setLinkLoading(false);
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [qrOpen, linkTtl, remoteRelayGetShareLink, intl]);
+    },
+    [platform, intl],
+  );
+
+  useEffect(() => {
+    if (!qrOpen) return;
+    void generateShareLink(linkTtl);
+  }, [qrOpen, linkTtl, generateShareLink]);
 
   const handleCopyGeneratedLink = useCallback(async () => {
     if (!generatedLink?.shareUrl) return;
