@@ -353,13 +353,19 @@ const server = createServer((req, res) => {
     return;
   }
 
-  // 生成某房间的配对链接。⚠ 生产必须给这个端点加设备鉴权。
+  // 生成某房间的配对链接。
+  // 鉴权为自建扩展（spec vps-relay-bridge.md §14.8）：proof = calculateProof(
+  //   passHash, "link", "device", sid) —— 复用 §14.2 算法，nonce 固定为字面量 "link"。
+  // 缺头 / 错 proof / 未知 sid 一律 401，不区分「房间不存在」与「proof 错误」，
+  // 避免向未鉴权方泄露房间存在性。
   if (url.pathname === "/api/remote-control/link") {
     const sid = url.searchParams.get("sid") ?? "";
     const room = rooms.get(sid);
-    if (!room) {
-      res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "unknown sid" }));
+    const proof = String(req.headers.authorization ?? "").replace(/^Bearer\s+/i, "");
+    const expected = room ? calculateProof(room.passHash, "link", "device", sid) : "";
+    if (!expected || !safeEqualString(expected, proof)) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "unauthorized" }));
       return;
     }
     res.writeHead(200, { "content-type": "application/json" });

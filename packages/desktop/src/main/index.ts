@@ -165,6 +165,10 @@ import {
 } from "./desktopDeepLinkUrl.js";
 import { createRemoteWorkspaceSessionManager } from "./desktopRemoteSessions.js";
 import { createRemoteRelayControl } from "./remoteRelayControlIpc.js";
+import {
+  createRemoteOfficialDeviceClient,
+  loadOfficialRelayStartConfig,
+} from "./remoteOfficialDeviceClient.js";
 import { resolveCanonicalWslTarget } from "./desktopWslTargetResolver.js";
 import {
   listRegisteredHostAgentProcessIds,
@@ -570,6 +574,11 @@ const windowHostProcessMap = new Map<number, ElectronUtilityProcess>();
  * 未配置时保持 null，桌面行为与引入本功能前完全一致。
  */
 let remoteRelayControl: ReturnType<typeof createRemoteRelayControl> | null = null;
+/**
+ * 路线 B（官方远控协议控制面，spec vps-relay-bridge.md §14.8）device 客户端句柄。
+ * 仅当 remote-official-relay.json enabled 且有 url（或 env）时启动；未配置保持 null。
+ */
+let remoteOfficialDevice: ReturnType<typeof createRemoteOfficialDeviceClient> | null = null;
 const cuaPipFocusRouter = createCuaPipFocusRouter({
   send: (windowId, event) => {
     windowHostProcessMap.get(windowId)?.postMessage({
@@ -1893,6 +1902,20 @@ app.whenReady().then(async () => {
   remoteRelayControl.register();
   void remoteRelayControl.autoStart();
 
+  // 路线 B（官方远控协议控制面，spec vps-relay-bridge.md §14.8）：与路线 A 是两套
+  // 独立技术栈，不共享连接与凭据。配置缺失/未启用时完全不实例化，行为与引入前一致。
+  // 配置读取有文件 IO，异步决定是否启动；退出竞态由 before-quit 的 stop() 显式收尾，
+  // 不能用 app.isDestroyed() 兜底——Electron 的 app 没有这个方法（实测踩过）。
+  void loadOfficialRelayStartConfig(logger).then((officialRelayConfig) => {
+    if (!officialRelayConfig) return;
+    remoteOfficialDevice = createRemoteOfficialDeviceClient({
+      ...officialRelayConfig,
+      meta: { name: hostname(), version: ZCODE_VERSION },
+      logger,
+    });
+    remoteOfficialDevice.start();
+  });
+
   if (process.platform === "win32") {
     // 打包态必须与 NSIS 快捷方式使用同一 AUMID，否则 Shell 把它们当成不同应用。
     // 使用构建期产品身份，不依赖用户机器环境；开发态继续保持独立身份。
@@ -2189,6 +2212,8 @@ app.on("before-quit", (event) => {
     // 中继连接随应用退出断开；端口关闭会让 Host 侧的 attachment 自动释放。
     void remoteRelayControl?.stop();
     remoteRelayControl = null;
+    remoteOfficialDevice?.stop();
+    remoteOfficialDevice = null;
     event.preventDefault();
     void prepareAppQuit("app-before-quit").finally(() => {
       // mac 直替换安装要在 host/agent 回收之后、真正退出之前完成（ready 态存在时）。

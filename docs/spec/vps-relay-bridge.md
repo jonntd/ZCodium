@@ -846,6 +846,78 @@ calculateProof: (key, nonce, role, sid) =>
 - **与官方 App 的真实互通**：未做（需要重启用户的桌面 App 并设置
   `ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL`）。这是把「协议正确」升级为「与官方互通」的最后一环。
 
+### 14.8 桌面侧 device 控制面客户端（路线 B 第二阶段·第一步）
+
+§14.7 用「双端模拟」证明了 relay 侧协议正确；本节把 **device 角色**落到 fork 桌面，
+作为后续数据面适配（§14.3）与官方手机端互通的地基。**仍是独立技术栈（§14.5）**，
+与路线 A 的 `remoteRelayClient` 不共享连接、配置与凭据。
+
+#### 配置与凭据
+
+- 配置文件 `~/.zcodium/v2/remote-official-relay.json`（env `ZCODE_OFFICIAL_RELAY_WS_URL` 优先）：
+
+  ```json
+  { "enabled": true, "url": "wss://relay.example.com", "deviceMid": "…", "devicePassword": "…" }
+  ```
+
+- `deviceMid`（16B base64url，WS 升级时以 `?mid=` 标识 device 角色）与
+  `devicePassword`（24B base64url，官方 `createPassword` 语义）**首次自动生成并持久化**；
+  `passHash = sha256(password).digest("base64")` 现算不落盘（可从 password 推导，少存一份）。
+- 文件不存在 / `enabled` 非 true / 无 `url` ⇒ 模块完全不实例化（默认关闭，行为与改动前一致）。
+- 官方把 `deviceSid` 持久化到设置、`passHash` 存 credentialService（§14.2）；
+  本实现 room 为 relay 内存态，`device_register_init` 每次连接都会生成**新的 `device_sid`**，
+  因此 `deviceSid` 只作展示/观测，**不得**作为跨重启的身份恢复依据。
+
+#### 状态机与事件顺序（以 wire 顺序为准，relay 强制此序）
+
+```text
+idle → connecting → registering（device_register_init → ack 得 device_sid）
+     → authenticating（auth_init → auth_challenge → auth_response(proof) → auth_ack）
+     → paired（waiting_terminal：等 terminal 接入）→ matched
+```
+
+- 鉴权成功后 relay 会先回 `auth_ack` 再广播一条同状态的 `pair_status_ack`（§14.7 细节 2），
+  客户端必须容忍重复投递并以**最新**一条 `pair_status` 为准。
+- **心跳**：`pair_status_query` 每 10s ± jitter；期待 `pair_status_ack`，
+  连续两个周期未收到 ⇒ 判定死链，主动断开走重连（不能用超时掩盖同步问题）。
+- **重连**：断开/超时/`error(auth_failed)` ⇒ 指数退避重连；重连即重新注册
+  （新 `device_sid`，旧房间由 relay 心跳 watchdog 回收）。window 未就绪不阻塞本模块
+  ——控制面不依赖窗口，数据面才依赖（第二阶段再接 window Host）。
+- **`data` 信封**：本阶段收到一律 debug 日志 + 丢弃（数据面未实现；
+  静默吞掉会掩盖协议演进，必须留下痕迹）。
+
+#### 链接获取（自建扩展：端点鉴权）
+
+- 配对就绪后 device 经 **HTTP** `GET /api/remote-control/link?sid=<device_sid>` 取配对链接，
+  头 `Authorization: Bearer <proof>`，`proof = calculateProof(passHash, "link", "device", sid)`
+  （复用 §14.2 算法，nonce 固定为字面量 `"link"`）。**这是自建扩展**——§14.1 的 8 种
+  消息是官方确认面，链接端点是 relay 自身的 HTTP 面；原实现无鉴权（§14.7 前 relay 代码
+  注释已自我标注「生产必须加」），现升级为**强制**校验：缺头/错 proof ⇒ 401。
+- 链接形状（relay 生成，§13.5/§14.1）：`?sid=&hash=&t=&mid=&name=&app_version=`，
+  其中 `hash` 是 **terminal 的 HMAC key**（双重身份，§14.2）。relay 不打印 `hash` 全值。
+
+#### 日志（对齐官方 safeAuthLogFields 语义）
+
+只允许出现 `hasDeviceSid` / `deviceSidSuffix`（后 6 位）；
+`passHash`、`proof`、完整 `device_sid`、链接 `hash` 一律不打。
+沿用中文文案 + `logger` 注入（与路线 A 客户端一致）。
+
+#### 验收
+
+| # | 场景 | 期望 |
+| --- | --- | --- |
+| 1 | 真 relay-official + 真 device 客户端 + 模拟 terminal（链接 hash 算 proof） | 双端收到 `pair_status:"matched"` |
+| 2 | 链接端点无 / 错 proof | 401，且不回任何链接内容 |
+| 3 | 链接端点正确 proof | 200，link 含 `sid`/`hash` 且 `sid === device_sid` |
+| 4 | `data` 信封双向 | relay 原样转发（回归 §14.7 #8/#9） |
+| 5 | 错误 proof / 同房间第二 terminal / 未知 sid | `error(auth_failed)` / `terminal_busy` / `sid_invalid`（回归 #10–#13） |
+| 6 | device 断线重连 | 新 `device_sid`，重新鉴权，terminal 重新接入后再次 matched |
+| 7 | 配置文件缺失 | 模块不启动，无任何网络行为 |
+
+套件入库 `deploy/vps-relay/relay-official.test.mjs`（`node --test`，spawn 真实 relay +
+真实 device 客户端），取代 §14.7 的一次性双端模拟。
+
+
 ---
 
 # 12. 落地实现方案（最终交付形态）

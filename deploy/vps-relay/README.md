@@ -18,6 +18,22 @@
 **两者是独立技术栈，不能混搭**（帧格式不同，详见 spec §14.5）。
 下面的部署说明默认指 `relay.mjs`（路线 A）。
 
+**路线 B 桌面端（spec §14.8）**：ZCodium 桌面内置 device 控制面客户端
+（`remoteOfficialDeviceClient`）。配置 `~/.zcodium/v2/remote-official-relay.json`：
+
+```json
+{ "enabled": true, "url": "ws://<relay-host>:<port>", "deviceMid": "…", "devicePassword": "…" }
+```
+
+`deviceMid` / `devicePassword` 首次启动自动生成并持久化（也可用 env
+`ZCODE_OFFICIAL_RELAY_WS_URL` 指定地址）。客户端自动完成注册/鉴权/心跳并取回
+配对链接（日志只打 `deviceSidSuffix`，凭据不落日志）。**配对链接端点已加设备
+proof 鉴权**：`GET /api/remote-control/link` 必须带
+`Authorization: Bearer <HMAC(passHash, "link|device|<sid>")>`，缺头/错 proof 401
+——旧版无鉴权客户端不再能取链接。协议验证套件：
+`node --import tsx --test packages/desktop/tests/remote-official-device.test.mjs`。
+
+
 ---
 
 ## 1. 它到底做什么
