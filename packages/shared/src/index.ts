@@ -39,6 +39,14 @@ export type {
   RemoteRelaySetConfigRequest,
 } from "./remote-relay.js";
 export { deriveRemoteRelayPublicUrl } from "./remote-relay.js";
+export {
+  RELAY_E2EE_CHANNEL_KEY_BYTES,
+  RelayE2eeChannel,
+  decodeRelayChannelKey,
+  generateRelayChannelKey,
+  type RelayE2eeChannelOptions,
+  type RelayE2eeRole,
+} from "./remote-relay-e2ee.js";
 export type {
   RemoteResourcePackageId,
   RemoteResourcePackageSelection,

@@ -174,6 +174,8 @@ Caddy 会自动签发/续期证书，**并自动处理 WebSocket 升级**，不�
 | `hostSecret` | ✅ | 与 VPS `HOST_SECRET` 一致 |
 | `publicUrl` | — | 浏览器侧公开源（拼分享链接用）；缺省由 `url` 推导（wss→https） |
 | `pairingToken` | — | VPS 的 `RELAY_TOKEN`（拼分享链接用） |
+| `e2ee` | — | **端到端加密**开关（缺省 false，见下文「端到端加密」小节） |
+| `channelKey` | — | E2EE 的 32B base64url 密钥；开启 `e2ee` 后留空会自动生成并落盘 |
 | `workspace` | — | 覆盖上报的工作区路径；缺省跟随窗口当前工作区 |
 | `windowId` | — | 钉住借出 Host 的窗口 id；缺省跟随聚焦窗口 |
 | `autoStart` | — | App 启动即连接（缺省 true） |
@@ -193,8 +195,25 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 |---|---|
 | `ZCODE_REMOTE_RELAY_WINDOW=<windowId>` | 钉住指定窗口借出 Host；缺省跟随聚焦窗口 |
 | `ZCODE_REMOTE_RELAY_WORKSPACE=<绝对路径>` | **直接指定上报的工作区路径**，无需在 App 界面里打开任何工作区（App 只需在跑，不需要交互） |
+| `ZCODE_REMOTE_RELAY_E2EE=1` | 启用端到端加密（与配置文件 `e2ee: true` 等价） |
 
 **两者都没配时中继功能完全不启用**，行为与改动前一致。
+
+### 端到端加密（E2EE，可选，spec `docs/spec/vps-relay-bridge.md` §16）
+
+开启后**中继只转发密文**：VPS 运营方看不到任何会话内容。要点：
+
+- **密钥不经中继**：channelKey 放在分享链接的 `#k=` fragment 里——浏览器不把 fragment
+  发给服务器，中继拿不到它。`RELAY_TOKEN` 经 `GET /?token=` 到达中继（TLS 终结点看得到），
+  因此不能当加密密钥用。
+- **中继零改动**：密文对 relay 完全不透明，缓冲/回放/心跳语义不变；旧 relay 无需升级。
+- **灰度顺序（两端能力必须同时具备）**：① 先把含 E2EE 的 `packages/web/dist` 重新部署到
+  relay；② 再开 `e2ee`（设置页开关或写配置）→ 自动生成 `channelKey` → 从设置页复制**新链接**
+  （带 `#k=`）。顺序颠倒时旧 bundle 的手机会握手失败并显示「启动失败」错误页（不白屏、
+  不降级明文），重新复制新链接即可。
+- **轮换**：清空设置页的「E2EE 密钥」保存 → 自动重新生成，旧链接全部失效。
+- **把完整链接当凭据对待**：`#k=` 与 token 一样敏感（贴进聊天 = 泄露）。E2EE 防中继读流量，
+  不防「链接本身被转发给第三者」。
 
 ---
 
@@ -224,6 +243,7 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 | 打开 `/?token=…` 返回 401 | `RELAY_TOKEN` 不匹配。重新从 `.env` 取值 |
 | 页面能开，但一直「桌面离线」（close code 4002） | 桌面没连上 `/host`。检查桌面的 `ZCODE_REMOTE_RELAY_URL` / `HOST_SECRET`，以及 VPS 防火墙 |
 | 桌面连不上 `/host` 返回 401 | `HOST_SECRET` 不匹配 |
+| 页面显示「Web 启动失败：端到端加密握手失败」 | 链接 `#k=` 与桌面 `channelKey` 不一致（旧链接 / 错配置 / 中间人）。从设置页重新复制**新链接**；并确认 relay 上部署的是含 E2EE 的新版 web dist |
 | 页面 HTML/静态资源都 200，但**整页空白、无任何报错** | 旧版 relay 把 host 在手机配对前发出的 `Initialize` 握手帧丢掉了，手机 RPC 客户端永远不初始化。升级到带帧缓冲的 `relay.mjs` 并重启（spec §12.3.1；relay 日志应出现 `replayed buffered host frames`） |
 | 手机上任务列表是空的 | 桌面还没调 `/api/host-report`（通常是窗口工作区还没就绪）。看中继日志有没有 `host report updated` |
 | 连接频繁断开 | 反代的空闲超时太短。中继客户端每 30s 发 ping，但 nginx 默认 `proxy_read_timeout 60s` 仍可能掐断长空闲；调到 300s 以上 |
@@ -241,8 +261,10 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
   所以：`HOST_SECRET` 要足够长、只走 TLS、不落日志。
 - `/ws`（手机侧）用 `RELAY_TOKEN`，它会在 URL 里出现一次（`?token=`）。
   中继在设置 cookie 后**立即 302 跳转到干净 URL**，避免 token 留在浏览器历史和 Referer 里。
-- 当前实现**不做端到端加密**：TLS 在 VPS 上终结，所以**中继能看到明文流量**。
-  如果你不完全信任这台 VPS，需要加 E2EE（见 spec §12.5 阶段 2）。
+- ~~当前实现**不做端到端加密**：TLS 在 VPS 上终结，所以**中继能看到明文流量**。
+  如果你不完全信任这台 VPS，需要加 E2EE（见 spec §12.5 阶段 2）。~~
+  **已实现（spec §16）**：开启「端到端加密」后中继只见密文；不开则维持原状（TLS 终结、中继可读）。
+  见上文「端到端加密」小节。
 - 建议再加：仅允许一个 host 连接（已实现：新 host 会顶掉旧的）、配对码轮换、失败限速。
 
 ---

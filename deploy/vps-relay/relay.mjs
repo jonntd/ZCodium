@@ -10,11 +10,11 @@
  * 所以转发是纯字节搬运，中继不需要解帧、不需要知道 payload 是什么。
  *
  * 端点：
- *   GET  /                   静态托管 web bundle（SPA fallback 到 index.html）
+ *   GET  /                   静态托管 web bundle（SPA fallback 仅限无扩展名路径；带扩展名的资产 404）
  *   GET  /api/server-info    手机端启动时读工作区；数据来自桌面的 /api/host-report。
- *                            与 /ws 同一 cookie 门禁，未配对方拿不到（fail-closed）
+ *                            cookie 或 ?token= 双通道门禁，未配对方拿不到（fail-closed）
  *   POST /api/host-report    桌面上报工作区（Bearer HOST_SECRET）
- *   GET  /ws    (upgrade)    手机接入；鉴权用 zcode_lite_token cookie
+ *   GET  /ws    (upgrade)    手机接入；鉴权用 zcode_lite_token cookie 或 ?token= 查询参数
  *   GET  /host  (upgrade)    桌面拨入；鉴权用 Bearer HOST_SECRET
  *
  * 环境变量：
@@ -203,6 +203,21 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
+/**
+ * 手机侧配对凭据的**双通道**校验：cookie 或 `?token=` 查询参数，二者等价。
+ *
+ * 为什么需要查询参数通道：实测发现 Electron 内置浏览器（webview 分区）里 302 的
+ * Set-Cookie 可能不落地（分区 cookie 为空），页面只能带着无 cookie 的 WS 撞 401，
+ * 表现为空白/启动失败（spec §12.4「token 双通道」）。RELAY_TOKEN 本来就是 relay
+ * 自己签发的凭据（经 `?token=` 明文到达 relay），放进查询参数没有新增暴露面；
+ * E2EE 的 `#k=` 在 fragment 里，永远不会进请求。
+ */
+function isClientAuthorized(req, url) {
+  if (safeEqual(readCookie(req, COOKIE_NAME), RELAY_TOKEN)) return true;
+  const queryToken = (url.searchParams.get("token") || "").trim();
+  return queryToken.length > 0 && safeEqual(queryToken, RELAY_TOKEN);
+}
+
 function buildServerInfo() {
   const workspace = hostReport?.workspacePath
     ? {
@@ -222,8 +237,12 @@ function buildServerInfo() {
 }
 
 async function serveStatic(res, pathname) {
+  // SPA fallback 只给**无扩展名**的路径：带扩展名的（.js/.css/...）是资产请求，
+  // 旧构建的哈希文件在新 dist 里不存在时必须回 404——兜底成 index.html 会把
+  // HTML 当 JS 发回去，浏览器模块解析直接失败，页面白屏（实测踩过）。
+  const hasFileExtension = /\.[A-Za-z0-9]{1,8}$/.test(pathname);
   // 先按原路径取；取不到再回落到 index.html（SPA fallback）。
-  const candidates = [pathname, "/index.html"];
+  const candidates = hasFileExtension ? [pathname] : [pathname, "/index.html"];
   for (const candidate of candidates) {
     const relative = normalize(candidate).replace(/^([/\\])+/, "");
     const filePath = join(WEB_ROOT, relative);
@@ -231,6 +250,7 @@ async function serveStatic(res, pathname) {
     if (filePath !== WEB_ROOT && !filePath.startsWith(WEB_ROOT + sep)) continue;
     try {
       const body = await readFile(filePath);
+      log("static", { status: 200, path: candidate, bytes: body.length });
       res.writeHead(200, {
         "content-type": MIME[extname(filePath)] || "application/octet-stream",
         "content-length": body.length,
@@ -242,6 +262,7 @@ async function serveStatic(res, pathname) {
       // 试下一个候选
     }
   }
+  log("static miss", { pathname });
   res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
   res.end("not found");
 }
@@ -258,7 +279,9 @@ const server = createServer(async (req, res) => {
   // 配对：带 ?token= 的一次性入口，下发 cookie 后重定向，
   // 只摘掉 token（避免留在浏览器历史/Referer 里），**保留其它参数**——
   // 手机把 `/?token=…&autoReconnect=1` 加进主屏后，重定向不能把开关吃掉。
-  if (url.searchParams.get("token")) {
+  // 仅对页面路径生效：/api/* 的 ?token= 是「token 双通道」鉴权（spec §12.4），
+  // 不能被重定向劫持（否则 server-info 的查询参数通道永远 401）。
+  if (url.searchParams.get("token") && !url.pathname.startsWith("/api/")) {
     if (!safeEqual(url.searchParams.get("token"), RELAY_TOKEN)) {
       sendJson(res, 401, { error: "Unauthorized" });
       return;
@@ -276,10 +299,10 @@ const server = createServer(async (req, res) => {
   }
 
   if (url.pathname === "/api/server-info") {
-    // 与 /ws 同一 cookie 门禁（fail-closed）：工作区路径/主机标签不向未配对方暴露。
-    // 未带 cookie 的调用方收到 401 —— web 端 resolveWebBootstrap() 对非 200 优雅降级
-    // （只少拿初始工作区提示，不会失败），正常配对流程（?token= → cookie → fetch）不受影响。
-    if (!safeEqual(readCookie(req, COOKIE_NAME), RELAY_TOKEN)) {
+    // 与 /ws 同一门禁（fail-closed，双通道）：工作区路径/主机标签不向未配对方暴露。
+    // 未带凭据的调用方收到 401 —— web 端 resolveWebBootstrap() 对非 200 优雅降级
+    // （只少拿初始工作区提示，不会失败），正常配对流程不受影响。
+    if (!isClientAuthorized(req, url)) {
       sendJson(res, 401, { error: "Unauthorized" });
       return;
     }
@@ -355,8 +378,8 @@ server.on("upgrade", (req, socket, head) => {
   }
 
   if (url.pathname === "/ws") {
-    if (!safeEqual(readCookie(req, COOKIE_NAME), RELAY_TOKEN)) {
-      log("client upgrade rejected: bad cookie");
+    if (!isClientAuthorized(req, url)) {
+      log("client upgrade rejected: bad cookie/token");
       rejectUpgrade(socket, 401, "Unauthorized");
       return;
     }

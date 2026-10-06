@@ -48,6 +48,8 @@ const EMPTY_FORM: RemoteRelayFileConfig = {
   hostSecret: "",
   publicUrl: "",
   pairingToken: "",
+  e2ee: false,
+  channelKey: "",
   workspace: "",
   autoStart: true,
 };
@@ -58,6 +60,10 @@ function toForm(config: RemoteRelayFileConfig | null): RemoteRelayFileConfig {
     hostSecret: config?.hostSecret ?? "",
     publicUrl: config?.publicUrl ?? "",
     pairingToken: config?.pairingToken ?? "",
+    // E2EE 字段必须随表单 round-trip：漏掉的话下一次保存会把已生成的
+    // channelKey 抹掉（下次启动重新生成 → 旧链接全部失效）且 e2ee 被静默关闭。
+    e2ee: config?.e2ee ?? false,
+    channelKey: config?.channelKey ?? "",
     workspace: config?.workspace ?? "",
     windowId: config?.windowId,
     autoStart: config?.autoStart ?? true,
@@ -260,6 +266,9 @@ export function RemoteRelaySection() {
           }
           control={
             <div className="flex items-center gap-2">
+              {status?.e2ee ? (
+                <SettingsBadge>{t("settings.remoteRelay.badgeE2ee")}</SettingsBadge>
+              ) : null}
               {status?.running ? (
                 <SettingsBadge>
                   <span className={connected ? "text-emerald-600" : "text-amber-600"}>
@@ -443,6 +452,30 @@ export function RemoteRelaySection() {
               value={form.pairingToken ?? ""}
               onChange={updateField("pairingToken")}
             />
+            {/* E2EE（spec §16）：默认关。开启后 Main 自动生成 channelKey 并落盘，
+                链接自动追加 #k=（fragment 不会发给中继）。清空保存即轮换。 */}
+            <SettingsRow
+              label={t("settings.remoteRelay.e2ee")}
+              description={t("settings.remoteRelay.e2eeDescription")}
+              control={
+                <Switch
+                  checked={form.e2ee ?? false}
+                  onCheckedChange={(checked) =>
+                    setForm((previous) => ({ ...previous, e2ee: checked }))
+                  }
+                />
+              }
+            />
+            {form.e2ee ? (
+              <ConfigField
+                id="remote-relay-channel-key"
+                label={t("settings.remoteRelay.channelKey")}
+                description={t("settings.remoteRelay.channelKeyDescription")}
+                placeholder=""
+                value={form.channelKey ?? ""}
+                onChange={updateField("channelKey")}
+              />
+            ) : null}
             <ConfigField
               id="remote-relay-workspace"
               label={t("settings.remoteRelay.workspace")}

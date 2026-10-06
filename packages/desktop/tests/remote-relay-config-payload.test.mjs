@@ -63,6 +63,38 @@ test("字段级校验仍然生效（仅针对非空值）", () => {
   assert.throws(() => parseRemoteRelaySetConfigRequest(null), /请求体必须是对象/);
 });
 
+test("E2EE 字段（e2ee/channelKey）可保存：布尔 + 32B base64url", () => {
+  // 32 字节的 base64url（spec vps-relay-bridge.md §16）
+  const channelKey = "uMyuWKCd7JfUgpqtTJyHwiRdP1Zt5RMo0Ec1j8Wj-mY";
+  const parsed = parseRemoteRelaySetConfigRequest({
+    config: { ...VALID_CONFIG, e2ee: true, channelKey },
+  });
+  assert.equal(parsed.config.e2ee, true);
+  assert.equal(parsed.config.channelKey, channelKey);
+});
+
+test("E2EE 校验：channelKey 非法（长度/base64url）必须在写入前被拒", () => {
+  assert.throws(
+    () => parseRemoteRelaySetConfigRequest({ config: { e2ee: true, channelKey: "not-base64!!" } }),
+    /channelKey 不合法/,
+  );
+  assert.throws(
+    () =>
+      parseRemoteRelaySetConfigRequest({
+        config: { e2ee: true, channelKey: Buffer.from("short").toString("base64url") },
+      }),
+    /channelKey 不合法/,
+  );
+  assert.throws(
+    () => parseRemoteRelaySetConfigRequest({ config: { e2ee: "yes" } }),
+    /e2ee 必须是布尔值/,
+  );
+  // 空串 = 轮换（清空后由 Main 重新生成），必须放行
+  assert.doesNotThrow(() =>
+    parseRemoteRelaySetConfigRequest({ config: { e2ee: true, channelKey: "" } }),
+  );
+});
+
 test("历史坏文件（信封形状）能被还原成扁平配置", () => {
   const recovered = unwrapLegacyRemoteRelayConfigFile({ config: VALID_CONFIG, apply: true });
   assert.equal(recovered.recovered, true);

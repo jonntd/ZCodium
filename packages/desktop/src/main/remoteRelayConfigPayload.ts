@@ -10,7 +10,11 @@
  * 因此这里做**白名单**校验：出现未知字段（尤其是嵌套的 `config`）一律拒绝并报错，
  * 让签名不匹配这类错误在写入之前就失败，而不是静默写坏配置。
  */
-import type { RemoteRelayFileConfig, RemoteRelaySetConfigRequest } from "@zcode/shared";
+import {
+  decodeRelayChannelKey,
+  type RemoteRelayFileConfig,
+  type RemoteRelaySetConfigRequest,
+} from "@zcode/shared";
 
 /** 允许写入配置文件的字段（与 `RemoteRelayFileConfig` 对齐）。 */
 const ALLOWED_CONFIG_KEYS = new Set([
@@ -21,6 +25,8 @@ const ALLOWED_CONFIG_KEYS = new Set([
   "workspace",
   "windowId",
   "autoStart",
+  "e2ee",
+  "channelKey",
 ]);
 
 function isNonEmptyString(value: unknown): value is string {
@@ -74,6 +80,17 @@ export function parseRemoteRelaySetConfigRequest(payload: unknown): RemoteRelayS
   }
   if (c.pairingToken !== undefined && typeof c.pairingToken !== "string") {
     throw new Error("pairingToken 必须是字符串");
+  }
+  if (c.e2ee !== undefined && typeof c.e2ee !== "boolean") {
+    throw new Error("e2ee 必须是布尔值");
+  }
+  // 非空时必须是合法的 32B base64url：把 typo 在写入前拦住（否则 client 拨出时才失败）。
+  if (!isBlank(c.channelKey)) {
+    try {
+      decodeRelayChannelKey(c.channelKey as string);
+    } catch (error) {
+      throw new Error(`channelKey 不合法：${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   return { config: c as RemoteRelayFileConfig, apply: apply !== false };

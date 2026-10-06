@@ -158,3 +158,106 @@ test("通道始终不 Initialize：超时失败并主动关闭 socket", async (t
   await assert.rejects(pending, /not initialized/);
   assert.equal(fake.last().readyState, 3, "超时后必须主动关闭，避免留下僵尸连接");
 });
+
+// ---------------------------------------------------------------------------
+// E2EE 接缝（spec vps-relay-bridge.md §16）：connectViaWebSocket 的 e2eeChannelKey 路径。
+//
+// 与上面用例的区别：服务端侧同样架着真实的 RelayE2eeChannel + SocketProtocol + ChannelServer
+// （与桌面 remoteRelayClient 的结构互为镜像），验证完整链路「假 WS ⇄ E2EE ⇄ 帧格式 ⇄ RPC 握手」。
+import { generateRelayChannelKey, RelayE2eeChannel } from "@zcode/shared";
+
+/**
+ * 在假 WS 的**服务端侧**架设 E2EE host 通道 + 真 ChannelServer（惰性启动）。
+ *
+ * 服务端在第一条 client wire 消息到达时才建通道——真实时序里「谁先发」不固定
+ * （relay 宽限配对后 client hello 可能先到），服务端必须能从收到对端 hello 开始握手。
+ * wire 走带泵守卫的 FIFO：host 构造即发 hello，client 的 confirm 会同步回打，
+ * 不排队的话会抢在原始消息之前被处理（与 shared 单测的泵同一教训）。
+ */
+function attachHostE2ee(fakeWs, channelKey) {
+  const state = { fatal: null };
+  const onData = new Emitter();
+  let hostChannel = null;
+  let pumping = false;
+  const wire = [];
+  const pumpWire = () => {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (wire.length > 0) {
+        if (!hostChannel) {
+          hostChannel = new RelayE2eeChannel({
+            role: "host",
+            channelKey,
+            send: (record) => fakeWs.emit("message", { data: record.buffer }),
+            onPlaintext: (frame) => onData.fire(VSBuffer.wrap(frame)),
+            onFatal: (error) => {
+              state.fatal = error;
+            },
+          });
+          new ChannelServer(
+            new SocketProtocol({
+              onData: onData.event,
+              onClose: new Emitter().event,
+              onEnd: new Emitter().event,
+              write: (buffer) => hostChannel.write(buffer.buffer),
+              end: () => {},
+              drain: () => Promise.resolve(),
+              dispose: () => {},
+            }),
+            "server",
+          );
+        }
+        hostChannel.accept(wire.shift());
+      }
+    } finally {
+      pumping = false;
+    }
+  };
+  fakeWs.onSend = (data) => {
+    wire.push(new Uint8Array(data));
+    pumpWire();
+  };
+  return { state };
+}
+
+test("E2EE：带 e2eeChannelKey 连接 → Initialize 经密文到达才交付，线上无明文帧", async (t) => {
+  const fake = installFakeWebSocket(t);
+  const KEY = generateRelayChannelKey();
+  const pending = connectViaWebSocket("ws://relay/ws", {
+    initializeTimeoutMs: 3000,
+    e2eeChannelKey: KEY,
+  });
+
+  // 先架服务端（必须在 open 前：hello 在 open 时就发出）
+  const { state } = attachHostE2ee(fake.last(), KEY);
+  fake.last().open();
+
+  const services = await pending;
+  assert.equal(typeof services.fileService, "object", "E2EE 握手完成后应正常交付");
+
+  // 线上（client → 服务端）每一条消息都必须是 E2EE 形状：ZRE1 hello / ZRC1 confirm / 0xC1 record。
+  // 若出现裸 SocketProtocol 帧（0x01 开头的 13B 帧头）即明文泄漏。
+  assert.ok(fake.last().sent.length >= 2, "应有 hello + confirm + 数据帧");
+  for (const data of fake.last().sent) {
+    const u8 = new Uint8Array(data);
+    const magic = Buffer.from(u8.subarray(0, 4)).toString("latin1");
+    const shaped = magic === "ZRE1" || magic === "ZRC1" || u8[0] === 0xc1;
+    assert.ok(shaped, `wire 消息必须是 E2EE 形状，实际 magic=${magic} len=${u8.length}`);
+  }
+  assert.equal(state.fatal, null, "服务端通道不应 fatal");
+});
+
+test("E2EE：channelKey 不一致 → reject（端到端加密握手失败），绝不降级明文", async (t) => {
+  const fake = installFakeWebSocket(t);
+  const pending = connectViaWebSocket("ws://relay/ws", {
+    initializeTimeoutMs: 3000,
+    e2eeChannelKey: generateRelayChannelKey(), // 与服务端不同 = 错配置 / MITM 换钥
+  });
+
+  const { state } = attachHostE2ee(fake.last(), generateRelayChannelKey());
+  fake.last().open();
+
+  await assert.rejects(pending, /端到端加密握手失败/);
+  assert.ok(state.fatal, "服务端 confirm 校验同样失败 fatal");
+});

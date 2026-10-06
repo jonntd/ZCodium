@@ -1034,11 +1034,21 @@ t2  旧 host 的 close 事件到达 → 新 pipe 的 a.on("close") → shutdown(
 
 | 端点 | 方向 | 鉴权 | 说明 |
 | --- | --- | --- | --- |
-| `GET /` + 静态 | 手机 → relay | 无 | 托管 `packages/web/dist` |
-| `GET /api/server-info` | 手机 → relay | `zcode_lite_token` cookie | 返回桌面通过 `/api/host-report` 上报的 `ServerRemoteInfo` 形状。**fail-closed**：未配对（无/错 cookie）返回 401，工作区路径与主机标签不向匿名探测暴露。web 端 `resolveWebBootstrap()`（`packages/web/src/main.tsx`）对非 200 **优雅降级**——只少拿 `initialWorkspaceAbsPath` 提示，不 fail bootstrap，因此加门禁不改变正常配对流程（同源 fetch 默认携带 cookie） |
+| `GET /` + 静态 | 手机 → relay | 无 | 托管 `packages/web/dist`；SPA fallback **仅限无扩展名路径**，带扩展名的缺失资产回 404（兜底成 index.html 会把 HTML 当 JS 发回 → 模块解析失败白屏，实测踩过） |
+| `GET /api/server-info` | 手机 → relay | cookie **或** `?token=` 查询参数（双通道，见下方「token 双通道」） | 返回桌面通过 `/api/host-report` 上报的 `ServerRemoteInfo` 形状。**fail-closed**：未配对（无/错 cookie）返回 401，工作区路径与主机标签不向匿名探测暴露。web 端 `resolveWebBootstrap()`（`packages/web/src/main.tsx`）对非 200 **优雅降级**——只少拿 `initialWorkspaceAbsPath` 提示，不 fail bootstrap，因此加门禁不改变正常配对流程（同源 fetch 默认携带 cookie） |
 | `POST /api/host-report` | 桌面 → relay | `HOST_SECRET` | 上报 `{ workspacePath, workspaceIdentity, hostLabel }` |
-| `GET /ws`（upgrade） | 手机 → relay | `zcode_lite_token` cookie | 与当前 host 配对，**逐字节转发** |
+| `GET /ws`（upgrade） | 手机 → relay | cookie **或** `?token=` 查询参数（双通道） | 与当前 host 配对，**逐字节转发** |
 | `GET /host`（upgrade） | 桌面 → relay | `HOST_SECRET` | 注册为**唯一** host：已有连接时以 4001 `host-replaced` 顶替（`onHostOpen`） |
+
+#### token 双通道（2026-10-05，实测踩出来的）
+
+配对凭据接受两条等价通道：`zcode_lite_token` cookie（既有流程）**或** `/ws`、`/api/server-info`
+请求上的 `?token=` 查询参数。原因：实测发现 Electron 内置浏览器（webview 分区）里 302 的
+`Set-Cookie` 可能不落地（分区 cookie 为空），页面只能带着**无 cookie** 的 WS 撞 401，表现为
+空白/启动失败。`RELAY_TOKEN` 本来就是 relay 自己签发的凭据（经 `?token=` 明文到达 relay，
+TLS 终结点可见），放进 `/ws` 查询参数没有新增暴露面；web bundle 从页面 URL 读到 token 就附加
+到 wsUrl 与 server-info 请求（302 摘掉 token 的正常流程仍走 cookie）。两通道都走常量时间比较；
+E2EE 的 `#k=` 仍在 fragment 里，不进任何请求。
 
 ### 环境变量
 
@@ -1192,3 +1202,111 @@ App 重启后读不到 `url`、中继客户端根本不会启动（表现为「�
 回归测试：`packages/desktop/tests/remote-relay-config-payload.test.mjs`（信封 payload 必被拒 + 坏文件可还原）。
 ⇒ 分享链接默认带 `autoReconnect=1`（手机断线自动整页重载恢复）；默认行为仍是「只提示 + 一键重连」，
 开关语义见 `docs/spec/web-bootstrap-delivery-point.md` §2.4。
+
+---
+
+# 16. E2EE（阶段 2 首选项）：中继不可读的加密面
+
+> 实现 §12.5 阶段 2 的第一条。目标：**VPS 中继看不到任何明文**——代码、终端输出、会话内容。
+> relay 保持哑管道零改动；加密发生在两端（桌面 Main ↔ 手机 web bundle）。
+
+## 16.1 威胁模型与一个关键事实
+
+- **防**：中继运营方读流量（诚实但好奇）；中继篡改/注入/跨会话重放（主动攻击 → 一律 fail-closed）。
+- **不防**：端点被攻破（桌面配置文件、手机本地存储）；链接被转发给第三者（**链接即能力**，与
+  `RELAY_TOKEN` 同理）；可用性（中继本来就能断链）。
+- **关键事实**：`RELAY_TOKEN` 经 `GET /?token=` 到达中继（TLS 在中继终结，终结点看得到请求行），
+  **不能当 E2EE 的 PSK**。E2EE 密钥必须走 **URL fragment**（`#k=`）：浏览器不把 fragment
+  发给服务器，中继只看到 `/?token=…`；同源导航不带 fragment 进 Referer。
+- fragment 的残余暴露面：地址栏、复制/粘贴与聊天记录、屏幕共享——**把完整链接当凭据对待**（与 token 同级）。
+
+## 16.2 密码学选择
+
+- **`@noble/{hashes,ciphers,curves}`（纯 JS、同步 API）**，不用 WebCrypto subtle。决定性理由：
+  `crypto.subtle` 只在 secure context 可用，`http://<局域网IP>:3180`（内网场景，
+  `remoteRelayLanAddresses` 的主用例）下为 undefined——用 subtle 会直接打破内网 E2EE。
+  同步 API 还免掉了 AEAD 异步加解密的**保序队列**（ISocket.write/onData 是同步契约）。
+- x25519 ECDH（**PFS**：channelKey 事后泄露不破解已录流量——链接被贴进聊天是常态）+
+  PSK 绑定（无 PSK 的纯 ECDH 会被 MITM 各建一条）+ ChaCha20-Poly1305 + HKDF-SHA256。
+- bundle 增量 ~30KB gz（tree-shaken）。
+
+## 16.3 协议（ZRE1，握手 3 类消息 + 数据记录）
+
+握手与 §12.3.1 的 Initialize 缓冲同构：host hello 先发，可被 relay 缓冲回放。
+
+```text
+host → phone:  hello  { "ZRE1", role=host,  ephHost(x25519 pub 32B), nonceHost(32B) }
+phone → host:  hello  { "ZRE1", role=phone, ephPhone,              noncePhone }
+双方:  ecdh = X25519(eph_priv, eph_peer)
+       ikm = channelKey(32B) ‖ ecdh(32B)；salt = nonceHost ‖ noncePhone
+       k_hostOut / k_phoneOut / k_confirm = HKDF-SHA256(ikm, salt, info="zcode-relay-e2ee v1 <用途>")
+host → phone:  confirm { "ZRC1", mac = HMAC(k_confirm, "…confirm v1 host"  ‖ hostHello ‖ phoneHello) }
+phone → host:  confirm { "ZRC1", mac = HMAC(k_confirm, "…confirm v1 phone" ‖ hostHello ‖ phoneHello) }
+数据:          record { 0xC1, seq(u64 BE), ChaCha20-Poly1305(k_<方向>, ad=type‖seq, pt=一帧 SocketProtocol payload) }
+```
+
+- **confirm 校验通过前不处理任何应用帧**；两端各自排队（见 §16.4）。confirm 不匹配 = 对端没有
+  channelKey（MITM/错钥）→ fatal。
+- **严格 seq**：只接受等于本方向期望值的 seq（TCP 保序之下即重放防护）；跨会话因 eph 密钥更换天然失效。
+- 一条 WS 消息 = 一条 record（relay 1:1 转发保消息边界，`maxPayload` 64 MiB 足够）。
+
+## 16.4 实现落点与缓冲语义
+
+| 端 | 位置 | 说明 |
+| --- | --- | --- |
+| 核心 | `packages/shared/src/remote-relay-e2ee.ts` | 握手状态机 + record 编解码 + 密钥派生，**双端单实现** |
+| 桌面 | `remoteRelayClient.ts` E2EE 分支 | `SocketProtocol` 架在虚拟 ISocket 上；host 侧在 secure 前**缓冲 Host 出站帧**（有界 64 条 / 1 MiB，**溢出 fatal**——丢帧会破坏 RPC 流，不能像 relay 缓冲那样丢最旧） |
+| 手机 | `packages/client/src/websocket.ts` | `connectViaWebSocket` 增 `e2eeChannelKey` 选项；E2EE fatal → reject → 既有 bootstrap 错误页（fail loud，不白屏） |
+| relay | **零改动** | record 对它不透明；缓冲/回放/心跳语义不变（缓冲的是密文） |
+
+不做「探测降级」：旧 dist 的手机不发 hello，若 host 靠超时猜测对端能力就是用超时掩盖同步问题。
+E2EE 开启后，host 收到的第一条消息不是合法 hello → 立即断开 + 明确日志（fail-closed）。
+
+#### 适配器接线不变式（web 接缝测试三轮踩出来的，立此为规）
+
+E2EE 适配器的**收包侧**必须是「单一 FIFO 队列 + 泵守卫」，且泵的首次放行必须等所有上层监听
+（`SocketProtocol` / `ChannelClient.onDidInitialize` / `hostProtocol` 对接）挂上之后：
+
+1. `RelayE2eeChannel` **构造即发 hello**——同步传输（测试回环）下对端响应立刻回来，而此时
+   闭包里的通道变量还是 `null`，直接注册回调会丢帧、握手死锁；
+2. 对端 secure 后立即发 record，若早到的 hello/confirm 还在缓冲、record 却被直接处理，
+   就违反「confirm 先于 record」的处理序，通道按协议违规 fail-closed；
+3. Initialize 可能已同步到达队列——早于 `onDidInitialize` 订阅放行会被 `SocketProtocol` 丢弃，
+   ChannelClient 永远等不到初始化。
+
+生产网络 RTT 下这三条通常不触发（队列为空），但**正确性不能依赖 RTT 长度**——回归测试
+`packages/client/tests/websocket.test.mjs`（E2EE 两例）与
+`packages/desktop/tests/remote-relay-client.test.mjs` 的同步回环就是靠该不变式才能稳定跑通。
+
+## 16.5 配置与开关
+
+- `~/.zcodium/v2/remote-relay.json` 增 `e2ee?: boolean`、`channelKey?: string`（32B base64url，
+  与 `hostSecret` 同等敏感）；env `ZCODE_REMOTE_RELAY_E2EE`（`1`/`true`）。
+- **默认 false = 现行为逐字节不变**。开启是显式动作：设置页开关或写配置。
+- 启用 e2ee 且 `channelKey` 缺失时自动生成并落盘；分享链接追加 `#k=<channelKey>`。
+- 轮换：清空 `channelKey` 保存 → 自动重生成，旧链接全部失效。
+
+## 16.6 灰度顺序（两端能力必须同时具备）
+
+1. relay 零改动，无需重新部署。
+2. **重新构建并部署 `packages/web/dist`**（E2EE 能力进 bundle）。
+3. 设置页开启端到端加密（或 `e2ee: true`）→ 自动生成 channelKey → 分享新链接（带 `#k=`）。
+4. 旧链接（无 `#k`）的手机：握手立刻失败并显示错误页（非白屏、非静默），重新复制新链接即可。
+
+## 16.7 验收
+
+| # | 场景 | 期望 |
+| --- | --- | --- |
+| 1 | 单测（shared）：两个方向握手、双向 record 往返 | 明文逐字节一致 |
+| 2 | 单测：篡改 record / 错 channelKey / seq 跳号 / 跨会话重放 | 一律 fatal，不产出明文 |
+| 3 | 桌面集成（真实 relay + 真实 `remoteRelayClient` + 模拟手机） | WS 线上**观察不到明文**；握手后应用帧正确到达对端 |
+| 3b | web 接缝（假 WS + 真 `RelayE2eeChannel`+`SocketProtocol`+`ChannelServer`） | 带 key：Initialize 经密文到达才交付、线上全是 ZRE1/ZRC1/0xC1 形状；错 key：reject「端到端加密握手失败」 |
+| 4 | 错 key 的手机接入 | fatal + 明确日志，不产明文 |
+| 5 | 未开启 e2ee / 链接无 `#k` | 行为与现状逐字节一致（回归） |
+| 6 | `pnpm typecheck` / `pnpm lint` | 全绿 |
+
+## 16.8 已知边界
+
+- channelKey **先于会话**泄露（粘贴链接到不可信渠道）→ 当前+未来会话可解密；PFS 只保护
+  「密钥事后泄露」的情形。缓解：链接当凭据、轮换即作废旧链接。
+- 不防 DoS/可用性。

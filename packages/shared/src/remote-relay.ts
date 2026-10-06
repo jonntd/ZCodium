@@ -25,6 +25,18 @@ export interface RemoteRelayFileConfig {
   publicUrl?: string;
   /** 中继的 `RELAY_TOKEN`（手机配对码，用于拼分享链接）。 */
   pairingToken?: string;
+  /**
+   * 端到端加密开关（spec vps-relay-bridge.md §16）。默认 false = 现行为逐字节不变。
+   * 开启是显式动作：两端必须同时具备能力（先重新部署含 E2EE 的 web dist，再开此开关），
+   * 不做探测降级——旧 bundle 的手机会握手失败并显示错误页（fail-closed，不白屏）。
+   */
+  e2ee?: boolean;
+  /**
+   * E2EE 的 channelKey（32B base64url）。**与 hostSecret 同等敏感**：它经分享链接的
+   * `#k=` fragment 分发给手机（浏览器不把 fragment 发给服务器，中继拿不到它）。
+   * 启用 e2ee 且缺失时由 Main 自动生成并落盘；清空保存即轮换（旧链接全部失效）。
+   */
+  channelKey?: string;
 }
 
 /** `zcode:remote-relay-get-status` 的响应。 */
@@ -37,6 +49,8 @@ export interface RemoteRelayStatus {
   connected: boolean;
   /** 配置来源。 */
   source: "env" | "file" | null;
+  /** 是否已启用端到端加密（启用时分享链接带 `#k=`）。 */
+  e2ee: boolean;
   /** 分享链接（手机浏览器打开即配对）；缺 publicUrl/pairingToken 时为 null。 */
   shareUrl: string | null;
   /** 当前借出 Host 的窗口 id（尽力而为，连接建立后才有意义）。 */

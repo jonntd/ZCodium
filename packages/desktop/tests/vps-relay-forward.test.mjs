@@ -363,6 +363,52 @@ test("/api/server-info 鉴权：无/错 cookie 一律 401（fail-closed），配
   assert.equal(body.workspaces[0].path, "/tmp/demo-workspace");
 });
 
+test("token 双通道：/ws 与 /api/server-info 接受 ?token= 查询参数（Set-Cookie 不落地的环境）", async (t) => {
+  // 背景：Electron 内置浏览器的 webview 分区里 302 的 Set-Cookie 可能不落地（实测），
+  // 页面只能无 cookie 撞门禁。spec §12.4「token 双通道」让两个端点都接受查询参数。
+  const relay = await startRelayServer(t);
+  const base = `http://127.0.0.1:${relay.port}`;
+
+  // server-info：?token= 等价于 cookie；错 token 仍拒绝。
+  const viaQuery = await fetch(`${base}/api/server-info?token=${encodeURIComponent(RELAY_TOKEN)}`);
+  assert.equal(viaQuery.status, 200);
+  const wrongQuery = await fetch(`${base}/api/server-info?token=wrong-token`);
+  assert.equal(wrongQuery.status, 401);
+
+  // WS：无 cookie、仅 ?token= → 升级成功并正常配对转发。
+  const host = await openHost(relay);
+  t.after(() => host.close());
+  await relay.waitForLog("host connected");
+  const client = await openWebSocket(
+    `ws://127.0.0.1:${relay.port}/ws?token=${encodeURIComponent(RELAY_TOKEN)}`,
+  );
+  t.after(() => client.close());
+  host.send(Buffer.from("via-query-token"));
+  assert.equal(await nextMessage(client), "via-query-token");
+});
+
+test("SPA fallback：无扩展名路径回 index.html，缺失资产 404（不把 HTML 当 JS 发回）", async (t) => {
+  const relay = await startRelayServer(t);
+  const base = `http://127.0.0.1:${relay.port}`;
+
+  // 无扩展名路径（SPA 路由/中继子路径）→ 兜底 index.html。
+  const spa = await fetch(`${base}/r9/?token=${encodeURIComponent(RELAY_TOKEN)}`, {
+    redirect: "manual",
+  });
+  assert.equal(spa.status, 302);
+  const page = await fetch(`${base}/r9/?autoReconnect=1`, {
+    headers: { cookie: `zcode_lite_token=${RELAY_TOKEN}` },
+  });
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+
+  // 带扩展名的缺失资产必须 404：兜底成 index.html 会把 HTML 当 JS 发回，
+  // 浏览器模块解析失败 → 白屏（旧构建缓存 + 新 dist 的实测场景）。
+  const stale = await fetch(`${base}/assets/index-OLDHASH.js`);
+  assert.equal(stale.status, 404);
+  assert.match(stale.headers.get("content-type") ?? "", /text\/plain/);
+});
+
 test("空闲回收：不回 pong 的僵尸连接被关闭，健康连接不受影响", async (t) => {
   // 心跳 80ms / 空闲 250ms：把生产默认值（30s / 60s）压缩到测试可接受的时间。
   const relay = await startRelayServer(t, { heartbeatMs: 80, idleMs: 250 });

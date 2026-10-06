@@ -76,6 +76,8 @@ interface WebBootstrapResult {
   initialTaskId?: string;
   restoreSession?: boolean;
   allowOpenWorkspace?: boolean;
+  /** E2EE channelKey（分享链接 `#k=` fragment；spec vps-relay-bridge.md §16）。 */
+  e2eeChannelKey?: string;
 }
 
 function isWebOAuthCallback(params: URLSearchParams): boolean {
@@ -291,35 +293,54 @@ function resolveDefaultWsOrigin(): string {
   return `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}`;
 }
 
+/**
+ * E2EE channelKey（spec vps-relay-bridge.md §16）：桌面分享链接把 channelKey 放在
+ * **URL fragment**（`#k=`）——浏览器不把 fragment 发给服务器，中继因此拿不到它。
+ * 不从地址栏清除：autoReconnect 的整页重载依赖 URL（含 fragment）原样保留。
+ */
+function resolveE2eeChannelKey(): string | undefined {
+  const hash = window.location.hash;
+  if (!hash.startsWith("#")) return undefined;
+  const key = new URLSearchParams(hash.slice(1)).get("k")?.trim();
+  return key || undefined;
+}
+
 async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
   const params = new URLSearchParams(window.location.search);
   const remoteId = params.get("remote");
+  // relay 的 token 双通道（spec vps-relay-bridge.md §12.4）：内置浏览器等环境里
+  // 302 的 Set-Cookie 可能不落地，页面把 URL 里的 token 附加到 wsUrl 与
+  // server-info 请求，WS/server-info 就不依赖 cookie。E2EE 的 #k= 在 fragment，
+  // 不会进任何请求。
+  const relayToken = params.get("token")?.trim();
+  const tokenQuery = relayToken ? `?token=${encodeURIComponent(relayToken)}` : "";
   const wsUrl = remoteId
     ? `${resolveDefaultWsOrigin()}/ws/remote/${remoteId}`
-    : `${resolveDefaultWsOrigin()}/ws`;
+    : `${resolveDefaultWsOrigin()}/ws${tokenQuery}`;
 
   if (remoteId) {
     return { wsUrl };
   }
 
   try {
-    const response = await fetch("/api/server-info", {
+    const response = await fetch(`/api/server-info${tokenQuery}`, {
       cache: "no-store",
     });
     if (!response.ok) {
-      return { wsUrl };
+      return { wsUrl, e2eeChannelKey: resolveE2eeChannelKey() };
     }
     const serverInfo = (await response.json()) as Partial<ServerRemoteInfo>;
     const workspace = Array.isArray(serverInfo.workspaces) ? serverInfo.workspaces[0] : undefined;
     return {
       wsUrl,
+      e2eeChannelKey: resolveE2eeChannelKey(),
       ...(workspace?.path ? { initialWorkspaceAbsPath: workspace.path } : {}),
       ...(workspace?.workspaceIdentity
         ? { initialWorkspaceIdentity: workspace.workspaceIdentity }
         : {}),
     };
   } catch {
-    return { wsUrl };
+    return { wsUrl, e2eeChannelKey: resolveE2eeChannelKey() };
   }
 }
 
@@ -453,6 +474,8 @@ async function bootstrapWebApp() {
     // 真实离线仍落到错误页。策略、上限与依据见 bootstrapRetry.ts 与对应 spec。
     const services = await connectWithBoundedRetry(() =>
       connectViaWebSocket(bootstrap.wsUrl, {
+        // E2EE（spec vps-relay-bridge.md §16）：链接带 #k= 才启用；握手失败走错误页。
+        e2eeChannelKey: bootstrap.e2eeChannelKey,
         // 交付之前的断开由 reject + 重试/错误页处理；这里只管交付之后。
         onClose: (event) => {
           if (!delivered) return;

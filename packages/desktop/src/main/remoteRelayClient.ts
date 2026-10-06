@@ -34,7 +34,7 @@ import {
   type MessagePortLike,
   type MessagePortPayload,
 } from "@zcode/rpc";
-import { HostMessageTypes } from "@zcode/shared";
+import { HostMessageTypes, RelayE2eeChannel } from "@zcode/shared";
 import { WebSocket } from "ws";
 
 /** 只要求 Host 进程的 postMessage 能力，便于单测替身。 */
@@ -113,6 +113,13 @@ export interface RemoteRelayClientOptions {
   heartbeatIntervalMs?: number;
   /** 允许临时停用；返回 false 时不建立连接。 */
   enabled?: () => boolean;
+  /**
+   * E2EE channelKey（base64url，来自配置文件 `channelKey`；spec vps-relay-bridge.md §16）。
+   * 提供即启用端到端加密：WS 线上只有 ZRE1 握手/密文，中继不可读。
+   * **fail-closed**：对端第一条消息不是合法 hello（旧 bundle/错 key）→ 断开重连，
+   * 不做明文降级——探测降级等于用超时掩盖同步问题。
+   */
+  e2eeChannelKey?: string;
   /**
    * 建一个 MessageChannel。由调用方注入 Electron 的 `MessageChannelMain`，
    * 使本模块**不依赖 electron**（单测可用纯 JS 替身）。
@@ -194,6 +201,7 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
   let socket: WebSocket | null = null;
   let wsProtocol: SocketProtocol | null = null;
   let hostProtocol: MessagePortProtocol | null = null;
+  let e2eeChannel: RelayE2eeChannel | null = null;
   let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
@@ -222,6 +230,8 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
     connected = false;
     // 清空已上报记录：重连后要重新上报（中继可能已重启，缓存已丢）。
     lastReportedWorkspacePath = null;
+    e2eeChannel?.dispose();
+    e2eeChannel = null;
     try {
       hostProtocol?.disconnect();
     } catch {
@@ -321,14 +331,79 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
       reconnectDelay = INITIAL_RECONNECT_DELAY_MS;
       logger?.info(`已连上中继 ${options.url}`);
 
+      const rawSocket = wrapWebSocket(ws);
+      let bridgeSocket: ISocket;
+      /** E2EE 队列的放行时机由最后统一控制（见 onMessage 接线之后的调用点）。 */
+      let flushIncomingQueue: () => void = () => {};
+      if (options.e2eeChannelKey) {
+        // E2EE 分支（spec vps-relay-bridge.md §16）：SocketProtocol 架在「解密后的虚拟
+        // ISocket」上——两个协议实例只在 onMessage/send 层对接的结构不变，只是中间多了
+        // 一层加解密。与 packages/client/src/websocket.ts 的同构适配互为镜像（role 相反）。
+        const decrypted = new Emitter<VSBuffer>();
+        // 进入通道的消息必须过**单一 FIFO 队列 + 泵守卫**（与 client/websocket.ts 同一
+        // 教训）：构造即发 hello 会在同步传输下立刻引来对端响应而闭包里还是 null；
+        // 且对端 secure 后立即发 record，若早到的 hello/confirm 还在缓冲、record 被直接
+        // 处理，就违反「confirm 先于 record」的处理序（通道会 fail-closed）。
+        const incomingQueue: Uint8Array[] = [];
+        let pumpingIncoming = false;
+        const pumpIncoming = () => {
+          if (pumpingIncoming) return;
+          pumpingIncoming = true;
+          try {
+            while (e2eeChannel !== null && incomingQueue.length > 0) {
+              e2eeChannel.accept(incomingQueue.shift() as Uint8Array);
+            }
+          } finally {
+            pumpingIncoming = false;
+          }
+        };
+        rawSocket.onData((buffer) => {
+          incomingQueue.push(new Uint8Array(buffer.buffer));
+          pumpIncoming();
+        });
+        e2eeChannel = new RelayE2eeChannel({
+          role: "host",
+          channelKey: options.e2eeChannelKey,
+          send: (data) => rawSocket.write(VSBuffer.wrap(data)),
+          onPlaintext: (data) => decrypted.fire(VSBuffer.wrap(data)),
+          onFatal: (error) => {
+            // fail-closed：对端未启用 E2EE（旧 bundle）/ 错 key / 篡改，一律断开重连。
+            logger?.warn("E2EE 通道失败，断开重连", error);
+            try {
+              ws.close();
+            } catch {
+              /* 忽略 */
+            }
+          },
+          logger: { warn: (message, detail) => logger?.warn(message, detail) },
+        });
+        // 不能在这里放行：手机侧的帧可能已同步到达队列，而 wsProtocol/hostProtocol
+        // 的对接要等下面才挂上——提前放行会丢帧。
+        flushIncomingQueue = pumpIncoming;
+        bridgeSocket = {
+          onData: decrypted.event,
+          onClose: rawSocket.onClose,
+          onEnd: rawSocket.onEnd,
+          write: (buffer) => e2eeChannel?.write(buffer.buffer),
+          end: () => rawSocket.end(),
+          drain: () => rawSocket.drain(),
+          dispose: () => rawSocket.dispose(),
+        };
+      } else {
+        bridgeSocket = rawSocket;
+      }
+
       // 两侧各用自己的协议实例负责成帧；只在 onMessage/send 这一层对接。
-      wsProtocol = new SocketProtocol(wrapWebSocket(ws));
+      wsProtocol = new SocketProtocol(bridgeSocket);
 
       const channel = options.createChannel();
       hostProtocol = new MessagePortProtocol(wrapElectronPort(channel.port1));
 
       wsProtocol.onMessage((buffer) => hostProtocol?.send(buffer));
       hostProtocol.onMessage((buffer) => wsProtocol?.send(buffer));
+
+      // 监听全部就位后才放行 E2EE 队列：同步回环下握手与数据帧可能已经在队列里。
+      flushIncomingQueue();
 
       // 上报工作区（独立 HTTP）。
       void reportWorkspace(target.windowId);

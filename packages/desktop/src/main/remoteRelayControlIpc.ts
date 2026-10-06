@@ -6,6 +6,7 @@ import { ipcMain } from "electron";
 import { getAppConfigDir } from "@zcode/services/node";
 import {
   deriveRemoteRelayPublicUrl,
+  generateRelayChannelKey,
   PlatformChannels,
   type RemoteRelayFileConfig,
   type RemoteRelayStatus,
@@ -61,6 +62,9 @@ interface EffectiveRelayConfig {
   pinnedWorkspacePath: string | null;
   publicUrl: string;
   pairingToken: string | null;
+  /** 端到端加密开关（spec vps-relay-bridge.md §16）。 */
+  e2ee: boolean;
+  channelKey: string | null;
   source: "env" | "file";
 }
 
@@ -175,6 +179,9 @@ function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRe
   const envSecret = process.env.ZCODE_REMOTE_RELAY_HOST_SECRET?.trim();
   const envWindow = Number(process.env.ZCODE_REMOTE_RELAY_WINDOW ?? "");
   const envWorkspace = process.env.ZCODE_REMOTE_RELAY_WORKSPACE?.trim();
+  // E2EE 是显式开关（默认关）：两端必须同时具备能力（spec §16.6 灰度顺序）。
+  const envE2ee = /^(1|true)$/i.test(process.env.ZCODE_REMOTE_RELAY_E2EE?.trim() ?? "");
+  const e2ee = envE2ee || file?.e2ee === true;
 
   // 公开地址缺省由中继地址推导（ws→http / wss→https）：两者通常是同一主机的不同协议。
   const publicUrl = file?.publicUrl?.trim() || deriveRemoteRelayPublicUrl(url);
@@ -192,8 +199,34 @@ function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRe
     pinnedWorkspacePath: envWorkspace || file?.workspace?.trim() || null,
     publicUrl,
     pairingToken,
+    e2ee,
+    channelKey: file?.channelKey?.trim() || null,
     source: envUrl ? "env" : "file",
   };
+}
+
+/**
+ * 启用 E2EE 且 channelKey 缺失时自动生成并落盘。
+ *
+ * 与 pairingToken 同理：手填 32 字节密钥不现实，且用户很可能复用弱值。
+ * 生成只发生一次；清空该字段保存即可轮换（旧链接全部失效）。
+ */
+async function ensureE2eeChannelKey(
+  file: RemoteRelayFileConfig | null,
+  config: EffectiveRelayConfig,
+  logger?: RemoteRelayControlDeps["logger"],
+): Promise<{ file: RemoteRelayFileConfig | null; config: EffectiveRelayConfig }> {
+  if (!config.e2ee || config.channelKey) return { file, config };
+  const channelKey = generateRelayChannelKey();
+  const nextFile: RemoteRelayFileConfig = { ...file, channelKey };
+  try {
+    await writeConfigFile(nextFile);
+    logger?.info(`[remote-relay] 已生成 E2EE channelKey 并写入 ${getConfigFilePath()}`);
+  } catch (error) {
+    // 落盘失败时仅本次会话内有效：重启后会重新生成（旧链接将失效），warn 提示。
+    logger?.warn("[remote-relay] E2EE channelKey 写入失败，仅在本次会话内有效", error);
+  }
+  return { file: nextFile, config: { ...config, channelKey } };
 }
 
 export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
@@ -212,11 +245,17 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       running,
       connected: client?.isConnected() ?? false,
       source: currentConfig?.source ?? null,
+      e2ee: currentConfig?.e2ee ?? false,
       shareUrl:
         currentConfig?.pairingToken != null && currentConfig.pairingToken !== ""
           ? // 链接自带 autoReconnect=1：手机锁屏/切网断线后自动整页重载恢复，不用手点「重连」。
             // 代价是重载会丢弃未发送输入（默认行为仍是「只提示」，见 web-bootstrap-delivery-point.md §2.4）。
-            `${currentConfig.publicUrl}/?token=${encodeURIComponent(currentConfig.pairingToken)}&autoReconnect=1`
+            // E2EE 启用时追加 `#k=`：fragment 不会发给服务器，中继拿不到 channelKey（spec §16.2）。
+            `${currentConfig.publicUrl}/?token=${encodeURIComponent(currentConfig.pairingToken)}&autoReconnect=1${
+              currentConfig.e2ee && currentConfig.channelKey
+                ? `#k=${encodeURIComponent(currentConfig.channelKey)}`
+                : ""
+            }`
           : null,
       windowId: null,
       // 每次读取都重新探测：切网/VPN 变化后建议地址要跟着变。
@@ -237,8 +276,9 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     }
     const withToken = await ensurePairingToken(file, config, logger);
     const withPublicUrl = await ensureLanPublicUrl(withToken.file, withToken.config, logger);
-    lastFileConfig = withPublicUrl.file;
-    config = withPublicUrl.config;
+    const withChannelKey = await ensureE2eeChannelKey(withPublicUrl.file, withPublicUrl.config, logger);
+    lastFileConfig = withChannelKey.file;
+    config = withChannelKey.config;
     currentConfig = config;
     client = createRemoteRelayClient({
       url: config.url,
@@ -247,6 +287,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       appVersion: deps.appVersion,
       logger,
       createChannel: deps.createChannel,
+      e2eeChannelKey: config.e2ee && config.channelKey ? config.channelKey : undefined,
       resolveTargetWindow: () => deps.resolveTargetWindow(config.pinnedWindowId),
       resolveWorkspace: (windowId) => deps.resolveWorkspace(windowId, config.pinnedWorkspacePath),
     });
@@ -282,11 +323,13 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
         currentConfig = previous;
         return status;
       }
-      // 未启动也要能显示链接，所以这里同样补配对码：首次打开设置页就会自动生成并落盘。
+      // 未启动也要能显示链接，所以这里同样补配对码 / E2EE channelKey：
+      // 首次打开设置页就会自动生成并落盘。
       const withToken = await ensurePairingToken(file, probe, logger);
       const withPublicUrl = await ensureLanPublicUrl(withToken.file, withToken.config, logger);
-      lastFileConfig = withPublicUrl.file;
-      currentConfig = withPublicUrl.config;
+      const withChannelKey = await ensureE2eeChannelKey(withPublicUrl.file, withPublicUrl.config, logger);
+      lastFileConfig = withChannelKey.file;
+      currentConfig = withChannelKey.config;
       return buildStatus(false);
     });
 
