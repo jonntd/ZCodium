@@ -88,6 +88,11 @@ export interface ZCodeProtocolSessionRecord {
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
   /** 会话创建时固化的删除保护偏好；偏好更新方法会覆盖。 */
   deleteProtection: ZCodeDeleteProtectionPreferences;
+  /**
+   * 会话创建时固化的自定义系统提示词（docs/spec/custom-system-prompt.md）；
+   * undefined = 内置默认。inherit 源的子会话从这里继承，保证与父会话一致。
+   */
+  customSystemPrompt?: string;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
   /**
@@ -146,6 +151,12 @@ export interface ZCodeProtocolAgentServerContext {
      * 工作流工具面、`/workflow` 与 dynamic-workflows 技能一律不露出。
      */
     dynamicWorkflowEnabled: boolean;
+    /**
+     * host 同步的自定义系统提示词（docs/spec/custom-system-prompt.md）；
+     * undefined = 内置默认。新会话的权威来源是反向请求（现读 settingService，冷启动安全），
+     * 这里只是热更通道的进程缓存；两个来源都归一化为 trim 后非空或 undefined。
+     */
+    customSystemPrompt?: string;
   };
   // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
   // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。

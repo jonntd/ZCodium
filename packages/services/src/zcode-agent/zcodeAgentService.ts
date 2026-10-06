@@ -95,6 +95,7 @@ import {
   zcodeWorkspaceUpdateInteractionPreferencesResultSchema,
   zcodeWorkspaceUpdateModelIoPreferencesResultSchema,
   zcodeWorkspaceUpdateDeleteProtectionPreferencesResultSchema,
+  zcodeWorkspaceUpdateSystemPromptResultSchema,
   zcodeProviderUpdateAccountConfigResultSchema,
   type ZCodeSessionStateSnapshot,
   type ZCodeAutomation,
@@ -1502,6 +1503,24 @@ export function createZCodeAgentService(
         } catch (error) {
           // 旧 CLI 不认识该方法：静默降级，保持其系统删除行为。
           if (!isProtocolMethodNotFoundError(error)) throw error;
+        }
+        // 自定义系统提示词（docs/spec/custom-system-prompt.md）：仅在实际同步过该字段的
+        // 快照上发送，避免给从未用过此功能的旧 CLI 增加一次必败往返；归一化保证
+        // 字段在快照里时一定是 string（空串 = 恢复默认，必须显式送达以清空活会话）。
+        if (typeof params.preferences.customSystemPrompt === "string") {
+          try {
+            await params.client.request(
+              zcodeProtocolMethods.workspaceUpdateSystemPrompt,
+              {
+                workspace: buildWorkspaceRef(params.workspace),
+                systemPrompt: params.preferences.customSystemPrompt,
+              },
+              zcodeWorkspaceUpdateSystemPromptResultSchema,
+            );
+          } catch (error) {
+            // 旧 CLI 不认识该方法：静默降级，保持其内置系统提示词。
+            if (!isProtocolMethodNotFoundError(error)) throw error;
+          }
         }
       });
     interactionPreferenceSyncByWorkspaceKey.set(workspaceKey, current);
@@ -3411,6 +3430,13 @@ export function createZCodeAgentService(
           preferences.batchDeleteApprovalThreshold >= 1
             ? preferences.batchDeleteApprovalThreshold
             : 50,
+        // 自定义系统提示词（docs/spec/custom-system-prompt.md）：仅拦截非 string 类型；
+        // 空串必须原样保留——它是"恢复默认"的显式载体，折叠成 undefined 会让清空
+        // 永远送不到活会话。非空原文不动，trim 由 CLI handler 与 context builder 负责。
+        customSystemPrompt:
+          typeof preferences.customSystemPrompt === "string"
+            ? preferences.customSystemPrompt
+            : undefined,
       };
       latestAppRuntimePreferences = normalizedPreferences;
       const activeClients = [...activeClientsByWorkspaceKey.values()];

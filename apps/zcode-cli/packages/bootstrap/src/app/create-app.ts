@@ -999,6 +999,16 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         runtimeConfig.deleteProtection = preferences;
         getRuntime().updateConfig({ deleteProtection: preferences });
       },
+      updateSystemPrompt: (systemPrompt) => {
+        // 与 updateDeleteProtection 相同的双写原因；undefined = 还原内置默认。
+        // 空闲会话由 updateConfig 重建上下文前缀，回合中的会话下一回合生效。
+        if (systemPrompt === undefined) {
+          delete runtimeConfig.systemPrompt;
+        } else {
+          runtimeConfig.systemPrompt = systemPrompt;
+        }
+        getRuntime().updateConfig({ systemPrompt });
+      },
       readToolResultArtifact: (uri) =>
         artifactStore.readToolResultArtifact({ uri, trace: traceContext }),
       // wire/staging 全程是 decoded chunk；只有完整 checksum commit 后才在

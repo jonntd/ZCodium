@@ -86,6 +86,7 @@ import { updateInteractionPreferences } from "./interaction-preferences.js";
 import { updateAccountProviderConfig } from "./account-provider-config.js";
 import { updateModelIoPreferences } from "./model-io-preferences.js";
 import { updateDeleteProtectionPreferences } from "./delete-protection-preferences.js";
+import { updateSystemPromptPreferences } from "./system-prompt-preferences.js";
 import { updateOffPeakToolPolicy } from "./off-peak-tool-policy.js";
 import { updateDynamicWorkflowPolicy } from "./dynamic-workflow-policy.js";
 import { grantWorkspaceHookTrustForProtocol } from "./workspace-hook-trust.js";
@@ -635,6 +636,8 @@ export class ZCodeProtocolAgentServer {
         return await updateModelIoPreferences(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateDeleteProtectionPreferences:
         return await updateDeleteProtectionPreferences(this.context, request.params);
+      case zcodeProtocolMethods.workspaceUpdateSystemPrompt:
+        return await updateSystemPromptPreferences(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateOffPeakToolPolicy:
         return await updateOffPeakToolPolicy(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateDynamicWorkflowPolicy:

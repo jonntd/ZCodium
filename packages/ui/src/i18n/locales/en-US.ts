@@ -2304,6 +2304,18 @@ const enUS: Record<string, string> = {
   "settings.batchDeleteApprovalRequirement": "Requires Delete Protection",
   "settings.batchDeleteApprovalDescription":
     "Approval is required when a single deletion reaches this many files.",
+  "settings.systemPrompt": "System Prompt",
+  "settings.systemPromptDescription":
+    "When set, this fully replaces the built-in system prompt (dynamic sections such as session guidance, memory, and environment info are skipped as well) and applies to existing and new sessions across all workspaces. Leave it empty to restore the default.",
+  "settings.systemPromptDefaultBadge": "Default",
+  "settings.systemPromptCustomizedBadge": "Customized",
+  "settings.systemPromptPlaceholder": "Leave empty to use the built-in default system prompt",
+  "settings.systemPromptSave": "Save",
+  "settings.systemPromptRestore": "Restore default",
+  "settings.systemPromptSaved": "System prompt saved; idle sessions pick it up immediately.",
+  "settings.systemPromptRestored": "Restored the default system prompt.",
+  "settings.systemPromptSaveFailed": "Failed to save the system prompt: {message}",
+  "settings.systemPromptOverLimit": "Exceeds the length limit (200,000 characters).",
   "settings.performanceMode": "Performance mode",
   "settings.performanceModeDescription": "Simplify rendered output to improve performance.",
   "settings.taskAutoArchive": "Auto-archive old tasks",

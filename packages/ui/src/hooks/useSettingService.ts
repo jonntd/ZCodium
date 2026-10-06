@@ -146,7 +146,8 @@ export function useSettings() {
         typeof patch.askUserQuestionAutoResolutionEnabled === "boolean" ||
         typeof patch.modelIoFullRetentionEnabled === "boolean" ||
         typeof patch.deleteProtectionEnabled === "boolean" ||
-        typeof patch.batchDeleteApprovalThreshold === "number"
+        typeof patch.batchDeleteApprovalThreshold === "number" ||
+        typeof patch.customSystemPrompt === "string"
       ) {
         const preferences = {
           askUserQuestionAutoResolutionEnabled:
@@ -162,6 +163,12 @@ export function useSettings() {
             patch.batchDeleteApprovalThreshold ??
             settingsStore.snapshot.settings?.batchDeleteApprovalThreshold ??
             50,
+          // 自定义系统提示词（docs/spec/custom-system-prompt.md）：整份快照必须始终携带
+          // 当前生效值，否则后续无关开关的同步会用缺字段快照整体覆盖
+          // latestAppRuntimePreferences，让新注册的 CLI 丢掉已保存的自定义提示词。
+          // 空串 = 内置默认，必须保留（不能折叠成 undefined），"恢复默认"靠它显式清空。
+          customSystemPrompt:
+            patch.customSystemPrompt ?? settingsStore.snapshot.settings?.customSystemPrompt ?? "",
         };
         const syncResults = await Promise.allSettled([
           zcodeAgentService.syncAppRuntimePreferences(preferences),

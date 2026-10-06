@@ -555,6 +555,11 @@ export interface ZCodeAgentAppRuntimePreferences {
   deleteProtectionEnabled?: boolean;
   /** 单条命令删除目标数达到该值时需要审批；缺省 50。 */
   batchDeleteApprovalThreshold?: number;
+  /**
+   * 自定义系统提示词（docs/spec/custom-system-prompt.md）：整段替换内置身份段；
+   * 空串/缺席 = 内置默认。归一化保证非 undefined 时一定是 string（含清空用的空串）。
+   */
+  customSystemPrompt?: string;
 }
 
 export interface ZCodeAgentLocalRuntimeChildProcesses {

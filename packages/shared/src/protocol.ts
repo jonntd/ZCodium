@@ -319,6 +319,11 @@ export interface AppSettings {
   deleteProtectionEnabled?: boolean;
   /** 批量删除审批阈值：单条 Bash 命令删除目标数达到该值时需要审批；缺失按 50 兼容旧配置。 */
   batchDeleteApprovalThreshold?: number;
+  /**
+   * 自定义系统提示词（docs/spec/custom-system-prompt.md）：非空即整段替换内置身份段并跳过
+   * 动态 system 段；空串/缺失 = 内置默认。存储 schema 见 validationAppSettings.ts。
+   */
+  customSystemPrompt?: string;
   /** 是否完整保留 Model I/O；开启后不轮转、不限额重置、不压缩或裁剪，鉴权信息仍会脱敏。 */
   modelIoFullRetentionEnabled?: boolean;
   /** 设置页中每个 Provider Family 当前唯一的结构化连接选择。 */

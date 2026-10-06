@@ -36,6 +36,12 @@ const localePreferenceSchema = z.enum(["system", "zh-CN", "en-US", "fa-IR"]);
 const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
 /** 批量删除审批阈值；与 zcode-protocol 的 deleteProtectionPreferencesSchema 保持同一量程。 */
 const batchDeleteApprovalThresholdSchema = z.number().int().min(1).max(10000);
+/**
+ * 自定义系统提示词（docs/spec/custom-system-prompt.md）：非空即整段替换内置身份段并跳过
+ * 动态 system 段；空串/缺席 = 内置默认（还原就是清空，不存在第二份默认值快照）。
+ * 空串必须合法：RPC 会丢弃 undefined，"恢复默认"只能以空串穿越边界。
+ */
+const customSystemPromptSchema = z.string().max(200_000);
 const electronReleaseChannelSchema = z.enum(["stable", "preview"]);
 const desktopZoomLevelSchema = z.number().int().min(-3).max(5);
 const desktopWindowSizeSchema = z.object({
@@ -467,6 +473,7 @@ const appSettingsObjectSchema = z.object({
   // 删除保护默认开启：Agent 删除文件优先移入系统废纸篓/回收站，行为可恢复。
   deleteProtectionEnabled: z.boolean().default(true),
   batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.default(50),
+  customSystemPrompt: customSystemPromptSchema.optional(),
   modelIoFullRetentionEnabled: z.boolean().default(false),
   startPlanRecommendationDismissed: z.boolean().default(false),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.default({}),
@@ -541,6 +548,7 @@ export const appSettingsPatchSchema = z.object({
   askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
   deleteProtectionEnabled: z.boolean().optional(),
   batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.optional(),
+  customSystemPrompt: customSystemPromptSchema.optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
   startPlanRecommendationDismissed: z.boolean().optional(),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.optional(),

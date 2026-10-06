@@ -147,6 +147,8 @@ interface SessionStartupPreferences {
   nativeSearchEnhancementsEnabled: boolean;
   /** 删除保护偏好；Host 缺省（旧 Host）时按默认值开启 + 阈值 50。 */
   deleteProtection: ZCodeDeleteProtectionPreferences;
+  /** 自定义系统提示词（docs/spec/custom-system-prompt.md）；undefined = 内置默认。 */
+  customSystemPrompt?: string;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
 }
 
@@ -3250,6 +3252,9 @@ async function resolveSessionStartupPreferences(
       nativeSearchEnhancementsEnabled: source.parent.nativeSearchEnhancementsEnabled,
       // 删除保护结构性继承：child 绕过它等于绕过移废纸篓/批量审批。
       deleteProtection: source.parent.deleteProtection,
+      // 自定义系统提示词跟父会话走：inherit 源是同一进程内的派生会话，
+      // parent record 固化值就是父会话实际生效值，与进程缓存/反向请求都解耦。
+      customSystemPrompt: source.parent.customSystemPrompt,
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3274,6 +3279,8 @@ async function resolveSessionStartupPreferences(
         deleteProtectionEnabled: true,
         batchDeleteApprovalThreshold: 50,
       },
+    // 旧 Host 缺省 customSystemPrompt 字段：zod optional 解析为 undefined，即内置默认。
+    customSystemPrompt: runtimePreferences.customSystemPrompt,
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
         context,
@@ -3366,6 +3373,12 @@ async function createRecord(
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
       // 删除保护（移废纸篓 prelude + 批量删除审批）从 App 偏好落到 session runtime。
       deleteProtection: startupPreferences.deleteProtection,
+      // 自定义系统提示词（docs/spec/custom-system-prompt.md）：缺席即内置默认，
+      // builder 走原生身份拼装；workflow child 继承时的 workflowActor 互斥
+      // 由 script-workflow-child-runtime 的剥离逻辑保证。
+      ...(startupPreferences.customSystemPrompt
+        ? { systemPrompt: startupPreferences.customSystemPrompt }
+        : {}),
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
       // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
       ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
@@ -3428,6 +3441,7 @@ async function createRecord(
     modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
     nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
     deleteProtection: startupPreferences.deleteProtection,
+    customSystemPrompt: startupPreferences.customSystemPrompt,
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),

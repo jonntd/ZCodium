@@ -1723,10 +1723,35 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
     modelContextBudgetStrategy: zcodeModelContextBudgetStrategySchema.default(
       DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     ),
+    // 自定义系统提示词（docs/spec/custom-system-prompt.md）：兼容旧 Host 缺省 = 使用内置默认。
+    customSystemPrompt: z.string().max(200_000).optional(),
   })
   .strict();
 export type ZCodeSessionRuntimePreferencesResult = z.infer<
   typeof zcodeSessionRuntimePreferencesResultSchema
+>;
+
+export const zcodeWorkspaceUpdateSystemPromptParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    // 空串 = 恢复默认：清空必须显式可传，RPC 边界会丢弃 undefined。
+    systemPrompt: z.string().max(200_000),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateSystemPromptParams = z.infer<
+  typeof zcodeWorkspaceUpdateSystemPromptParamsSchema
+>;
+
+export const zcodeWorkspaceUpdateSystemPromptResultSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    // 回显归一化后的值：空串表示已回到内置默认。
+    systemPrompt: z.string(),
+    updatedSessionCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateSystemPromptResult = z.infer<
+  typeof zcodeWorkspaceUpdateSystemPromptResultSchema
 >;
 
 /**
@@ -3648,6 +3673,8 @@ export const zcodeProtocolMethods = {
   workspaceUpdateModelIoPreferences: "workspace/updateModelIoPreferences",
   // 删除保护/批量删除审批：独立方法 = 旧 CLI method-not-found 时 host 静默降级。
   workspaceUpdateDeleteProtectionPreferences: "workspace/updateDeleteProtectionPreferences",
+  // 自定义系统提示词：同删除保护的独立方法降级模式；空串 = 恢复内置默认。
+  workspaceUpdateSystemPrompt: "workspace/updateSystemPrompt",
   // Off-Peak 工具面门禁是 workspace 级事实（灰度 + 本地/远程），由 host 在 agent 就绪时同步；
   // CLI 对 legacy create/resume 与 v4 冷恢复统一读取。旧 CLI method-not-found → host 降级忽略。
   workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",

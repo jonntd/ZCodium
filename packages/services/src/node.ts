@@ -2336,6 +2336,13 @@ export function createLocalServices(options: {
                     ? settings.batchDeleteApprovalThreshold
                     : 50,
               },
+              // 自定义系统提示词（docs/spec/custom-system-prompt.md）：现读 settingService，
+              // 这是冷启动后首个会话的生效路径（进程缓存此时还没有被 host 同步过）；
+              // 空/空白不入结果，CLI 缺省即内置默认。
+              ...(typeof settings.customSystemPrompt === "string" &&
+              settings.customSystemPrompt.trim()
+                ? { customSystemPrompt: settings.customSystemPrompt }
+                : {}),
               // user-execution 只消费 Shell；共享默认策略是统一 result schema 的兼容占位，
               // 不会覆盖 runtime-materialization 阶段已经固定的 strategy。
               ...(scope === "user-execution" && settings.integratedTerminalShell

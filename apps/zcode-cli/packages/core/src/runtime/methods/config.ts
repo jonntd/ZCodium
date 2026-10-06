@@ -49,7 +49,7 @@ export function updateConfig(
   this: AgentRuntimeInternal,
   patch: Pick<
     AgentRuntimeConfig,
-    "mode" | "planEnabled" | "language" | "outputStyle" | "deleteProtection"
+    "mode" | "planEnabled" | "language" | "outputStyle" | "deleteProtection" | "systemPrompt"
   >,
 ): void {
   if (patch.mode !== undefined || patch.planEnabled !== undefined) {
@@ -74,6 +74,15 @@ export function updateConfig(
   if (patch.deleteProtection !== undefined) {
     // 删除保护只影响 Bash 执行层（prelude 注入与权限判定），读 live config，无需重建上下文。
     this.config.deleteProtection = patch.deleteProtection;
+  }
+  if ("systemPrompt" in patch) {
+    // 自定义系统提示词（docs/spec/custom-system-prompt.md）：与 outputStyle/language 一致，
+    // 空闲时立即重建上下文前缀；回合进行中只写 config，下一 model step 的
+    // rebuildContextPrefix（turn.ts）自然带上新值。undefined = 还原内置默认。
+    this.config.systemPrompt = patch.systemPrompt;
+    if (!this.activeTurn) {
+      rebuildContextPrefix(this);
+    }
   }
 }
 

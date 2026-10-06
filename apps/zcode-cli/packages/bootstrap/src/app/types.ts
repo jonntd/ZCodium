@@ -617,6 +617,11 @@ export interface ZCodeApp {
     deleteProtectionEnabled: boolean;
     batchDeleteApprovalThreshold: number;
   }): void;
+  /**
+   * 自定义系统提示词实时更新（docs/spec/custom-system-prompt.md）：整段替换语义，
+   * undefined = 还原内置默认。空闲会话立即重建上下文前缀；回合中的会话下一回合生效。
+   */
+  updateSystemPrompt?(systemPrompt: string | undefined): void;
   setModel(
     modelId: string | ModelSelection,
     options?: {

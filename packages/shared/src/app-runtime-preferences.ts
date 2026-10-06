@@ -9,6 +9,9 @@ export const appRuntimePreferencesChangedBroadcastPayloadSchema = z
     modelIoFullRetentionEnabled: z.boolean().default(false),
     deleteProtectionEnabled: z.boolean().default(true),
     batchDeleteApprovalThreshold: z.number().int().min(1).max(10000).default(50),
+    // 自定义系统提示词（docs/spec/custom-system-prompt.md）；default("") 兼容
+    // 未携带该字段的旧发送方，空串 = 内置默认。
+    customSystemPrompt: z.string().max(200_000).default(""),
   })
   .strict();
 

@@ -2116,6 +2116,18 @@ const faIR: Record<string, string> = {
     "در نشست‌های جدید و نشست‌های بازیابی‌شده پس از راه‌اندازی دوباره برنامه، از Find و Grep تقویت‌شده استفاده می‌شود. نشست‌های فعال تنظیم فعلی خود را حفظ می‌کنند؛ Find در Windows بدون تغییر می‌ماند.",
   "settings.memory": "حافظه",
   "settings.memory.workspaceMemory": "حافظه فضای کاری",
+  "settings.systemPrompt": "پرامپت سیستم",
+  "settings.systemPromptDescription":
+    "در صورت تنظیم، پرامپت سیستمی پیش‌فرض به‌طور کامل جایگزین می‌شود (بخش‌های پویا مانند راهنمای نشست، حافظه و اطلاعات محیط هم نادیده گرفته می‌شوند) و برای نشست‌های موجود و جدید همه فضاهای کاری اعمال می‌شود. برای بازگرداندن پیش‌فرض، آن را خالی کنید و ذخیره بزنید.",
+  "settings.systemPromptDefaultBadge": "پیش‌فرض",
+  "settings.systemPromptCustomizedBadge": "سفارشی",
+  "settings.systemPromptPlaceholder": "برای استفاده از پرامپت سیستمی پیش‌فرض خالی بگذارید",
+  "settings.systemPromptSave": "ذخیره",
+  "settings.systemPromptRestore": "بازگردانی پیش‌فرض",
+  "settings.systemPromptSaved": "پرامپت سیستم ذخیره شد؛ نشست‌های بیکار بی‌درنگ آن را اعمال می‌کنند.",
+  "settings.systemPromptRestored": "پرامپت سیستمی پیش‌فرض بازگردانده شد.",
+  "settings.systemPromptSaveFailed": "ذخیرهٔ پرامپت سیستم ممکن نشد: {message}",
+  "settings.systemPromptOverLimit": "بیش از حد مجاز است (حداکثر ۲۰۰٬۰۰۰ نویسه).",
   "settings.memoryDescription":
     "ذخیره و استفاده دوباره از زمینه بلندمدت در فضاهای کاری. روی نشست‌های جدید اعمال می‌شود و ممکن است تعداد درخواست‌های مدل و هزینه توکن‌ها را افزایش دهد.",
   "settings.memory.viewer.disabled": "برای مشاهده حافظه‌های ذخیره‌شده، حافظه فضای کاری را فعال کنید.",
