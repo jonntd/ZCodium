@@ -104,20 +104,26 @@ test("signed 入口：直接 200 回页面（不 302）并下发 v1 派生 cooki
   assert.equal(sig, createHmac("sha256", RELAY_TOKEN).update(`cookie|${e}`).digest("base64url"));
 });
 
-test("signed 入口 fail-closed：篡改 h / 过期 e / 过旧 t / 缺参数 都 401", async () => {
+test("signed 入口 fail-closed：篡改 h / 过期 e / 未来 t / 缺参数 都 401；过去的 t 合法", async () => {
   const now = Math.floor(Date.now() / 1000);
   const cases = [
     buildSignedQuery({ sigOverride: "forged".repeat(7) }),
     buildSignedQuery({ t: now - 7200, ttl: 3600 }), // e = 已过期
-    buildSignedQuery({ t: now - 3600 }), // t 超出 ±300s
+    buildSignedQuery({ t: now + 3600 }), // t 在未来超过 ±300s 容差（伪造/时钟错误）
   ];
   for (const query of cases) {
     const res = await fetch(`${baseUrl}/?${query}`);
     assert.equal(res.status, 401, query);
   }
-  // s 与 h 必须成对出现：只有 s 不走签名入口（也不放行 /api 之外的页面以外的鉴权）。
+  // t 是**签发时刻**：正常流程「生成 → 过一会儿才打开」，过去一小时必须仍然放行
+  // （有效期由 e 把关，spec §18.2 —— 曾误拒过去 t 导致链接 5 分钟后失效）。
+  const oldIssuance = await fetch(
+    `${baseUrl}/?${buildSignedQuery({ t: now - 3600, ttl: 7200 })}`,
+  );
+  assert.equal(oldIssuance.status, 200);
+  // s 与 h 必须成对出现：只有 s 不走签名入口（无凭据打开页面本身是允许的）。
   const partial = await fetch(`${baseUrl}/?s=abc&autoReconnect=1`);
-  assert.equal(partial.status, 200); // 无凭据打开页面本身是允许的（和官方链接被截断一致）
+  assert.equal(partial.status, 200);
 });
 
 test("/api/server-info 四通道：signed query、v1 cookie、legacy token 均放行；无凭据/过期 v1 均 401", async () => {

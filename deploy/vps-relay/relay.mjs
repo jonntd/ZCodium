@@ -240,7 +240,10 @@ function isClientAuthorized(req, url) {
   return isSignedShareQueryValid(url);
 }
 
-/** 时钟偏移容差（秒）：签名校验允许 |now - t| 的偏差（spec §18.2）。 */
+/** 时钟偏移容差（秒）：仅用于拒绝「签发时刻在未来」的伪造参数（spec §18.2）。
+ *  注意**不能**拒绝「t 在过去」：t 是签发时刻，正常流程就是「生成链接 → 过一会儿
+ *  才扫码/打开」，有效期完全由 e 把关 —— 曾把校验写成 |now-t|≤300 导致链接
+ *  签发 5 分钟后就永远 401（真浏览器实测踩过）。 */
 const CLOCK_SKEW_SECONDS = 300;
 
 function hmacRelayToken(message) {
@@ -264,7 +267,7 @@ function isSessionCookieValid(value) {
   return safeEqual(parts[2], hmacRelayToken(`cookie|${expiresAtSec}`));
 }
 
-/** §18.2 签名四元组校验：h 常量时间比对，t 在 ±300s 内，e 必须在未来。 */
+/** §18.2 签名四元组校验：h 常量时间比对；t 不得在未来（±300s 容差）；e 必须在未来。 */
 function isSignedShareQueryValid(url) {
   const sid = (url.searchParams.get("s") || "").trim();
   const t = Number.parseInt(url.searchParams.get("t") || "", 10);
@@ -272,7 +275,7 @@ function isSignedShareQueryValid(url) {
   const h = (url.searchParams.get("h") || "").trim();
   if (!sid || !Number.isInteger(t) || !Number.isInteger(e)) return false;
   const nowSec = Math.floor(Date.now() / 1000);
-  if (Math.abs(nowSec - t) > CLOCK_SKEW_SECONDS) return false;
+  if (t > nowSec + CLOCK_SKEW_SECONDS) return false;
   if (e * 1000 <= Date.now()) return false;
   return safeEqual(h, hmacRelayToken(`${sid}|${t}|${e}`));
 }
