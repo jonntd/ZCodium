@@ -917,6 +917,12 @@ idle → connecting → registering（device_register_init → ack 得 device_si
 套件入库 `deploy/vps-relay/relay-official.test.mjs`（`node --test`，spawn 真实 relay +
 真实 device 客户端），取代 §14.7 的一次性双端模拟。
 
+> **验收记录（2026-10-08）**：套件已入库，9/9 通过——§14.8 #1–#6（#7 配置文件缺失
+> 属桌面侧 `remoteOfficialConfig` 行为，由桌面端配置单测覆盖，不在 relay 套件内）+
+> §14.9a 终端页端点契约（GET/HEAD 200、尾斜杠 200、POST 405、其余 404、页面自包含）
+> 与 rpc-frame 回显闭环 + §14.7 回归（未鉴权 data `not_authed`）。
+> 真浏览器验收（agent-browser）另行完成，见 §14.9a。
+
 #### 持久化 deviceSid（官方对齐；否则手机每次桌面重连都要重扫码）
 
 - 首次 `device_register_ack` 后把 `deviceSid` 持久化进配置文件（官方语义，§14.2）；
