@@ -17,5 +17,6 @@
   "a5157fe": "Adds external provider API-key balance lookup across the service layer, settings UI and tests (#8).",
   "86a44b3": "Bridges AstrBot into the official BotsService as a transport provider: loopback WebSocket (bridge v2) to the AstrBot plugin, with interactive permission / question / menu selections, reconnect replay and task-stream settlement (#1).",
   "d042521": "README 顶部新增功能总览与截图。",
-  "e701117": "版本号提升至 3.14.7。"
+  "e701117": "版本号提升至 3.14.7。",
+  "0c4e115": "发布收尾：补齐 v3.14.7 的中英双语 changelog 条目（英文提交补中文说明，#1/#8 的中文提交补英文说明）。"
 }

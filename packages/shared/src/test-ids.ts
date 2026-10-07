@@ -446,6 +446,8 @@ export const TID_MODEL_PROVIDER_START_PLAN_SWITCH_PREFIX =
 export const TID_MODEL_PROVIDER_CONNECTION_MODE_ITEM = "model-provider-connection-mode-item";
 /** 模型供应商详情 API Key 输入框 */
 export const TID_MODEL_PROVIDER_API_KEY_INPUT = "model-provider-api-key-input";
+/** 添加模型对话框内的"检测可用模型"按钮 */
+export const TID_MODEL_PROVIDER_DETECT_MODELS_BUTTON = "model-provider-detect-models-button";
 /** 模型供应商名称编辑按钮 */
 export const TID_MODEL_PROVIDER_NAME_EDIT_BUTTON = "model-provider-name-edit-button";
 /** 模型供应商名称编辑输入框 */
@@ -458,6 +460,35 @@ export const TID_MODEL_PROVIDER_API_FORMAT_TRIGGER = "model-provider-api-format-
 export const TID_MODEL_PROVIDER_API_FORMAT_ITEM = "model-provider-api-format-item";
 /** 模型供应商模型输入框（动态后缀为模型行号） */
 export const TID_MODEL_PROVIDER_MODEL_INPUT = "model-provider-model-input";
+
+/**
+ * OrcaRouter 双认证面板的稳定测试 id。
+ *
+ * 手填 API Key 与 OAuth 2.0 + PKCE 两个入口都必须能被独立定位与断言，
+ * 因此它们的容器与控件各有固定 id，不依赖文案。
+ */
+export const TID_ORCAROUTER_SPEC = {
+  section: "orcarouter-auth-methods",
+  apiKeyPane: "orcarouter-api-key-pane",
+  apiKeyStatus: "orcarouter-api-key-status",
+  saveApiKey: "orcarouter-save-api-key",
+  clearApiKey: "orcarouter-clear-api-key",
+  secretMasked: "orcarouter-secret-masked",
+  pkcePane: "orcarouter-pkce-pane",
+  connect: "orcarouter-connect",
+  cancelConnect: "orcarouter-cancel-connect",
+  pkceStatus: "orcarouter-pkce-status",
+  authorizeUrl: "orcarouter-authorize-url",
+  copyAuthorizeUrl: "orcarouter-copy-authorize-url",
+  codeInput: "orcarouter-code-input",
+  submitCode: "orcarouter-submit-code",
+  error: "orcarouter-error",
+  reauthNotice: "orcarouter-needs-reauth",
+  modelSelectTrigger: "orcarouter-model-select-trigger",
+  modelSelectOption: "orcarouter-model-option",
+  modelSelectEmpty: "orcarouter-model-empty",
+  catalogDegraded: "orcarouter-catalog-degraded",
+} as const;
 /** 模型供应商模型删除按钮（动态后缀为模型行号） */
 export const TID_MODEL_PROVIDER_MODEL_DELETE_BUTTON = "model-provider-model-delete-button";
 /** 模型供应商添加模型按钮 */

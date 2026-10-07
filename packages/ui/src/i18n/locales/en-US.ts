@@ -550,7 +550,7 @@ const enUS: Record<string, string> = {
   "confirmDialog.projectRemoveDescription":
     "Project “{projectName}” will be removed from the sidebar, but files on disk will remain untouched.",
   "bots.title": "Bots",
-  "bots.description": "Connect external chats and webhooks to ZCode bots.",
+  "bots.description": "Connect external chats and webhooks to ZCodium bots.",
   "bots.listTitle": "Bots",
   "bots.addBot": "New bot",
   "bots.addBinding": "Add binding",
@@ -1753,7 +1753,7 @@ const enUS: Record<string, string> = {
     "We are establishing the {method} connection. You can follow the live setup progress here.",
   "webRemoteControl.trigger": "Mobile remote control",
   "webRemoteControl.title": "Mobile remote control",
-  "webRemoteControl.description": "Control ZCode workspaces through chat bots.",
+  "webRemoteControl.description": "Control ZCodium workspaces through chat bots.",
   "webRemoteControl.botChannel.title": "Use a bot channel",
   "webRemoteControl.botChannel.description": "Connect a chat bot for longer-running mobile access.",
   "webRemoteControl.botChannel.astrbot.title": "AstrBot",
@@ -2292,10 +2292,13 @@ const enUS: Record<string, string> = {
   "settings.taskAutoArchiveDays.option.30": "Archive after 30 days",
   "settings.dataBaseDir": "Data storage path",
   "settings.dataBaseDirDescription":
-    "Root directory for app data (defaults to user home directory). Existing data will be copied to the new location. The .zcode/v2 suffix cannot be changed.",
+    "Root directory for app data (defaults to user home directory). Existing data will be copied to the new location. The .zcodium/v2 suffix cannot be changed.",
   "settings.dataBaseDirPlaceholder": "Default: user home directory",
   "settings.dataBaseDirBrowse": "Choose folder",
   "settings.dataBaseDirSave": "Save",
+  "settings.dataBaseDirImport": "Import legacy data",
+  "settings.dataBaseDirImportHint":
+    "Copy data from the legacy data directory and restart (the current directory is backed up first)",
   "settings.dataBaseDirCopying": "Copying data, please do not close the app...",
   "settings.dataBaseDirCopyFailed": "Data copy failed. Path was not changed.",
   "settings.dataBaseDirForbiddenInstallDir":
@@ -2372,23 +2375,12 @@ const enUS: Record<string, string> = {
   "settings.officialServices.title": "Z.AI service connections",
   "settings.officialServices.description":
     "These are Z.AI (ZCode) services. Turning one on connects to Z.AI servers — keep them off unless you need them. Some features load at startup; restart the app after changing these switches.",
-  "settings.officialServices.account.title": "Z.AI API configuration",
-  "settings.officialServices.account.desc": "Configure a Z.AI API key to use related capabilities.",
-  "settings.officialServices.codingPlan.title": "Plan and quota",
-  "settings.officialServices.codingPlan.desc": "Check the Z.AI plan, quota and usage.",
-  "settings.officialServices.feedback.title": "Z.AI feedback channel",
-  "settings.officialServices.feedback.desc":
-    "Send feedback through the Z.AI API; when off, use GitHub Issues.",
-  "settings.officialServices.officialMcp.title": "Z.AI MCP",
-  "settings.officialServices.officialMcp.desc": "Use the Z.AI MCP credential service.",
-  "settings.officialServices.offPeak.title": "Off-peak tasks",
-  "settings.officialServices.offPeak.desc": "Use the Z.AI off-peak task gateway.",
   "settings.officialServices.marketplace.title": "Z.AI marketplace and CDN",
   "settings.officialServices.marketplace.desc":
     "Download plugins and assets from the Z.AI marketplace and CDN.",
   "settings.officialServices.clientConfig.title": "Z.AI client config",
   "settings.officialServices.clientConfig.desc":
-    "Fetch the Z.AI client configuration and startup warmup data.",
+    "Fetch the Z.AI client configuration and startup warmup data; does not include Provider templates (model presets come from the built-in config).",
   "settings.usageTitle": "Usage stats",
   "settings.usageDescription":
     "Review rough activity and model usage aggregated from local sessions.",
@@ -2819,6 +2811,38 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.apiFormat.title.anthropicMessages": "Anthropic messages",
   "settings.modelProvider.apiKey": "API key",
   "settings.modelProvider.apiKeyPlaceholder": "Enter API key",
+  "orcaRouter.title": "OrcaRouter",
+  "orcaRouter.description":
+    "OrcaRouter is an OpenAI-compatible AI gateway. Use an existing API key or connect your OrcaRouter account; both end up as the same API key against {baseUrl}.",
+  "orcaRouter.apiKey.title": "Use API key",
+  "orcaRouter.apiKey.save": "Save key",
+  "orcaRouter.apiKey.invalid":
+    "OrcaRouter API keys start with sk-orca-. Check the value and try again.",
+  "orcaRouter.pkce.title": "Connect with OrcaRouter",
+  "orcaRouter.pkce.description":
+    "OAuth 2.0 + PKCE. No client secret and no redirect URI to register; the authorization page shows a code you paste back here.",
+  "orcaRouter.pkce.connect": "Connect with OrcaRouter",
+  "orcaRouter.pkce.openHint": "Open this URL, approve, then paste the code below",
+  "orcaRouter.pkce.open": "Open authorization page",
+  "orcaRouter.pkce.copy": "Copy authorization URL",
+  "orcaRouter.pkce.copied": "Authorization URL copied",
+  "orcaRouter.pkce.codePlaceholder": "Paste the authorization code",
+  "orcaRouter.pkce.submitCode": "Finish connecting",
+  "orcaRouter.connect.failed": "Could not start the OrcaRouter authorization",
+  "orcaRouter.connected": "Connected · {masked}",
+  "orcaRouter.notConnected": "Not connected",
+  "orcaRouter.clear": "Clear",
+  "orcaRouter.clear.failed": "Could not clear the OrcaRouter credential. Try again.",
+  "orcaRouter.needsReauth":
+    "OrcaRouter rejected this credential. Connect again to replace it; the stored key is kept until a new login succeeds.",
+  "orcaRouter.model.selectPlaceholder": "Select a model",
+  "orcaRouter.model.search": "Search models",
+  "orcaRouter.model.empty": "No model in the current catalog matches this entry.",
+  "orcaRouter.catalog.failed": "The OrcaRouter model catalog is unavailable.",
+  "orcaRouter.catalog.degradedSeed":
+    "Live model catalog unavailable. Showing the verified offline seed ({count} models).",
+  "orcaRouter.catalog.degradedLastKnownGood":
+    "Live model catalog refresh failed. Showing the last known good catalog ({count} models).",
   "settings.modelProvider.apiKeyDisabledHint": "Set an API key to enable this provider.",
   "settings.modelProvider.getApiKey": "Get API key",
   "settings.modelProvider.viewUsage": "View usage",
@@ -3039,6 +3063,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.modelsEmpty": "No models are configured. Add a model to use it in chat.",
   "settings.modelProvider.addModel": "Add model",
   "settings.modelProvider.modelId": "Model ID",
+  "settings.modelProvider.detectModels": "Detect available models",
+  "settings.modelProvider.detectModelsEmpty": "No available models detected",
   "settings.modelProvider.modelDisplayName": "Display name",
   "settings.modelProvider.modelApiFormat.anthropic": "Anthropic messages",
   "settings.modelProvider.modelApiFormat.openaiCompatible": "OpenAI Compatible",
@@ -3351,6 +3377,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.reorderProvider": "Drag to reorder provider",
   "settings.modelProvider.reorderModel": "Drag to reorder model",
   "settings.modelProvider.empty": "No custom model providers yet",
+  "settings.modelProvider.emptyHint":
+    'Click "Add provider" to create one from a preset template, or create a custom provider and fill in its API key.',
   "settings.modelProvider.deleteConfirm": 'Delete "{name}"?',
   "settings.modelProvider.deleteConfirmTitle": 'Delete provider "{name}"?',
   "settings.modelProvider.deleteConfirmDescription":
@@ -6482,6 +6510,42 @@ const enUS: Record<string, string> = {
   "scheduledPreview.toast.running": "Running “{title}”…",
   "scheduledPreview.toast.view": "View",
   "scheduledPreview.addSchedule": "Add schedule",
+
+  // ---- Data root decision window ----
+  "dataRoot.loading": "Preparing…",
+  "dataRoot.title": "Data storage",
+  "dataRoot.status.absentWithLegacy":
+    "Legacy ZCodium / ZCode data was found. You can copy it into the new data directory, or start fresh; either way the old directory is kept as is.",
+  "dataRoot.status.unowned":
+    "The current data directory is not owned by this product (it may come from another branch or was created manually). It will be backed up first; nothing is deleted or merged.",
+  "dataRoot.status.corrupt":
+    "The data directory ownership record is damaged or from a newer version and cannot be read safely. It will be backed up first.",
+  "dataRoot.conflict.notice": "Conflicting directory will be renamed to a backup first: {path}",
+  "dataRoot.candidates.title": "Legacy data available",
+  "dataRoot.candidate.size": "Size",
+  "dataRoot.candidate.modified": "Modified",
+  "dataRoot.candidate.empty": "No legacy ~/.zcode data found. Only a fresh start is available.",
+  "dataRoot.disk.insufficient":
+    "Not enough disk space: about {required} required, {free} available. Free some space and retry.",
+  "dataRoot.progress.preparing": "Preparing to copy…",
+  "dataRoot.progress.copying": "Copying legacy data…",
+  "dataRoot.progress.finalizing": "Finalizing migration…",
+  "dataRoot.error.title": "Operation failed",
+  "dataRoot.error.retry": "Please retry, or start fresh.",
+  "dataRoot.done.restarting": "Restarting the app…",
+  "dataRoot.action.migrate": "Migrate legacy data",
+  "dataRoot.action.migrateHint":
+    "Copy legacy data into the new directory; the old directory stays. Neither side syncs afterwards.",
+  "dataRoot.action.fresh": "Start fresh",
+  "dataRoot.action.freshHint":
+    "Do not import legacy data; the old directory stays and can be imported later from Settings.",
+  "dataRoot.action.quit": "Quit",
+  "dataRoot.action.quitHint": "Make no changes; you will be asked again next launch.",
+  "dataRoot.import.title": "Import from legacy data directory",
+  "dataRoot.import.description":
+    "Legacy data will be copied into the current data directory. The current directory is backed up first; the app restarts when done.",
+  "dataRoot.action.import": "Import and restart",
+  "dataRoot.action.cancel": "Cancel",
 };
 
 export default enUS;

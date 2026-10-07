@@ -1,18 +1,18 @@
 import { existsSync, realpathSync } from "node:fs";
+import { readExternalEnvVar } from "@zcode/shared";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+// 去智谱化只摘掉官方 CDN 远端源与数据目录缓存物化（套餐模板的投递/复活通道），
+// 下面这些符号仍在用：SEA 打包路径要把随包配置物化进数据目录，三个 env 名是
+// 对外契约的键值，refresh reporter 的事件类型来自 provider-node。
 import {
   materializeZCodeBuiltinProviderConfig,
-  NodeZCodeBuiltinProviderConfigSource,
   PERSONAL_PROVIDER_CONFIG_FILE_NAME,
-  resolveZCodeBuiltinCachePaths,
-  resolveZCodeBuiltinClientPlatform,
   ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV,
   ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV,
   ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV,
   type ZCodeBuiltinRefreshEvent,
 } from "@zcode/provider-node";
-import { resolveRuntimeZCodeEndpointOrigin, ZCODE_VERSION } from "@zcode/shared";
 import type { CliEnv } from "./env.js";
 
 export const SEA_ZCODE_BUILTIN_PROVIDER_CONFIG_ASSET_KEY = "zcode-provider/zcode-builtin.json";
@@ -57,7 +57,8 @@ export async function prepareCliProviderRuntimeEnv(
 
   const explicitZCodeBuiltin = options.env[ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]?.trim();
   const explicitPersonal = options.env[ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV]?.trim();
-  const dataBaseDir = options.dataBaseDir ?? options.env.ZCODE_DATA_BASE_DIR?.trim() ?? homedir();
+  const dataBaseDir =
+    options.dataBaseDir ?? readExternalEnvVar(options.env, "ZCODE_DATA_BASE_DIR") ?? homedir();
   if (explicitZCodeBuiltin && explicitPersonal) {
     return {
       [ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]: explicitZCodeBuiltin,
@@ -73,30 +74,12 @@ export async function prepareCliProviderRuntimeEnv(
       sea: options.sea ?? getSeaProviderConfigAssets(),
     }));
   const personalFilePath =
-    explicitPersonal ?? join(dataBaseDir, ".zcode", "v2", PERSONAL_PROVIDER_CONFIG_FILE_NAME);
-  const appVersion = options.appVersion ?? ZCODE_VERSION;
-  const platform = options.platform ?? resolveZCodeBuiltinClientPlatform();
-  const zcodeEndpointOrigin = resolveRuntimeZCodeEndpointOrigin(options.env);
-  const cachePaths = resolveZCodeBuiltinCachePaths({
-    environmentConfigRoot: join(dataBaseDir, ".zcode", "v2"),
-    platform,
-    appVersion,
-    zcodeEndpointOrigin,
-  });
-  const source = new NodeZCodeBuiltinProviderConfigSource({
-    bundledFilePath: zcodeBuiltinFilePath,
-    activeFilePath: cachePaths.activeFilePath,
-    watch: false,
-  });
-  // 入口只准备资源和路径；下载由 Prompt/TUI 长生命周期 Runtime 持有并取消。
-  try {
-    await source.read();
-  } finally {
-    source.dispose();
-  }
-
+    explicitPersonal ?? join(dataBaseDir, ".zcodium", "v2", PERSONAL_PROVIDER_CONFIG_FILE_NAME);
+  // ZCodium 去智谱化：停用官方 CDN builtin 源后，数据目录缓存（曾承载远端下发
+  // 的套餐模板）不再参与；builtin 配置唯一事实源是 bundled 仓库文件，由上游
+  // 同步人工维护。
   return {
-    [ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]: cachePaths.activeFilePath,
+    [ZCODE_BUILTIN_PROVIDER_CONFIG_FILE_ENV]: zcodeBuiltinFilePath,
     [ZCODE_BUILTIN_PROVIDER_BUNDLED_CONFIG_FILE_ENV]: zcodeBuiltinFilePath,
     [ZCODE_PERSONAL_PROVIDER_CONFIG_FILE_ENV]: personalFilePath,
   };
@@ -137,7 +120,7 @@ async function resolveBundledZCodeBuiltinProviderConfig(input: {
   if (input.sea?.isSea()) {
     const content = input.sea.getAsset(SEA_ZCODE_BUILTIN_PROVIDER_CONFIG_ASSET_KEY, "utf8");
     return materializeZCodeBuiltinProviderConfig({
-      environmentConfigRoot: join(input.dataBaseDir, ".zcode", "v2"),
+      environmentConfigRoot: join(input.dataBaseDir, ".zcodium", "v2"),
       content,
     });
   }

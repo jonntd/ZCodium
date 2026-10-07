@@ -256,6 +256,12 @@ jobs:
           set -euo pipefail
           pnpm build:zcode -- --version "${RELEASE_TAG#v}"
 
+      # cli 包的类型检查必须在 CLI 依赖构建之后：其 tsconfig 经 workspace 链接解析
+      # 各依赖包 dist 的类型声明，干净检出时直接跑会 TS2307（根 typecheck 因此不覆盖
+      # cli，见 #34）。build:zcode 已把依赖与 CLI 本体全部构建完，此处检查的是真实源码类型。
+      - name: Typecheck CLI package
+        run: pnpm run typecheck:cli
+
       - name: Upload assets to release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -537,8 +543,10 @@ jobs:
           TAG: ${{ needs.release.outputs.tag }}
         run: |
           set -euo pipefail
+          # 本 job 不做 checkout：工作目录没有 git 仓库，gh 无法从 remote 推断目标仓库，
+          # 必须显式 --repo（其余 job 靠 checkout 提供上下文，此处不重复拉取仓库）。
           for attempt in 1 2 3; do
-            if gh release upload "$TAG" sha256.txt --clobber; then
+            if gh release upload "$TAG" sha256.txt --clobber --repo "$GITHUB_REPOSITORY"; then
               exit 0
             fi
             echo "::warning::gh release upload failed (attempt $attempt/3), retrying in 10s"

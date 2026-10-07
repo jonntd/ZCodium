@@ -250,6 +250,7 @@ export * from "./intranetProbe.js";
 export * from "./intranetDefaults.js";
 export * from "./hooks.js";
 export * from "./openrouter-attribution.js";
+export * from "./orcarouter.js";
 export * from "./workspaceSessionRestore.js";
 export * from "./skill-scan-policy.js";
 export * from "./browser-use/index.js";
@@ -274,3 +275,6 @@ export * from "./session-debug.js";
 export { redactFeedbackText } from "./feedbackPrivacy.js";
 
 export * from "./remoteWorkspaceConnection.js";
+export * from "./data-root.js";
+export * from "./data-root-decision.js";
+export * from "./env-names.js";

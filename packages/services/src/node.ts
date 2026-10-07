@@ -59,6 +59,8 @@ export type {
 export {
   setDataBaseDir,
   getDataBaseDir,
+  isDataBaseDirEnvOverrideActive,
+  setDataRootPathOverride,
   getZCodeDataRootDir,
   getConversationWorkspaceDir,
   getAppConfigDir,
@@ -72,6 +74,41 @@ export {
   validateDataBaseDirTarget,
   ZCODE_WINDOWS_APP_INSTALL_DIR_ENV,
 } from "./paths.js";
+export {
+  readDataRootStatus,
+  resolveDataRootDir,
+  writeDataRootManifest,
+  writeDataRootManifestIntoRoot,
+  readLegacyDataBaseDirFromSettings,
+  forfeitConflictingDataRoot,
+  forfeitDataRootByLabel,
+} from "./data-root/ownership.js";
+export {
+  discoverLegacyDataRootCandidates,
+  collectLegacyCandidateStats,
+  executeDataRootCopyMigration,
+  cleanupStaleMigrationStaging,
+} from "./data-root/migration.js";
+export {
+  initializeDataRootInteractive,
+  initializeDataRootNonInteractive,
+  initializeFreshDataRoot,
+  resolveDataRootActionFromEnv,
+  executeDesktopDataRootMigration,
+  executeDesktopFreshStart,
+  executeDataRootImport,
+  getActiveDiagnosticRoot,
+  releasePendingDiagnosticMode,
+} from "./data-root/initializer.js";
+export type {
+  DataRootStatus,
+  DataRootInitResult,
+  DataRootNonInteractiveAction,
+  LegacyDataRootCandidate,
+  LegacyDataRootCandidateStats,
+  DataRootMigrationProgress,
+  DataRootMigrationResult,
+} from "./data-root/types.js";
 export { createGitService } from "./git/gitService.js";
 export { GitCommitMessageGenerator } from "./git/gitCommitMessageGenerator.js";
 export { createGitCheckpointService } from "./git/gitCheckpointService.js";
@@ -362,6 +399,15 @@ import { createBotRemoteWorkspaceService } from "./bots/botRemoteWorkspaceBridge
 import type { SessionMessageSendRequested } from "#src/session/sessionMailbox.js";
 import { createFileWatcherService } from "./fileWatcher/fileWatcherService.js";
 import { createOAuthService } from "./oauth/oauthService.js";
+import {
+  IOrcaRouterService,
+  OrcaConnectController,
+  createOrcaCredentialAdapters,
+  createOrcaCredentialStore,
+  createOrcaProviderCredentialBinding,
+  createOrcaRouterService,
+} from "./orcarouter/index.js";
+import { resolveOrcaOrigins } from "@zcode/shared";
 import { isCurrentOAuthCredentialRequest } from "#src/oauth/oauthUnauthorizedRequest.js";
 import { createOAuthProviderLogoutHandler } from "./oauth/oauthProviderLogout.js";
 import { OAuthCredentialRepo } from "./oauth/repo/oauthCredentialRepo.js";
@@ -379,11 +425,11 @@ import { bindAccountProviderInvalidation } from "./model-provider/accountProvide
 import { AccountProviderApiClient } from "./model-provider/accountProviderApiClient.js";
 import { AccountProviderApiKeyResolver } from "./model-provider/accountProviderApiKeyResolver.js";
 import { createProviderConfigRuntime } from "./model-provider/providerConfigRuntime.js";
-import { fetchZCodeBuiltinRemoteRelease } from "./model-provider/zcodeBuiltinRemoteConfig.js";
 import {
   createProviderRuntimeFromConfigRuntime,
   type ProviderRuntime,
 } from "./model-provider/providerRuntime.js";
+import { createRemoteModelCatalogExecutor } from "./model-provider/remoteModelCatalog.js";
 import {
   IModelSelectionService,
   IProviderSettingsService,
@@ -1094,7 +1140,7 @@ export { isOfficialCuaPluginEnabledForWorkspace };
 
 export function hasGlobalCliZCodeCuaServer(env: NodeJS.ProcessEnv = process.env): boolean {
   const home = env.HOME?.trim() || homedir();
-  const configPath = join(home, ".zcode", "cli", "config.json");
+  const configPath = join(home, ".zcodium", "cli", "config.json");
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(configPath, "utf8"));
@@ -1537,27 +1583,12 @@ export function createLocalServices(options: {
   );
   const providerConfigLog = createServiceLogger("provider-config");
   const clientConfigPlatform = resolveClientConfigPlatform();
+  // ZCodium 去智谱化：官方 CDN 的 builtin 配置是 Coding Plan 套餐模板与账号
+  // Provider 的投递通道，且 revision 高于本地时无条件覆盖——保留它会复活已被
+  // 移除的套餐产品面。停用远端源，builtin 配置唯一事实源是仓库内
+  // config/provider/zcode-builtin.json（从上游同步时人工维护）。
   const providerConfigRuntime = createProviderConfigRuntime({
     zcodeBuiltinFilePath: options.zcodeBuiltinProviderConfigFilePath,
-    zcodeBuiltinEnvironment: {
-      environmentConfigRoot: resolveAppConfigDir(),
-      platform: clientConfigPlatform,
-      appVersion: ZCODE_VERSION,
-      resolveEndpointOrigin: resolveCurrentZCodeEndpointOrigin,
-      onRefreshResult: (event) => {
-        if (event.result === "updated")
-          providerConfigLog.info(undefined, "ZCode Built-in CDN 配置已更新", event);
-        else providerConfigLog.debug(undefined, "ZCode Built-in 刷新检查", event);
-      },
-      fetchRelease: (endpointOrigin, signal) =>
-        fetchZCodeBuiltinRemoteRelease({
-          apiClient,
-          endpointOrigin,
-          signal,
-          appVersion: ZCODE_VERSION,
-          platform: clientConfigPlatform,
-        }),
-    },
     onZCodeBuiltinRefreshError: (error) => {
       providerConfigLog.warn(undefined, "ZCode Built-in Config 远端刷新失败", { error });
     },
@@ -1646,6 +1677,8 @@ export function createLocalServices(options: {
     modelSelectionConfiguredDefaultSource,
     disposeModelSelectionConfiguredDefaultSource: () =>
       modelSelectionConfiguredDefaultSource.dispose(),
+    // 模型可用性探测是 Host 侧纯读请求，不经过 Agent 执行链；fetch 可被测试替换。
+    listRemoteModels: createRemoteModelCatalogExecutor({}),
     testConnectivity: createProviderSettingsConnectivityTester({
       testModelConnectivity: async (input) => {
         if (!providerConnectivityAgentService) {
@@ -1826,7 +1859,7 @@ export function createLocalServices(options: {
     const socketPath = resolveBrokerSocketPath();
     // standaloneHelperCandidatePaths 未在上游 exports 白名单——此处按同一规则枚举安装候选
     //（dev-desktop → dev/ 前缀；app 名一律取 helperConstants，不写字面量）。
-    const home = process.env.ZCODE_HOME?.trim() || join(homedir(), ".zcode");
+    const home = process.env.ZCODE_HOME?.trim() || join(homedir(), ".zcodium");
     const baseRoot = join(home, "computer-use");
     // 安装布局见上游 helperLauncher.resolveCuaHelperInstallRoot：dev 是独立子根 `dev/` 且 app
     // 名换成 DEV_HELPER_APP_NAME；preview 是独立子根 `preview/` 但**沿用**稳定 app 名
@@ -2352,6 +2385,35 @@ export function createLocalServices(options: {
     apiClient,
     onProviderLogout: handleOAuthProviderLogout,
   });
+  // OrcaRouter：API Key 与 OAuth 2.0 + PKCE 两个入口共用同一凭据 seam，
+  // 密钥只落在既有的加密 Credential Store，模型目录由 host 持 key 拉取。
+  // 凭据还必须写回 OrcaRouter provider 的 Personal Overlay：推理路径只读 `access.apiKey`。
+  const orcaOverlayLogger = createServiceLogger("orcarouter-provider-overlay");
+  const orcaOrigins = resolveOrcaOrigins(process.env);
+  const orcaCredentialStore = createOrcaCredentialStore({ credentialService });
+  const orcaConnect = new OrcaConnectController({
+    credentialStore: orcaCredentialStore,
+    origins: orcaOrigins,
+    appName: "ZCodium",
+  });
+  const orcaCredentialBinding = createOrcaProviderCredentialBinding({
+    store: orcaCredentialStore,
+    settings: providerRuntime.providerSettings,
+    onError: (error) => {
+      orcaOverlayLogger.warn(
+        `OrcaRouter 凭据未能写入 Provider 推理配置：${
+          error instanceof Error ? error.message : "未知错误"
+        }`,
+      );
+    },
+  });
+  const orcaRouterService = createOrcaRouterService({
+    store: orcaCredentialStore,
+    adapters: createOrcaCredentialAdapters({ store: orcaCredentialStore }),
+    connect: orcaConnect,
+    origins: orcaOrigins,
+    credentialBinding: orcaCredentialBinding,
+  });
   const zcodeJwtLogoutLogger = createServiceLogger("zcode-jwt-logout");
   zcodeJwtLogoutHandlerRef.current = (input, headers) => {
     // 条件退出本身已串行去重；不能丢弃等待旧候选期间到来的新凭据 401。
@@ -2475,6 +2537,7 @@ export function createLocalServices(options: {
     )
     .register(IFileWatcherService, createFileWatcherService())
     .register(IOAuthService, oauthService)
+    .register(IOrcaRouterService, orcaRouterService)
     .register(
       IUsageStatsService,
       createUsageStatsService({
@@ -2654,12 +2717,14 @@ export function createLocalServices(options: {
   }
   const log = createServiceLogger("provider-runtime");
   void providerRuntime.start().then(
-    () => {
+    async () => {
       const snapshot = providerRuntime.registryService.getSnapshot()!;
       log.info("Provider Registry 已就绪", {
         configRevision: snapshot.sourceRevisions.config,
         providerCount: snapshot.registry.providers.length,
       });
+      // 启动对齐：重启后在 PKCE/手填路径再次触发之前，也让 provider 推理配置持有 store 里的同一把 key。
+      await orcaRouterService.reconcileProviderCredential();
     },
     (error: unknown) => {
       log.error("Provider 配置事实初始化失败", error);

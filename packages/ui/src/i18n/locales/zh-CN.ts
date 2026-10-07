@@ -499,7 +499,7 @@ const zhCN: Record<string, string> = {
   "confirmDialog.projectRemoveDescription":
     "项目“{projectName}”会从侧边栏移除，但不会删除磁盘上的文件。",
   "bots.title": "机器人",
-  "bots.description": "把外部聊天工具和 Webhook 接入 ZCode 机器人。",
+  "bots.description": "把外部聊天工具和 Webhook 接入 ZCodium 机器人。",
   "bots.listTitle": "机器人",
   "bots.addBot": "新建机器人",
   "bots.addBinding": "添加新的绑定",
@@ -545,9 +545,9 @@ const zhCN: Record<string, string> = {
   "bots.setup.guide.telegram.bind.3": "收到绑定成功提示后回到这里继续下一步。",
   "bots.setup.guide.weixin.create.1": "点击微信扫码登录，用微信扫描二维码并在手机端确认。",
   "bots.setup.guide.weixin.create.2":
-    "ZCode 会直接保存 iLink 返回的 bot_token；扫码后请在微信里向 Bot 发送任意消息完成会话激活。",
+    "ZCodium 会直接保存 iLink 返回的 bot_token；扫码后请在微信里向 Bot 发送任意消息完成会话激活。",
   "bots.setup.guide.weixin.create.3":
-    "ZCode 内置 iLink 客户端，通过 `/ilink/bot/getupdates` 长轮询收消息，通过 `/ilink/bot/sendmessage` 回复。",
+    "ZCodium 内置 iLink 客户端，通过 `/ilink/bot/getupdates` 长轮询收消息，通过 `/ilink/bot/sendmessage` 回复。",
   "bots.setup.guide.weixin.bind.1": "在微信里打开要绑定的单聊。",
   "bots.setup.guide.weixin.bind.2": "发送 {command}。",
   "bots.setup.guide.weixin.bind.3": "看到绑定成功后回到这里继续配置默认 workspace 和 CLI。",
@@ -560,12 +560,12 @@ const zhCN: Record<string, string> = {
   "bots.setup.guide.feishu.bind.2": "在单聊中直接发送 {command}。",
   "bots.setup.guide.feishu.bind.3": "看到绑定成功后回到这里继续配置默认 workspace 和 CLI。",
   "bots.setup.guide.webhook.create.1":
-    "Webhook 模式不需要先在第三方平台创建原生机器人；你的系统只需要能向 ZCode 回调接口发消息。",
+    "Webhook 模式不需要先在第三方平台创建原生机器人；你的系统只需要能向 ZCodium 回调接口发消息。",
   "bots.setup.guide.webhook.create.2":
     "先约定一个共享 secret；如果你还想接收异步回复，再填一个出站 Webhook URL。",
   "bots.setup.guide.webhook.create.3":
     "同一个外部用户要保持稳定的 userId，这样绑定和后续上下文才能对应到同一人。",
-  "bots.setup.guide.webhook.bind.1": "向 ZCode 的 `/api/bots/webhook` 发送一条私聊消息回调。",
+  "bots.setup.guide.webhook.bind.1": "向 ZCodium 的 `/api/bots/webhook` 发送一条私聊消息回调。",
   "bots.setup.guide.webhook.bind.2":
     '请求体至少带上当前 botId、稳定的 userId、`chatType: "private"`，并把 text 设成 {command}。',
   "bots.setup.guide.webhook.bind.3":
@@ -711,7 +711,7 @@ const zhCN: Record<string, string> = {
   "bots.runtime.telegramLongPollingRunning": "Telegram 长轮询运行中。",
   "bots.runtime.telegramLongPollingStarting": "Telegram 长轮询启动中。",
   "bots.runtime.telegramLongPollingStopped": "Telegram 长轮询已停止。",
-  "bots.runtime.telegramLongPollingHandledElsewhere": "Telegram 长轮询由另一个 ZCode 窗口处理。",
+  "bots.runtime.telegramLongPollingHandledElsewhere": "Telegram 长轮询由另一个 ZCodium 窗口处理。",
   "bots.runtime.telegramTokenMissing": "Telegram 机器人凭据缺失。",
   "bots.runtime.telegramPollingFailedRetrying": "Telegram 轮询失败，正在重试。",
   "bots.runtime.feishuWebSocketStarting": "飞书 WebSocket 启动中。",
@@ -1629,7 +1629,7 @@ const zhCN: Record<string, string> = {
   "remote.connectingStepDescription": "正在建立 {method} 连接，你可以在这里查看实时的连接进度。",
   "webRemoteControl.trigger": "移动端远程控制",
   "webRemoteControl.title": "移动端远程控制",
-  "webRemoteControl.description": "通过聊天机器人控制 ZCode 工作区。",
+  "webRemoteControl.description": "通过聊天机器人控制 ZCodium 工作区。",
   "webRemoteControl.botChannel.title": "使用 Bot Channel",
   "webRemoteControl.botChannel.description": "连接聊天 Bot，适合更长时间的移动端访问。",
   "webRemoteControl.botChannel.astrbot.title": "AstrBot",
@@ -2149,10 +2149,12 @@ const zhCN: Record<string, string> = {
   "settings.taskAutoArchiveDays.option.30": "30 天后归档",
   "settings.dataBaseDir": "数据存储路径",
   "settings.dataBaseDirDescription":
-    "应用数据的根目录（默认为用户主目录），修改后会将现有数据复制到新位置。路径后缀 .zcode/v2 不可更改。",
+    "应用数据的根目录（默认为用户主目录），修改后会将现有数据复制到新位置。路径后缀 .zcodium/v2 不可更改。",
   "settings.dataBaseDirPlaceholder": "默认：用户主目录",
   "settings.dataBaseDirBrowse": "选择文件夹",
   "settings.dataBaseDirSave": "保存",
+  "settings.dataBaseDirImport": "导入旧数据",
+  "settings.dataBaseDirImportHint": "从旧版数据目录复制数据并重启应用（当前数据目录会先整体备份）",
   "settings.dataBaseDirCopying": "正在复制数据，请勿关闭应用…",
   "settings.dataBaseDirCopyFailed": "数据复制失败，路径未更改。",
   "settings.dataBaseDirForbiddenInstallDir":
@@ -2228,20 +2230,11 @@ const zhCN: Record<string, string> = {
   "settings.officialServices.title": "Z.AI 服务连接",
   "settings.officialServices.description":
     "这些是 Z.AI（ZCode）的服务，打开后会连接 Z.AI 的服务器。如无必要，请保持关闭。部分服务在启动时加载，修改后需重启应用生效。",
-  "settings.officialServices.account.title": "Z.AI API 配置",
-  "settings.officialServices.account.desc": "配置 Z.AI API Key 并使用相关能力。",
-  "settings.officialServices.codingPlan.title": "套餐与额度",
-  "settings.officialServices.codingPlan.desc": "查询 Z.AI 套餐、额度与用量。",
-  "settings.officialServices.feedback.title": "Z.AI 反馈通道",
-  "settings.officialServices.feedback.desc": "通过 Z.AI 接口提交反馈；关闭时请到 GitHub Issues。",
-  "settings.officialServices.officialMcp.title": "Z.AI MCP",
-  "settings.officialServices.officialMcp.desc": "使用 Z.AI 的 MCP 凭证服务。",
-  "settings.officialServices.offPeak.title": "闲时任务",
-  "settings.officialServices.offPeak.desc": "使用 Z.AI 的闲时任务网关。",
   "settings.officialServices.marketplace.title": "Z.AI 插件市场与 CDN",
   "settings.officialServices.marketplace.desc": "从 Z.AI 市场与 CDN 下载插件与资源。",
   "settings.officialServices.clientConfig.title": "Z.AI 客户端配置",
-  "settings.officialServices.clientConfig.desc": "拉取 Z.AI 客户端配置与启动预热数据。",
+  "settings.officialServices.clientConfig.desc":
+    "拉取 Z.AI 客户端配置与启动预热数据；不包含 Provider 模板（模型预设以内置配置为准）。",
   "settings.usageTitle": "使用统计",
   "settings.usageDescription": "查看会话活跃度与模型用量的粗略统计。",
   "resourceManager.storage.summaryTotal": "ZCodium 总占用",
@@ -2632,6 +2625,37 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.apiFormat.title.anthropicMessages": "Anthropic Messages",
   "settings.modelProvider.apiKey": "API Key",
   "settings.modelProvider.apiKeyPlaceholder": "输入 API Key",
+  "orcaRouter.title": "OrcaRouter",
+  "orcaRouter.description":
+    "OrcaRouter 是 OpenAI 兼容的 AI 网关。可以沿用已有 API Key，也可以登录 OrcaRouter 账号授权；两者最终都是同一把 API Key，请求发往 {baseUrl}。",
+  "orcaRouter.apiKey.title": "使用 API Key",
+  "orcaRouter.apiKey.save": "保存密钥",
+  "orcaRouter.apiKey.invalid": "OrcaRouter API Key 应以 sk-orca- 开头，请检查后重试。",
+  "orcaRouter.pkce.title": "使用 OrcaRouter 账号登录",
+  "orcaRouter.pkce.description":
+    "OAuth 2.0 + PKCE。不需要 client secret，也不需要预注册回调地址；授权页会显示授权码，粘贴回这里即可。",
+  "orcaRouter.pkce.connect": "使用 OrcaRouter 账号登录",
+  "orcaRouter.pkce.openHint": "打开该地址完成授权，然后粘贴授权码",
+  "orcaRouter.pkce.open": "打开授权页",
+  "orcaRouter.pkce.copy": "复制授权地址",
+  "orcaRouter.pkce.copied": "授权地址已复制",
+  "orcaRouter.pkce.codePlaceholder": "粘贴授权码",
+  "orcaRouter.pkce.submitCode": "完成连接",
+  "orcaRouter.connect.failed": "无法开始 OrcaRouter 授权",
+  "orcaRouter.connected": "已连接 · {masked}",
+  "orcaRouter.notConnected": "未连接",
+  "orcaRouter.clear": "清除",
+  "orcaRouter.clear.failed": "无法清除 OrcaRouter 凭据，请重试。",
+  "orcaRouter.needsReauth":
+    "OrcaRouter 已拒绝该凭据。请重新连接以替换；在新登录成功前不会删除已保存的密钥。",
+  "orcaRouter.model.selectPlaceholder": "选择模型",
+  "orcaRouter.model.search": "搜索模型",
+  "orcaRouter.model.empty": "当前目录中没有符合该入口能力的模型。",
+  "orcaRouter.catalog.failed": "OrcaRouter 模型目录暂不可用。",
+  "orcaRouter.catalog.degradedSeed":
+    "实时模型目录不可用，正在显示已验证的离线清单（{count} 个模型）。",
+  "orcaRouter.catalog.degradedLastKnownGood":
+    "模型目录刷新失败，正在显示最近一次成功目录（{count} 个模型）。",
   "settings.modelProvider.apiKeyDisabledHint": "设置 API Key 后即可启用。",
   "settings.modelProvider.getApiKey": "获取 API Key",
   "settings.modelProvider.viewUsage": "查看用量",
@@ -2844,6 +2868,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.modelsEmpty": "当前没有配置模型，添加模型后可在聊天中使用。",
   "settings.modelProvider.addModel": "添加模型",
   "settings.modelProvider.modelId": "模型 ID",
+  "settings.modelProvider.detectModels": "检测可用模型",
+  "settings.modelProvider.detectModelsEmpty": "未检测到可用模型",
   "settings.modelProvider.modelDisplayName": "显示名称",
   "settings.modelProvider.modelApiFormat.anthropic": "Anthropic Messages",
   "settings.modelProvider.modelApiFormat.openaiCompatible": "OpenAI Compatible",
@@ -2894,6 +2920,8 @@ const zhCN: Record<string, string> = {
   "settings.modelProvider.reorderProvider": "拖拽调整供应商顺序",
   "settings.modelProvider.reorderModel": "拖拽调整模型顺序",
   "settings.modelProvider.empty": "暂无自定义模型供应商",
+  "settings.modelProvider.emptyHint":
+    "点击右上角「添加供应商」从预设模板创建，或直接创建自定义供应商并填写 API Key。",
   "settings.modelProvider.deleteConfirm": '确定要删除"{name}"吗？',
   "settings.modelProvider.deleteConfirmTitle": "删除供应商“{name}”？",
   "settings.modelProvider.deleteConfirmDescription":
@@ -6184,6 +6212,40 @@ const zhCN: Record<string, string> = {
   "scheduledPreview.toast.running": "正在运行“{title}”…",
   "scheduledPreview.toast.view": "查看",
   "scheduledPreview.addSchedule": "添加计划",
+
+  // ---- 数据根决策窗口 ----
+  "dataRoot.loading": "正在准备…",
+  "dataRoot.title": "数据存储设置",
+  "dataRoot.status.absentWithLegacy":
+    "检测到旧版 ZCodium / ZCode 的数据。你可以把它复制到新的数据目录，也可以全新开始；无论选择哪种，旧目录都会原样保留。",
+  "dataRoot.status.unowned":
+    "当前数据目录包含无法识别归属的数据（可能来自其它分支或手动创建）。继续操作前会先整体备份该目录，不会删除或合并。",
+  "dataRoot.status.corrupt":
+    "当前数据目录的归属信息损坏或版本过新，无法安全读取。继续操作前会先整体备份该目录。",
+  "dataRoot.conflict.notice": "冲突目录将先整体重命名为备份：{path}",
+  "dataRoot.candidates.title": "可迁移的旧数据",
+  "dataRoot.candidate.size": "大小",
+  "dataRoot.candidate.modified": "最后修改",
+  "dataRoot.candidate.empty": "未找到旧的 ~/.zcode 数据目录，只能全新开始。",
+  "dataRoot.disk.insufficient":
+    "磁盘空间不足：需要约 {required}，当前可用 {free}。请清理空间后重试。",
+  "dataRoot.progress.preparing": "正在准备复制…",
+  "dataRoot.progress.copying": "正在复制旧数据…",
+  "dataRoot.progress.finalizing": "正在完成迁移…",
+  "dataRoot.error.title": "操作失败",
+  "dataRoot.error.retry": "请重试，或选择全新开始。",
+  "dataRoot.done.restarting": "正在重启应用…",
+  "dataRoot.action.migrate": "迁移旧数据",
+  "dataRoot.action.migrateHint": "复制旧数据到新目录，原目录保留；之后两边互不同步。",
+  "dataRoot.action.fresh": "全新开始",
+  "dataRoot.action.freshHint": "不导入旧数据；旧目录保留，之后可在设置中导入。",
+  "dataRoot.action.quit": "退出应用",
+  "dataRoot.action.quitHint": "不做任何修改，下次启动会再次询问。",
+  "dataRoot.import.title": "从旧数据目录导入",
+  "dataRoot.import.description":
+    "将从旧版数据目录复制数据到当前数据目录。当前数据目录会先整体备份，完成后应用会重启。",
+  "dataRoot.action.import": "导入并重启",
+  "dataRoot.action.cancel": "取消",
 };
 
 export default zhCN;
