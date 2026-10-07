@@ -928,6 +928,26 @@ idle → connecting → registering（device_register_init → ack 得 device_si
   （passHash 轮换）⇒ 清除持久化 sid 回退注册，重新拿新 sid 并再次持久化。
   `device_register_init` 语义不变：永远是全新房间。
 
+### 14.9a 自建终端页 v0（relay-official 服务 `/remote/v4`）
+
+官方手机端（云 SPA）不可自持，路线 B 的终端侧先落**自建终端页**：relay-official
+在官方链接形状 `<origin>/remote/v4?sid=&hash=&t=&mid=&name=` 上服务一个自包含
+静态页（`deploy/vps-relay/terminal.html`，vanilla JS 无构建链），浏览器即终端。
+
+- **鉴权**：读链接 `sid`/`hash` → `auth_init(role:"terminal")` → challenge-response
+  （HMAC-SHA256，key = 链接 `hash`）；用 `crypto.subtle`——**localhost/HTTPS 下可用，
+  内网 http 属 insecure origin 不可用**（与 §16.2 同一约束，页面上要显式报错）。
+- **v0 能力**：配对状态展示（waiting/matched）、bootstrap-request → 工作区列表渲染、
+  workspace-bridge-open → ready 展示、**rpc-frame 回显测试**（单分片帧发送 +
+  crc32/base64 信封 + ack 展示）——即路线 B 全链路的真浏览器验证台。
+- **不做**（后续版本）：内嵌 fork web UI（transport 适配器方案，§14.9 的
+  codec 复用）、分片重组 UI、workspace 切换。
+- relay-official 端点：`GET /remote/v4` 与 `/remote/v4/` 回终端页；其余静态路径 404
+  （终端页无外部资源依赖，不拖 asset 目录）。
+- 验收：真浏览器（agent-browser）+ 脚本 device（register/auth/心跳/bootstrap/bridge
+  回显）→ 页面展示 matched → 工作区 → bridge → 回显往返成功；relay 日志可见
+  `auth ok {role:"terminal"}` 与 `pair_status changed {"status":"matched"}`。
+
 
 ### 14.9 数据面信封契约（官方 asar 还原）与桌面适配器设计
 

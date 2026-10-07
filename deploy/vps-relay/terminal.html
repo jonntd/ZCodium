@@ -1,0 +1,407 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ZCodium 远程终端</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font:
+          14px/1.6 -apple-system,
+          "PingFang SC",
+          "Microsoft YaHei",
+          sans-serif;
+        background: #0f1115;
+        color: #e6e8ee;
+      }
+      main {
+        max-width: 720px;
+        margin: 0 auto;
+        padding: 16px;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 8px 0 4px;
+      }
+      .sub {
+        color: #8b93a7;
+        font-size: 12px;
+        margin-bottom: 12px;
+        word-break: break-all;
+      }
+      .status {
+        padding: 8px 12px;
+        border-radius: 8px;
+        background: #1a1e28;
+        border: 1px solid #2a3040;
+        margin-bottom: 12px;
+      }
+      .status b {
+        font-size: 15px;
+      }
+      .matched {
+        color: #4ade80;
+      }
+      .waiting {
+        color: #facc15;
+      }
+      .error {
+        color: #f87171;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-bottom: 12px;
+      }
+      button {
+        padding: 8px 14px;
+        border-radius: 8px;
+        border: 1px solid #2a3040;
+        background: #1f2532;
+        color: #e6e8ee;
+        font-size: 14px;
+      }
+      button:disabled {
+        opacity: 0.45;
+      }
+      button:not(:disabled):active {
+        background: #2a3345;
+      }
+      #log {
+        white-space: pre-wrap;
+        word-break: break-all;
+        background: #12151c;
+        border: 1px solid #232937;
+        border-radius: 8px;
+        padding: 10px;
+        font:
+          12px/1.5 ui-monospace,
+          Menlo,
+          monospace;
+        min-height: 240px;
+        max-height: 50vh;
+        overflow: auto;
+      }
+      .ok {
+        color: #4ade80;
+      }
+      .warn {
+        color: #facc15;
+      }
+      .err {
+        color: #f87171;
+      }
+      .dim {
+        color: #8b93a7;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>ZCodium 远程终端</h1>
+      <div class="sub" id="meta"></div>
+      <div class="status">配对状态：<b id="status" class="waiting">连接中…</b></div>
+      <div class="row">
+        <button id="btnBootstrap" disabled>获取工作区</button>
+        <button id="btnBridge" disabled>建立 Bridge</button>
+        <button id="btnEcho" disabled>回显测试</button>
+      </div>
+      <div id="log"></div>
+    </main>
+    <script type="module">
+      // 自建终端页 v0（spec vps-relay-bridge.md §14.9a）。
+      // 链接参数：sid（房间）+ hash（terminal 的 HMAC key）——缺一不可，页面不做任何兜底。
+      const q = new URLSearchParams(location.search);
+      const sid = q.get("sid") ?? "";
+      const hash = q.get("hash") ?? "";
+      const utf8 = (s) => new TextEncoder().encode(s);
+      const b64url = (bytes) => {
+        let s = "";
+        for (const b of bytes) s += String.fromCharCode(b);
+        return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      };
+      const log = (text, cls = "") => {
+        const el = document.getElementById("log");
+        el.textContent += `[${new Date().toLocaleTimeString()}] ${text}\n`;
+        if (cls) {
+          /* 保留纯文本日志，简单可靠 */
+        }
+        el.scrollTop = el.scrollHeight;
+      };
+      const setStatus = (text, cls) => {
+        const el = document.getElementById("status");
+        el.textContent = text;
+        el.className = cls;
+      };
+      document.getElementById("meta").textContent =
+        `sid=${sid ? sid.slice(0, 6) + "…" : "（缺失）"}  name=${q.get("name") ?? "-"}`;
+
+      if (!sid || !hash) {
+        setStatus("链接无效：缺少 sid/hash", "error");
+        log("链接必须来自桌面生成的配对链接（含 sid 与 hash），不能手填。", "err");
+        throw new Error("missing sid/hash");
+      }
+      if (!crypto.subtle) {
+        setStatus("当前环境不支持 WebCrypto", "error");
+        log("crypto.subtle 不可用：内网 http 属 insecure origin（localhost/HTTPS 才行）。", "err");
+        throw new Error("no subtle");
+      }
+
+      const encoder = new TextEncoder();
+      const hmacKey = await crypto.subtle.importKey(
+        "raw",
+        utf8(hash),
+        { name: "HMAC", hash: "SHA-256" },
+        false,
+        ["sign"],
+      );
+      const proofOf = async (nonce) => {
+        const sig = await crypto.subtle.sign("HMAC", hmacKey, utf8(`${nonce}|terminal|${sid}`));
+        return b64url(new Uint8Array(sig));
+      };
+
+      // ── rpc-frame 最小编码（v0 只发单分片；crc32 与 §14.9 契约一致） ──
+      const CRC_TABLE = (() => {
+        const t = new Uint32Array(256);
+        for (let n = 0; n < 256; n++) {
+          let c = n;
+          for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+          t[n] = c >>> 0;
+        }
+        return t;
+      })();
+      const crc32Hex = (bytes) => {
+        let crc = 0xffffffff;
+        for (const b of bytes) crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ b) & 0xff];
+        return ((crc ^ 0xffffffff) >>> 0).toString(16).padStart(8, "0");
+      };
+      let bridge = null; // { bridgeSessionId }
+      const matchedState = { status: null };
+
+      const sendPayload = (payload) => ws.send(JSON.stringify({ type: "data", payload }));
+
+      function sendFrame(text) {
+        const bytes = encoder.encode(text);
+        const seq = ++frameSeq;
+        const messageSeq = seq;
+        sendPayload({
+          zcode_type: "rpc-frame",
+          bridgeSessionId: bridge.bridgeSessionId,
+          seq,
+          messageSeq,
+          fragmentIndex: 0,
+          fragmentCount: 1,
+          messageBytes: bytes.length,
+          checksum: { algorithm: "crc32", value: crc32Hex(bytes) },
+          data: b64url(bytes),
+        });
+        return messageSeq;
+      }
+
+      let frameSeq = 0;
+      let lastSentText = "";
+      let lastSentSeq = 0;
+
+      // ── 控制面 + 数据面分发 ──
+      const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${wsProto}//${location.host}/ws`);
+      ws.onopen = () => {
+        log("已连接中继，发起 terminal 鉴权…");
+        ws.send(
+          JSON.stringify({
+            type: "auth_init",
+            role: "terminal",
+            device_sid: sid,
+            client_ts: Date.now(),
+          }),
+        );
+      };
+      ws.onclose = (e) => {
+        setStatus(`连接关闭 code=${e.code}`, "error");
+        log(`连接关闭 code=${e.code} reason=${e.reason || "-"}`, "err");
+      };
+      ws.onerror = () => log("连接错误", "err");
+      ws.onmessage = async (event) => {
+        let msg;
+        try {
+          msg = JSON.parse(String(event.data));
+        } catch {
+          return;
+        }
+        switch (msg.type) {
+          case "auth_challenge": {
+            const proof = await proofOf(msg.nonce);
+            ws.send(
+              JSON.stringify({
+                type: "auth_response",
+                device_sid: sid,
+                proof,
+                client_ts: Date.now(),
+              }),
+            );
+            log("已回 challenge（HMAC-SHA256）");
+            return;
+          }
+          case "auth_ack":
+          case "pair_status_ack": {
+            const status = msg.pair_status;
+            if (!status) return;
+            // 心跳每 10s 回一次 pair_status_ack，只在状态变化时记日志/解按钮，避免重复刷屏。
+            if (status === matchedState.status) return;
+            matchedState.status = status;
+            setStatus(
+              status === "matched" ? "已配对（matched）" : "等待桌面接入（waiting）",
+              status,
+            );
+            if (status === "matched") {
+              log("配对成功，可以获取工作区。", "ok");
+              document.getElementById("btnBootstrap").disabled = false;
+            } else {
+              log("桌面已断开，等待重连…", "warn");
+            }
+            return;
+          }
+          case "error": {
+            setStatus(`错误：${msg.code}`, "error");
+            log(`中继错误 ${msg.code}: ${msg.message ?? ""}`, "err");
+            return;
+          }
+          case "data": {
+            handleData(msg.payload ?? {});
+            return;
+          }
+          default:
+            return;
+        }
+      };
+
+      function handleData(payload) {
+        switch (payload.zcode_type) {
+          case "bootstrap-response": {
+            const workspaces = payload.result?.workspaces ?? [];
+            log(`bootstrap 成功：${workspaces.length} 个工作区`, "ok");
+            for (const w of workspaces)
+              log(`  · ${w.label ?? w.workspaceKey}  key=${w.workspaceKey}`, "dim");
+            document.getElementById("btnBridge").disabled = workspaces.length === 0;
+            renderWorkspaces(workspaces);
+            return;
+          }
+          case "workspace-bridge-ready": {
+            bridge = { bridgeSessionId: payload.bridgeSessionId };
+            log(`bridge 已建立（${payload.bridgeSessionId.slice(0, 8)}…），可做回显测试`, "ok");
+            document.getElementById("btnEcho").disabled = false;
+            return;
+          }
+          case "workspace-bridge-error": {
+            log(`bridge 建立失败：${payload.error ?? payload.reason}`, "err");
+            return;
+          }
+          case "rpc-frame-ack": {
+            log(`对端已确认 messageSeq=${payload.ackMessageSeq}`, "ok");
+            return;
+          }
+          case "rpc-frame": {
+            // 设备回显：校验 crc32 + 与发出的内容比对（v0 单分片）。
+            const bytes = Uint8Array.from(
+              atob(payload.data.replace(/-/g, "+").replace(/_/g, "/")),
+              (c) => c.charCodeAt(0),
+            );
+            const ok = crc32Hex(bytes) === payload.checksum?.value;
+            const same = lastSentText === new TextDecoder().decode(bytes);
+            log(
+              `收到回显：crc ${ok ? "✓" : "✗"}，内容${same ? "一致 ✓" : "不一致 ✗"}`,
+              ok && same ? "ok" : "err",
+            );
+            sendPayload({
+              zcode_type: "rpc-frame-ack",
+              bridgeSessionId: payload.bridgeSessionId,
+              ackMessageSeq: payload.messageSeq,
+            });
+            return;
+          }
+          default:
+            log(`收到数据面信封：${payload.zcode_type}`, "dim");
+        }
+      }
+
+      // ── UI 动作 ──
+      const workspacesEl = document.createElement("div");
+      workspacesEl.style.marginBottom = "12px";
+      document.querySelector("main").insertBefore(workspacesEl, document.getElementById("log"));
+      function renderWorkspaces(list) {
+        workspacesEl.innerHTML = "";
+        for (const w of list) {
+          const btn = document.createElement("button");
+          btn.textContent = `打开 ${w.label ?? w.workspaceKey}`;
+          btn.onclick = () => openBridge(w.workspaceKey);
+          workspacesEl.append(btn);
+        }
+      }
+
+      let bootstrapCount = 0;
+      document.getElementById("btnBootstrap").onclick = () => {
+        sendPayload({
+          zcode_type: "bootstrap-request",
+          requestId: `boot-${++bootstrapCount}`,
+        });
+        log("已发送 bootstrap-request…");
+      };
+
+      let bridgeCount = 0;
+      let pendingWorkspaceKey = null;
+      function openBridge(workspaceKey) {
+        pendingWorkspaceKey = workspaceKey;
+        sendPayload({
+          zcode_type: "workspace-bridge-open",
+          requestId: `bridge-${++bridgeCount}`,
+          bridgeSessionId: crypto.randomUUID(),
+          workspaceKey,
+        });
+        log(`请求建立 bridge（workspaceKey=${workspaceKey}）…`);
+      }
+      document.getElementById("btnBridge").onclick = () =>
+        openBridge(lastWorkspaces[0]?.workspaceKey ?? "");
+
+      let echoCount = 0;
+      document.getElementById("btnEcho").onclick = () => {
+        if (!bridge) return;
+        lastSentText = `echo-${Date.now()}-终端→设备回显测试`;
+        lastSentSeq = sendFrame(lastSentText);
+        log(`已发送 rpc-frame（messageSeq=${lastSentSeq}，${lastSentText.length} 字符）…`);
+      };
+
+      let lastWorkspaces = [];
+      const origRender = renderWorkspaces;
+      renderWorkspaces = (list) => {
+        lastWorkspaces = list;
+        origRender(list);
+      };
+
+      // 心跳（对齐官方 10s + jitter）
+      setInterval(
+        () => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: "pair_status_query",
+                device_sid: sid,
+                client_ts: Date.now(),
+              }),
+            );
+          }
+        },
+        10_000 + Math.floor(Math.random() * 1_000),
+      );
+
+      log("终端页就绪。等待中继鉴权…");
+    </script>
+  </body>
+</html>

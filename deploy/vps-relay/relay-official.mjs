@@ -23,6 +23,9 @@
 
 import { createServer } from "node:http";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 
 const PORT = Number(process.env.PORT) || 3180;
@@ -165,7 +168,10 @@ function verifyAuthResponse(room, socket, payload) {
   if (!safeEqualString(expected, String(payload.proof ?? ""))) {
     // 只记事实，不记任何凭据值。
     sendError(socket, "auth_failed", "proof 校验失败");
-    log("auth failed", { role: pending.role, sidSuffix: String(pending.sid).slice(-6) });
+    log("auth failed", {
+      role: pending.role,
+      sidSuffix: String(pending.sid).slice(-6),
+    });
     socket.close(4403, "auth-failed");
     return false;
   }
@@ -173,7 +179,10 @@ function verifyAuthResponse(room, socket, payload) {
   if (pending.role === "device") room.deviceAuthed = true;
   else room.terminalAuthed = true;
 
-  log("auth ok", { role: pending.role, sidSuffix: String(pending.sid).slice(-6) });
+  log("auth ok", {
+    role: pending.role,
+    sidSuffix: String(pending.sid).slice(-6),
+  });
   send(socket, { type: "auth_ack", pair_status: pairStatusOf(room) });
   broadcastPairStatus(room);
   return true;
@@ -345,8 +354,33 @@ function buildLink(room) {
   return `${LINK_ORIGIN}/remote/v4?${params.toString()}`;
 }
 
-const server = createServer((req, res) => {
+const server = createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
+
+  // 自建终端页（spec §14.9a）：官方链接形状 /remote/v4 直接回终端页。
+  // 每次读盘：改 terminal.html 无需重启 relay。
+  if (url.pathname === "/remote/v4" || url.pathname === "/remote/v4/") {
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.writeHead(405, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "Method Not Allowed" }));
+      return;
+    }
+    try {
+      const html = await readFile(
+        join(dirname(fileURLToPath(import.meta.url)), "terminal.html"),
+        "utf8",
+      );
+      res.writeHead(200, {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+      });
+      res.end(html);
+    } catch {
+      res.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+      res.end("terminal.html missing next to relay-official.mjs");
+    }
+    return;
+  }
 
   if (url.pathname === "/healthz") {
     res.writeHead(200, { "content-type": "application/json" });
