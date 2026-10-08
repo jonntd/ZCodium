@@ -175,15 +175,20 @@ export function resolveLegacySystemPromptMigration(
   };
 }
 
-/** 「全部改为自定义」：两作用域全部段切「覆盖」并预填内置原文（等待显式保存）。 */
-export function createAllOverrideSystemPromptDraft(
+/**
+ * 「全部改为自定义」：把**主身份**三段切「覆盖」并预填内置原文（等待显式保存）。
+ *
+ * 只作用于 `main`：`workflowSubagent.identity` 是**参数化段**——运行时还会在开场句之后插入
+ * 脚本写的 persona，因此没有可作起点的静态内置原文；拿静态模板去覆盖会连同 persona 与
+ * `# Working inside a workflow` 契约一起替换掉，直接破坏子代理的 submit_result/escalate 契约。
+ * 该段只能由用户在自己的页签上显式改写。
+ */
+export function createAllOverrideMainDraft(
   builtinTexts: Record<SystemPromptSegmentId, string>,
 ): SystemPromptDraft {
   const draft = createEmptySystemPromptDraft();
-  for (const surface of SYSTEM_PROMPT_SURFACE_IDS) {
-    for (const segmentId of SYSTEM_PROMPT_SEGMENT_IDS) {
-      draft[surface][segmentId] = { mode: "override", text: builtinTexts[segmentId] };
-    }
+  for (const segmentId of SYSTEM_PROMPT_SEGMENT_IDS) {
+    draft.main[segmentId] = { mode: "override", text: builtinTexts[segmentId] };
   }
   return draft;
 }

@@ -8,7 +8,7 @@ import {
   MAX_SYSTEM_PROMPT_SEGMENT_LENGTH,
   canonicalizeSystemPromptSegments,
   countSavedSystemPromptSegments,
-  createAllOverrideSystemPromptDraft,
+  createAllOverrideMainDraft,
   createEmptySystemPromptDraft,
   createSystemPromptDraftFromSaved,
   hasOverLimitSystemPromptSegment,
@@ -149,15 +149,10 @@ test("v1 迁移：两字段同在时保留已有分段条目，只补 main.ident
   });
 });
 
-test("全部改为自定义：两作用域所有段切覆盖并预填内置原文", () => {
-  const draft = createAllOverrideSystemPromptDraft(BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS);
+test("全部改为自定义：只改主身份三段并预填内置原文，工作流子代理段不参与", () => {
+  const draft = createAllOverrideMainDraft(BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS);
   assert.deepEqual(serializeSystemPromptDraft(draft), {
     main: {
-      cliPrefix: { mode: "override", text: BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS.cliPrefix },
-      identity: { mode: "override", text: BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS.identity },
-      desktop: { mode: "override", text: BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS.desktop },
-    },
-    workflowSubagent: {
       cliPrefix: { mode: "override", text: BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS.cliPrefix },
       identity: { mode: "override", text: BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS.identity },
       desktop: { mode: "override", text: BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS.desktop },

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS } from "@zcode/shared";
+import {
+  BUILTIN_SYSTEM_PROMPT_WORKFLOW_ACTOR_IDENTITY,
+  buildBuiltinWorkflowActorIdentityPrompt,
+} from "@zcode/shared";
 import { createContextBuilder } from "../src/context/builder.js";
 import type { ContextBuilderConfig } from "../src/context/types.js";
 import type { EnvInfo } from "../src/runtime/deps.js";
@@ -132,6 +136,19 @@ test("builder: main 作用域对 workflowActor 不生效", () => {
   });
   const content = sectionContent(config, "workflow_actor_identity");
   assert.ok(content?.includes("Persona text."));
+});
+
+test("builder: workflowActor 身份段文本与 shared 模板同源（core 只加 section 元数据）", () => {
+  // 无 persona 的形态必须与设置页「工作流子代理」页签回显的模板逐字一致。
+  assert.equal(
+    sectionContent(buildConfig({ workflowActor: {} }), "workflow_actor_identity"),
+    BUILTIN_SYSTEM_PROMPT_WORKFLOW_ACTOR_IDENTITY,
+  );
+  // 带角色名时同样走 shared 的同一个实现。
+  assert.equal(
+    sectionContent(buildConfig({ workflowActor: { name: "actor" } }), "workflow_actor_identity"),
+    buildBuiltinWorkflowActorIdentityPrompt({ name: "actor" }),
+  );
 });
 
 test("builder: v1 customSystemPrompt 非空时整体压过分段配置", () => {

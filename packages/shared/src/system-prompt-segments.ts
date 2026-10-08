@@ -142,3 +142,79 @@ export const BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS: Record<SystemPromptSegmentId, 
   identity: buildBuiltinIdentityPrompt(),
   desktop: BUILTIN_SYSTEM_PROMPT_DESKTOP_CONTEXT,
 };
+
+/**
+ * 动态工作流子代理（dwf actor）的身份段内置原文。
+ *
+ * 与三段不同，它是**参数化**的：开场句里插角色名、开场句之后插脚本写的 persona。因此 UI 的
+ * 「继承态回显 / 以内置原文为起点」只能用**无 persona** 的形态（`{}`）——真实内容还会多出
+ * persona，界面上必须说清这一点，不能假装回显的就是子代理实际收到的全部文本。
+ *
+ * 实现（含 `# Working inside a workflow` 契约）与 core 的 section builder 共用这一份，
+ * core 只是加 section 元数据；契约文本曾经散在 core 里，UI 拿不到，导致「工作流子代理」
+ * 页签回显的是交互式身份（错的）。
+ */
+const WORKFLOW_ACTOR_TOOL_SURFACE =
+  "You have the regular working tools — reading, searching, editing, running commands — plus `submit_result` and `escalate`. There is no tool that asks a person anything.";
+
+const WORKFLOW_ACTOR_EVIDENCE_RULE =
+  "Ground every claim in something you read or ran in this session, or in the material the ask gave you, and say which. Cite code as `path:line`. A check counts as passed only if you executed it here; if you could not run it, report it as not run. Run the check an ask names rather than a faster substitute, and say exactly which command you ran.";
+
+function buildWorkflowActorContract(): string {
+  return [
+    "# Working inside a workflow",
+    `- ${WORKFLOW_ACTOR_TOOL_SURFACE}`,
+    "- Each ask states what to do. When the ask carries a result schema, finish by calling `submit_result` with a conforming value; otherwise your final message is the result.",
+    `- ${WORKFLOW_ACTOR_EVIDENCE_RULE}`,
+    "- Report outcomes faithfully. If part of the task is impossible, out of scope, or contradicted by what you found, say so in the result instead of filling a field with a plausible guess. Never fake a passing result to satisfy an instruction.",
+    "- When you are blocked by something outside your reach — a gate that cannot pass, instructions that contradict each other, a fact only the run's owner knows — call `escalate`. Questions written in prose reach nobody.",
+    // 产物条款：子代理仍然没有任何产物工具（只有脚本能发布），但当 ask 指名了输出路径时，
+    // 写到那里并把路径交回来，脚本会把它发布给用户。
+    "- Do not write report or summary files on your own initiative; findings go in the result. When the ask names an output path, write exactly there and return that path in the result — the script publishes it to the user.",
+  ].join("\n");
+}
+
+/**
+ * 拼装工作流子代理身份段：开场句（可带角色名）→ persona → 安全行 → `# Harness` → 工作流契约。
+ * core 的 `buildWorkflowActorIdentitySection` 直接调这里，保证「UI 看到的模板」与
+ * 「子代理实际收到的文本」同源。
+ */
+export function buildBuiltinWorkflowActorIdentityPrompt(input: {
+  name?: string;
+  persona?: string;
+}): string {
+  const name = input.name?.trim();
+  const named = name ? `, named "${name}"` : "";
+  const persona = input.persona?.trim();
+  // 不再有 CLI prefix 走在前面（「You are ZCode, an interactive coding agent」对子代理是错的
+  // 身份），所以这一段就是 system 的第一行，不以空行起头。
+  return [
+    `You are a subagent inside a dynamic workflow run${named}. A script created you and hands you work one ask at a time; the script — not a person — consumes what you return. There is no user in this conversation to talk to.`,
+    ...(persona ? ["", persona] : []),
+    "",
+    BUILTIN_SYSTEM_PROMPT_SECURITY_NOTICE,
+    "",
+    buildBuiltinSystemPromptHarnessBlock(),
+    "",
+    buildWorkflowActorContract(),
+  ].join("\n");
+}
+
+/** 无 persona 的静态形态：UI「工作流子代理」页签的继承态回显与预填用。 */
+export const BUILTIN_SYSTEM_PROMPT_WORKFLOW_ACTOR_IDENTITY =
+  buildBuiltinWorkflowActorIdentityPrompt({});
+
+/**
+ * 作用域 × 段 的内置原文（UI 的唯一取数入口）。
+ *
+ * 注意 `workflowSubagent` 只有 `identity`，且它只是**无 persona 的基础文本**——
+ * 子代理实际收到的还会多出脚本写的 persona。`override` 会连同 persona 与工作流契约
+ * 一起替换掉，界面上必须给出这条警告（见 i18n `settings.systemPrompt.workflowHint`）。
+ */
+export const BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS: Record<
+  SystemPromptSurfaceId,
+  Partial<Record<SystemPromptSegmentId, string>>
+> = {
+  main: BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS,
+  workflowSubagent: { identity: BUILTIN_SYSTEM_PROMPT_WORKFLOW_ACTOR_IDENTITY },
+};

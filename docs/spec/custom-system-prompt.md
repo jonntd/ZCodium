@@ -25,8 +25,14 @@ v1（整段替换钩子 `customSystemPrompt`）只能把身份段整体换掉并
   - `main`（主身份）：普通会话 builder 路径，三段都可编辑。
   - `workflowSubagent`（工作流子代理）：`workflowActor` builder 路径（dwf actor）。只有
     「Agent 身份」有意义——子代理没有 CLI 前缀与桌面上下文。`inherit` 时 persona 原样；
-    `override` 替换 persona 身份段；`append` 在 persona 之后追加；`clear` 不构建身份段。
+    `override` **整段替换**该身份段（连同脚本写的 persona 与 `# Working inside a workflow`
+    契约一起换掉，界面必须给出这条警告）；`append` 在 persona 之后追加；`clear` 不构建身份段。
     与 `customSystemPrompt` 的互斥保护不同：分段是**为与 persona 组合而设计**的，不抛错。
+  - ⚠ 该段的内置原文是**参数化**的（开场句插角色名、之后插 persona），没有可作起点的静态
+    全文；继承态回显与「以内置原文为起点」只能用**无 persona 的静态形态**
+    （`BUILTIN_SYSTEM_PROMPT_WORKFLOW_ACTOR_IDENTITY`），并在页签说明里讲清「真实内容还会
+    多出脚本写的 persona」。因此「全部改为自定义」**只作用于主身份三段**——拿静态模板去覆盖
+    这一页签会静默删掉 persona 与工作流契约，直接破坏子代理的 submit_result/escalate 契约。
   - legacy Workflow 子会话（无 workflowActor）：继承父 runtime 配置走 main 路径，与主会话一致。
 - **优先级**：旧整段字段 `customSystemPrompt` 非空时**整体压过**分段配置（v1 语义原样保留，
   避免两套替换叠加出未定义行为）。UI 迁移保证两字段不会同时非空（见兼容）。
@@ -36,9 +42,12 @@ v1（整段替换钩子 `customSystemPrompt`）只能把身份段整体换掉并
   同样按 stable 处理，section 的 name/source 保持不变（contextUsage 分段视图稳定）。
 - **上限**：单段文本 200 000 字符（schema 层拒绝；归一化会剥离空文本的 override/append 条目，
   空文本 override 等价于「什么都没写」，不允许它伪装成清空）。
-- **内置原文唯一来源**：三段内置文本常量下沉到
+- **内置原文唯一来源**：内置文本常量下沉到
   `packages/shared/src/system-prompt-segments.ts`，core 的 section builder 与 UI（继承态回显、
-  「以内置原文为起点」预填）都从 shared 取，杜绝双份漂移。
+  「以内置原文为起点」预填）都从 shared 取，杜绝双份漂移。共四份：CLI 前缀 / Agent 身份 /
+  桌面上下文（三段静态）+ **工作流子代理身份段**（参数化，见
+  `buildBuiltinWorkflowActorIdentityPrompt`；core 的 `buildWorkflowActorIdentitySection`
+  只负责加 section 元数据，文本实现也在这份 shared 模块里）。
 
 ## 数据流与状态所有者
 
@@ -119,7 +128,14 @@ build()
   clear 条目去 text；全空返回 `{}`。保存链路（UI 提交、CLI handler）统一走它。
 - `BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS`：三段内置原文常量（identity 为无 outputStyle 基座，
   与 `buildIdentityPrompt(undefined)` 逐字一致；desktop 为静态模板全文）。
+- `buildBuiltinWorkflowActorIdentityPrompt({ name?, persona? })` +
+  `BUILTIN_SYSTEM_PROMPT_WORKFLOW_ACTOR_IDENTITY`：工作流子代理身份段的**唯一实现**
+  （core 的 section builder 直接调它）；后者是无 persona 的静态形态，供 UI 回显/预填。
+- `BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS`：作用域 × 段 → 内置原文（UI 的唯一取数入口；
+  `workflowSubagent` 只映射 `identity`）。
 - `countCustomizedSystemSegments()`：两作用域非继承条目计数（UI「已改写 N 段」徽标）。
+- `SYSTEM_PROMPT_SEGMENT_TEXT_MAX_LENGTH`：单段上限常量（UI 侧 `MAX_SYSTEM_PROMPT_SEGMENT_LENGTH`
+  由它派生，不各写一份）。
 
 ### 协议（packages/shared/src/zcode-protocol/index.ts）
 
@@ -170,11 +186,15 @@ build()
   `<ServiceProvider services={localHostServices}>` 包裹——系统提示词是本机全局事实，远程
   workspace 激活时不得读远端 Host）：
   - 顶部：说明文案 + 「已改写 N 段」徽标（两作用域合计，按**已保存值**计数）。
-  - 批量动作：「全部恢复继承」立即提交 `{}`（并清空 v1 旧字段）；「全部改为自定义
-    （以内置原文为起点）」把两作用域全部段置为 override 草稿、预填内置原文，等待显式保存。
-  - Tabs（radix `Tabs`）：主身份（三张卡）/ 工作流子代理（仅 Agent 身份卡，描述 persona 组合语义）。
+  - 批量动作：「全部恢复继承」立即提交 `{}`（并清空 v1 旧字段）；「主身份全部改为自定义
+    （以内置原文为起点）」把**主身份三段**置为 override 草稿、预填内置原文，保留另一页签的
+    草稿，等待显式保存（工作流子代理身份段是参数化段，没有静态起点，不参与）。
+  - Tabs（radix `Tabs`）：主身份（三张卡）/ 工作流子代理（仅 Agent 身份卡；页签说明里讲清
+    「继承 = 运行时在开场句之后插入脚本写的 persona」与「覆盖会连同 persona 与工作流契约一起
+    替换，需要保留 persona 请用追加」）。
   - 段卡片：标题 + 标签（系统消息；桌面上下文追加「条件注入」）+ 副标题（稳定段（进
-    prompt 缓存））+ 模式切换（继承/覆盖/追加/清空）+ 文本域。继承态只读回显内置原文；
+    prompt 缓存））+ 模式切换（继承/覆盖/追加/清空）+ 文本域。继承态只读回显**该作用域**的
+    内置原文（取自 `BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS`，不是所有页签共用三段文本）；
     覆盖/追加编辑用户文本（追加只保存增量部分，不混排内置原文）；清空不显示文本域。
   - 「保存」提交两作用域草稿（`normalizeCustomSystemSegments` 后）；dirty = 草稿与已保存
     归一化值不等；单段超限禁止保存。
@@ -184,6 +204,8 @@ build()
     `packages/ui/test/systemPromptDraft.test.ts` 钉规则。
 - `useSettingService.update()` 分支：patch 含 `customSystemSegments` 时并入 App 偏好同步
   与广播；偏好快照始终携带当前生效值（含 `{}`），防止无关开关的同步用缺字段快照覆盖。
+  快照构造收敛在 `settings/appRuntimePreferences.ts`（`buildAppRuntimePreferenceSnapshot` /
+  `touchesAppRuntimePreferences`），与 `Root.tsx` 的两处初始化同步共用同一实现。
 
 ## 兼容与降级
 
@@ -206,14 +228,22 @@ build()
 4. 清空：桌面上下文「清空」→ desktop surface 会话不再出现该段；其他段不受影响。
 5. 全部恢复继承：一键后徽标回「已改写 0 段」，所有会话回到内置拼装；新建 CLI client
    同步到清空态（`{}` 仍随偏好快照下发）。
-6. 全部改为自定义：所有卡切「覆盖」并预填内置原文，未保存前 settings 不变（草稿可见）。
-7. 工作流子代理：子代理页签「追加」文本保存 → dwf actor 身份段 = persona + 追加文本；
+6. 全部改为自定义：**主身份**三卡切「覆盖」并预填内置原文，工作流子代理页签的草稿不变，
+   未保存前 settings 不变（草稿可见）。
+7. 工作流子代理：页签继承态回显的是**子代理身份模板**（含 `# Working inside a workflow`
+   契约，不是交互式身份）；「追加」文本保存 → dwf actor 身份段 = 开场句 + persona +
+   追加文本；「覆盖」保存 → 整段被用户文本替换（persona 与契约一并消失，页签说明已警告）；
    主身份三段对其不生效；v1 systemPrompt 互斥保护不回归。
 8. 条件注入：桌面上下文「继承」时仅 zcode_desktop surface 注入；「覆盖」后同样只在该
    surface 注入（门不因分段改变）。
-9. 冷启动继承：保存后重启 App，直接新建会话即生效（反向请求路径，不依赖进程缓存）。
+9. 冷启动继承：保存后重启 App，直接新建会话即生效（反向请求路径，不依赖进程缓存）；
+   desktop-attached remote / 手机远控 / 远端 Bot 任务的新会话同样生效（三处
+   `resolveSessionRuntimePreferences` 都携带字段）。
 10. 多窗口：A 窗口保存，B 窗口徽标与卡片同步（广播）。
 11. 回合中修改：运行中会话不中断当前回合，下一回合生效。
 12. 迁移：v1 保存过整段自定义 → 打开设置页后 setting.json 的旧字段清空、
     `main.identity` 出现 override 条目，生效文本不变（动态段恢复内置注入属预期语义变化）。
 13. 越界：单段 >200 000 字符被 schema 拒绝（UI 提交前同样拦截）。
+14. 偏好快照完整性：任意设置项变更（含与本功能无关的开关）后，host 侧
+    `latestAppRuntimePreferences` 仍带着系统提示词两个字段；此后新注册的 CLI client
+    重放快照不会丢值。

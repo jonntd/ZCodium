@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS,
+  BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS,
   SYSTEM_PROMPT_SEGMENT_IDS,
   type CustomSystemSegments,
   type SystemPromptSegmentId,
@@ -26,7 +27,7 @@ import {
   MAX_SYSTEM_PROMPT_SEGMENT_LENGTH,
   canonicalizeSystemPromptSegments,
   countSavedSystemPromptSegments,
-  createAllOverrideSystemPromptDraft,
+  createAllOverrideMainDraft,
   createSystemPromptDraftFromSaved,
   hasOverLimitSystemPromptSegment,
   isSystemPromptDraftDirty,
@@ -141,8 +142,12 @@ export function SystemPromptSection() {
   }, [applyValue]);
 
   const handleAllToCustom = useCallback(() => {
-    // 只改草稿：预填内置原文，等用户显式保存（避免一键就把内置文本写成自定义覆盖）。
-    setDraft(createAllOverrideSystemPromptDraft(BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS));
+    // 只改「主身份」三段（工作流子代理的身份段是 persona 参数化段，没有静态内置原文可作起点），
+    // 并保留用户在另一页签上尚未提交的编辑。等用户显式保存，不一键落盘。
+    setDraft((current) => ({
+      ...createAllOverrideMainDraft(BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS),
+      workflowSubagent: current.workflowSubagent,
+    }));
   }, []);
 
   const handleSave = useCallback(() => {
@@ -288,7 +293,9 @@ function SegmentCard({
 }) {
   const { intl } = useZCodeIntl();
   const entry = draft[surface][segmentId];
-  const builtinText = BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS[segmentId];
+  // 每个作用域的内置原文不同：工作流子代理的身份段是**无 persona 的基础文本**，
+  // 真实内容还会多出脚本写的 persona（见 shared 的 BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS）。
+  const builtinText = BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS[surface][segmentId] ?? "";
   const title = intl.formatMessage({ id: SEGMENT_TITLES[segmentId] });
 
   return (

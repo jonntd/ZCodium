@@ -4,8 +4,11 @@ import { appSettingsPatchSchema, appSettingsSchema } from "../src/validationAppS
 import { appRuntimePreferencesChangedBroadcastPayloadSchema } from "../src/app-runtime-preferences.js";
 import {
   BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS,
+  BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS,
+  BUILTIN_SYSTEM_PROMPT_WORKFLOW_ACTOR_IDENTITY,
   SYSTEM_PROMPT_SEGMENT_IDS,
   SYSTEM_PROMPT_SEGMENT_TEXT_MAX_LENGTH,
+  buildBuiltinWorkflowActorIdentityPrompt,
   countCustomizedSystemSegments,
   customSystemSegmentsSchema,
   normalizeCustomSystemSegments,
@@ -98,6 +101,39 @@ test("builtin: 三段内置原文均非空且覆盖全部段 id", () => {
   for (const segmentId of SYSTEM_PROMPT_SEGMENT_IDS) {
     assert.ok(BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS[segmentId].length > 0, `缺内置原文 ${segmentId}`);
   }
+});
+
+test("builtin: 工作流子代理身份原文是脚本向的契约文本，不是交互式身份", () => {
+  const actorText = BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS.workflowSubagent.identity ?? "";
+  assert.equal(actorText, BUILTIN_SYSTEM_PROMPT_WORKFLOW_ACTOR_IDENTITY);
+  assert.ok(actorText.includes("# Working inside a workflow"));
+  assert.ok(actorText.includes("submit_result"));
+  assert.ok(actorText.includes("escalate"));
+  // 关键：曾经设置页在这一页签回显的是交互式身份（错的）。
+  assert.ok(!actorText.includes("interactive ZCode agent"));
+  // 无 persona 形态：空白 persona 与缺席等价。
+  assert.equal(buildBuiltinWorkflowActorIdentityPrompt({ persona: "   " }), actorText);
+});
+
+test("builtin: 角色名与 persona 按「开场句 → persona → 安全行」的顺序插入", () => {
+  const text = buildBuiltinWorkflowActorIdentityPrompt({
+    name: " auditor ",
+    persona: "You audit.",
+  });
+  assert.ok(
+    text.startsWith('You are a subagent inside a dynamic workflow run, named "auditor".'),
+    text.slice(0, 120),
+  );
+  assert.ok(text.includes("\n\nYou audit.\n\nIMPORTANT: Assist with authorized security testing"));
+});
+
+test("builtin: main 映射三段，workflowSubagent 只映射身份段", () => {
+  assert.equal(
+    BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS.main.identity,
+    BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS.identity,
+  );
+  assert.equal(BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS.workflowSubagent.cliPrefix, undefined);
+  assert.equal(BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS.workflowSubagent.desktop, undefined);
 });
 
 test("appSettings: 分段字段进存储 schema（否则写盘被 strip、开关回弹）", () => {
