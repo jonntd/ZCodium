@@ -75,13 +75,13 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.modelProviderTitle",
     groupId: "basics",
   },
-  // 系统提示词紧跟「模型配置」：两者都是「Agent 拿什么去请求模型」的配置，
-  // 分段编辑器自成一栏（原先挤在「常规」末尾，长页面里很难找到）。
+  // 系统提示词在「Agent 能力」分组首位（codex_ui 还原说明 §4）：它决定 Agent 的
+  // 身份与行为契约，比记忆/子代理等能力项更靠前。
   {
     id: "systemPrompt",
     icon: ScrollText,
     titleId: "settings.systemPrompt",
-    groupId: "basics",
+    groupId: "agentCapabilities",
   },
   {
     id: "memory",

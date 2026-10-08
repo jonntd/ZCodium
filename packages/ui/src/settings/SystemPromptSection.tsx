@@ -1,28 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BUILTIN_SYSTEM_PROMPT_SEGMENT_TEXTS,
-  BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS,
   SYSTEM_PROMPT_SEGMENT_IDS,
   type CustomSystemSegments,
   type SystemPromptSegmentId,
   type SystemPromptSurfaceId,
 } from "@zcode/shared";
-import { cn } from "@/components/lib/utils.js";
+import { RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { toast } from "@/components/ui/toast.js";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
 import { ResponseLanguageField } from "@/settings/ResponseLanguageField.js";
-import { SettingsFormTextarea } from "@/settings/SettingsFormTextarea.js";
+import { SystemPromptSegmentCard } from "@/settings/SystemPromptSegmentCard.js";
 import { SettingsBadge, SettingsGroupCard } from "@/settings/SettingsPageParts.js";
 import {
   MAX_SYSTEM_PROMPT_SEGMENT_LENGTH,
@@ -159,19 +151,34 @@ export function SystemPromptSection() {
   return (
     <SettingsGroupCard>
       <div className="px-4 pb-4 pt-4">
-        <div className="flex items-center justify-between gap-2">
-          <div className="text-ui-base font-medium text-foreground">
-            {intl.formatMessage({ id: "settings.systemPrompt" })}
-          </div>
+        <div className="text-ui-base font-medium text-foreground">
+          {intl.formatMessage({ id: "settings.systemPrompt" })}
+        </div>
+        <div className="mt-2 text-ui-base leading-6 text-foreground-subtle">
+          {intl.formatMessage({ id: "settings.systemPromptDescription" })}
+        </div>
+
+        {/* 状态 pills（codex_ui 还原说明 §8）：当前作用域 + 已改写段数。 */}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <SettingsBadge data-testid="settings-system-prompt-scope-pill">
+            {intl.formatMessage(
+              { id: "settings.systemPrompt.scopePill" },
+              {
+                scope: intl.formatMessage({
+                  id:
+                    activeSurface === "main"
+                      ? "settings.systemPrompt.tab.main"
+                      : "settings.systemPrompt.tab.workflowSubagent",
+                }),
+              },
+            )}
+          </SettingsBadge>
           <SettingsBadge>
             {intl.formatMessage(
               { id: "settings.systemPromptCustomizedCount" },
               { count: savedCount },
             )}
           </SettingsBadge>
-        </div>
-        <div className="mt-2 text-ui-base leading-6 text-foreground-subtle">
-          {intl.formatMessage({ id: "settings.systemPromptDescription" })}
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -182,6 +189,7 @@ export function SystemPromptSection() {
             onClick={handleRestoreAll}
             data-testid="settings-system-prompt-restore-all"
           >
+            <RotateCcw className="size-3.5" aria-hidden={true} />
             {intl.formatMessage({ id: "settings.systemPromptRestoreAll" })}
           </Button>
           <Button
@@ -213,8 +221,12 @@ export function SystemPromptSection() {
             <div className="text-ui-sm leading-5 text-foreground-subtle">
               {intl.formatMessage({ id: "settings.systemPrompt.mainHint" })}
             </div>
+            {/* 小节标题（codex_ui 还原说明 §11）。 */}
+            <div className="text-ui-sm font-medium text-foreground-subtle">
+              {intl.formatMessage({ id: "settings.systemPrompt.commonSegments" })}
+            </div>
             {SYSTEM_PROMPT_SEGMENT_IDS.map((segmentId) => (
-              <SegmentCard
+              <SystemPromptSegmentCard
                 key={segmentId}
                 surface="main"
                 segmentId={segmentId}
@@ -228,7 +240,7 @@ export function SystemPromptSection() {
             <div className="text-ui-sm leading-5 text-foreground-subtle">
               {intl.formatMessage({ id: "settings.systemPrompt.workflowHint" })}
             </div>
-            <SegmentCard
+            <SystemPromptSegmentCard
               surface="workflowSubagent"
               segmentId="identity"
               draft={draft}
@@ -262,112 +274,10 @@ export function SystemPromptSection() {
 
         {/* 回复语言（docs/spec/response-language.md）：与 prompt 作用域同区展示，
           选中即保存，不参与上方分段草稿/保存按钮的 dirty 流程。 */}
-        <div className="mt-4 border-t border-border-tertiary pt-3">
+        <div className="mt-4 border-t border-border pt-3">
           <ResponseLanguageField />
         </div>
       </div>
     </SettingsGroupCard>
-  );
-}
-
-const MODE_OPTIONS: { value: SystemPromptDraftMode; labelId: string }[] = [
-  { value: "inherit", labelId: "settings.systemPrompt.mode.inherit" },
-  { value: "override", labelId: "settings.systemPrompt.mode.override" },
-  { value: "append", labelId: "settings.systemPrompt.mode.append" },
-  { value: "clear", labelId: "settings.systemPrompt.mode.clear" },
-];
-
-const SEGMENT_TITLES: Record<SystemPromptSegmentId, string> = {
-  cliPrefix: "settings.systemPrompt.segment.cliPrefix",
-  identity: "settings.systemPrompt.segment.identity",
-  desktop: "settings.systemPrompt.segment.desktop",
-};
-
-function SegmentCard({
-  surface,
-  segmentId,
-  draft,
-  onUpdate,
-}: {
-  surface: SystemPromptSurfaceId;
-  segmentId: SystemPromptSegmentId;
-  draft: SystemPromptDraft;
-  onUpdate: (
-    surface: SystemPromptSurfaceId,
-    segmentId: SystemPromptSegmentId,
-    patch: Partial<{ mode: SystemPromptDraftMode; text: string }>,
-  ) => void;
-}) {
-  const { intl } = useZCodeIntl();
-  const entry = draft[surface][segmentId];
-  // 每个作用域的内置原文不同：工作流子代理的身份段是**无 persona 的基础文本**，
-  // 真实内容还会多出脚本写的 persona（见 shared 的 BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS）。
-  const builtinText = BUILTIN_SYSTEM_PROMPT_SURFACE_SEGMENT_TEXTS[surface][segmentId] ?? "";
-  const title = intl.formatMessage({ id: SEGMENT_TITLES[segmentId] });
-
-  return (
-    <div className="rounded-lg border border-border bg-surface/40 px-3 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-ui-base font-medium text-foreground">{title}</span>
-          <SettingsBadge>
-            {intl.formatMessage({ id: "settings.systemPrompt.systemMessage" })}
-          </SettingsBadge>
-          {segmentId === "desktop" ? (
-            <SettingsBadge>
-              {intl.formatMessage({ id: "settings.systemPrompt.conditionalInjection" })}
-            </SettingsBadge>
-          ) : null}
-        </div>
-        <Select
-          value={entry.mode}
-          onValueChange={(value) =>
-            onUpdate(surface, segmentId, { mode: value as SystemPromptDraftMode })
-          }
-        >
-          <SelectTrigger
-            size="sm"
-            aria-label={`${title} ${intl.formatMessage({ id: "settings.systemPrompt.modeLabel" })}`}
-            data-testid={`settings-system-prompt-mode-${surface}-${segmentId}`}
-          >
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {MODE_OPTIONS.map((option) => (
-              <SelectItem key={option.value} value={option.value}>
-                {intl.formatMessage({ id: option.labelId })}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="mt-1 text-ui-sm text-foreground-subtle">
-        {intl.formatMessage({ id: "settings.systemPrompt.stableSegmentHint" })}
-      </div>
-
-      {entry.mode === "clear" ? (
-        <div className="mt-2 text-ui-sm text-foreground-subtle">
-          {intl.formatMessage({ id: "settings.systemPrompt.clearedHint" })}
-        </div>
-      ) : (
-        <SettingsFormTextarea
-          className={cn(
-            "mt-2 min-h-32 w-full resize-y font-mono text-ui-sm",
-            entry.mode === "inherit" && "text-foreground-subtle",
-          )}
-          readOnly={entry.mode === "inherit"}
-          aria-label={title}
-          data-testid={`settings-system-prompt-text-${surface}-${segmentId}`}
-          value={entry.mode === "inherit" ? builtinText : entry.text}
-          placeholder={intl.formatMessage({
-            id:
-              entry.mode === "append"
-                ? "settings.systemPrompt.appendPlaceholder"
-                : "settings.systemPrompt.overridePlaceholder",
-          })}
-          onChange={(event) => onUpdate(surface, segmentId, { text: event.target.value })}
-        />
-      )}
-    </div>
   );
 }
