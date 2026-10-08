@@ -144,9 +144,10 @@ export function RemoteRelaySection() {
   const [copied, setCopied] = useState(false);
   // 默认收起：多数用户只需要上面那条链接；中继地址/密钥/工作区属于一次性的高级配置。
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  // 二维码弹层（spec §18.6）：时效按次生成签名链接，默认 24 小时。
+  // 二维码弹层（spec §18.6）：默认永久——与上方「手机访问链接」是同一条，避免两处
+  // 链接不一致（用户实测困惑点）；需要临时授权时再切 1 小时 / 24 小时 / 7 天。
   const [qrOpen, setQrOpen] = useState(false);
-  const [linkTtl, setLinkTtl] = useState<number | null>(86_400);
+  const [linkTtl, setLinkTtl] = useState<number | null>(null);
   const [generatedLink, setGeneratedLink] = useState<{
     shareUrl: string | null;
     expiresAt: number | null;
