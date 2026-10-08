@@ -99,6 +99,11 @@ export interface ZCodeProtocolSessionRecord {
    * 全部继承。inherit 源的子会话从这里继承（与 customSystemPrompt 同一固化模式）。
    */
   customSystemSegments?: CustomSystemSegments;
+  /**
+   * 会话创建时固化的回复语言（docs/spec/response-language.md）；undefined =
+   * 跟随用户消息。inherit 源的子会话从这里继承（与 customSystemSegments 同一固化模式）。
+   */
+  language?: string;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
   /**
@@ -169,6 +174,11 @@ export interface ZCodeProtocolAgentServerContext {
      * （仍同步，让新建 CLI client 拿到清空态）。
      */
     customSystemSegments?: CustomSystemSegments;
+    /**
+     * host 同步的回复语言（docs/spec/response-language.md）。空串在 CLI handler 里
+     * 归一化为 undefined（跟随用户消息），缓存里只存非空值或缺席。
+     */
+    language?: string;
   };
   // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
   // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。

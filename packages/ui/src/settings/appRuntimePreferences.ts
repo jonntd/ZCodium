@@ -19,6 +19,8 @@ export interface AppRuntimePreferenceSnapshot {
   customSystemPrompt: string;
   /** `{}` = 已全部恢复继承；缺席才是「从未使用」，UI 侧永远给出确定值。 */
   customSystemSegments: CustomSystemSegments;
+  /** 回复语言（docs/spec/response-language.md）；空串 = 跟随用户消息。 */
+  language: string;
 }
 
 export function buildAppRuntimePreferenceSnapshot(
@@ -37,6 +39,7 @@ export function buildAppRuntimePreferenceSnapshot(
       patch?.batchDeleteApprovalThreshold ?? settings?.batchDeleteApprovalThreshold ?? 50,
     customSystemPrompt: patch?.customSystemPrompt ?? settings?.customSystemPrompt ?? "",
     customSystemSegments: patch?.customSystemSegments ?? settings?.customSystemSegments ?? {},
+    language: patch?.language ?? settings?.language ?? "",
   };
 }
 
@@ -48,6 +51,7 @@ export function touchesAppRuntimePreferences(patch: Partial<AppSettings>): boole
     typeof patch.deleteProtectionEnabled === "boolean" ||
     typeof patch.batchDeleteApprovalThreshold === "number" ||
     typeof patch.customSystemPrompt === "string" ||
-    patch.customSystemSegments !== undefined
+    patch.customSystemSegments !== undefined ||
+    typeof patch.language === "string"
   );
 }

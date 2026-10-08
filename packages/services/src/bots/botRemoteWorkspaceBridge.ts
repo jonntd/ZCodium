@@ -341,6 +341,10 @@ export function createBotRemoteWorkspaceService(params: {
                 ? { customSystemPrompt: settings.customSystemPrompt }
                 : {}),
               ...(Object.keys(customSystemSegments).length > 0 ? { customSystemSegments } : {}),
+              // 回复语言（docs/spec/response-language.md）：与本地 Host 同源，非空才携带。
+              ...(typeof settings.language === "string" && settings.language.trim()
+                ? { language: settings.language.trim() }
+                : {}),
             };
           });
       await services.zcodeAgentService.syncAppRuntimePreferences(preferences);

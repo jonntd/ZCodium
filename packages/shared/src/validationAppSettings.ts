@@ -482,6 +482,8 @@ const appSettingsObjectSchema = z.object({
   batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.default(50),
   customSystemPrompt: customSystemPromptSchema.optional(),
   customSystemSegments: customSystemSegmentsSettingSchema.optional(),
+  // 回复语言（docs/spec/response-language.md）：空串/缺席 = 跟随用户消息。
+  language: z.string().max(64).optional(),
   modelIoFullRetentionEnabled: z.boolean().default(false),
   startPlanRecommendationDismissed: z.boolean().default(false),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.default({}),
@@ -558,6 +560,7 @@ export const appSettingsPatchSchema = z.object({
   batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.optional(),
   customSystemPrompt: customSystemPromptSchema.optional(),
   customSystemSegments: customSystemSegmentsSettingSchema.optional(),
+  language: z.string().max(64).optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
   startPlanRecommendationDismissed: z.boolean().optional(),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.optional(),

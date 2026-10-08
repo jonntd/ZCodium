@@ -570,6 +570,11 @@ export interface ZCodeAgentAppRuntimePreferences {
    * 必败往返）；`{}` = 已全部恢复继承（仍同步，让新建 CLI client 拿到清空态）。
    */
   customSystemSegments?: CustomSystemSegments;
+  /**
+   * 回复语言（docs/spec/response-language.md）：模型回复的首选语言；
+   * 空串/缺席 = 跟随用户消息（不注入提示）。
+   */
+  language?: string;
 }
 
 export interface ZCodeAgentLocalRuntimeChildProcesses {

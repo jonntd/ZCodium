@@ -2352,6 +2352,11 @@ export function createLocalServices(options: {
               // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：非空（至少一段非继承）
               // 才携带；全继承不下发，与 CLI 缺省语义一致。
               ...(Object.keys(customSystemSegments).length > 0 ? { customSystemSegments } : {}),
+              // 回复语言（docs/spec/response-language.md）：现读 settingService，非空才携带，
+              // CLI 缺省即跟随用户消息。
+              ...(typeof settings.language === "string" && settings.language.trim()
+                ? { language: settings.language.trim() }
+                : {}),
               // user-execution 只消费 Shell；共享默认策略是统一 result schema 的兼容占位，
               // 不会覆盖 runtime-materialization 阶段已经固定的 strategy。
               ...(scope === "user-execution" && settings.integratedTerminalShell

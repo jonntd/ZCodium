@@ -295,6 +295,10 @@ export function createRemoteWorkspaceServiceCollection(params: {
                 : {}),
               // 分段系统提示词（v2）：全继承不下发，与 CLI 缺省语义一致。
               ...(Object.keys(customSystemSegments).length > 0 ? { customSystemSegments } : {}),
+              // 回复语言（docs/spec/response-language.md）：与本地 Host 同源，非空才携带。
+              ...(typeof settings.language === "string" && settings.language.trim()
+                ? { language: settings.language.trim() }
+                : {}),
               // remote workspace 与本地 Host 保持同一 scope 边界，首次执行不得再次等待 client config。
               ...(request.scope === "user-execution" && settings.integratedTerminalShell
                 ? { integratedTerminalShell: settings.integratedTerminalShell }

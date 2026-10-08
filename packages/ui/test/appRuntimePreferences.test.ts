@@ -51,3 +51,21 @@ test("触发判定：只有偏好字段才触发同步", () => {
   assert.equal(touchesAppRuntimePreferences({ customSystemPrompt: "" }), true);
   assert.equal(touchesAppRuntimePreferences({ deleteProtectionEnabled: true }), true);
 });
+
+test("回复语言：快照恒携带（空串 = 跟随用户消息），清空态可穿越 RPC", () => {
+  const empty = buildAppRuntimePreferenceSnapshot(null);
+  assert.equal(empty.language, "");
+
+  const saved = buildAppRuntimePreferenceSnapshot({ language: "简体中文" } as never);
+  assert.equal(saved.language, "简体中文");
+
+  // 清空态：patch 显式给空串必须优先于 settings 的旧值，否则恢复默认永远送不到 CLI。
+  const cleared = buildAppRuntimePreferenceSnapshot({ language: "简体中文" } as never, {
+    language: "",
+  });
+  assert.equal(cleared.language, "");
+
+  // 触发判定：空串也是显式变更（恢复默认），必须触发同步。
+  assert.equal(touchesAppRuntimePreferences({ language: "" }), true);
+  assert.equal(touchesAppRuntimePreferences({ language: "English" }), true);
+});

@@ -1020,6 +1020,17 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         }
         getRuntime().updateConfig({ customSystemSegments: segments });
       },
+      updateLanguage: (language) => {
+        // 回复语言（docs/spec/response-language.md）：同 updateSystemPrompt 的双写原因。
+        // language 没有「空对象=清空态」的分叉：undefined/空串都是跟随用户消息，
+        // handler 已把空白归一化成 undefined。
+        if (language === undefined) {
+          delete runtimeConfig.language;
+        } else {
+          runtimeConfig.language = language;
+        }
+        getRuntime().updateConfig({ language });
+      },
       readToolResultArtifact: (uri) =>
         artifactStore.readToolResultArtifact({ uri, trace: traceContext }),
       // wire/staging 全程是 decoded chunk；只有完整 checksum commit 后才在

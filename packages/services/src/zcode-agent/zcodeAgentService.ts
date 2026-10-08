@@ -97,6 +97,7 @@ import {
   zcodeWorkspaceUpdateDeleteProtectionPreferencesResultSchema,
   zcodeWorkspaceUpdateSystemPromptResultSchema,
   zcodeWorkspaceUpdateSystemSegmentsResultSchema,
+  zcodeWorkspaceUpdateLanguagePreferenceResultSchema,
   customSystemSegmentsSchema,
   normalizeCustomSystemSegments,
   zcodeProviderUpdateAccountConfigResultSchema,
@@ -1540,6 +1541,23 @@ export function createZCodeAgentService(
             );
           } catch (error) {
             // 旧 CLI 不认识该方法：静默降级，保持其内置系统提示词。
+            if (!isProtocolMethodNotFoundError(error)) throw error;
+          }
+        }
+        // 回复语言（docs/spec/response-language.md）：快照恒携带（含空串清空态），
+        // 只在字段在场时发送（老快照可能没有该字段），旧 CLI method-not-found 静默降级。
+        if (typeof params.preferences.language === "string") {
+          try {
+            await params.client.request(
+              zcodeProtocolMethods.workspaceUpdateLanguagePreference,
+              {
+                workspace: buildWorkspaceRef(params.workspace),
+                language: params.preferences.language,
+              },
+              zcodeWorkspaceUpdateLanguagePreferenceResultSchema,
+            );
+          } catch (error) {
+            // 旧 CLI 不认识该方法：静默降级，保持跟随用户消息。
             if (!isProtocolMethodNotFoundError(error)) throw error;
           }
         }
@@ -3468,6 +3486,10 @@ export function createZCodeAgentService(
             ? preferences.customSystemPrompt
             : undefined,
         customSystemSegments: normalizedSystemSegments,
+        // 回复语言（docs/spec/response-language.md）：仅拦截非 string 类型；空串必须原样
+        // 保留——它是「跟随用户消息」的显式载体，折叠成 undefined 会让清空永远送不到
+        // 活会话。trim 由 CLI handler 负责。
+        language: typeof preferences.language === "string" ? preferences.language : undefined,
       };
       latestAppRuntimePreferences = normalizedPreferences;
       const activeClients = [...activeClientsByWorkspaceKey.values()];

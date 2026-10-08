@@ -90,6 +90,7 @@ import {
   updateSystemPromptPreferences,
   updateSystemSegmentsPreferences,
 } from "./system-prompt-preferences.js";
+import { updateLanguagePreference } from "./language-preference.js";
 import { updateOffPeakToolPolicy } from "./off-peak-tool-policy.js";
 import { updateDynamicWorkflowPolicy } from "./dynamic-workflow-policy.js";
 import { grantWorkspaceHookTrustForProtocol } from "./workspace-hook-trust.js";
@@ -643,6 +644,8 @@ export class ZCodeProtocolAgentServer {
         return await updateSystemPromptPreferences(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateSystemSegments:
         return await updateSystemSegmentsPreferences(this.context, request.params);
+      case zcodeProtocolMethods.workspaceUpdateLanguagePreference:
+        return await updateLanguagePreference(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateOffPeakToolPolicy:
         return await updateOffPeakToolPolicy(this.context, request.params);
       case zcodeProtocolMethods.workspaceUpdateDynamicWorkflowPolicy:

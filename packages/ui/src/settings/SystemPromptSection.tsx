@@ -21,6 +21,7 @@ import { toast } from "@/components/ui/toast.js";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { logger } from "@/logger.js";
+import { ResponseLanguageField } from "@/settings/ResponseLanguageField.js";
 import { SettingsFormTextarea } from "@/settings/SettingsFormTextarea.js";
 import { SettingsBadge, SettingsGroupCard } from "@/settings/SettingsPageParts.js";
 import {
@@ -257,6 +258,12 @@ export function SystemPromptSection() {
           >
             {intl.formatMessage({ id: "settings.systemPromptSave" })}
           </Button>
+        </div>
+
+        {/* 回复语言（docs/spec/response-language.md）：与 prompt 作用域同区展示，
+          选中即保存，不参与上方分段草稿/保存按钮的 dirty 流程。 */}
+        <div className="mt-4 border-t border-border-tertiary pt-3">
+          <ResponseLanguageField />
         </div>
       </div>
     </SettingsGroupCard>

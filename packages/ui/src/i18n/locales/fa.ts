@@ -2152,6 +2152,10 @@ const faIR: Record<string, string> = {
   "settings.systemPrompt.overridePlaceholder": "متنی که جای متن پیش‌فرض را می‌گیرد",
   "settings.systemPromptApplyHint": "از درخواست بعدی اعمال می‌شود.",
   "settings.systemPromptSave": "ذخیره",
+  "settings.responseLanguage": "زبان پاسخ",
+  "settings.responseLanguageDescription":
+    "پس از ذخیره در پرامپت سیستم نوشته می‌شود تا مدل ابتدا به این زبان پاسخ دهد؛ با انتخاب «پیروی از زبان کاربر» چیزی تزریق نمی‌شود.",
+  "settings.responseLanguageFollow": "پیروی از زبان کاربر",
   "settings.systemPromptSaved": "پرامپت سیستم ذخیره شد؛ نشست‌های بیکار بی‌درنگ آن را اعمال می‌کنند.",
   "settings.systemPromptRestored": "پرامپت سیستمی پیش‌فرض بازگردانده شد.",
   "settings.systemPromptSaveFailed": "ذخیرهٔ پرامپت سیستم ممکن نشد: {message}",

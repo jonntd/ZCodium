@@ -1728,6 +1728,8 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
     customSystemPrompt: z.string().max(200_000).optional(),
     // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：兼容旧 Host 缺省 = 全部继承。
     customSystemSegments: customSystemSegmentsSchema.optional(),
+    // 回复语言（docs/spec/response-language.md）：兼容旧 Host 缺省 = 跟随用户消息。
+    language: z.string().max(64).optional(),
   })
   .strict();
 export type ZCodeSessionRuntimePreferencesResult = z.infer<
@@ -1778,6 +1780,30 @@ export const zcodeWorkspaceUpdateSystemSegmentsResultSchema = z
   .strict();
 export type ZCodeWorkspaceUpdateSystemSegmentsResult = z.infer<
   typeof zcodeWorkspaceUpdateSystemSegmentsResultSchema
+>;
+
+// 回复语言（docs/spec/response-language.md）：空串显式可传 = 恢复「跟随用户消息」；
+// 归一化（trim、空白→undefined）在 CLI handler 内做。
+export const zcodeWorkspaceUpdateLanguagePreferenceParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    language: z.string().max(64),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateLanguagePreferenceParams = z.infer<
+  typeof zcodeWorkspaceUpdateLanguagePreferenceParamsSchema
+>;
+
+export const zcodeWorkspaceUpdateLanguagePreferenceResultSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    // 回显归一化后的值：空串表示已回到「跟随用户消息」。
+    language: z.string(),
+    updatedSessionCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateLanguagePreferenceResult = z.infer<
+  typeof zcodeWorkspaceUpdateLanguagePreferenceResultSchema
 >;
 
 /**
@@ -3704,6 +3730,8 @@ export const zcodeProtocolMethods = {
   // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：同上独立方法降级模式；
   // 空对象 = 全部恢复继承。
   workspaceUpdateSystemSegments: "workspace/updateSystemSegments",
+  // 回复语言（docs/spec/response-language.md）：同上独立方法降级模式；空串 = 跟随用户消息。
+  workspaceUpdateLanguagePreference: "workspace/updateLanguagePreference",
   // Off-Peak 工具面门禁是 workspace 级事实（灰度 + 本地/远程），由 host 在 agent 就绪时同步；
   // CLI 对 legacy create/resume 与 v4 冷恢复统一读取。旧 CLI method-not-found → host 降级忽略。
   workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",

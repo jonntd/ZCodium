@@ -2340,6 +2340,10 @@ const enUS: Record<string, string> = {
   "settings.systemPrompt.overridePlaceholder": "Text that replaces the built-in segment",
   "settings.systemPromptApplyHint": "Applies from the next request.",
   "settings.systemPromptSave": "Save",
+  "settings.responseLanguage": "Response language",
+  "settings.responseLanguageDescription":
+    "Written into the system prompt so the model replies in this language first; pick \"Follow the user's language\" to inject nothing.",
+  "settings.responseLanguageFollow": "Follow the user's language",
   "settings.systemPromptSaved": "System prompt saved; idle sessions pick it up immediately.",
   "settings.systemPromptRestored": "Restored the built-in system prompt.",
   "settings.systemPromptSaveFailed": "Failed to save the system prompt: {message}",

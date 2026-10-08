@@ -632,6 +632,11 @@ export interface ZCodeApp {
    * undefined = 从未使用。空闲会话立即重建上下文前缀；回合中的会话下一回合生效。
    */
   updateSystemSegments?(segments: CustomSystemSegments): void;
+  /**
+   * 回复语言（docs/spec/response-language.md）：undefined = 跟随用户消息。
+   * 实现必须双写（runtimeConfig + getRuntime().updateConfig），否则「新会话生效、老会话不生效」。
+   */
+  updateLanguage?(language: string | undefined): void;
   setModel(
     modelId: string | ModelSelection,
     options?: {

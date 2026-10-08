@@ -331,6 +331,8 @@ export interface AppSettings {
    * validationAppSettings.ts，类型与内置原文见 system-prompt-segments.ts。
    */
   customSystemSegments?: CustomSystemSegments;
+  /** 回复语言（docs/spec/response-language.md）：空串/缺席 = 跟随用户消息（不注入提示）。 */
+  language?: string;
   /** 是否完整保留 Model I/O；开启后不轮转、不限额重置、不压缩或裁剪，鉴权信息仍会脱敏。 */
   modelIoFullRetentionEnabled?: boolean;
   /** 设置页中每个 Provider Family 当前唯一的结构化连接选择。 */

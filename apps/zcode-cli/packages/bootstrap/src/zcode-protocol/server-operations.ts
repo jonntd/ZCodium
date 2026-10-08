@@ -156,6 +156,8 @@ interface SessionStartupPreferences {
    * 不能按 falsy 折叠。
    */
   customSystemSegments?: CustomSystemSegments;
+  /** 回复语言（docs/spec/response-language.md）；undefined = 跟随用户消息。 */
+  language?: string;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
 }
 
@@ -3264,6 +3266,8 @@ async function resolveSessionStartupPreferences(
       customSystemPrompt: source.parent.customSystemPrompt,
       // 分段配置同样跟父会话走（创建时固化值 = 父会话实际生效值）。
       customSystemSegments: source.parent.customSystemSegments,
+      // 回复语言同样跟父会话走（创建时固化值 = 父会话实际生效值）。
+      language: source.parent.language,
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3283,15 +3287,16 @@ async function resolveSessionStartupPreferences(
     modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
     nativeSearchEnhancementsEnabled: runtimePreferences.nativeSearchEnhancementsEnabled,
     // 旧 Host 缺省 deleteProtection 字段：zod optional 解析为 undefined，按默认值处理。
-    deleteProtection:
-      runtimePreferences.deleteProtection ?? {
-        deleteProtectionEnabled: true,
-        batchDeleteApprovalThreshold: 50,
-      },
+    deleteProtection: runtimePreferences.deleteProtection ?? {
+      deleteProtectionEnabled: true,
+      batchDeleteApprovalThreshold: 50,
+    },
     // 旧 Host 缺省 customSystemPrompt 字段：zod optional 解析为 undefined，即内置默认。
     customSystemPrompt: runtimePreferences.customSystemPrompt,
     // 旧 Host 缺省 customSystemSegments 字段：zod optional 解析为 undefined，即全部继承。
     customSystemSegments: runtimePreferences.customSystemSegments,
+    // 旧 Host 缺省 language 字段：zod optional 解析为 undefined，即跟随用户消息。
+    language: runtimePreferences.language,
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
         context,
@@ -3395,6 +3400,11 @@ async function createRecord(
       ...(startupPreferences.customSystemSegments !== undefined
         ? { customSystemSegments: startupPreferences.customSystemSegments }
         : {}),
+      // 回复语言（docs/spec/response-language.md）：非空才注入——undefined 与空串都表示
+      // 跟随用户消息，CLI 缺省即不注入。
+      ...(startupPreferences.language?.trim()
+        ? { language: startupPreferences.language.trim() }
+        : {}),
       // Memory Settings 是现有 CLI features.memory/use 之外的总开关。只在关闭时
       // 写入 override，避免开启值反向覆盖用户已有的 CLI 禁用配置。
       ...(startupPreferences.memoryEnabled ? {} : { memory: { enabled: false } }),
@@ -3459,6 +3469,7 @@ async function createRecord(
     deleteProtection: startupPreferences.deleteProtection,
     customSystemPrompt: startupPreferences.customSystemPrompt,
     customSystemSegments: startupPreferences.customSystemSegments,
+    language: startupPreferences.language,
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),

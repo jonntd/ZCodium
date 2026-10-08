@@ -16,6 +16,8 @@ export const appRuntimePreferencesChangedBroadcastPayloadSchema = z
     // 分段系统提示词（docs/spec/custom-system-prompt.md v2）。多窗口广播双方同版本
     // 分发，optional 即可；缺席 = 从未使用过分段，{} = 已全部恢复继承。
     customSystemSegments: customSystemSegmentsSchema.optional(),
+    // 回复语言（docs/spec/response-language.md）：default("") 兼容旧发送方，空串 = 跟随用户消息。
+    language: z.string().max(64).default(""),
   })
   .strict();
 

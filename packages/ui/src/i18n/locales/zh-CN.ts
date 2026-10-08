@@ -2192,6 +2192,10 @@ const zhCN: Record<string, string> = {
   "settings.systemPrompt.overridePlaceholder": "在此输入替换内置原文的内容",
   "settings.systemPromptApplyHint": "保存后从下次请求生效。",
   "settings.systemPromptSave": "保存",
+  "settings.responseLanguage": "回复语言",
+  "settings.responseLanguageDescription":
+    "保存后写入系统提示词，模型会优先用该语言回复；选「跟随用户消息」时不注入。",
+  "settings.responseLanguageFollow": "跟随用户消息",
   "settings.systemPromptSaved": "系统提示词已保存，空闲会话立即生效。",
   "settings.systemPromptRestored": "已恢复内置系统提示词。",
   "settings.systemPromptSaveFailed": "系统提示词保存失败：{message}",
