@@ -5,6 +5,7 @@ import { buildSubagentCommonNotes } from "../src/subagent/system-prompt.js";
 import { createContextBuilder } from "../src/context/builder.js";
 import { buildRequestUserContextSection } from "../src/context/sections/request-user-context.js";
 import { buildSkillsSection } from "../src/context/sections/skills.js";
+import { buildCompactPrompt } from "../src/compact/prompt.js";
 import type { ContextBuilderConfig } from "../src/context/types.js";
 import type { EnvInfo } from "../src/runtime/deps.js";
 import type { SkillLoadOutcome } from "@zcode/contracts";
@@ -111,11 +112,49 @@ test("subagent: 行为契约进入子代理 system prompt", () => {
     envInfo: ENV_INFO,
     currentDate: "2026-10-08",
   }).build();
-  const notesMessage = result.systemMessages
-    .map((message) => message.content)
-    .join("\n");
+  const notesMessage = result.systemMessages.map((message) => message.content).join("\n");
   assert.ok(notesMessage.includes("Lead with the outcome"));
   assert.ok(notesMessage.includes("Report outcomes faithfully"));
+});
+
+const GIT_ENV_INFO: EnvInfo = {
+  ...ENV_INFO,
+  isGitRepository: true,
+  gitBranch: "feat/x",
+  gitStatus: "dirty",
+};
+
+test("subagent: env 段补 git 分支与工作树状态（G11）", () => {
+  const result = createSubagentContextBuilder({
+    agentPrompt: "You are an Explore agent.",
+    envInfo: GIT_ENV_INFO,
+    currentDate: "2026-10-08",
+  }).build();
+  const env = result.systemMessages.map((message) => message.content).join("\n");
+  assert.ok(env.includes("Git branch: feat/x"));
+  assert.ok(env.includes("Git status: dirty"));
+});
+
+test("subagent: 非 git 仓库不出 git 行", () => {
+  const result = createSubagentContextBuilder({
+    agentPrompt: "You are an Explore agent.",
+    envInfo: ENV_INFO,
+    currentDate: "2026-10-08",
+  }).build();
+  const env = result.systemMessages.map((message) => message.content).join("\n");
+  assert.ok(!env.includes("Git branch:"));
+  assert.ok(!env.includes("Git status:"));
+});
+
+test("subagent: env 段带 language 偏好", () => {
+  const result = createSubagentContextBuilder({
+    agentPrompt: "You are an Explore agent.",
+    envInfo: GIT_ENV_INFO,
+    currentDate: "2026-10-08",
+    language: "zh-CN",
+  }).build();
+  const env = result.systemMessages.map((message) => message.content).join("\n");
+  assert.ok(env.includes("Preferred response language: zh-CN"));
 });
 
 const SKILL: SkillLoadOutcome = {
@@ -170,4 +209,10 @@ test("skills: 降级时超长 whenToUse 截断到 100 字符", () => {
   };
   const content = buildSkillsSection({ outcome, metadataBudget: 50 })?.content ?? "";
   assert.ok(content.includes(`alpha: Use ${"x".repeat(95)}...`));
+});
+
+test("compact: 摘要 prompt 带材料忠实性契约", () => {
+  const prompt = buildCompactPrompt(undefined);
+  assert.ok(prompt.includes("Ground every statement in the provided material"));
+  assert.ok(prompt.includes("do not invent events"));
 });

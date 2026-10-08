@@ -1,3 +1,5 @@
+import { BEHAVIORAL_CONTRACT_GROUNDED_IN_MATERIAL } from "../prompts/behavioral-contract.js";
+
 const NO_TOOLS_PREAMBLE = `CRITICAL: Respond with TEXT ONLY. Do NOT call any tools.
 
 - Do NOT use Read, Bash, Grep, Glob, Edit, Write, or ANY other tool.
@@ -96,6 +98,8 @@ Here's an example of how your output should be structured:
 </example>
 
 Please provide your summary based on the conversation so far, following this structure and ensuring precision and thoroughness in your response.${" "}
+
+${BEHAVIORAL_CONTRACT_GROUNDED_IN_MATERIAL} This summary becomes the next context window, so a fabricated event or outcome here becomes false "fact" for every later turn.
 
 There may be additional summarization instructions provided in the included context. If so, remember to follow these instructions when creating the above summary. Examples of instructions include:
 <example>

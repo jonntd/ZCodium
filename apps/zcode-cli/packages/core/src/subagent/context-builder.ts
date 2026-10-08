@@ -23,6 +23,7 @@ export interface SubagentContextBuilderConfig {
   skillMetadataBudget?: number;
   skills?: ContextBuilderConfig["skills"];
   userInstructions?: ContextBuilderConfig["userInstructions"];
+  language?: string;
 }
 
 const EPHEMERAL_CACHE_CONTROL = { type: "ephemeral" as const };
@@ -135,6 +136,7 @@ function buildSubagentContextSections(config: SubagentContextBuilderConfig): Con
         agentPrompt: config.agentPrompt,
         envInfo: config.envInfo,
         model: config.model,
+        language: config.language,
       })}`,
     }),
   );
