@@ -112,7 +112,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
                   原「设置 → 远程访问」的状态 / 启停 / 链接 / 二维码 / 中继配置全在这个面板里。 */}
               <RemoteRelayAccessPanel />
 
-              <section className="flex min-h-[320px] flex-col rounded-xl border border-border bg-card p-4">
+              <section className="flex min-h-[320px] min-w-0 flex-col rounded-xl border border-border bg-card p-4">
                 <div className="mb-4 flex items-start gap-2">
                   <BotIcon className="mt-0.5 size-4 shrink-0 text-foreground-subtle" />
                   <div className="min-w-0 space-y-1">

@@ -52,7 +52,10 @@ function AccessLinkRow({
   qrAlt: string;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg bg-surface px-3 py-3">
+    // ⚠ `min-w-0` 必须留着：本行是 grid 的子项，默认 `min-width: auto` 会取内容
+    // （那条含 token + #k= 的长 URL）的 min-content 宽度，把列顶穿、压到相邻的
+    // Bot Channel 卡片上（用户实测「链接地址 UI 拉伸穿透」）。
+    <div className="flex min-w-0 items-start gap-3 rounded-lg bg-surface px-3 py-3">
       {url && qrDataUrl ? (
         <img
           src={qrDataUrl}
@@ -64,7 +67,11 @@ function AccessLinkRow({
         <div className="text-ui-base font-medium text-foreground">{label}</div>
         {url ? (
           <>
-            <code className="block truncate rounded-md bg-background px-2 py-1 text-ui-sm text-foreground">
+            {/* 链接很长（token + #k=），只截断显示；完整值靠复制按钮 / 二维码 / hover。 */}
+            <code
+              title={url}
+              className="block truncate rounded-md bg-background px-2 py-1 text-ui-sm text-foreground"
+            >
               {url}
             </code>
             <Button
@@ -193,7 +200,9 @@ export function RemoteRelayAccessPanel() {
         : t("settings.remoteRelay.statusStopped");
 
   return (
-    <section className="flex flex-col rounded-xl border border-border bg-card p-4">
+    // `min-w-0` 让本卡片服从 grid 轨道宽度（默认 min-width:auto 会取内容的 min-content）；
+    // `overflow-hidden` 作为兜底：任何残余溢出都被裁在卡片内，不会压到相邻的 Bot Channel。
+    <section className="flex min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="text-ui-base font-medium text-foreground">
@@ -232,7 +241,7 @@ export function RemoteRelayAccessPanel() {
       </div>
 
       {status == null ? null : status.configured ? (
-        <div className="grid gap-2">
+        <div className="grid min-w-0 grid-cols-1 gap-2">
           <AccessLinkRow
             label={t("webRemoteControl.browser.lan")}
             url={lanShareUrl}
