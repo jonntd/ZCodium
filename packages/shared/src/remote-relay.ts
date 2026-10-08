@@ -64,8 +64,18 @@ export interface RemoteRelayStatus {
   e2ee: boolean;
   /** 并发客户端槽位数（spec §17；缺省 1）。 */
   slots: number;
-  /** 分享链接（手机浏览器打开即配对）；缺 publicUrl/pairingToken 时为 null。 */
-  shareUrl: string | null;
+  /**
+   * 内网接入链接（手机与中继**同一局域网/WiFi** 直连）：把主机换成检测到的局域网地址，
+   * 端口沿用中继地址的端口。仅当「中继就在本机局域网（loopback 或私有网段）」**且**
+   * 检测到局域网地址时非空；中继在 VPS 时为 null（局域网里根本没有它）。
+   */
+  lanShareUrl: string | null;
+  /**
+   * 公网接入链接（手机经外网访问）：公开地址覆盖值优先，否则由公网中继地址推导。
+   * 中继在本机局域网**且没有**公开地址覆盖时为 null —— 那种配置本来就没有外网入口，
+   * 硬拼一条出来只会和「内网链接」重复。
+   */
+  publicShareUrl: string | null;
   /** 当前借出 Host 的窗口 id（尽力而为，连接建立后才有意义）。 */
   windowId: number | null;
   /**
@@ -118,4 +128,52 @@ export function deriveRemoteRelayPublicUrl(url: string): string {
     .replace(/^wss:/i, "https:")
     .replace(/^ws:/i, "http:")
     .replace(/\/+$/, "");
+}
+
+/**
+ * 从 url 里取端口；取不到用 defaultPort（中继默认 3180）。
+ *
+ * 主进程拼「内网链接」（检测到的局域网 IP + 本端口）与设置页的地址建议都要用，
+ * 因此放在 shared 里做**唯一实现**，避免两处正则漂移。
+ */
+export function extractRelayPort(url: string | undefined, defaultPort = "3180"): string {
+  return /:(\d+)(?:\/|$)/.exec(url ?? "")?.[1] ?? defaultPort;
+}
+
+/** 从 url / 主机串里取主机名（去协议、去端口、去 IPv6 中括号）。 */
+function relayHostname(url: string | undefined): string {
+  const normalized = String(url ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//, "");
+  // IPv6 字面量写作 [::1]:3180，先取中括号里的主机名；其余按第一个冒号切端口。
+  const bracketed = /^\[([^\]]+)\]/.exec(normalized);
+  return bracketed?.[1] ?? normalized.split(":")[0] ?? "";
+}
+
+/** 中继地址是否指向本机 loopback：这种配置**只有本机能访问**，手机在同一 WiFi 也连不上。 */
+export function isLoopbackRelayHost(host: string): boolean {
+  const hostname = relayHostname(host);
+  return hostname === "localhost" || hostname === "::1" || hostname.startsWith("127.");
+}
+
+/**
+ * 中继是否就在**本机/本局域网**（loopback 或 RFC1918 私有 IPv4）。
+ *
+ * 只有这种情况「内网链接」才成立：中继在 VPS 时局域网里根本没有它，拼一条
+ * `http://192.168.x.x:3180` 只会指向用户自己的机器（那里没有中继在监听）。
+ */
+export function isLocalRelayHost(url: string | undefined): boolean {
+  const hostname = relayHostname(url);
+  if (!hostname) return false;
+  if (isLoopbackRelayHost(hostname)) return true;
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(hostname);
+  if (!match) return false;
+  const first = Number(match[1]);
+  const second = Number(match[2]);
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
 }

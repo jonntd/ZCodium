@@ -1,18 +1,5 @@
-/* eslint-disable max-lines -- 远程访问设置卡片集中维护状态轮询、分享链接/二维码与配置表单
-   （含场景/公开地址联动）；拆开会把同一份表单状态与 status 轮询跨文件传递，可读性更差
-   （与 McpSettingsSection 等同处理）。 */
 import { useCallback, useEffect, useRef, useState } from "react";
-import QRCode from "qrcode";
-import {
-  Check,
-  ChevronRight,
-  Copy,
-  LoaderCircle,
-  Play,
-  RefreshCw,
-  Square,
-  TriangleAlert,
-} from "lucide-react";
+import { ChevronRight, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
 import type { RemoteRelayFileConfig, RemoteRelayStatus } from "@zcode/shared";
 import { deriveRemoteRelayPublicUrl } from "@zcode/shared";
 import {
@@ -35,11 +22,14 @@ import { Switch } from "@/components/ui/switch.js";
 import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { SettingsBadge, SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
+import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
 
 /**
- * 「远程访问」设置卡片（spec §15）：把 VPS 中继的配置/启停/分享链接做成 UI，
- * 对应官方 ZCode「打开 App → UI 里拿链接」的体验。
+ * 「远程访问」设置卡片（spec §15）：只负责中继的**一次性配置**（地址 / 密钥 / 配对码 /
+ * E2EE / 槽位 / 工作区 / 自启动）与保存。
+ *
+ * 状态、启停、分享链接与二维码已搬到「移动端远程控制」弹层（`RemoteRelayAccessPanel`，
+ * spec §18.6）——那里才是用户找"用手机连上来"的地方；配置留在设置页，保存即热应用。
  * 平台方法由桌面 preload 桥提供；Web 环境下该分区不渲染（见 settingsPageConfig 门控）。
  */
 
@@ -124,13 +114,8 @@ export function RemoteRelaySection() {
   const [status, setStatus] = useState<RemoteRelayStatus | null>(null);
   const [form, setForm] = useState<RemoteRelayFileConfig>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
-  const [toggling, setToggling] = useState(false);
-  const [copied, setCopied] = useState(false);
-  // 默认收起：多数用户只需要上面那条链接；中继地址/密钥/工作区属于一次性的高级配置。
+  // 默认收起：中继地址/密钥/工作区属于一次性的高级配置。
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  // 二维码直接内联在这张卡片上（spec §18.6）：编码对象就是卡片上那条永久链接本身，
-  // 不再另开弹层——弹层里给另一条链接只会让人以为是两套东西。
-  const [shareQrDataUrl, setShareQrDataUrl] = useState<string | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const remoteRelayGetStatus = platform.remoteRelayGetStatus?.bind(platform);
@@ -186,57 +171,6 @@ export function RemoteRelaySection() {
     }
   }, [platform, form, intl]);
 
-  const handleToggleRun = useCallback(async () => {
-    const method = status?.running ? platform.remoteRelayStop : platform.remoteRelayStart;
-    if (!method) return;
-    setToggling(true);
-    try {
-      setStatus(await method.call(platform));
-    } catch (error) {
-      toast(
-        `${intl.formatMessage({ id: "settings.remoteRelay.toggleFailed" })}: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-        { variant: "warning" },
-      );
-    } finally {
-      setToggling(false);
-    }
-  }, [platform, status?.running, intl]);
-
-  const handleCopyLink = useCallback(async () => {
-    if (!status?.shareUrl) return;
-    try {
-      await navigator.clipboard.writeText(status.shareUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2_000);
-    } catch (error) {
-      console.warn("[remote-relay] copy failed", error);
-    }
-  }, [status?.shareUrl]);
-
-  // 链接一变就重编码二维码（spec §18.6）：编码对象就是卡片上那条永久链接本身，
-  // 不调额外 IPC、不持有任何时效签名逻辑——两处永远是同一条链接。
-  useEffect(() => {
-    const shareUrl = status?.shareUrl;
-    if (!shareUrl) {
-      setShareQrDataUrl(null);
-      return;
-    }
-    let cancelled = false;
-    void QRCode.toDataURL(shareUrl, { margin: 1, width: 220 })
-      .then((dataUrl) => {
-        if (!cancelled) setShareQrDataUrl(dataUrl);
-      })
-      .catch((error) => {
-        console.warn("[remote-relay] QR encode failed", error);
-        if (!cancelled) setShareQrDataUrl(null);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [status?.shareUrl]);
-
   const updateField = (key: keyof RemoteRelayFileConfig) => (value: string) => {
     setForm((previous) => ({ ...previous, [key]: value }));
   };
@@ -275,8 +209,6 @@ export function RemoteRelaySection() {
     );
   }
 
-  const connected = status?.running === true && status.connected;
-
   return (
     <div className="space-y-6">
       <div>
@@ -284,94 +216,8 @@ export function RemoteRelaySection() {
         <p className="mt-1 text-ui-base text-foreground-subtle">{t("settings.remoteRelay.description")}</p>
       </div>
 
-      {/* 状态卡片：连接状态 + 启停 + 分享链接 */}
-      <SettingsGroupCard>
-        <SettingsRow
-          label={t("settings.remoteRelay.status")}
-          description={
-            status == null
-              ? t("settings.remoteRelay.statusLoading")
-              : status.running
-                ? connected
-                  ? t("settings.remoteRelay.statusConnected")
-                  : t("settings.remoteRelay.statusConnecting")
-                : t("settings.remoteRelay.statusStopped")
-          }
-          control={
-            <div className="flex items-center gap-2">
-              {status?.e2ee ? (
-                <SettingsBadge>{t("settings.remoteRelay.badgeE2ee")}</SettingsBadge>
-              ) : null}
-              {status?.running ? (
-                <SettingsBadge>
-                  <span className={connected ? "text-emerald-600" : "text-amber-600"}>
-                    {connected ? "●" : "◐"}
-                  </span>{" "}
-                  {connected
-                    ? t("settings.remoteRelay.badgeConnected")
-                    : t("settings.remoteRelay.badgeConnecting")}
-                </SettingsBadge>
-              ) : (
-                <SettingsBadge>{t("settings.remoteRelay.badgeStopped")}</SettingsBadge>
-              )}
-              <Button
-                type="button"
-                variant={status?.running ? "outline" : "default"}
-                disabled={toggling}
-                onClick={() => void handleToggleRun()}
-              >
-                {toggling ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : status?.running ? (
-                  <Square className="size-4" />
-                ) : (
-                  <Play className="size-4" />
-                )}
-                {status?.running
-                  ? t("settings.remoteRelay.stop")
-                  : t("settings.remoteRelay.start")}
-              </Button>
-            </div>
-          }
-        />
-        <SettingsRow
-          label={t("settings.remoteRelay.shareLink")}
-          description={t("settings.remoteRelay.shareLinkDescription")}
-          control={
-            <Button
-              type="button"
-              variant="outline"
-              disabled={!status?.shareUrl || copied}
-              onClick={() => void handleCopyLink()}
-            >
-              {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-              {copied ? t("settings.remoteRelay.copied") : t("settings.remoteRelay.copy")}
-            </Button>
-          }
-          detail={
-            status?.shareUrl ? (
-              <div className="flex flex-wrap items-center gap-4">
-                {shareQrDataUrl ? (
-                  <img
-                    src={shareQrDataUrl}
-                    alt={t("settings.remoteRelay.qrTitle")}
-                    className="size-32 shrink-0 rounded-lg border border-border bg-surface p-1.5"
-                  />
-                ) : null}
-                <code className="min-w-0 flex-1 truncate rounded-md bg-surface px-2 py-1 text-ui-sm text-foreground">
-                  {status.shareUrl}
-                </code>
-              </div>
-            ) : (
-              <span className="text-ui-sm text-foreground-subtle">
-                {t("settings.remoteRelay.shareLinkEmpty")}
-              </span>
-            )
-          }
-        />
-      </SettingsGroupCard>
-
-      {/* 配置：默认收起。写 ~/.zcodium/v2/remote-relay.json 并热应用。 */}
+      {/* 配置：默认收起。写 ~/.zcodium/v2/remote-relay.json 并热应用。
+          状态 / 启停 / 分享链接与二维码在「移动端远程控制」弹层（spec §18.6）。 */}
       <SettingsGroupCard>
         <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
           <CollapsibleTrigger asChild>

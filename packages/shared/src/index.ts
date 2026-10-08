@@ -40,7 +40,12 @@ export type {
   RemoteRelayShareLink,
   RemoteRelayShareLinkRequest,
 } from "./remote-relay.js";
-export { deriveRemoteRelayPublicUrl } from "./remote-relay.js";
+export {
+  deriveRemoteRelayPublicUrl,
+  extractRelayPort,
+  isLocalRelayHost,
+  isLoopbackRelayHost,
+} from "./remote-relay.js";
 export {
   RELAY_E2EE_CHANNEL_KEY_BYTES,
   RelayE2eeChannel,

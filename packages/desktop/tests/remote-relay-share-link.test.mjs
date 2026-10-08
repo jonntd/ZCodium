@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
 
+import { isLocalRelayHost } from "@zcode/shared";
+
 import {
   SHARE_LINK_MAX_TTL_SECONDS,
   SHARE_LINK_MIN_TTL_SECONDS,
+  buildRelayLanShareLink,
   buildRelayShareLink,
   signRelayShareParams,
 } from "../src/main/remoteRelayShareLink.js";
@@ -118,4 +121,75 @@ test("publicUrl 覆盖 url 推导；结尾斜杠被去掉", () => {
     ttlSeconds: null,
   });
   assert.ok((link?.shareUrl ?? "").startsWith("https://phone.example.com/?token="));
+});
+
+// ── 内网链接（spec §18.6）────────────────────────────────────────────────────
+
+test("中继在本机局域网：内网链接把主机换成检测到的局域网 IP，端口沿用", () => {
+  const link = buildRelayLanShareLink({
+    relayUrl: "ws://127.0.0.1:3180",
+    lanAddresses: ["192.168.1.10", "10.0.0.5"],
+    pairingToken: TOKEN,
+  });
+  assert.ok(link);
+  assert.ok(link.startsWith("http://192.168.1.10:3180/?token="), link);
+  const parsed = new URL(link);
+  assert.equal(parsed.searchParams.get("token"), TOKEN);
+  assert.equal(parsed.searchParams.get("autoReconnect"), "1");
+});
+
+test("内网链接沿用中继地址的非默认端口（不能被 3180 顶掉）", () => {
+  const link = buildRelayLanShareLink({
+    relayUrl: "ws://10.0.0.5:8443",
+    lanAddresses: ["192.168.8.105"],
+    pairingToken: TOKEN,
+  });
+  assert.ok((link ?? "").startsWith("http://192.168.8.105:8443/?token="), link);
+});
+
+test("E2EE 时内网链接同样带 #k= fragment", () => {
+  const link = buildRelayLanShareLink({
+    relayUrl: "ws://192.168.1.10:3180",
+    lanAddresses: ["192.168.1.10"],
+    pairingToken: TOKEN,
+    channelKey: "k".repeat(43),
+  });
+  assert.equal(new URL(link ?? "").hash, `#k=${"k".repeat(43)}`);
+});
+
+test("中继不在本机局域网 / 未检测到局域网地址：不给内网链接", () => {
+  assert.equal(
+    buildRelayLanShareLink({
+      relayUrl: "wss://relay.example.com",
+      lanAddresses: ["192.168.1.10"],
+      pairingToken: TOKEN,
+    }),
+    null,
+    "中继在 VPS：局域网里没有它，硬拼只会指向用户自己的机器",
+  );
+  assert.equal(
+    buildRelayLanShareLink({
+      relayUrl: "ws://127.0.0.1:3180",
+      lanAddresses: [],
+      pairingToken: TOKEN,
+    }),
+    null,
+    "没有检测到局域网地址",
+  );
+});
+
+test("isLocalRelayHost：loopback 与 RFC1918 私有网段算本机局域网", () => {
+  for (const url of [
+    "ws://127.0.0.1:3180",
+    "ws://localhost:3180",
+    "ws://192.168.1.10:3180",
+    "ws://10.0.0.5",
+    "ws://172.16.0.9:3180",
+    "ws://172.31.255.254",
+  ]) {
+    assert.equal(isLocalRelayHost(url), true, url);
+  }
+  for (const url of ["wss://relay.example.com", "wss://8.8.8.8", "ws://172.32.0.1", ""]) {
+    assert.equal(isLocalRelayHost(url), false, url);
+  }
 });

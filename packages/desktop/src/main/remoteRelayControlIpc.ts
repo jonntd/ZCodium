@@ -7,6 +7,7 @@ import { getAppConfigDir } from "@zcode/services/node";
 import {
   deriveRemoteRelayPublicUrl,
   generateRelayChannelKey,
+  isLocalRelayHost,
   PlatformChannels,
   type RemoteRelayFileConfig,
   type RemoteRelayShareLink,
@@ -21,7 +22,7 @@ import {
   parseRemoteRelayShareLinkRequest,
   unwrapLegacyRemoteRelayConfigFile,
 } from "./remoteRelayConfigPayload.js";
-import { buildRelayShareLink } from "./remoteRelayShareLink.js";
+import { buildRelayLanShareLink, buildRelayShareLink } from "./remoteRelayShareLink.js";
 import {
   createRemoteRelayClient,
   type RelayMessagePort,
@@ -285,6 +286,10 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
   let lastFileConfig: RemoteRelayFileConfig | null = null;
 
   function buildStatus(running: boolean): RemoteRelayStatus {
+    const lanAddresses = pickRemoteRelayLanAddresses(networkInterfaces());
+    const token = currentConfig?.pairingToken ?? "";
+    const channelKey = currentConfig?.e2ee ? (currentConfig.channelKey ?? null) : null;
+    const publicUrlOverride = (currentConfig?.publicUrl ?? "").trim();
     return {
       configured: currentConfig !== null,
       running,
@@ -292,23 +297,31 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       source: currentConfig?.source ?? null,
       e2ee: currentConfig?.e2ee ?? false,
       slots: currentConfig?.slots ?? 1,
-      shareUrl:
-        currentConfig?.pairingToken != null && currentConfig.pairingToken !== ""
-          ? // 永久 legacy token 链接（与时效签名链接共用同一构造器，spec §18.5）。
-            // 链接自带 autoReconnect=1：手机锁屏/切网断线后自动整页重载恢复，不用手点「重连」。
-            // 代价是重载会丢弃未发送输入（默认行为仍是「只提示」，见 web-bootstrap-delivery-point.md §2.4）。
-            // E2EE 启用时追加 `#k=`：fragment 不会发给服务器，中继拿不到 channelKey（spec §16.2）。
-            (buildRelayShareLink({
+      // 内网链接：中继就在本机局域网时，把主机换成检测到的局域网地址——中继配成
+      // 127.0.0.1 时手机同 WiFi 也连不上，这是唯一能让手机连上的地址（spec §18.6）。
+      lanShareUrl:
+        currentConfig && token
+          ? buildRelayLanShareLink({
+              relayUrl: currentConfig.url,
+              lanAddresses,
+              pairingToken: token,
+              channelKey,
+            })
+          : null,
+      // 公网链接：公开地址覆盖值优先（端口映射 / DDNS / 反代）；中继在本机局域网**且没有**
+      // 覆盖值时给 null —— 那种配置本来就没有外网入口，硬拼一条只会和内网链接重复。
+      publicShareUrl:
+        currentConfig && token && (!isLocalRelayHost(currentConfig.url) || publicUrlOverride)
+          ? (buildRelayShareLink({
               url: currentConfig.url,
-              publicUrl: currentConfig.publicUrl,
-              pairingToken: currentConfig.pairingToken,
-              channelKey: currentConfig.e2ee ? currentConfig.channelKey : null,
+              publicUrl: publicUrlOverride || null,
+              pairingToken: token,
+              channelKey,
               ttlSeconds: null,
             })?.shareUrl ?? null)
           : null,
       windowId: null,
-      // 每次读取都重新探测：切网/VPN 变化后建议地址要跟着变。
-      lanAddresses: pickRemoteRelayLanAddresses(networkInterfaces()),
+      lanAddresses,
       configFilePath: getConfigFilePath(),
       fileConfig: lastFileConfig,
     };

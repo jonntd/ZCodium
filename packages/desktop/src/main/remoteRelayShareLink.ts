@@ -1,5 +1,7 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { deriveRemoteRelayPublicUrl } from "@zcode/shared";
+import { deriveRemoteRelayPublicUrl, isLocalRelayHost } from "@zcode/shared";
+
+import { composeLanPublicUrl } from "./remoteRelayLanAddresses.js";
 
 /**
  * 分享链接构造（spec vps-relay-bridge.md §18）：
@@ -59,7 +61,9 @@ export function signRelayShareParams(
 export function buildRelayShareLink(input: RelayShareLinkInput): RelayShareLink | null {
   const base = (input.publicUrl?.trim() || deriveRemoteRelayPublicUrl(input.url)).replace(/\/+$/, "");
   if (!base || !input.pairingToken) return null;
-  // 链接自带 autoReconnect=1：手机锁屏/切网断线后自动整页重载恢复（与永久链接一致）。
+  // 链接自带 autoReconnect=1：手机锁屏/切网断线后自动整页重载恢复，不用手点「重连」。
+  // 代价是重载会丢弃未发送输入（默认行为仍是「只提示」，见 web-bootstrap-delivery-point.md §2.4）。
+  // E2EE 启用时追加 `#k=`：fragment 不会发给服务器，中继拿不到 channelKey（spec §16.2）。
   let url = `${base}/?token=${encodeURIComponent(input.pairingToken)}&autoReconnect=1`;
   let expiresAt: number | null = null;
   if (input.ttlSeconds != null) {
@@ -83,4 +87,33 @@ export function buildRelayShareLink(input: RelayShareLinkInput): RelayShareLink 
     url += `#k=${encodeURIComponent(input.channelKey)}`;
   }
   return { shareUrl: url, expiresAt };
+}
+
+/**
+ * 内网接入链接（spec §18.6）：把主机换成**检测到的局域网地址**（端口沿用中继地址的端口），
+ * 其余与永久链接完全一致——复用同一个 `buildRelayShareLink`，所以 `#k=`、`autoReconnect=1`
+ * 等行为不会漂移。
+ *
+ * 仅当「中继就在本机局域网（loopback / 私有网段）」**且**检测到局域网地址时返回非空：
+ * 中继在 VPS 时局域网里根本没有它，拼一条 `http://192.168.x.x:3180` 只会指向用户
+ * 自己的机器（那里没有中继在监听），比不给还糟。
+ */
+export function buildRelayLanShareLink(input: {
+  relayUrl: string;
+  lanAddresses: readonly string[];
+  pairingToken: string;
+  channelKey?: string | null;
+}): string | null {
+  if (!isLocalRelayHost(input.relayUrl)) return null;
+  const lanPublicUrl = composeLanPublicUrl(input.lanAddresses, input.relayUrl);
+  if (!lanPublicUrl) return null;
+  return (
+    buildRelayShareLink({
+      url: lanPublicUrl,
+      publicUrl: lanPublicUrl,
+      pairingToken: input.pairingToken,
+      channelKey: input.channelKey,
+      ttlSeconds: null,
+    })?.shareUrl ?? null
+  );
 }

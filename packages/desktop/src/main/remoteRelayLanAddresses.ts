@@ -8,6 +8,7 @@
  * 与 electron 无关，因此独立成模块以便单测（IPC 模块有 `ipcMain` 值导入）。
  */
 import type { networkInterfaces } from "node:os";
+import { extractRelayPort } from "@zcode/shared";
 
 type NetworkInterfaceMap = ReturnType<typeof networkInterfaces>;
 
@@ -48,6 +49,5 @@ export function composeLanPublicUrl(
 ): string | null {
   const address = lanAddresses?.[0];
   if (!address) return null;
-  const port = /:(\d+)(?:\/|$)/.exec(relayUrl)?.[1] ?? "3180";
-  return `http://${address}:${port}`;
+  return `http://${address}:${extractRelayPort(relayUrl)}`;
 }
