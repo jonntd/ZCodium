@@ -147,9 +147,28 @@ WantedBy=multi-user.target
 systemctl daemon-reload && systemctl enable --now zcode-relay
 ```
 
-### 2.5 HTTPS 反代（必须）
+### 2.5 HTTPS 反代（外网强烈建议）
 
-手机浏览器只在 `https://` 页面上才允许 `wss://`，所以**必须**有 TLS。
+**直接原因**：手机浏览器只在 `https://` 页面上才允许 `wss://`。
+
+**更准确的说法**（2026-10-08 核对实现后修正）：外网用明文 `http + ws` 技术上**能连**——
+手机端 bundle 按页面协议推导 WS 协议（`packages/web/src/main.tsx` 的
+`resolveDefaultWsOrigin()`：https 页 → `wss://`，http 页 → `ws://`），中继下发的配对
+cookie 也没有 `Secure` 标志（`relay.mjs`），所以 `http://<IP>:3180/?token=…` 能完成配对。
+纯 IP（不用域名）同样合法：配置层只校验协议前缀（`remoteRelayConfigPayload.ts`）。
+
+丢的是这两样，不是内容机密性：
+
+1. **页面完整性**：web bundle 是能读到 `#k=`（E2EE 密钥，走 URL fragment）的代码，
+   明文 http 下链路上的**主动**中间人可以换掉它从而偷密钥（被动旁听偷不到，fragment 不进请求）。
+2. **insecure origin 的浏览器能力**：`crypto.subtle` / `crypto.randomUUID` /
+   `navigator.clipboard` 在 http 下不可用（附件哈希、部分复制按钮会失效）。
+
+> **会话内容不依赖 TLS**：E2EE（spec §16）在桌面 Main 与手机 bundle 之间端到端加密，
+> 中继只转发密文；实现刻意用 `@noble/*` 纯 JS 而不是 `crypto.subtle`，就是为了让
+> `http://<局域网IP>:3180` 这个内网主用例也能加密（spec §16.2）。
+> 另外 spec §16.1 明确把「链接被转发给第三者」列在 E2EE **不防**的范围内——
+> **链接即能力**，这一点 TLS 也解决不了。
 
 本目录的 `Caddyfile` 可以直接用：
 
@@ -199,7 +218,7 @@ Caddy 会自动签发/续期证书，**并自动处理 WebSocket 升级**，不�
 | `slots` | — | 并发客户端槽位数（1..8，缺省 1）；每槽位一条独立加密连接，允许 N 个浏览器/手机同时访问 |
 
 删掉这个文件即完全停用中继（行为与改动前一致）。
-也可以在 App 内通过 IPC（`zcode:remote-relay-set-config`）写入，或直接在「设置 → 远程访问」卡片里编辑后「保存并应用」。
+也可以在 App 内通过 IPC（`zcode:remote-relay-set-config`）写入，或直接在「移动端远程控制」弹层 →「浏览器直连」→「高级设置」里编辑后「保存并应用」。
 
 ### 方式 B：环境变量
 
@@ -238,19 +257,19 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 
 ## 4. 使用
 
-1. 桌面 ZCode：**设置 → 远程访问**（设置页「数据和统计」分组）。
-   卡片里直接填中继地址 / 主机密钥 / 公开地址 / 配对码，**「保存并应用」立即生效**，无需重启；
-   连接状态实时显示，「手机访问链接」一键复制——等价于官方的远程控制链接。
+1. 桌面 ZCode：工作区头部的**「移动端远程控制」**弹层 →「浏览器直连」卡片。
+   卡片上直接给状态 / 启停 / **内网·外网两条链接**（各自复制 + 二维码）；
+   中继地址 / 主机密钥 / 公开地址 / 配对码 / E2EE / 并发槽位等收在卡片的**「高级设置」**里，
+   **「保存并应用」立即生效**（保存即刷新链接与二维码，无需重启）。
    （配置同样落在 `~/.zcodium/v2/remote-relay.json`，两种方式互通。）
 2. 手机浏览器打开 `https://relay.example.com/?token=<RELAY_TOKEN>`
 3. 中继下发 cookie 并跳转（**只摘掉 `token`，其它参数保留**），之后正常使用
 4. 手机上看到的就是**桌面那个 Host 的服务面**：任务列表、会话历史、终端、文件、Git
 
-> **推荐：时效签名链接（spec §18）**。桌面「远程访问 → 二维码」里可生成带有效期的
-> 签名链接（1 小时 / 24 小时 / 7 天）并展示二维码，手机扫码即用。链接形状是
-> `?s=<房间>&t=<签发>&e=<过期>&h=<HMAC>`（对齐官方 `sid/hash/t`）：**不含长期密钥**，
-> 泄露暴露窗口 = 有效期；配对后下发的派生 cookie 过期由服务端强制判定。
-> 永久 token 链接继续可用（两种互不影响）；撤销所有访问 = 轮换 `RELAY_TOKEN`。
+> **时效签名链接（spec §18）当前没有 UI 入口**：relay 侧仍校验
+> `?s=&t=&e=&h=`，桌面端 IPC `RemoteRelayGetShareLink` 也仍在，但 2026-10-08 移除了
+> 设置页的二维码弹层后，界面上不再提供生成入口。当前 UI 的链接形态是**永久 token 链接**；
+> 撤销所有访问 = 轮换 `RELAY_TOKEN`。将来要给「临时授权给别人」做入口时再单独设计。
 
 > **可选：无人值守自动恢复**。配对链接再加 `&autoReconnect=1`（即
 > `https://relay.example.com/?token=<RELAY_TOKEN>&autoReconnect=1`）再加进主屏，
