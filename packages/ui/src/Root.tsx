@@ -19,6 +19,7 @@ import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { SSHDialog } from "@/SSHDialog.js";
 import { SettingsPage } from "@/SettingsPage.js";
+import { buildAppRuntimePreferenceSnapshot } from "@/settings/appRuntimePreferences.js";
 import { CodingPlanUpgradeDialogProvider } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { WelcomeScreen, type LoginCompleteReason } from "@/WelcomeScreen.js";
 import { setDefaultFileDisplayBasePath } from "@/lib/fileDisplay.js";
@@ -288,41 +289,24 @@ function RootInner({
     if (!appSettings) {
       return;
     }
-    void services.zcodeAgentService
-      .syncAppRuntimePreferences({
-        askUserQuestionAutoResolutionEnabled:
-          appSettings.askUserQuestionAutoResolutionEnabled !== false,
-        modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
-        deleteProtectionEnabled: appSettings.deleteProtectionEnabled !== false,
-        batchDeleteApprovalThreshold:
-          typeof appSettings.batchDeleteApprovalThreshold === "number" &&
-          appSettings.batchDeleteApprovalThreshold >= 1
-            ? appSettings.batchDeleteApprovalThreshold
-            : 50,
-      })
-      .catch((error) => {
-        logger.warn("[settings] 初始化运行时偏好失败", error);
-      });
-    void services.botsService
-      .syncAppRuntimePreferences({
-        askUserQuestionAutoResolutionEnabled:
-          appSettings.askUserQuestionAutoResolutionEnabled !== false,
-        modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
-        deleteProtectionEnabled: appSettings.deleteProtectionEnabled !== false,
-        batchDeleteApprovalThreshold:
-          typeof appSettings.batchDeleteApprovalThreshold === "number" &&
-          appSettings.batchDeleteApprovalThreshold >= 1
-            ? appSettings.batchDeleteApprovalThreshold
-            : 50,
-      })
-      .catch((error) => {
-        logger.warn("[settings] 初始化 Bot 运行时偏好失败", error);
-      });
+    // 快照必须完整：host 侧会用它整体替换 `latestAppRuntimePreferences`，新注册的 CLI client
+    // 再重放这份快照。这里曾经漏掉 customSystemPrompt / customSystemSegments，导致
+    // 「改了设置、老会话生效、新会话不生效」——构造点已收敛到
+    // settings/appRuntimePreferences.ts，与设置页保存路径共用同一份实现。
+    const preferences = buildAppRuntimePreferenceSnapshot(appSettings);
+    void services.zcodeAgentService.syncAppRuntimePreferences(preferences).catch((error) => {
+      logger.warn("[settings] 初始化运行时偏好失败", error);
+    });
+    void services.botsService.syncAppRuntimePreferences(preferences).catch((error) => {
+      logger.warn("[settings] 初始化 Bot 运行时偏好失败", error);
+    });
   }, [
     appSettings?.askUserQuestionAutoResolutionEnabled,
     appSettings?.modelIoFullRetentionEnabled,
     appSettings?.deleteProtectionEnabled,
     appSettings?.batchDeleteApprovalThreshold,
+    appSettings?.customSystemPrompt,
+    appSettings?.customSystemSegments,
     services.botsService,
     services.zcodeAgentService,
   ]);

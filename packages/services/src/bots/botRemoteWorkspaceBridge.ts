@@ -4,6 +4,7 @@ import {
   hostBotRemoteWorkspaceConnectionStatusResultMessageSchema,
   hostBotRemoteWorkspaceRuntimePortMessageSchema,
   hostBotRemoteWorkspaceReconnectResultMessageSchema,
+  normalizeCustomSystemSegments,
   type RemoteTarget,
 } from "@zcode/shared";
 import { type IZCodeTaskService as IZCodeTaskServiceShape } from "../session/zcodeTaskService.js";
@@ -317,17 +318,31 @@ export function createBotRemoteWorkspaceService(params: {
       const cachedPreferences = latestAppRuntimePreferences;
       const preferences: ZCodeAgentAppRuntimePreferences = cachedPreferences
         ? cachedPreferences
-        : await params.settingService.get().then((settings) => ({
-            askUserQuestionAutoResolutionEnabled:
-              settings.askUserQuestionAutoResolutionEnabled !== false,
-            modelIoFullRetentionEnabled: settings.modelIoFullRetentionEnabled === true,
-            deleteProtectionEnabled: settings.deleteProtectionEnabled !== false,
-            batchDeleteApprovalThreshold:
-              typeof settings.batchDeleteApprovalThreshold === "number" &&
-              settings.batchDeleteApprovalThreshold >= 1
-                ? settings.batchDeleteApprovalThreshold
-                : 50,
-          }));
+        : await params.settingService.get().then((settings) => {
+            // 系统提示词（docs/spec/custom-system-prompt.md）：Bot 任务运行在远端 workspace 上，
+            // 但 app-global 设置权威在本地 Host，冷启动必须与本地同源下发——漏字段会让
+            // 「改了设置、老会话生效、新会话不生效」（热更通道经 syncAppRuntimePreferences
+            // 会带上，只有这条冷启动兜底快照会丢）。分段归一化后非空才携带。
+            const customSystemSegments = normalizeCustomSystemSegments(
+              settings.customSystemSegments ?? {},
+            );
+            return {
+              askUserQuestionAutoResolutionEnabled:
+                settings.askUserQuestionAutoResolutionEnabled !== false,
+              modelIoFullRetentionEnabled: settings.modelIoFullRetentionEnabled === true,
+              deleteProtectionEnabled: settings.deleteProtectionEnabled !== false,
+              batchDeleteApprovalThreshold:
+                typeof settings.batchDeleteApprovalThreshold === "number" &&
+                settings.batchDeleteApprovalThreshold >= 1
+                  ? settings.batchDeleteApprovalThreshold
+                  : 50,
+              ...(typeof settings.customSystemPrompt === "string" &&
+              settings.customSystemPrompt.trim()
+                ? { customSystemPrompt: settings.customSystemPrompt }
+                : {}),
+              ...(Object.keys(customSystemSegments).length > 0 ? { customSystemSegments } : {}),
+            };
+          });
       await services.zcodeAgentService.syncAppRuntimePreferences(preferences);
       if (revision === appRuntimePreferencesRevision) {
         break;

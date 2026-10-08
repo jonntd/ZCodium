@@ -74,6 +74,23 @@ host settingService.update ──写 setting.json（唯一持久 owner）
     └─ kind=inherit：parent record.customSystemSegments（创建时固化，同 deleteProtection 模式）
 ```
 
+### settings → preferences 映射点（四处，缺一不可）
+
+`customSystemPrompt` / `customSystemSegments` 都是「app-global 设置 → CLI 偏好」的字段，
+任何一处映射漏掉字段都会造成**冷启动/新建 client 拿不到值**，而热更通道仍正常，
+症状是「改了设置、老会话生效、新会话不生效」。四处必须同时携带：
+
+| 位置 | 作用 |
+| --- | --- |
+| `packages/ui/src/hooks/useSettingService.ts` `update()` | 用户改设置后的热更 + 广播快照 |
+| `packages/ui/src/Root.tsx` 初始化 effect | App 启动/设置变化时把完整快照推给 host（缺字段会**覆盖掉** `latestAppRuntimePreferences`，新注册的 CLI client 重放时丢值） |
+| `packages/services/src/node.ts` `resolveSessionRuntimePreferences` | 本地 Host 的冷启动现读（`kind=host` 反向请求） |
+| `packages/desktop/src/host/remoteWorkspaceServiceCollection.ts` `onDynamicSessionRuntimePreferencesRequest` | desktop-attached remote / 手机远控：**app-global 设置权威仍在 desktop shared Host**，Agent 在远端运行，必须原路返回同一份偏好 |
+| `packages/services/src/bots/botRemoteWorkspaceBridge.ts` 的 settings 兜底快照 | Bot 任务在远端 workspace 上运行时的同一份偏好 |
+
+（最后两处是 2026-10-08 补的：此前只有 `deleteProtection` 走通，系统提示词两个字段在
+冷启动路径上缺失——热更通道会下发，冷启动会漏，属 v1 遗留缺口。）
+
 builder 侧组合（`ContextBuilderConfig.customSystemSegments`，core）：
 
 ```

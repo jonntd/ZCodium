@@ -4,6 +4,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { APP_RUNTIME_PREFERENCES_CHANGED_BROADCAST_CHANNEL, type AppSettings } from "@zcode/shared";
 import type { ISettingService } from "@zcode/services";
+import {
+  buildAppRuntimePreferenceSnapshot,
+  touchesAppRuntimePreferences,
+} from "@/settings/appRuntimePreferences.js";
 import { useServices } from "./useServices.js";
 import { usePlatform } from "./usePlatform.js";
 
@@ -142,42 +146,14 @@ export function useSettings() {
       await settingService.update(patch);
       platform.syncAppSettings?.(patch);
       await refresh();
-      if (
-        typeof patch.askUserQuestionAutoResolutionEnabled === "boolean" ||
-        typeof patch.modelIoFullRetentionEnabled === "boolean" ||
-        typeof patch.deleteProtectionEnabled === "boolean" ||
-        typeof patch.batchDeleteApprovalThreshold === "number" ||
-        typeof patch.customSystemPrompt === "string" ||
-        patch.customSystemSegments !== undefined
-      ) {
-        const preferences = {
-          askUserQuestionAutoResolutionEnabled:
-            patch.askUserQuestionAutoResolutionEnabled ??
-            settingsStore.snapshot.settings?.askUserQuestionAutoResolutionEnabled !== false,
-          modelIoFullRetentionEnabled:
-            patch.modelIoFullRetentionEnabled ??
-            settingsStore.snapshot.settings?.modelIoFullRetentionEnabled === true,
-          deleteProtectionEnabled:
-            patch.deleteProtectionEnabled ??
-            settingsStore.snapshot.settings?.deleteProtectionEnabled !== false,
-          batchDeleteApprovalThreshold:
-            patch.batchDeleteApprovalThreshold ??
-            settingsStore.snapshot.settings?.batchDeleteApprovalThreshold ??
-            50,
-          // 自定义系统提示词（docs/spec/custom-system-prompt.md）：整份快照必须始终携带
-          // 当前生效值，否则后续无关开关的同步会用缺字段快照整体覆盖
-          // latestAppRuntimePreferences，让新注册的 CLI 丢掉已保存的自定义提示词。
-          // 空串 = 内置默认，必须保留（不能折叠成 undefined），"恢复默认"靠它显式清空。
-          customSystemPrompt:
-            patch.customSystemPrompt ?? settingsStore.snapshot.settings?.customSystemPrompt ?? "",
-          // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：同一份「快照必须完整」的
-          // 理由——缺字段会让 latestAppRuntimePreferences 丢掉已保存的分段，新注册的 CLI
-          // 拿到内置拼装。`{}` = 已全部恢复继承，是有效值；缺省也回落到 `{}`。
-          customSystemSegments:
-            patch.customSystemSegments ??
-            settingsStore.snapshot.settings?.customSystemSegments ??
-            {},
-        };
+      if (touchesAppRuntimePreferences(patch)) {
+        // 快照必须完整（含未在本 patch 里出现的偏好字段）：host 侧每次都用它整体替换
+        // `latestAppRuntimePreferences`，缺字段会让新注册的 CLI client 重放时丢掉已保存值。
+        // 构造点收敛在 settings/appRuntimePreferences.ts，避免多处各写一份而漂移。
+        const preferences = buildAppRuntimePreferenceSnapshot(
+          settingsStore.snapshot.settings,
+          patch,
+        );
         const syncResults = await Promise.allSettled([
           zcodeAgentService.syncAppRuntimePreferences(preferences),
           botsService.syncAppRuntimePreferences(preferences),

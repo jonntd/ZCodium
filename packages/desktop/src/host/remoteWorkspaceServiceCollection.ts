@@ -72,6 +72,7 @@ import {
   BIGMODEL_PROVIDER_ID,
   buildRuntimeZCodeApiUrl,
   DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
+  normalizeCustomSystemSegments,
   type ProviderFamilyDomain,
   type ZCodeSessionRuntimePreferencesResult,
   ZAI_PROVIDER_ID,
@@ -263,6 +264,12 @@ export function createRemoteWorkspaceServiceCollection(params: {
           // 与本地 Host 同源：固定预算不依赖配置网关，远程/手机偏好响应不再串行等待网络。
           const settings = await trackStage("settings", localSettingService.get());
           const modelContextBudgetStrategy = DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY;
+          // 系统提示词与本地 Host 同源（见上方「app-global 设置权威仍在 desktop shared Host」）：
+          // 冷启动必须一并返回，否则远程/手机会话拿不到用户的自定义提示词——热更通道会下发、
+          // 冷启动会漏，症状是「改了设置、老会话生效、新会话不生效」。分段归一化后非空才携带。
+          const customSystemSegments = normalizeCustomSystemSegments(
+            settings.customSystemSegments ?? {},
+          );
           resolution = {
             status: "resolved",
             preferences: {
@@ -280,6 +287,14 @@ export function createRemoteWorkspaceServiceCollection(params: {
                     ? settings.batchDeleteApprovalThreshold
                     : 50,
               },
+              // 自定义系统提示词（docs/spec/custom-system-prompt.md）：空/空白不入结果，
+              // CLI 缺省即内置默认。
+              ...(typeof settings.customSystemPrompt === "string" &&
+              settings.customSystemPrompt.trim()
+                ? { customSystemPrompt: settings.customSystemPrompt }
+                : {}),
+              // 分段系统提示词（v2）：全继承不下发，与 CLI 缺省语义一致。
+              ...(Object.keys(customSystemSegments).length > 0 ? { customSystemSegments } : {}),
               // remote workspace 与本地 Host 保持同一 scope 边界，首次执行不得再次等待 client config。
               ...(request.scope === "user-execution" && settings.integratedTerminalShell
                 ? { integratedTerminalShell: settings.integratedTerminalShell }
