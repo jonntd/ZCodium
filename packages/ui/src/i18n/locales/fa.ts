@@ -2125,7 +2125,7 @@ const faIR: Record<string, string> = {
   "settings.memory.workspaceMemory": "حافظه فضای کاری",
   "settings.systemPrompt": "پرامپت سیستم",
   "settings.systemPromptDescription":
-    "هر بخش برای دامنهٔ فعال جداگانه ذخیره می‌شود و از درخواست بعدی اعمال می‌گردد (همان نشست را ادامه دهید؛ نیازی به ساخت نشست تازه نیست).",
+    "هر بخش برای دامنهٔ فعال جداگانه ذخیره می‌شود و از درخواست بعدی اعمال می‌گردد (همان نشست را ادامه دهید؛ نیازی به ساخت نشست تازه نیست). فقط برای نشست‌های عادی و کنشگرهای گردش‌کار پویا اعمال می‌شود: زیرعامل‌های ساخته‌شده با ابزار Agent (general-purpose / Explore / پروفایل‌های سفارشی) پرامپت هویت خودشان را دارند و این بازنویسی‌ها را به ارث نمی‌برند.",
   "settings.systemPromptCustomizedCount": "{count} بخش سفارشی‌سازی شده",
   "settings.systemPromptRestoreAll": "بازگردانی همه به ارث‌بری",
   "settings.systemPromptAllToCustom": "هویت اصلی به سفارشی (شروع از متن پیش‌فرض)",

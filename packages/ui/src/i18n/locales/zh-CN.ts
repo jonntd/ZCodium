@@ -2167,7 +2167,7 @@ const zhCN: Record<string, string> = {
   "settings.batchDeleteApprovalDescription": "一次删除达到该数量时需要审批。",
   "settings.systemPrompt": "系统提示词",
   "settings.systemPromptDescription":
-    "下面这些段按当前作用域独立保存，保存后从下次请求生效（同一会话继续对话即可，不必新建会话）。",
+    "下面这些段按当前作用域独立保存，保存后从下次请求生效（同一会话继续对话即可，不必新建会话）。只作用于普通会话与动态工作流子代理：通过 Agent 工具派生的子代理（general-purpose / Explore / 自定义 profile）使用各自的身份提示词，不继承这里的改写。",
   "settings.systemPromptCustomizedCount": "已改写 {count} 段",
   "settings.systemPromptRestoreAll": "全部恢复继承",
   "settings.systemPromptAllToCustom": "主身份全部改为自定义（以内置原文为起点）",

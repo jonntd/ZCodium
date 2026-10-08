@@ -2313,7 +2313,7 @@ const enUS: Record<string, string> = {
     "Approval is required when a single deletion reaches this many files.",
   "settings.systemPrompt": "System Prompt",
   "settings.systemPromptDescription":
-    "Each segment is saved independently for the active scope and applies from the next request (keep chatting in the same session — no need to start a new one).",
+    "Each segment is saved independently for the active scope and applies from the next request (keep chatting in the same session — no need to start a new one). This applies to regular sessions and dynamic-workflow actors only: subagents spawned via the Agent tool (general-purpose / Explore / custom profiles) use their own profile prompts and do not inherit these overrides.",
   "settings.systemPromptCustomizedCount": "{count} segment(s) customized",
   "settings.systemPromptRestoreAll": "Restore all to inherit",
   "settings.systemPromptAllToCustom": "Set main identity to custom (start from built-in text)",

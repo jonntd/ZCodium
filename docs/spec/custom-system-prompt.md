@@ -34,6 +34,12 @@ v1（整段替换钩子 `customSystemPrompt`）只能把身份段整体换掉并
     多出脚本写的 persona」。因此「全部改为自定义」**只作用于主身份三段**——拿静态模板去覆盖
     这一页签会静默删掉 persona 与工作流契约，直接破坏子代理的 submit_result/escalate 契约。
   - legacy Workflow 子会话（无 workflowActor）：继承父 runtime 配置走 main 路径，与主会话一致。
+  - ⚠ **作用域边界（UI 必须向用户说明）**：两个作用域**不覆盖** Agent 工具派生的子代理
+    （general-purpose / Explore / 用户自定义 profile）——它们走轻量 `SubagentContextBuilder`，
+    使用 profile 自带的身份提示词 + 最小行为契约（`core/src/prompts/behavioral-contract.ts`），
+    **不继承** `customSystemPrompt` / `customSystemSegments`，也不继承 language 偏好之外
+    的任何改写；compact 摘要等一次性 prompt 同样不在此列。设置页描述文案必须写明这一点，
+    避免「改了系统提示词为什么子代理没变」的误解。
 - **优先级**：旧整段字段 `customSystemPrompt` 非空时**整体压过**分段配置（v1 语义原样保留，
   避免两套替换叠加出未定义行为）。UI 迁移保证两字段不会同时非空（见兼容）。
 - **条件注入保留**：桌面上下文的内置注入门（`presentationSurface === "zcode_desktop"` 且非
