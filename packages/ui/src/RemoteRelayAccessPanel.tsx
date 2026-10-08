@@ -130,9 +130,18 @@ export function RemoteRelayAccessPanel() {
     pollTimerRef.current = setInterval(() => {
       void refresh();
     }, STATUS_POLL_INTERVAL_MS);
+    // 焦点回到窗口 / 页面从后台切回时立刻拉一次：5s 轮询的滞后是「设置改了、
+    // 面板慢半拍才变」感知的主要来源；窗口可见性变化是用户回来操作的确定信号。
+    const refetch = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    document.addEventListener("visibilitychange", refetch);
+    window.addEventListener("focus", refetch);
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
+      document.removeEventListener("visibilitychange", refetch);
+      window.removeEventListener("focus", refetch);
     };
   }, [supported, refresh]);
 

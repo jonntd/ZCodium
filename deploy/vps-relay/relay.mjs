@@ -56,7 +56,11 @@ import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
+import { promisify } from "node:util";
+import { gzip as gzipCallback } from "node:zlib";
 import { WebSocketServer } from "ws";
+
+const gzipAsync = promisify(gzipCallback);
 
 const PORT = Number(process.env.PORT) || 3180;
 const WEB_ROOT = resolve(process.env.WEB_ROOT || "./web");
@@ -102,6 +106,28 @@ const MIME = {
   ".woff": "font/woff",
   ".woff2": "font/woff2",
 };
+
+/**
+ * 值得 gzip 的扩展名：文本类压缩率约 3~4 倍（主 bundle 5.8MB → 1.6MB）。
+ *
+ * 这条是**慢链路上的刚需**：手机/iPad 首次打开要整包下载，未压缩时 15s 的
+ * bundle 接管超时基本必然触发（实测某 VPS 单连接只有 10KB/s~1MB/s 抖动）。
+ * 图片 / 字体本身已是压缩格式，再压只白耗 CPU，故不列入。
+ */
+const COMPRESSIBLE_EXT = new Set([
+  ".css",
+  ".html",
+  ".js",
+  ".json",
+  ".map",
+  ".mjs",
+  ".svg",
+  ".txt",
+  ".wasm",
+  ".xml",
+]);
+/** 小于 1KB 压了也没意义。 */
+const GZIP_MIN_BYTES = 1024;
 
 /** 桌面上报的工作区信息，用于回答手机的 /api/server-info。 */
 let hostReport = null;
@@ -304,7 +330,18 @@ function buildServerInfo() {
   };
 }
 
-async function serveStatic(res, pathname) {
+function acceptsGzip(header) {
+  return String(header ?? "")
+    .split(",")
+    .some((part) => {
+      const [encoding, ...params] = part.trim().split(";");
+      if (encoding?.trim().toLowerCase() !== "gzip") return false;
+      const quality = params.find((param) => /^\s*q\s*=/i.test(param));
+      return quality == null || Number(quality.split("=")[1]) > 0;
+    });
+}
+
+async function serveStatic(req, res, pathname) {
   // SPA fallback 只给**无扩展名**的路径：带扩展名的（.js/.css/...）是资产请求，
   // 旧构建的哈希文件在新 dist 里不存在时必须回 404——兜底成 index.html 会把
   // HTML 当 JS 发回去，浏览器模块解析直接失败，页面白屏（实测踩过）。
@@ -318,13 +355,36 @@ async function serveStatic(res, pathname) {
     if (filePath !== WEB_ROOT && !filePath.startsWith(WEB_ROOT + sep)) continue;
     try {
       const body = await readFile(filePath);
-      log("static", { status: 200, path: candidate, bytes: body.length });
-      res.writeHead(200, {
-        "content-type": MIME[extname(filePath)] || "application/octet-stream",
-        "content-length": body.length,
-        "cache-control": candidate === "/index.html" ? "no-store" : "public, max-age=3600",
+      const extension = extname(filePath).toLowerCase();
+      const compressible = COMPRESSIBLE_EXT.has(extension) && body.length >= GZIP_MIN_BYTES;
+      const compressed = compressible && acceptsGzip(req.headers["accept-encoding"]);
+      const payload = compressed ? await gzipAsync(body) : body;
+      const headers = {
+        "content-type": MIME[extension] || "application/octet-stream",
+        "content-length": payload.length,
+        // /assets/ 下是 Vite 的内容哈希文件名：内容变 ⇒ 名字变，index.html 又是 no-store
+        // ⇒ 可以放心给一年 immutable（重复访问直接命中缓存，不再重新下载 1.7MB 主包）。
+        // 其余非哈希文件（public/ 拷贝物）保守给 1 小时。
+        "cache-control":
+          candidate === "/index.html"
+            ? "no-store"
+            : candidate.startsWith("/assets/")
+              ? "public, max-age=31536000, immutable"
+              : "public, max-age=3600",
+      };
+      // 必须对 identity 与 gzip 两种响应都发 Vary，否则共享缓存可能把 gzip 字节
+      // 发给不支持 gzip 的客户端（或反过来）。
+      if (compressible) headers.vary = "Accept-Encoding";
+      if (compressed) headers["content-encoding"] = "gzip";
+      log("static", {
+        status: 200,
+        path: candidate,
+        bytes: body.length,
+        ...(compressed ? { gzipBytes: payload.length } : {}),
       });
-      res.end(body);
+      res.writeHead(200, headers);
+      // Node 对 HEAD 通常会抑制响应体；这里显式保证只发 GET 的 payload。
+      res.end(req.method === "HEAD" ? undefined : payload);
       return;
     } catch {
       // 试下一个候选
@@ -381,7 +441,7 @@ const server = createServer(async (req, res) => {
       "set-cookie",
       `${COOKIE_NAME}=${deriveSessionCookie(expiresAtSec)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`,
     );
-    await serveStatic(res, url.pathname);
+    await serveStatic(req, res, url.pathname);
     return;
   }
 
@@ -454,7 +514,7 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  await serveStatic(res, url.pathname);
+  await serveStatic(req, res, url.pathname);
 });
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD });

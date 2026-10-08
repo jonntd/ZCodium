@@ -177,11 +177,12 @@
         }
         function showBootFailure(reason) {
           if (shown) return;
+          shown = true;
+          stopWatchdog();
           var root = document.getElementById("root");
           var shell = root && root.querySelector(".zcode-boot-loading");
           // 已经渲染成功（壳被 React 替换）或已显示其它错误页时不动。
           if (!root || !shell) return;
-          shown = true;
           var zh = /^zh/i.test(navigator.language || "");
           var hint = detectPlatformHint();
           var box = document.createElement("div");
@@ -198,6 +199,9 @@
             "</div>" +
             (hint ? '<div style="margin-top:.5rem">' + hint + "</div>" : "") +
             '<div style="margin-top:.5rem;opacity:.7;word-break:break-all">' + reason + "</div>" +
+            '<div style="margin-top:1rem"><button type="button" onclick="location.reload()" style="font:inherit;padding:.4rem 1rem;border-radius:.5rem;border:1px solid currentColor;background:transparent;color:inherit;cursor:pointer">' +
+            (zh ? "重新加载" : "Reload") +
+            "</button></div>" +
             '<div style="margin-top:.5rem;opacity:.5;word-break:break-all;font-size:11px">' +
             (navigator.userAgent || "") +
             "</div></div>";
@@ -220,10 +224,133 @@
             var reason = event && event.reason;
             showBootFailure("unhandled rejection: " + ((reason && reason.message) || reason || ""));
           });
-          // 老浏览器解析失败时不会触发上面的 error，只能靠超时兜底（4G 首包 + 5.8MB bundle 留足余量）。
-          setTimeout(function () {
-            showBootFailure("bundle did not take over within 15s");
-          }, 15000);
+          // 老浏览器解析失败时不会触发上面的 error，只能靠超时兜底。
+          // ⚠ 不能写死 15s：主 bundle gzip 后约 1.7MB，慢链路（实测 10KB/s～1MB/s 抖动）
+          // 下载可能要几分钟——「正在下载」被误报成「启动失败」。判定规则：
+          // ① 主 module 脚本在下载中（src 存在但还没进 resource entries）⇒ 视为有进展，
+          //    只受硬上限约束（慢网 180s / 常规 60s，按 NetworkInformation 自适应）；
+          // ② 主脚本下载完成后 8s 内必须接管（下载完却不执行 = 真故障）；
+          // ③ 没有 module 脚本标签的极老浏览器保持原 15s 语义；
+          // ④ 期间在壳上实时显示进度（资源数 + 已用时），失败给「重新加载」按钮。
+          var startAt = Date.now();
+          var lastProgressAt = startAt;
+          var lastResourceCount = 0;
+          var mainDoneAt = 0;
+          var watchdogTimer = null;
+          var statusTimer = null;
+          var statusEl = null;
+          var conn =
+            navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+          var slowNetwork =
+            !!conn &&
+            (conn.saveData === true ||
+              /^(slow-)?2g$/.test(conn.effectiveType || "") ||
+              (typeof conn.downlink === "number" && conn.downlink > 0 && conn.downlink < 1));
+          var HARD_CAP_MS = slowNetwork ? 180000 : 60000;
+          var MAIN_EXEC_GRACE_MS = 8000;
+          var LEGACY_TIMEOUT_MS = 15000;
+          var zhLocale = /^zh/i.test(navigator.language || "");
+
+          function shellStillThere() {
+            var root = document.getElementById("root");
+            return !!(root && root.querySelector(".zcode-boot-loading"));
+          }
+
+          function ensureStatusEl() {
+            if (statusEl) return statusEl;
+            var root = document.getElementById("root");
+            var shell = root && root.querySelector(".zcode-boot-loading");
+            if (!shell) return null;
+            statusEl = document.createElement("div");
+            statusEl.setAttribute(
+              "style",
+              "margin-top:.75rem;font:12px/1.5 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;opacity:.65",
+            );
+            shell.appendChild(statusEl);
+            return statusEl;
+          }
+
+          function updateStatus() {
+            var el = ensureStatusEl();
+            if (!el) return;
+            var elapsed = Math.round((Date.now() - startAt) / 1000);
+            var perf = window.performance;
+            var count = 0;
+            var mainUrl = "";
+            var mainEntry = null;
+            if (perf && perf.getEntriesByType) {
+              count = perf.getEntriesByType("resource").length;
+              var moduleScript = document.querySelector('script[type="module"][src]');
+              mainUrl = (moduleScript && moduleScript.getAttribute("src")) || "";
+              mainEntry = mainUrl && perf.getEntriesByName ? perf.getEntriesByName(mainUrl)[0] : null;
+            }
+            var text;
+            if (mainEntry) {
+              text = zhLocale ? "主程序已下载，正在启动… " : "Bundle downloaded, starting… ";
+            } else if (mainUrl) {
+              text = zhLocale ? "正在下载主程序… " : "Downloading bundle… ";
+              if (slowNetwork && elapsed > 10) {
+                text += zhLocale ? "（网络较慢，大文件下载可能需要几分钟）" : "(slow network: large download may take minutes)";
+              }
+            } else {
+              text = zhLocale ? "正在加载… " : "Loading… ";
+            }
+            el.textContent = text + elapsed + "s · " + count + " " + (zhLocale ? "个资源" : "resources");
+          }
+
+          function stopWatchdog() {
+            if (watchdogTimer) {
+              clearInterval(watchdogTimer);
+              watchdogTimer = null;
+            }
+            if (statusTimer) {
+              clearInterval(statusTimer);
+              statusTimer = null;
+            }
+          }
+
+          try {
+            watchdogTimer = setInterval(function () {
+              if (!shellStillThere()) {
+                // 壳已被 bundle 替换 ⇒ 接管成功，收摊。
+                stopWatchdog();
+                return;
+              }
+              var perf = window.performance;
+              if (perf && perf.getEntriesByType) {
+                var count = perf.getEntriesByType("resource").length;
+                if (count !== lastResourceCount) {
+                  lastResourceCount = count;
+                  lastProgressAt = Date.now();
+                }
+                var moduleScript = document.querySelector('script[type="module"][src]');
+                var mainUrl = (moduleScript && moduleScript.getAttribute("src")) || "";
+                var mainEntry =
+                  mainUrl && perf.getEntriesByName ? perf.getEntriesByName(mainUrl)[0] : null;
+                if (mainEntry && !mainDoneAt) mainDoneAt = Date.now();
+                if (mainDoneAt && Date.now() - mainDoneAt > MAIN_EXEC_GRACE_MS) {
+                  showBootFailure("bundle downloaded but did not take over (script execution failed)");
+                  return;
+                }
+                if (!mainUrl && Date.now() - startAt > LEGACY_TIMEOUT_MS) {
+                  // 没有 module 脚本可等（极老浏览器/HTML 异常），维持原 15s 语义。
+                  showBootFailure("no module bundle started within 15s");
+                  return;
+                }
+              }
+              if (Date.now() - startAt > HARD_CAP_MS) {
+                showBootFailure(
+                  "bundle did not take over within " +
+                    Math.round(HARD_CAP_MS / 1000) +
+                    "s (network still too slow or blocked)",
+                );
+              }
+            }, 2000);
+            statusTimer = setInterval(updateStatus, 1000);
+            updateStatus();
+          } catch (error) {
+            /* 极老浏览器：连监听都装不上时保持原样，不额外报错 */
+          }
         } catch (error) {
           /* 极老浏览器：连监听都装不上时保持原样，不额外报错 */
         }
