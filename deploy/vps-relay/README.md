@@ -15,6 +15,9 @@
 | `relay.mjs` | **A（推荐先用）** | 纯字节转发。配合 ZCodium 现有 web bundle，桌面侧需 `remoteRelayClient`（已实现）。**已完整验证** |
 | `relay-official.mjs` | **B（进阶）** | 实现官方远控的 JSON 信封协议（注册/鉴权/配对/心跳）。**仅控制面**，可配合官方 App（`ZCODE_WEB_REMOTE_CONTROL_RELAY_WS_URL`）。数据面未实现 |
 
+两个 compose 变体：有域名用 `docker-compose.yml`（端口绑回环，由 Caddy 终结 TLS）；
+**没有域名用 `docker-compose.no-tls.yml`**（端口直接对外，见 §2.5.1）。
+
 **两者是独立技术栈，不能混搭**（帧格式不同，详见 spec §14.5）。
 下面的部署说明默认指 `relay.mjs`（路线 A）。
 
@@ -181,6 +184,29 @@ Caddy 会自动签发/续期证书，**并自动处理 WebSocket 升级**，不�
 
 > **nginx 用户注意**：需要显式转发 `Upgrade` / `Connection` 头，并把 `proxy_read_timeout`
 > 调到 300s 以上——本中继是长连接，nginx 默认的 60s 会周期性掐断。
+
+### 2.5.1 没有域名怎么办（纯 IP 部署）
+
+用 `docker-compose.no-tls.yml`——它和默认 compose 只差两点：端口直接对外、不启 Caddy。
+
+```bash
+cd /opt/zcode-relay
+docker compose -f docker-compose.no-tls.yml up -d --build
+curl -s http://127.0.0.1:3180/healthz   # → {"ok":true}
+```
+
+配置层不限制主机形态（`remoteRelayConfigPayload.ts` 只校验协议前缀），裸 IP 合法。
+桌面「移动端远程控制 → 浏览器直连 → 高级设置」里这样填（以 `3180` 为例）：
+
+| 字段 | 值 | 为什么 |
+|---|---|---|
+| 使用场景 | **内网** | 拿到 `ws://`；选「公网」会拼成 `wss://`，而裸 IP 拿不到受信任证书，桌面侧 WS 客户端会拒连（`remoteRelayClient.ts` 没开 `rejectUnauthorized:false`） |
+| 中继地址 | `<公网IP>:3180` | 桌面拨出的端点 |
+| 公开地址（打开覆盖） | `http://<公网IP>:3180` | 手机访问的地址；不填会被推导成和中继地址同 host |
+
+外网另需放行 TCP 3180（云厂商安全组 + 宿主机防火墙）。
+代价与边界见 §2.5 的更正说明：丢的是**页面完整性**与 insecure origin 的浏览器能力，
+**内容仍受 E2EE 保护**。
 
 ---
 
