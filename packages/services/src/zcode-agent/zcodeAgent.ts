@@ -1,4 +1,8 @@
-import type { BackgroundBashOutputResult, SessionDebugSnapshot } from "@zcode/shared";
+import type {
+  BackgroundBashOutputResult,
+  CustomSystemSegments,
+  SessionDebugSnapshot,
+} from "@zcode/shared";
 /* eslint-disable max-lines -- ZCode agent service 接口集中声明 protocol/session/workspace 方法，拆分会增加 service descriptor 迁移成本。 */
 import type { Event, IDisposable } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
@@ -560,6 +564,12 @@ export interface ZCodeAgentAppRuntimePreferences {
    * 空串/缺席 = 内置默认。归一化保证非 undefined 时一定是 string（含清空用的空串）。
    */
   customSystemPrompt?: string;
+  /**
+   * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落按
+   * 继承/覆盖/追加/清空组合，两作用域。**缺席 = 从未使用**（不同步，避免给旧 CLI 增加
+   * 必败往返）；`{}` = 已全部恢复继承（仍同步，让新建 CLI client 拿到清空态）。
+   */
+  customSystemSegments?: CustomSystemSegments;
 }
 
 export interface ZCodeAgentLocalRuntimeChildProcesses {

@@ -1009,6 +1009,17 @@ export async function createZCodeApp(options: ZCodeAppOptions): Promise<ZCodeApp
         }
         getRuntime().updateConfig({ systemPrompt });
       },
+      updateSystemSegments: (segments) => {
+        // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：同 updateSystemPrompt 的双写原因。
+        // 这里不能按 falsy 折叠——`{}` 表示「已全部恢复继承」，必须真的写进 runtimeConfig 与
+        // runtime config，否则活会话会继续沿用旧分段。undefined 才是「从未使用」。
+        if (segments === undefined) {
+          delete runtimeConfig.customSystemSegments;
+        } else {
+          runtimeConfig.customSystemSegments = segments;
+        }
+        getRuntime().updateConfig({ customSystemSegments: segments });
+      },
       readToolResultArtifact: (uri) =>
         artifactStore.readToolResultArtifact({ uri, trace: traceContext }),
       // wire/staging 全程是 decoded chunk；只有完整 checksum commit 后才在

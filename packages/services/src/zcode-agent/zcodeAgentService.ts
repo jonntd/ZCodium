@@ -96,6 +96,9 @@ import {
   zcodeWorkspaceUpdateModelIoPreferencesResultSchema,
   zcodeWorkspaceUpdateDeleteProtectionPreferencesResultSchema,
   zcodeWorkspaceUpdateSystemPromptResultSchema,
+  zcodeWorkspaceUpdateSystemSegmentsResultSchema,
+  customSystemSegmentsSchema,
+  normalizeCustomSystemSegments,
   zcodeProviderUpdateAccountConfigResultSchema,
   type ZCodeSessionStateSnapshot,
   type ZCodeAutomation,
@@ -1516,6 +1519,24 @@ export function createZCodeAgentService(
                 systemPrompt: params.preferences.customSystemPrompt,
               },
               zcodeWorkspaceUpdateSystemPromptResultSchema,
+            );
+          } catch (error) {
+            // 旧 CLI 不认识该方法：静默降级，保持其内置系统提示词。
+            if (!isProtocolMethodNotFoundError(error)) throw error;
+          }
+        }
+        // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：与 v1 同一条「仅在快照
+        // 实际同步过该字段时发送」规则，避免给旧 CLI 增加必败往返。判定用 `!== undefined`
+        // 而非真值——`{}`（已全部恢复继承）也是必须送达活会话的有效值。
+        if (params.preferences.customSystemSegments !== undefined) {
+          try {
+            await params.client.request(
+              zcodeProtocolMethods.workspaceUpdateSystemSegments,
+              {
+                workspace: buildWorkspaceRef(params.workspace),
+                segments: params.preferences.customSystemSegments,
+              },
+              zcodeWorkspaceUpdateSystemSegmentsResultSchema,
             );
           } catch (error) {
             // 旧 CLI 不认识该方法：静默降级，保持其内置系统提示词。
@@ -3419,6 +3440,15 @@ export function createZCodeAgentService(
     },
 
     async syncAppRuntimePreferences(preferences: ZCodeAgentAppRuntimePreferences): Promise<void> {
+      // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：schema 校验通过才透传
+      // （再走一次归一化，剥离空文本 override/append、clear 去 text），否则按「从未使用」
+      // 处理（undefined），不把脏数据送进 CLI。`{}` 是有效值，必须原样保留。
+      const parsedSystemSegments = customSystemSegmentsSchema.safeParse(
+        preferences.customSystemSegments,
+      );
+      const normalizedSystemSegments = parsedSystemSegments.success
+        ? normalizeCustomSystemSegments(parsedSystemSegments.data)
+        : undefined;
       const normalizedPreferences: ZCodeAgentAppRuntimePreferences = {
         ...preferences,
         modelIoFullRetentionEnabled: preferences.modelIoFullRetentionEnabled === true,
@@ -3437,6 +3467,7 @@ export function createZCodeAgentService(
           typeof preferences.customSystemPrompt === "string"
             ? preferences.customSystemPrompt
             : undefined,
+        customSystemSegments: normalizedSystemSegments,
       };
       latestAppRuntimePreferences = normalizedPreferences;
       const activeClients = [...activeClientsByWorkspaceKey.values()];

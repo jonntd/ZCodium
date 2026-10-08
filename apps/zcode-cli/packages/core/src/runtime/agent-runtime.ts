@@ -339,7 +339,16 @@ export interface AgentRuntime {
   beginShutdown(): void;
   closeBrowserSession(): Promise<void>;
   updateConfig(
-    patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "language" | "outputStyle" | "deleteProtection" | "systemPrompt">,
+    patch: Pick<
+      AgentRuntimeConfig,
+      | "mode"
+      | "planEnabled"
+      | "language"
+      | "outputStyle"
+      | "deleteProtection"
+      | "systemPrompt"
+      | "customSystemSegments"
+    >,
   ): void;
   initializeSessionShellEnvironmentIfNeeded(
     selection: ExecutionShellSelection | (() => ExecutionShellSelection),

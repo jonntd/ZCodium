@@ -147,7 +147,8 @@ export function useSettings() {
         typeof patch.modelIoFullRetentionEnabled === "boolean" ||
         typeof patch.deleteProtectionEnabled === "boolean" ||
         typeof patch.batchDeleteApprovalThreshold === "number" ||
-        typeof patch.customSystemPrompt === "string"
+        typeof patch.customSystemPrompt === "string" ||
+        patch.customSystemSegments !== undefined
       ) {
         const preferences = {
           askUserQuestionAutoResolutionEnabled:
@@ -169,6 +170,13 @@ export function useSettings() {
           // 空串 = 内置默认，必须保留（不能折叠成 undefined），"恢复默认"靠它显式清空。
           customSystemPrompt:
             patch.customSystemPrompt ?? settingsStore.snapshot.settings?.customSystemPrompt ?? "",
+          // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：同一份「快照必须完整」的
+          // 理由——缺字段会让 latestAppRuntimePreferences 丢掉已保存的分段，新注册的 CLI
+          // 拿到内置拼装。`{}` = 已全部恢复继承，是有效值；缺省也回落到 `{}`。
+          customSystemSegments:
+            patch.customSystemSegments ??
+            settingsStore.snapshot.settings?.customSystemSegments ??
+            {},
         };
         const syncResults = await Promise.allSettled([
           zcodeAgentService.syncAppRuntimePreferences(preferences),

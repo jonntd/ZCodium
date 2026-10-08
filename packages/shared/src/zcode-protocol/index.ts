@@ -17,6 +17,7 @@ import {
 // 上述旧协议 client/server 组删除时，本文件整体删除。
 // 注：外部零消费 schema 多为存活 schema 联合的内部依赖，随宿主文件一起处理，勿单删。
 import { bashOutputDisplaySchema } from "../bash-output-display.js";
+import { customSystemSegmentsSchema } from "../system-prompt-segments.js";
 // 后台详情共享精简的只读响应 schema，不携带命令或计时元数据。
 export * from "../background-bash-output.js";
 import { executionOutputPreviewSchema } from "../execution-output-preview.js";
@@ -1725,6 +1726,8 @@ export const zcodeSessionRuntimePreferencesResultSchema = z
     ),
     // 自定义系统提示词（docs/spec/custom-system-prompt.md）：兼容旧 Host 缺省 = 使用内置默认。
     customSystemPrompt: z.string().max(200_000).optional(),
+    // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：兼容旧 Host 缺省 = 全部继承。
+    customSystemSegments: customSystemSegmentsSchema.optional(),
   })
   .strict();
 export type ZCodeSessionRuntimePreferencesResult = z.infer<
@@ -1752,6 +1755,29 @@ export const zcodeWorkspaceUpdateSystemPromptResultSchema = z
   .strict();
 export type ZCodeWorkspaceUpdateSystemPromptResult = z.infer<
   typeof zcodeWorkspaceUpdateSystemPromptResultSchema
+>;
+
+export const zcodeWorkspaceUpdateSystemSegmentsParamsSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    // 空对象 = 全部恢复继承（显式可传）；条目归一化在 CLI handler 内做。
+    segments: customSystemSegmentsSchema,
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateSystemSegmentsParams = z.infer<
+  typeof zcodeWorkspaceUpdateSystemSegmentsParamsSchema
+>;
+
+export const zcodeWorkspaceUpdateSystemSegmentsResultSchema = z
+  .object({
+    workspace: zcodeWorkspaceRefSchema,
+    // 回显归一化后的值：空对象表示全部回到继承。
+    segments: customSystemSegmentsSchema,
+    updatedSessionCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ZCodeWorkspaceUpdateSystemSegmentsResult = z.infer<
+  typeof zcodeWorkspaceUpdateSystemSegmentsResultSchema
 >;
 
 /**
@@ -3675,6 +3701,9 @@ export const zcodeProtocolMethods = {
   workspaceUpdateDeleteProtectionPreferences: "workspace/updateDeleteProtectionPreferences",
   // 自定义系统提示词：同删除保护的独立方法降级模式；空串 = 恢复内置默认。
   workspaceUpdateSystemPrompt: "workspace/updateSystemPrompt",
+  // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：同上独立方法降级模式；
+  // 空对象 = 全部恢复继承。
+  workspaceUpdateSystemSegments: "workspace/updateSystemSegments",
   // Off-Peak 工具面门禁是 workspace 级事实（灰度 + 本地/远程），由 host 在 agent 就绪时同步；
   // CLI 对 legacy create/resume 与 v4 冷恢复统一读取。旧 CLI method-not-found → host 降级忽略。
   workspaceUpdateOffPeakToolPolicy: "workspace/updateOffPeakToolPolicy",

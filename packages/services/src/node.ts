@@ -13,6 +13,7 @@ import { getAppConfigDir as resolveAppConfigDir } from "./paths.js";
 import {
   buildLocalMediaPreviewUrl,
   isProviderProvisioningAccountCredentialKey,
+  normalizeCustomSystemSegments,
   type ProviderProvisioningTrigger,
 } from "@zcode/shared";
 
@@ -2321,6 +2322,11 @@ export function createLocalServices(options: {
             // 预算已统一，不能把可选远端配置作为本地/手机 shared-host 建会话的前置条件。
             const settings = await settingService.get();
             const modelContextBudgetStrategy = DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY;
+            // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：同一条冷启动现读路径。
+            // 归一化后非空才携带——`{}`（全部恢复继承）无需下发，CLI 缺省即全部继承。
+            const customSystemSegments = normalizeCustomSystemSegments(
+              settings.customSystemSegments ?? {},
+            );
             return {
               askUserQuestionAutoResolutionEnabled:
                 settings.askUserQuestionAutoResolutionEnabled !== false,
@@ -2343,6 +2349,9 @@ export function createLocalServices(options: {
               settings.customSystemPrompt.trim()
                 ? { customSystemPrompt: settings.customSystemPrompt }
                 : {}),
+              // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：非空（至少一段非继承）
+              // 才携带；全继承不下发，与 CLI 缺省语义一致。
+              ...(Object.keys(customSystemSegments).length > 0 ? { customSystemSegments } : {}),
               // user-execution 只消费 Shell；共享默认策略是统一 result schema 的兼容占位，
               // 不会覆盖 runtime-materialization 阶段已经固定的 strategy。
               ...(scope === "user-execution" && settings.integratedTerminalShell

@@ -9,6 +9,7 @@ import {
   embeddedBrowserViewportPreferenceSchema,
 } from "./browser-use/command-metadata.js";
 import { providerFamilyConnectionSelectionSettingsSchema } from "./provider-family-connection-selection.js";
+import { customSystemSegmentsSchema } from "./system-prompt-segments.js";
 
 /** 引导职业枚举；单独导出供 onboarding 记录回填 settings 时做窄化校验。 */
 const appSettingsOccupationSchema = z.enum([
@@ -42,6 +43,12 @@ const batchDeleteApprovalThresholdSchema = z.number().int().min(1).max(10000);
  * 空串必须合法：RPC 会丢弃 undefined，"恢复默认"只能以空串穿越边界。
  */
 const customSystemPromptSchema = z.string().max(200_000);
+/**
+ * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落各自独立
+ * 继承/覆盖/追加/清空。空对象/缺席 = 全部继承；继承态不落盘（条目缺席）。
+ * 必须进存储 schema，否则写盘被 strip、开关回弹。schema 本体在 system-prompt-segments.ts。
+ */
+const customSystemSegmentsSettingSchema = customSystemSegmentsSchema;
 const electronReleaseChannelSchema = z.enum(["stable", "preview"]);
 const desktopZoomLevelSchema = z.number().int().min(-3).max(5);
 const desktopWindowSizeSchema = z.object({
@@ -474,6 +481,7 @@ const appSettingsObjectSchema = z.object({
   deleteProtectionEnabled: z.boolean().default(true),
   batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.default(50),
   customSystemPrompt: customSystemPromptSchema.optional(),
+  customSystemSegments: customSystemSegmentsSettingSchema.optional(),
   modelIoFullRetentionEnabled: z.boolean().default(false),
   startPlanRecommendationDismissed: z.boolean().default(false),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.default({}),
@@ -549,6 +557,7 @@ export const appSettingsPatchSchema = z.object({
   deleteProtectionEnabled: z.boolean().optional(),
   batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.optional(),
   customSystemPrompt: customSystemPromptSchema.optional(),
+  customSystemSegments: customSystemSegmentsSettingSchema.optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
   startPlanRecommendationDismissed: z.boolean().optional(),
   providerFamilyConnectionSelections: providerFamilyConnectionSelectionSettingsSchema.optional(),

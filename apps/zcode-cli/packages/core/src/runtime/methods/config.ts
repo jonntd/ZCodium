@@ -49,7 +49,13 @@ export function updateConfig(
   this: AgentRuntimeInternal,
   patch: Pick<
     AgentRuntimeConfig,
-    "mode" | "planEnabled" | "language" | "outputStyle" | "deleteProtection" | "systemPrompt"
+    | "mode"
+    | "planEnabled"
+    | "language"
+    | "outputStyle"
+    | "deleteProtection"
+    | "systemPrompt"
+    | "customSystemSegments"
   >,
 ): void {
   if (patch.mode !== undefined || patch.planEnabled !== undefined) {
@@ -80,6 +86,15 @@ export function updateConfig(
     // 空闲时立即重建上下文前缀；回合进行中只写 config，下一 model step 的
     // rebuildContextPrefix（turn.ts）自然带上新值。undefined = 还原内置默认。
     this.config.systemPrompt = patch.systemPrompt;
+    if (!this.activeTurn) {
+      rebuildContextPrefix(this);
+    }
+  }
+  if ("customSystemSegments" in patch) {
+    // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：与 systemPrompt 同一条生效规则
+    // （空闲重建、回合中下一回合生效）。用 `in` 判定：undefined 表示「全部恢复继承」，
+    // 必须真的清掉 config 里的旧值，不能像 deleteProtection 那样只在有值时写。
+    this.config.customSystemSegments = patch.customSystemSegments;
     if (!this.activeTurn) {
       rebuildContextPrefix(this);
     }

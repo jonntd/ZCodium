@@ -20,7 +20,7 @@ import type {
   WorkspaceHookBundleSnapshot,
   WorkspaceId,
 } from "@zcode/contracts";
-import type { ZCodeProviderAccountAccess } from "@zcode/shared";
+import type { CustomSystemSegments, ZCodeProviderAccountAccess } from "@zcode/shared";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 import type { RuntimeMessageEntry } from "../agent/message-history.js";
 import type {
@@ -225,6 +225,12 @@ export interface AgentRuntimeConfig {
 
   // Context Builder config
   systemPrompt?: string;
+  /**
+   * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落按
+   * 继承/覆盖/追加/清空组合。`systemPrompt`（v1 整段替换）在场时被 builder 整体忽略；
+   * workflow child 经继承链自动拿到（dwf actor 由 workflowSubagent 作用域生效）。
+   */
+  customSystemSegments?: CustomSystemSegments;
   /**
    * 动态工作流子代理的身份输入：在场即让
    * context builder 走「基座 + 工作流子代理契约 + persona 叠加」路径，而不是把 persona 当

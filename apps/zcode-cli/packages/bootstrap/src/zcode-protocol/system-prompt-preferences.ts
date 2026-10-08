@@ -1,4 +1,8 @@
-import { zcodeWorkspaceUpdateSystemPromptParamsSchema } from "@zcode/shared";
+import {
+  normalizeCustomSystemSegments,
+  zcodeWorkspaceUpdateSystemPromptParamsSchema,
+  zcodeWorkspaceUpdateSystemSegmentsParamsSchema,
+} from "@zcode/shared";
 import { parseParams, type ZCodeProtocolAgentServerContext } from "./server-types.js";
 
 /**
@@ -29,6 +33,40 @@ export async function updateSystemPromptPreferences(
     workspace: params.workspace,
     // 回显归一化值：空串表示已回到内置默认，host 不需要重复实现 trim 规则。
     systemPrompt: normalized,
+    updatedSessionCount,
+  };
+}
+
+/**
+ * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落各自
+ * 继承/覆盖/追加/清空，两作用域（main / workflowSubagent）。
+ *
+ * 与 v1 的差异只在载荷形状：归一化在 handler 内做（剥离空文本 override/append、clear 去 text），
+ * 之后写进程缓存 + 遍历活动 session 双写。**空对象 = 全部恢复继承**，是显式可传的合法值，
+ * 因此不能像 customSystemPrompt 那样折叠成 undefined——它必须真的清掉旧值。
+ */
+export async function updateSystemSegmentsPreferences(
+  context: ZCodeProtocolAgentServerContext,
+  rawParams: unknown,
+) {
+  const params = parseParams(zcodeWorkspaceUpdateSystemSegmentsParamsSchema, rawParams);
+  const normalized = normalizeCustomSystemSegments(params.segments);
+  // 空对象仍要写缓存（而非删除字段）：它表示「已全部恢复继承」，是 host 已知的状态，
+  // 与「从未使用」（缺席）不同——新建 CLI client 需要拿到清空态才不会复用旧进程缓存。
+  context.appRuntimePreferences.customSystemSegments = normalized;
+
+  let updatedSessionCount = 0;
+  for (const record of context.sessions.values()) {
+    if (!record.app.updateSystemSegments) continue;
+    record.app.updateSystemSegments(normalized);
+    record.customSystemSegments = normalized;
+    updatedSessionCount += 1;
+  }
+
+  return {
+    workspace: params.workspace,
+    // 回显归一化值：host 不需要重复实现剥离规则。
+    segments: normalized,
     updatedSessionCount,
   };
 }

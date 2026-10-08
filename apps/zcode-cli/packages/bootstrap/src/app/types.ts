@@ -1,4 +1,8 @@
-import type { ZCodeToolExecResource, BackgroundBashOutputResult } from "@zcode/shared";
+import type {
+  BackgroundBashOutputResult,
+  CustomSystemSegments,
+  ZCodeToolExecResource,
+} from "@zcode/shared";
 import type { AiSdkModelAdapter } from "@zcode/adapters/model";
 import type {
   AgentRuntime,
@@ -622,6 +626,12 @@ export interface ZCodeApp {
    * undefined = 还原内置默认。空闲会话立即重建上下文前缀；回合中的会话下一回合生效。
    */
   updateSystemPrompt?(systemPrompt: string | undefined): void;
+  /**
+   * 分段系统提示词实时更新（docs/spec/custom-system-prompt.md v2）：三段常用段落按
+   * 继承/覆盖/追加/清空组合，两作用域。`{}` = 全部恢复继承（有效值，必须下发）；
+   * undefined = 从未使用。空闲会话立即重建上下文前缀；回合中的会话下一回合生效。
+   */
+  updateSystemSegments?(segments: CustomSystemSegments): void;
   setModel(
     modelId: string | ModelSelection,
     options?: {

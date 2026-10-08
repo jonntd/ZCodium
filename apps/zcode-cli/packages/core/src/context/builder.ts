@@ -3,6 +3,7 @@
 // ============================================================
 
 import type { ModelInputMessage } from "@zcode/contracts";
+import type { SystemPromptSegmentEntry } from "@zcode/shared";
 import type {
   ContextMetaUserAttachment,
   ContextSection,
@@ -86,6 +87,15 @@ export class ContextBuilder {
       : undefined;
     const customSystemPrompt = this.config.customSystemPrompt?.trim();
     const hasCustomSystemPrompt = Boolean(customSystemPrompt);
+    // 分段系统提示词（docs/spec/custom-system-prompt.md v2）：v1 整段替换在场时整体压过分段
+    // 配置（两套替换叠加是未定义行为）；否则按作用域取。main = 普通会话三段，
+    // workflowSubagent = dwf actor 的身份段（子代理没有 CLI 前缀与桌面上下文）。
+    const mainSegments = hasCustomSystemPrompt
+      ? undefined
+      : this.config.customSystemSegments?.main;
+    const workflowSegments = hasCustomSystemPrompt
+      ? undefined
+      : this.config.customSystemSegments?.workflowSubagent;
     // 工作流子代理身份：第三条路径。与
     // customSystemPrompt 互斥——两者同在只可能是接线错误（persona 该经 workflowActor 进来，
     // 不该再塞 systemPrompt），大声失败而不是默默二选一。
@@ -101,7 +111,13 @@ export class ContextBuilder {
     // 「You are ZCode, an interactive coding agent」对一个
     // 只对脚本说话、可能连读文件工具都没有的子代理是错的身份，且走在正确身份段前面。
     if (!isWorkflowActor) {
-      sections.push(buildCliPrefixSection());
+      const cliPrefixSection = applySegmentToSection(
+        buildCliPrefixSection(),
+        mainSegments?.cliPrefix,
+      );
+      if (cliPrefixSection) {
+        sections.push(cliPrefixSection);
+      }
     }
 
     // 2. Stable agent behavior or custom prompt body
@@ -116,9 +132,23 @@ export class ContextBuilder {
         }),
       );
     } else if (workflowActor !== undefined) {
-      sections.push(buildWorkflowActorIdentitySection(workflowActor));
+      // 分段是**为与 persona 组合而设计**的（与 v1 systemPrompt 的互斥保护不同）：
+      // inherit→persona 原样 / override→替换身份段 / append→persona 之后追加 / clear→不构建。
+      const workflowIdentitySection = applySegmentToSection(
+        buildWorkflowActorIdentitySection(workflowActor),
+        workflowSegments?.identity,
+      );
+      if (workflowIdentitySection) {
+        sections.push(workflowIdentitySection);
+      }
     } else {
-      sections.push(buildIdentitySection(activeOutputStyle));
+      const identitySection = applySegmentToSection(
+        buildIdentitySection(activeOutputStyle),
+        mainSegments?.identity,
+      );
+      if (identitySection) {
+        sections.push(identitySection);
+      }
     }
 
     // 3. Dynamic system context
@@ -129,7 +159,14 @@ export class ContextBuilder {
     // guidance——契约里已把 Report outcomes faithfully 搬过去），保留 memory 与其后各段。
     if (!hasCustomSystemPrompt) {
       if (!isWorkflowActor && this.config.presentationSurface === "zcode_desktop") {
-        sections.push(buildDesktopContextSection());
+        // 注入门不因分段改变：分段只决定门开后该段的内容（clear 时不构建）。
+        const desktopSection = applySegmentToSection(
+          buildDesktopContextSection(),
+          mainSegments?.desktop,
+        );
+        if (desktopSection) {
+          sections.push(desktopSection);
+        }
       }
 
       // behaviour part right after stable sp...
@@ -346,6 +383,34 @@ export function buildSkillsMetaUserBody(sections: ContextSection[]): string | nu
 
 function buildSectionContent(sections: ContextSection[]): string {
   return sections.map((section) => section.content).join("\n\n");
+}
+
+/**
+ * 分段组合（docs/spec/custom-system-prompt.md v2）：把用户条目套到已构建的段上。
+ *
+ * - 条目缺席（inherit）→ 原段原样返回，这是默认路径。
+ * - `clear` → 返回 null，调用方不 push 该段。
+ * - `override` → 用户文本整体替换内置原文。
+ * - `append` → 内置原文 + 空行 + 用户文本（用户文本只存增量，不混排内置原文）。
+ *
+ * name/source/cacheHint 保持不变：contextUsage 的分段视图不因用户改写而换行，
+ * 且三段本就是 stable 段（进 prompt 缓存），覆盖/追加后仍是静态内容。
+ */
+function applySegmentToSection(
+  section: ContextSection,
+  entry: SystemPromptSegmentEntry | undefined,
+): ContextSection | null {
+  if (!entry) return section;
+  if (entry.mode === "clear") return null;
+  const content =
+    entry.mode === "override" ? entry.text : `${section.content}\n\n${entry.text}`;
+  return {
+    ...section,
+    content,
+    chars: content.length,
+    tokens: estimateTokens(content),
+    preview: content.slice(0, 100),
+  };
 }
 
 function createSection(input: {

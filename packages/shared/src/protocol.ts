@@ -5,6 +5,7 @@ import type { ProviderFamilyDomain } from "./model-provider-family.js";
 import type { ProviderFamilyConnectionSelectionSettings } from "./provider-family-connection-selection.js";
 import type { WorkspacePurpose } from "./workspacePurpose.js";
 import type { EmbeddedBrowserViewportPreference } from "./browser-use/command-metadata.js";
+import type { CustomSystemSegments } from "./system-prompt-segments.js";
 
 // ── Domain types ──
 
@@ -324,6 +325,12 @@ export interface AppSettings {
    * 动态 system 段；空串/缺失 = 内置默认。存储 schema 见 validationAppSettings.ts。
    */
   customSystemPrompt?: string;
+  /**
+   * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落各自独立
+   * 继承/覆盖/追加/清空，两作用域；缺失/空对象 = 全部继承。存储 schema 见
+   * validationAppSettings.ts，类型与内置原文见 system-prompt-segments.ts。
+   */
+  customSystemSegments?: CustomSystemSegments;
   /** 是否完整保留 Model I/O；开启后不轮转、不限额重置、不压缩或裁剪，鉴权信息仍会脱敏。 */
   modelIoFullRetentionEnabled?: boolean;
   /** 设置页中每个 Provider Family 当前唯一的结构化连接选择。 */

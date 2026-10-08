@@ -15,6 +15,7 @@ import type { WorkspaceHookPolicyProvider } from "@zcode/core";
 import type { AccountProviderConfigSnapshot } from "@zcode/provider";
 import {
   zcodeProtocolErrorCodes,
+  type CustomSystemSegments,
   type ZCodeAutomationBotDeliveryTarget,
   type ZCodeDeliveryKind,
   type ModelSelection,
@@ -93,6 +94,11 @@ export interface ZCodeProtocolSessionRecord {
    * undefined = 内置默认。inherit 源的子会话从这里继承，保证与父会话一致。
    */
   customSystemPrompt?: string;
+  /**
+   * 会话创建时固化的分段系统提示词（docs/spec/custom-system-prompt.md v2）；undefined =
+   * 全部继承。inherit 源的子会话从这里继承（与 customSystemPrompt 同一固化模式）。
+   */
+  customSystemSegments?: CustomSystemSegments;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
   /**
@@ -157,6 +163,12 @@ export interface ZCodeProtocolAgentServerContext {
      * 这里只是热更通道的进程缓存；两个来源都归一化为 trim 后非空或 undefined。
      */
     customSystemPrompt?: string;
+    /**
+     * host 同步的分段系统提示词（docs/spec/custom-system-prompt.md v2）。语义与
+     * customSystemPrompt 的空串不同：**缺席 = 从未使用**（不同步），`{}` = 已全部恢复继承
+     * （仍同步，让新建 CLI client 拿到清空态）。
+     */
+    customSystemSegments?: CustomSystemSegments;
   };
   // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
   // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。

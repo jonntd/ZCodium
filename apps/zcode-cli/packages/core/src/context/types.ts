@@ -13,6 +13,7 @@ import type {
 } from "@zcode/contracts";
 import type { AutoCompactPolicyConfig } from "../compact/index.js";
 import type { AgentProfile } from "../subagent/profile.js";
+import type { CustomSystemSegments } from "@zcode/shared";
 
 export type {
   EnvInfo,
@@ -115,6 +116,12 @@ export interface ContextBuilderConfig {
   embeddedSearchEnabled?: boolean;
   skillMetadataBudget?: number;
   customSystemPrompt?: string;
+  /**
+   * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落各自独立
+   * 继承/覆盖/追加/清空；未覆盖的段照常构建（含全部动态段，这是与 `customSystemPrompt`
+   * 整段替换的核心差异）。`customSystemPrompt` 在场时本字段整体被 builder 忽略。
+   */
+  customSystemSegments?: CustomSystemSegments;
   /**
    * 动态工作流子代理（workflow child）的身份输入。在场即走 builder 的第三条路径：
    * 基座段（CLI prefix、安全行、Harness、memory）+ 工作流子代理契约 + persona 叠加，
