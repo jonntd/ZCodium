@@ -2399,7 +2399,7 @@ const faIR: Record<string, string> = {
   "settings.remoteRelay.channelKey": 'کلید کانال E2EE',
   "settings.remoteRelay.channelKeyDescription": 'از طریق بخش #k= پیوند به گوشی ارسال می‌شود (هرگز به رله فرستاده نمی‌شود). در صورت خالی بودن خودکار ساخته می‌شود؛ برای چرخش، خالی کرده و ذخیره کنید — پیوندهای قدیمی از کار می‌افتند.',
   "settings.remoteRelay.slots": 'تعداد کارگیر همزمان',
-  "settings.remoteRelay.slotsDescription": 'چند مرورگر/گوشی می‌توانند همزمان دسترسی داشته باشند (هر کدام با اتصال رمزنگاری‌شده مستقل)، ۱ تا ۸. پس از تغییر پیوند را دوباره کپی کنید.',
+  "settings.remoteRelay.slotsDescription": 'چند مرورگر/گوشی می‌توانند همزمان دسترسی داشته باشند (هر کدام با اتصال رمزنگاری‌شده مستقل)، ۱ تا ۸. پس از تغییر به‌صورت خودکار دوباره متصل می‌شود؛ شمارهٔ اسلات در پیوند نیست و نیازی به کپی دوباره نیست.',
   "settings.remoteRelay.workspace": 'بازنویسی فضای کاری',
   "settings.remoteRelay.workspaceDescription": 'مسیر فضای کاری گزارش\u200cشده را ثابت می\u200cکند؛ در حالت خالی پنجره فعال را دنبال می\u200cکند.',
   "settings.remoteRelay.autoStart": 'شروع همراه برنامه',
