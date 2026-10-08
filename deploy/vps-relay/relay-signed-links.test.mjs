@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHmac, randomBytes } from "node:crypto";
 import { createServer } from "node:net";
+import { get as httpGet } from "node:http";
+import { gunzipSync } from "node:zlib";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +17,7 @@ import { WebSocket } from "ws";
 
 const RELAY_TOKEN = `tk-${randomBytes(12).toString("base64url")}`;
 const HOST_SECRET = `hs-${randomBytes(12).toString("base64url")}`;
+const LARGE_ASSET = `export const testPayload = "${"relay-static-payload-".repeat(2048)}";\n`;
 
 /** 与 relay.mjs / remoteRelayShareLink.ts 一致的签名算法（三方一致性本身就是测试点）。 */
 function signShare(sid, t, e) {
@@ -63,6 +66,7 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${port}`;
   webRoot = await mkdtemp(join(tmpdir(), "zcode-relay-test-"));
   await writeFile(join(webRoot, "index.html"), indexHtml, "utf8");
+  await writeFile(join(webRoot, "large-test.js"), LARGE_ASSET, "utf8");
   child = spawn(process.execPath, [join(import.meta.dirname, "relay.mjs")], {
     env: {
       ...process.env,
@@ -78,6 +82,38 @@ before(async () => {
 
 after(() => {
   child?.kill("SIGTERM");
+});
+
+function getRaw(path, { method = "GET", headers = {} } = {}) {
+  return new Promise((resolve, reject) => {
+    const req = httpGet(`${baseUrl}${path}`, { method, headers }, (res) => {
+      const chunks = [];
+      res.on("data", (chunk) => chunks.push(chunk));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    });
+    req.on("error", reject);
+  });
+}
+
+test("静态文本资源：按 Accept-Encoding gzip 压缩；q=0 / identity 不压；HEAD 无响应体", async () => {
+  const compressed = await getRaw("/large-test.js", { headers: { "accept-encoding": "gzip" } });
+  assert.equal(compressed.status, 200);
+  assert.equal(compressed.headers["content-encoding"], "gzip");
+  assert.match(compressed.headers.vary, /accept-encoding/i);
+  assert.ok(Number(compressed.headers["content-length"]) < Buffer.byteLength(LARGE_ASSET));
+  assert.equal(gunzipSync(compressed.body).toString(), LARGE_ASSET);
+
+  const identity = await getRaw("/large-test.js", { headers: { "accept-encoding": "gzip;q=0, identity" } });
+  assert.equal(identity.status, 200);
+  assert.equal(identity.headers["content-encoding"], undefined);
+  assert.match(identity.headers.vary, /accept-encoding/i);
+  assert.equal(identity.body.toString(), LARGE_ASSET);
+
+  const head = await getRaw("/large-test.js", { method: "HEAD", headers: { "accept-encoding": "gzip" } });
+  assert.equal(head.status, 200);
+  assert.equal(head.headers["content-encoding"], "gzip");
+  assert.ok(Number(head.headers["content-length"]) > 0);
+  assert.equal(head.body.length, 0);
 });
 
 test("legacy ?token= 入口：302 摘 token、下发 RELAY_TOKEN cookie；错 token 401", async () => {
