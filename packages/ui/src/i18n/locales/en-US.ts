@@ -2330,7 +2330,7 @@ const enUS: Record<string, string> = {
   "settings.systemPrompt.conditionalInjection": "Conditional injection",
   "settings.systemPrompt.stableSegmentHint": "Stable segment (prompt-cached)",
   "settings.systemPrompt.modeLabel": "Mode",
-  "settings.systemPrompt.mode.inherit": "Continue",
+  "settings.systemPrompt.mode.inherit": "Inherit",
   "settings.systemPrompt.mode.override": "Override",
   "settings.systemPrompt.mode.append": "Append",
   "settings.systemPrompt.mode.clear": "Clear",

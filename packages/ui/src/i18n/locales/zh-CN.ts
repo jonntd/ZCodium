@@ -2183,7 +2183,7 @@ const zhCN: Record<string, string> = {
   "settings.systemPrompt.conditionalInjection": "条件注入",
   "settings.systemPrompt.stableSegmentHint": "稳定段（进 prompt 缓存）",
   "settings.systemPrompt.modeLabel": "模式",
-  "settings.systemPrompt.mode.inherit": "继续",
+  "settings.systemPrompt.mode.inherit": "继承",
   "settings.systemPrompt.mode.override": "覆盖",
   "settings.systemPrompt.mode.append": "添加",
   "settings.systemPrompt.mode.clear": "清空",

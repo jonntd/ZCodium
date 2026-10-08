@@ -2142,7 +2142,7 @@ const faIR: Record<string, string> = {
   "settings.systemPrompt.conditionalInjection": "تزریق شرطی",
   "settings.systemPrompt.stableSegmentHint": "بخش پایدار (در حافظهٔ نهان پرامپت)",
   "settings.systemPrompt.modeLabel": "حالت",
-  "settings.systemPrompt.mode.inherit": "ادامه",
+  "settings.systemPrompt.mode.inherit": "ارث‌بری",
   "settings.systemPrompt.mode.override": "جای‌گزینی",
   "settings.systemPrompt.mode.append": "افزودن",
   "settings.systemPrompt.mode.clear": "پاک‌کردن",
