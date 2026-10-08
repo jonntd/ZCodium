@@ -102,10 +102,16 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
               </div>
             </DialogHeader>
 
-            {/* 两种接入方式**并排**：Bot Channel 与「浏览器直连」是同一件事的两个选项，
-                竖排时下面那张卡片会被挤出可视区（用户实测：只看到 Bot Channel，
-                以为远程访问没做）。窄窗口（<768px）自动回落到竖排。 */}
-            <div className="mt-5 grid gap-4 md:grid-cols-2 md:items-stretch">
+            {/* 两种接入方式**并排**（左：浏览器直连 / 右：Bot Channel）。竖排时下面那张
+                卡片会被挤出可视区（用户实测：只看到 Bot Channel，以为远程访问没做），
+                窄窗口（<768px）才回落竖排。
+                ⚠ 用 items-start 而不是 items-stretch：否则展开「浏览器直连」的
+                「高级设置」会把 Bot Channel 那一列一起拉长（用户实测）。 */}
+            <div className="mt-5 grid gap-4 md:grid-cols-2 md:items-start">
+              {/* 浏览器直连（spec §15/§18.6）：用手机浏览器直接打开工作区，不经聊天机器人。
+                  原「设置 → 远程访问」的状态 / 启停 / 链接 / 二维码 / 中继配置全在这个面板里。 */}
+              <RemoteRelayAccessPanel />
+
               <section className="flex min-h-[320px] flex-col rounded-xl border border-border bg-card p-4">
                 <div className="mb-4 flex items-start gap-2">
                   <BotIcon className="mt-0.5 size-4 shrink-0 text-foreground-subtle" />
@@ -179,11 +185,6 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
                   </Button>
                 </div>
               </section>
-
-              {/* 浏览器直连（spec §15/§18.6）：与 Bot Channel 并列的第二种接入方式——
-                  用手机浏览器直接打开工作区，不经聊天机器人。原「设置 → 远程访问」的
-                  状态 / 启停 / 链接 / 二维码 / 中继配置全部收在这个面板里。 */}
-              <RemoteRelayAccessPanel />
             </div>
           </div>
         </DialogContent>
