@@ -1747,8 +1747,8 @@ const faIR: Record<string, string> = {
   "webRemoteControl.browser.lan": "شبکهٔ محلی (همان Wi-Fi)",
   "webRemoteControl.browser.lanUnavailable": "رله در شبکهٔ محلی این دستگاه نیست، یا نشانی شبکهٔ محلی پیدا نشد — در حال حاضر ورودی شبکهٔ محلی وجود ندارد.",
   "webRemoteControl.browser.public": "اینترنت",
-  "webRemoteControl.browser.publicUnavailable": "نشانی عمومی پیکربندی نشده — اگر رله روی همین دستگاه است، در «تنظیمات ← دسترسی از راه دور» نشانی port-forward / DDNS را وارد کنید.",
-  "webRemoteControl.browser.notConfigured": "هنوز رله‌ای پیکربندی نشده. ابتدا در «تنظیمات ← دسترسی از راه دور» نشانی رله و توکن جفت‌سازی را وارد کنید.",
+  "webRemoteControl.browser.publicUnavailable": "نشانی عمومی پیکربندی نشده — اگر رله روی همین دستگاه است، در «تنظیمات پیشرفته» زیر، نشانی port-forward / DDNS را وارد کنید.",
+  "webRemoteControl.browser.notConfigured": "هنوز رله‌ای پیکربندی نشده. «تنظیمات پیشرفته» زیر را باز کنید و نشانی رله و توکن جفت‌سازی را وارد کنید.",
   "remote.title": "اتصال به محیط از راه دور",
   "remote.description":
     "از طریق SSH، Server، WSL یا Docker به فضای کاری از راه دور متصل شوید، سپس در پنجره فعلی یک پوشه انتخاب کنید.",
@@ -2366,9 +2366,6 @@ const faIR: Record<string, string> = {
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "نشست مبدأ یافت نشد، یا دیگر با فیلتر فعلی فضای کاری مطابقت ندارد.",
   "settings.officialServicesTitle": "خدمات Z.AI",
-  "settings.remoteRelay.title": 'دسترسی از راه دور',
-  "settings.remoteRelay.description": 'پیکربندی یک\u200cبارهٔ رله. شروع/توقف، لینک دسترسی تلفن و کد QR در «کنترل از راه دور موبایل» است.',
-  "settings.remoteRelay.unsupported": 'دسترسی از راه دور در این محیط پشتیبانی نمی\u200cشود (فقط برنامه دسکتاپ).',
   "settings.remoteRelay.statusLoading": 'در حال بارگذاری…',
   "settings.remoteRelay.statusConnected": 'به رله متصل شد؛ میزبان شما از تلفن در دسترس است.',
   "settings.remoteRelay.statusConnecting": 'کلاینت شروع شد، در حال اتصال به رله…',
@@ -2380,7 +2377,6 @@ const faIR: Record<string, string> = {
   "settings.remoteRelay.copied": 'کپی شد',
   "settings.remoteRelay.advanced": 'تنظیمات پیشرفته',
   "settings.remoteRelay.advancedDescription": 'آدرس رله، کلیدها، توکن جفت\u200cسازی، فضای کاری، اجرای خودکار',
-  "settings.remoteRelay.configTitle": 'پیکربندی رله',
   "settings.remoteRelay.configDescription": 'ذخیره در {path}؛ بلافاصله اعمال می\u200cشود.',
   "settings.remoteRelay.scenario": 'سناریو',
   "settings.remoteRelay.scenarioDescription": 'شبکه محلی: تلفن و رله روی یک Wi-Fi، با ws:// + http://؛ عمومی: از طریق رله VPS با wss:// + https://.',

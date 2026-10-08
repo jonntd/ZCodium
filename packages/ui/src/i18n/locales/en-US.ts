@@ -1783,8 +1783,8 @@ const enUS: Record<string, string> = {
   "webRemoteControl.browser.lan": "LAN (same Wi-Fi)",
   "webRemoteControl.browser.lanUnavailable": "The relay is not on this local network, or no LAN address was detected — there is no LAN entry point right now.",
   "webRemoteControl.browser.public": "Public",
-  "webRemoteControl.browser.publicUnavailable": "No public URL configured — if the relay runs on this machine, set a port-forward / DDNS address under Settings → Remote access.",
-  "webRemoteControl.browser.notConfigured": "No relay configured yet. Set the relay URL and pairing token under Settings → Remote access first.",
+  "webRemoteControl.browser.publicUnavailable": "No public URL configured — if the relay runs on this machine, set a port-forward / DDNS address under “Advanced settings” below.",
+  "webRemoteControl.browser.notConfigured": "No relay configured yet. Expand “Advanced settings” below and set the relay URL and pairing token.",
   "remote.title": "Connect remote environment",
   "remote.description":
     "Connect to a remote workspace over SSH, Server, WSL, or Docker, then choose a directory in the current window.",
@@ -2438,9 +2438,6 @@ const enUS: Record<string, string> = {
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "The source session was not found, or it no longer matches the current workspace filter.",
   "settings.officialServicesTitle": "Z.AI services",
-  "settings.remoteRelay.title": 'Remote Access',
-  "settings.remoteRelay.description": 'One-time relay configuration. Start/stop, the phone link and its QR code live in “Mobile remote control”.',
-  "settings.remoteRelay.unsupported": 'Remote access is unavailable in this environment (desktop app only).',
   "settings.remoteRelay.statusLoading": 'Loading…',
   "settings.remoteRelay.statusConnected": 'Connected to the relay; your Host is reachable from the phone.',
   "settings.remoteRelay.statusConnecting": 'Client started, connecting to the relay…',
@@ -2452,7 +2449,6 @@ const enUS: Record<string, string> = {
   "settings.remoteRelay.copied": 'Copied',
   "settings.remoteRelay.advanced": 'Advanced settings',
   "settings.remoteRelay.advancedDescription": 'Relay URL, secrets, pairing token, workspace, auto-start',
-  "settings.remoteRelay.configTitle": 'Relay configuration',
   "settings.remoteRelay.configDescription": 'Saved to {path}; takes effect immediately.',
   "settings.remoteRelay.scenario": 'Scenario',
   "settings.remoteRelay.scenarioDescription": 'LAN: phone and relay on the same Wi-Fi, plain ws:// + http://. Public: through a VPS relay, wss:// + https:// (TLS handled by the VPS).',

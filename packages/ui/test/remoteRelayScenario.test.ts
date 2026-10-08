@@ -11,7 +11,7 @@ import {
   isLoopbackRelayHost,
   resolveRelayScenario,
   stripRelayScheme,
-} from "../src/settings/remoteRelayScenario.js";
+} from "../src/remoteRelayScenario.js";
 
 test("场景由上保存的协议反推，空配置默认内网", () => {
   assert.equal(resolveRelayScenario("ws://192.168.1.10:3180"), "lan");

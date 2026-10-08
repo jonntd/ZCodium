@@ -178,8 +178,8 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
               </section>
 
               {/* 浏览器直连（spec §15/§18.6）：与 Bot Channel 并列的第二种接入方式——
-                  用手机浏览器直接打开工作区，不经聊天机器人。中继是**应用级**配置，
-                  所以这里只读状态 + 启停，配置仍在「设置 → 远程访问」。 */}
+                  用手机浏览器直接打开工作区，不经聊天机器人。原「设置 → 远程访问」的
+                  状态 / 启停 / 链接 / 二维码 / 中继配置全部收在这个面板里。 */}
               <RemoteRelayAccessPanel />
             </div>
           </div>

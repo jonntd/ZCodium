@@ -1658,8 +1658,8 @@ const zhCN: Record<string, string> = {
   "webRemoteControl.browser.lan": "内网（同一 WiFi）",
   "webRemoteControl.browser.lanUnavailable": "中继不在本机局域网，或未检测到局域网地址——当前没有内网入口。",
   "webRemoteControl.browser.public": "外网",
-  "webRemoteControl.browser.publicUnavailable": "未配置公开地址——中继在本机时，可在「设置 → 远程访问」里填端口映射 / DDNS 地址。",
-  "webRemoteControl.browser.notConfigured": "尚未配置中继。先到「设置 → 远程访问」填好中继地址与配对码。",
+  "webRemoteControl.browser.publicUnavailable": "未配置公开地址——中继在本机时，可在下方「高级设置」里填端口映射 / DDNS 地址。",
+  "webRemoteControl.browser.notConfigured": "尚未配置中继。展开下方「高级设置」填好中继地址与配对码。",
   "remote.title": "连接远程环境",
   "remote.description":
     "通过 SSH、Server、WSL 或 Docker 连接远程工作区，并在当前窗口中继续选择目录。",
@@ -2287,9 +2287,6 @@ const zhCN: Record<string, string> = {
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "源会话不存在，或已经不匹配当前 workspace 筛选。",
   "settings.officialServicesTitle": "Z.AI 服务",
-  "settings.remoteRelay.title": '远程访问',
-  "settings.remoteRelay.description": '中继配置（一次性）。启停、手机访问链接与二维码在「移动端远程控制」里取。',
-  "settings.remoteRelay.unsupported": '当前环境不支持远程访问（仅在桌面应用中可用）。',
   "settings.remoteRelay.statusLoading": '读取中…',
   "settings.remoteRelay.statusConnected": '已连上中继，手机端可以访问本机 Host。',
   "settings.remoteRelay.statusConnecting": '客户端已启动，正在连接中继…',
@@ -2301,7 +2298,6 @@ const zhCN: Record<string, string> = {
   "settings.remoteRelay.copied": '已复制',
   "settings.remoteRelay.advanced": '高级设置',
   "settings.remoteRelay.advancedDescription": '中继地址、密钥、配对码、工作区、自启动',
-  "settings.remoteRelay.configTitle": '中继配置',
   "settings.remoteRelay.configDescription": '保存到 {path}，保存后立即生效。',
   "settings.remoteRelay.scenario": '使用场景',
   "settings.remoteRelay.scenarioDescription": '内网：手机与中继在同一 WiFi，直连 ws:// + http://；公网：经 VPS 中继，wss:// + https://（证书/反代由 VPS 侧负责）。',

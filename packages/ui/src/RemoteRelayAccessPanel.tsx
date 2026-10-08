@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import { Check, Copy, LoaderCircle, Play, Square } from "lucide-react";
 import type { RemoteRelayStatus } from "@zcode/shared";
+import { RemoteRelayConfigForm } from "@/RemoteRelayConfigForm.js";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -10,18 +11,19 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 /**
  * 「浏览器直连」接入面板（spec vps-relay-bridge.md §15 / §18.6）。
  *
- * 从「设置 → 远程访问」搬到「移动端远程控制」弹层：那里才是用户找"用手机连上来"的地方，
- * 而设置页留给一次性配置。
+ * 原「设置 → 远程访问」分区的**全部内容**都在这里：连接状态 + 启停 + 内网/外网链接
+ * （各带复制与二维码）+ 中继配置表单（`RemoteRelayConfigForm`，折叠在「高级设置」里）。
+ * 设置页不再保留远程访问分区——两处各有一半配置正是之前的迁移遗漏点。
  *
- * 边界：中继是**应用级**配置（全局一份，`~/.zcodium/v2/remote-relay.json`），与弹层所属
- * 的工作区无关——所以本面板只读状态 + 启停，不改配置；配置仍在设置页（保存即热应用）。
+ * 中继是**应用级**配置（全局一份，`~/.zcodium/v2/remote-relay.json`），与弹层所属的
+ * 工作区无关：本面板读写的是同一份全局配置，只是入口挪到了工作区头部的远控弹层。
  *
  * 两条链接各给一个复制按钮 + 二维码（spec §18.6）：
  * - **内网**：手机与中继同一 WiFi 时用；中继配成 `127.0.0.1` 时这是唯一可达的地址。
  * - **公网**：手机在外网时用（端口映射 / DDNS / 反代，或中继本来就在 VPS）。
  * 不可用的一条**显示原因**，不硬拼一条连不上的地址出来。
  *
- * Web 环境没有中继 IPC（分区不渲染）——这里同样整块不渲染。
+ * Web 环境没有中继 IPC——这里整块不渲染。
  */
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
@@ -253,6 +255,18 @@ export function RemoteRelayAccessPanel() {
           {t("webRemoteControl.browser.notConfigured")}
         </p>
       )}
+
+      {/* 中继配置：原「设置 → 远程访问」的全部配置项都在这里，未配置时默认展开
+          （用户打开弹层就是来填配置的）。保存成功后把新状态交回，链接与二维码立即刷新。 */}
+      {status ? (
+        <div className="mt-3">
+          <RemoteRelayConfigForm
+            status={status}
+            onSaved={setStatus}
+            defaultOpen={!status.configured}
+          />
+        </div>
+      ) : null}
     </section>
   );
 }
