@@ -431,6 +431,38 @@ test("§14.9a /remote/v4 GET/HEAD 200 text/html、带尾斜杠 200、POST 405、
   assert.equal(asset.status, 404);
 });
 
+/**
+ * 从终端页 HTML 抽出 rpcProbeBytes 编码器（页面自包含、无外部资源，无法直接 import）。
+ * 截取从 `const RPC_UNDEFINED` 到 `rpcProbeBytes` 数组字面量结尾的连续块再求值。
+ */
+function extractProbeEncoder(html) {
+  const start = html.indexOf("const RPC_UNDEFINED");
+  assert.ok(start >= 0, "终端页应包含探测帧编码器");
+  const end = html.indexOf("];", html.indexOf("const rpcProbeBytes", start));
+  assert.ok(end > start, "探测帧编码器应以数组字面量结尾");
+  return new Function(`${html.slice(start, end + 2)}\nreturn rpcProbeBytes;`)();
+}
+
+test("§14.9a 终端页探测帧是合法 RPC 帧：与 canonical serialize 逐字节一致", async () => {
+  const html = await (await fetch(`${baseUrl}/remote/v4`)).text();
+  assert.match(html, /往返测试/, "终端页应已改直连往返模式");
+  const rpcProbeBytes = extractProbeEncoder(html);
+
+  // 权威字节由 packages/rpc/src/serialization.ts 实测得出：
+  //   serialize([RequestType.PromiseCancel(101), id]) + serialize(undefined)
+  //   类型标签 Array=4 / Int=6 / Undefined=0；VQL 7bit/字节（128 → [0x80,0x01]）。
+  const canonical = new Map([
+    [1, [4, 2, 6, 101, 6, 1, 0]],
+    [2, [4, 2, 6, 101, 6, 2, 0]],
+    [127, [4, 2, 6, 101, 6, 127, 0]],
+    [128, [4, 2, 6, 101, 6, 128, 1, 0]],
+    [300, [4, 2, 6, 101, 6, 172, 2, 0]],
+  ]);
+  for (const [id, expected] of canonical) {
+    assert.deepEqual(rpcProbeBytes(id), expected, `id=${id} 的探测帧字节`);
+  }
+});
+
 test("§14.9a rpc-frame 回显闭环：terminal 发帧 → device ack + 原样回显 → terminal ack", async () => {
   const { client: device, deviceSid, passHash } = await connectDevice(baseUrl);
   try {

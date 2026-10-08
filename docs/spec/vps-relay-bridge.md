@@ -917,11 +917,12 @@ idle → connecting → registering（device_register_init → ack 得 device_si
 套件入库 `deploy/vps-relay/relay-official.test.mjs`（`node --test`，spawn 真实 relay +
 真实 device 客户端），取代 §14.7 的一次性双端模拟。
 
-> **验收记录（2026-10-08）**：套件已入库，9/9 通过——§14.8 #1–#6（#7 配置文件缺失
+> **验收记录（2026-10-08）**：套件已入库——§14.8 #1–#6（#7 配置文件缺失
 > 属桌面侧 `remoteOfficialConfig` 行为，由桌面端配置单测覆盖，不在 relay 套件内）+
 > §14.9a 终端页端点契约（GET/HEAD 200、尾斜杠 200、POST 405、其余 404、页面自包含）
-> 与 rpc-frame 回显闭环 + §14.7 回归（未鉴权 data `not_authed`）。
-> 真浏览器验收（agent-browser）另行完成，见 §14.9a。
+> 与 rpc-frame 往返闭环 + §14.7 回归（未鉴权 data `not_authed`）。
+> 真浏览器验收（agent-browser）另行完成，见 §14.9a；
+> 「直连模式」定稿后的计数与回归见 §14.9a 末条验收记录（10/10）。
 
 #### 持久化 deviceSid（官方对齐；否则手机每次桌面重连都要重扫码）
 
@@ -944,15 +945,38 @@ idle → connecting → registering（device_register_init → ack 得 device_si
   （HMAC-SHA256，key = 链接 `hash`）；用 `crypto.subtle`——**localhost/HTTPS 下可用，
   内网 http 属 insecure origin 不可用**（与 §16.2 同一约束，页面上要显式报错）。
 - **v0 能力**：配对状态展示（waiting/matched）、bootstrap-request → 工作区列表渲染、
-  workspace-bridge-open → ready 展示、**rpc-frame 回显测试**（单分片帧发送 +
-  crc32/base64 信封 + ack 展示）——即路线 B 全链路的真浏览器验证台。
+  workspace-bridge-open → ready 展示、**rpc-frame 往返测试（直连模式）**——即路线 B
+  全链路的真浏览器验证台。
+- **往返测试为什么是「直连模式」**（2026-10-08 真桌面事故后定稿）：真 Host 的
+  `ChannelServer` **不回显**——它把逻辑帧 `deserialize(header)+deserialize(body)` 后按
+  RPC 分发；「原样回显」只存在于测试里的假 Host（`remote-official-data-plane.test.mjs`
+  的 echo 桥）。故页面不再依赖内容回显，改为：
+  · 载荷是**合法 RPC 帧**：`serialize([RequestType.PromiseCancel(101), id]) +
+    serialize(undefined)`，页面内手写 VQL + 类型标签编码（无构建链、无外部资源），
+    字节与 `packages/rpc/src/serialization.ts` 逐字节一致；Host 侧
+    `disposeActiveRequest` 命中未知 id 直接返回 ⇒ 零副作用、零日志、零响应。
+  · 断言对象是设备 codec 的 **`rpc-frame-ack`**（§14.9 ack 语义：每条收到的
+    messageSeq 都要 ack），即帧协议自身的往返闭环；5s 未 ack 报「往返未闭环」。
+  · 若仍收到 `rpc-frame`（假 Host / 测试链路），额外校验 crc32 与内容，属加分项。
+- **配套加固（Host 侧，同一事故）**：`packages/rpc/src/channelServer.ts` 的
+  `onRawMessage` 对非法帧容错——`deserialize` 抛错、header 非数组、头部类型非数字，
+  一律按协议错误丢弃并记警，不再让 `header[0]` 的 TypeError 经 uncaughtException
+  崩掉承载 Host 的整个进程（Host 无自动重启，崩溃即须重启桌面）。
 - **不做**（后续版本）：内嵌 fork web UI（transport 适配器方案，§14.9 的
   codec 复用）、分片重组 UI、workspace 切换。
 - relay-official 端点：`GET /remote/v4` 与 `/remote/v4/` 回终端页；其余静态路径 404
   （终端页无外部资源依赖，不拖 asset 目录）。
 - 验收：真浏览器（agent-browser）+ 脚本 device（register/auth/心跳/bootstrap/bridge
-  回显）→ 页面展示 matched → 工作区 → bridge → 回显往返成功；relay 日志可见
+  往返）→ 页面展示 matched → 工作区 → bridge → 往返闭环；relay 日志可见
   `auth ok {role:"terminal"}` 与 `pair_status changed {"status":"matched"}`。
+  自动化回归：`relay-official.test.mjs` 断言页面探测帧字节与 canonical serialize 一致；
+  `packages/desktop/tests/rpc-channel-server-frame-tolerance.test.mjs` 用真
+  `ChannelServer` 锁死「非法帧不抛错且丢完后合法 RPC 仍可用」。
+
+> **验收记录（2026-10-08，直连模式定稿）**：`relay-official.test.mjs` **10/10** 通过
+> （新增「终端页探测帧是合法 RPC 帧」）；`pnpm --filter @zcode/desktop test` **126/126**
+> 通过（新增 4 项 ChannelServer 非法帧容错）。`pnpm lint` 0 警告 0 错误、
+> `pnpm architecture:check --changed` 0 违规。
 
 
 ### 14.9 数据面信封契约（官方 asar 还原）与桌面适配器设计

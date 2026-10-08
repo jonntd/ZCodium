@@ -112,7 +112,7 @@
       <div class="row">
         <button id="btnBootstrap" disabled>获取工作区</button>
         <button id="btnBridge" disabled>建立 Bridge</button>
-        <button id="btnEcho" disabled>回显测试</button>
+        <button id="btnEcho" disabled>往返测试</button>
       </div>
       <div id="log"></div>
     </main>
@@ -155,7 +155,6 @@
         throw new Error("no subtle");
       }
 
-      const encoder = new TextEncoder();
       const hmacKey = await crypto.subtle.importKey(
         "raw",
         utf8(hash),
@@ -168,7 +167,39 @@
         return b64url(new Uint8Array(sig));
       };
 
-      // ── rpc-frame 最小编码（v0 只发单分片；crc32 与 §14.9 契约一致） ──
+      // ── 探测帧：必须是【合法 RPC 帧】（v0 只发单分片；crc32 与 §14.9 契约一致） ──
+      // 直连模式：帧直连设备传输层，不再依赖「假 Host 原样回显」——真 Host 的 ChannelServer
+      // 会把逻辑帧 deserialize(header)+deserialize(body)，header 不是数组就抛 TypeError，
+      // 直接崩掉承载 Host 的整个进程（本次真桌面事故根因）。
+      // 这里按 packages/rpc/src/serialization.ts 的 VQL + 类型标签编码
+      // RequestType.PromiseCancel(101) + 本地自增 id：结构合法，Host 侧
+      // disposeActiveRequest 命中未知 id 直接返回 ⇒ 零副作用、零日志、零响应。
+      const RPC_UNDEFINED = 0;
+      const RPC_ARRAY = 4;
+      const RPC_INT = 6;
+      const RPC_PROMISE_CANCEL = 101;
+      /** VQL（7 bit/字节，高位续位）；0 → [0x00]，128 → [0x80,0x01]。 */
+      const vqlBytes = (value) => {
+        const bytes = [];
+        do {
+          let b = value & 0x7f;
+          value >>>= 7;
+          if (value > 0) b |= 0x80;
+          bytes.push(b);
+        } while (value > 0);
+        return bytes;
+      };
+      /** serialize([RequestType.PromiseCancel, id]) + serialize(undefined)。 */
+      const rpcProbeBytes = (id) => [
+        RPC_ARRAY,
+        ...vqlBytes(2),
+        RPC_INT,
+        ...vqlBytes(RPC_PROMISE_CANCEL),
+        RPC_INT,
+        ...vqlBytes(id),
+        RPC_UNDEFINED,
+      ];
+
       const CRC_TABLE = (() => {
         const t = new Uint32Array(256);
         for (let n = 0; n < 256; n++) {
@@ -188,8 +219,7 @@
 
       const sendPayload = (payload) => ws.send(JSON.stringify({ type: "data", payload }));
 
-      function sendFrame(text) {
-        const bytes = encoder.encode(text);
+      function sendFrameBytes(bytes) {
         const seq = ++frameSeq;
         const messageSeq = seq;
         sendPayload({
@@ -203,12 +233,13 @@
           checksum: { algorithm: "crc32", value: crc32Hex(bytes) },
           data: b64url(bytes),
         });
+        lastSentBytes = bytes;
         return messageSeq;
       }
 
       let frameSeq = 0;
-      let lastSentText = "";
-      let lastSentSeq = 0;
+      let lastSentBytes = null;
+      let pendingProbe = null; // { messageSeq, timer }
 
       // ── 控制面 + 数据面分发 ──
       const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
@@ -296,7 +327,7 @@
           }
           case "workspace-bridge-ready": {
             bridge = { bridgeSessionId: payload.bridgeSessionId };
-            log(`bridge 已建立（${payload.bridgeSessionId.slice(0, 8)}…），可做回显测试`, "ok");
+            log(`bridge 已建立（${payload.bridgeSessionId.slice(0, 8)}…），可做往返测试`, "ok");
             document.getElementById("btnEcho").disabled = false;
             return;
           }
@@ -305,20 +336,34 @@
             return;
           }
           case "rpc-frame-ack": {
-            log(`对端已确认 messageSeq=${payload.ackMessageSeq}`, "ok");
+            const acked = payload.ackMessageSeq;
+            if (pendingProbe && acked === pendingProbe.messageSeq) {
+              clearTimeout(pendingProbe.timer);
+              pendingProbe = null;
+              log(`rpc-frame 往返闭环 ✓ 设备已 ack messageSeq=${acked}（传输层直连往返）`, "ok");
+            } else {
+              log(`对端已确认 messageSeq=${acked}`, "ok");
+            }
             return;
           }
           case "rpc-frame": {
-            // 设备回显：校验 crc32 + 与发出的内容比对（v0 单分片）。
+            // 真 Host 不回声（只有测试里的假 Host 才原样回显）；收到就额外校验一遍内容。
+            if (typeof payload.data !== "string") {
+              log("收到缺少 data 的 rpc-frame，忽略", "warn");
+              return;
+            }
             const bytes = Uint8Array.from(
               atob(payload.data.replace(/-/g, "+").replace(/_/g, "/")),
               (c) => c.charCodeAt(0),
             );
             const ok = crc32Hex(bytes) === payload.checksum?.value;
-            const same = lastSentText === new TextDecoder().decode(bytes);
+            const same =
+              lastSentBytes !== null &&
+              bytes.length === lastSentBytes.length &&
+              bytes.every((b, i) => b === lastSentBytes[i]);
             log(
-              `收到回显：crc ${ok ? "✓" : "✗"}，内容${same ? "一致 ✓" : "不一致 ✗"}`,
-              ok && same ? "ok" : "err",
+              `（额外）收到对端回显帧：crc ${ok ? "✓" : "✗"}，内容${same ? "一致 ✓" : "不一致 ✗"}`,
+              ok && same ? "ok" : "warn",
             );
             sendPayload({
               zcode_type: "rpc-frame-ack",
@@ -370,12 +415,19 @@
       document.getElementById("btnBridge").onclick = () =>
         openBridge(lastWorkspaces[0]?.workspaceKey ?? "");
 
-      let echoCount = 0;
+      let probeCount = 0;
       document.getElementById("btnEcho").onclick = () => {
         if (!bridge) return;
-        lastSentText = `echo-${Date.now()}-终端→设备回显测试`;
-        lastSentSeq = sendFrame(lastSentText);
-        log(`已发送 rpc-frame（messageSeq=${lastSentSeq}，${lastSentText.length} 字符）…`);
+        const bytes = rpcProbeBytes(++probeCount);
+        const messageSeq = sendFrameBytes(bytes);
+        const timer = setTimeout(() => {
+          if (pendingProbe && pendingProbe.messageSeq === messageSeq) {
+            pendingProbe = null;
+            log(`未收到 ack（messageSeq=${messageSeq}），往返未闭环`, "err");
+          }
+        }, 5_000);
+        pendingProbe = { messageSeq, timer };
+        log(`已发送 rpc-frame（messageSeq=${messageSeq}，合法 RPC 探测帧 ${bytes.length}B）…等待设备 ack`);
       };
 
       let lastWorkspaces = [];

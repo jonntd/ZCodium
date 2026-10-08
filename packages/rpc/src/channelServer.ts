@@ -54,6 +54,12 @@ export class ChannelServer<TContext = string> implements IChannelServer<TContext
     }
   }
 
+  /** 协议错误统一处理：记警一次，不抛出（uncaughtException 会崩掉承载进程）。 */
+  private onProtocolFault(problem: string): void {
+    // 帧来源没有可靠身份字段可打，只记事实；高频垃圾帧由调用方（attachment 层）治理。
+    console.warn("[rpc:channel-server] dropped malformed frame:", problem);
+  }
+
   private send(header: any, body: any = undefined): void {
     const writer = new BufferWriter();
     serialize(writer, header);
@@ -67,8 +73,27 @@ export class ChannelServer<TContext = string> implements IChannelServer<TContext
 
   private onRawMessage(message: VSBuffer): void {
     const reader = new BufferReader(message);
-    const header = deserialize(reader);
-    const body = deserialize(reader);
+    // 非法帧不得打断 RPC 服务：MessagePort 附件可能来自远控桥（如官方远控 rpc-frame，
+    // spec vps-relay-bridge.md §14.9），对端实现异常时发来垃圾字节，这里 deserialize
+    // 结果不是预期的数组会让 header[0] 抛 TypeError——曾直接崩掉整个 Host 进程
+    // （uncaughtException → disposing host resources）。按协议错误丢弃并记警即可。
+    let header: unknown;
+    let body: unknown;
+    try {
+      header = deserialize(reader);
+      body = deserialize(reader);
+    } catch {
+      this.onProtocolFault("undecodable frame");
+      return;
+    }
+    if (
+      !Array.isArray(header) ||
+      typeof header[0] !== "number" ||
+      (header[1] !== undefined && typeof header[1] !== "number")
+    ) {
+      this.onProtocolFault("malformed header");
+      return;
+    }
     const type = header[0] as RequestType;
 
     switch (type) {
