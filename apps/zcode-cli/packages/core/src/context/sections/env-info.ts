@@ -29,8 +29,12 @@ const CLEAN_GIT_STATUS = "(clean)";
 const DIRTY_GIT_STATUS = "(dirty)";
 const UNKNOWN_GIT_STATUS = "(unknown)";
 
-export function buildEnvInfoSection(envInfo: EnvInfo, model?: Model): ContextSection {
-  const content = buildEnvInfoContent(envInfo, model);
+export function buildEnvInfoSection(
+  envInfo: EnvInfo,
+  model?: Model,
+  language?: string,
+): ContextSection {
+  const content = buildEnvInfoContent(envInfo, model, language);
 
   return {
     name: "Environment Info",
@@ -63,7 +67,7 @@ export function buildGitSystemContextSection(envInfo: EnvInfo): ContextSection |
   };
 }
 
-function buildEnvInfoContent(info: EnvInfo, model?: Model): string {
+function buildEnvInfoContent(info: EnvInfo, model?: Model, language?: string): string {
   const hasGitRepository = isEnvInfoGitRepository(info);
   const lines: string[] = [
     ENVIRONMENT_HEADING,
@@ -73,6 +77,9 @@ function buildEnvInfoContent(info: EnvInfo, model?: Model): string {
     `- ${PLATFORM_LABEL}: ${info.platform}`,
     `- ${SHELL_LABEL}: ${info.shell}`,
     `- ${OS_VERSION_LABEL}: ${info.osVersion}`,
+    // language 是 runtime config 里的既有字段，此前从未进入 prompt（死配置）。
+    // 只作偏好声明，用户消息语言仍优先——模型自适应不受影响。
+    ...(language?.trim() ? [`- Preferred response language: ${language.trim()}`] : []),
     // 旧环境快照可能携带历史模型字段；渲染只读取本步骤实际执行的 Model。
     ...(model
       ? [`- You are powered by the model named ${model.providerId}/${model.modelId}.`]

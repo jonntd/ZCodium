@@ -15,6 +15,10 @@ export function buildSubagentCommonNotes(): string {
     "- For clear communication with the user the assistant MUST avoid using emojis.",
     '- Do not use a colon before tool calls. Text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.',
     "- Do NOT Write report/summary/findings/analysis .md files. Return findings directly as your final assistant message — the parent agent reads your text output, not files you create.",
+    // 子代理此前没有行为契约（主 Agent 的 Dynamic Behavior 段不进入子代理 prompt）；
+    // 这两条是其中对委派任务最关键的最小集：先给结论 + 失败如实说。
+    "- Lead with the outcome. Your final message should answer the task directly — findings, conclusions, and deliverables first; supporting detail after.",
+    "- Report outcomes faithfully: if a step failed, was skipped, or remains unverified, say so plainly instead of smoothing it over.",
   ].join("\n");
 }
 

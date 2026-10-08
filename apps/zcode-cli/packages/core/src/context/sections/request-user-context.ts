@@ -46,6 +46,12 @@ function buildRequestUserContextContent(input: {
     : null;
   if (instructionContent) {
     sections.push(instructionContent);
+  } else {
+    // 项目指令缺失时的兜底：工程门禁（构建/测试/lint 约定）此前完全外包给 AGENTS.md，
+    // 工作区没有它时模型拿不到任何「先自己探测」的提示，只能靠猜。
+    sections.push(
+      "No workspace instruction file (such as AGENTS.md) was found for this project. If build commands, test commands, or project conventions matter to the task, discover them yourself (README, package scripts, CI configuration) instead of assuming defaults, and verify before relying on them.",
+    );
   }
 
   const memoryIndexContent = buildProjectMemoryIndexContent(

@@ -51,10 +51,27 @@ function buildSkillsContent(skills: SkillMetadata[], budget: number): string {
     return full;
   }
 
+  // 降级不是全丢：whenToUse 是模型判断「该不该用」的最关键信号，
+  // 保留一个短前缀，description 与 file 细节才允许丢弃。
   const namesOnly = sortedSkills.map(
-    (skill) => `- ${skillDisplayName(skill)}${bareAliasSuffix(skill)} (file: ${skill.path})`,
+    (skill) =>
+      `- ${skillDisplayName(skill)}${bareAliasSuffix(skill)}${downgradedWhenToUse(skill)} (file: ${skill.path})`,
   );
   return [...lines, ...namesOnly].join("\n");
+}
+
+const DOWNGRADED_WHEN_TO_USE_MAX_CHARS = 100;
+
+function downgradedWhenToUse(skill: SkillMetadata): string {
+  if (!skill.whenToUse) {
+    return "";
+  }
+  const trimmed = skill.whenToUse.trim();
+  const text =
+    trimmed.length > DOWNGRADED_WHEN_TO_USE_MAX_CHARS
+      ? `${trimmed.slice(0, DOWNGRADED_WHEN_TO_USE_MAX_CHARS - 1)}...`
+      : trimmed;
+  return `: ${text}`;
 }
 
 function formatSkillLine(skill: SkillMetadata, maxDescriptionChars: number): string {
