@@ -18,6 +18,7 @@ import {
   WandSparkles,
   Keyboard,
   FileSearch,
+  ScrollText,
   ShieldCheck,
 } from "lucide-react";
 import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
@@ -72,6 +73,14 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     id: "modelProvider",
     icon: Package,
     titleId: "settings.modelProviderTitle",
+    groupId: "basics",
+  },
+  // 系统提示词紧跟「模型配置」：两者都是「Agent 拿什么去请求模型」的配置，
+  // 分段编辑器自成一栏（原先挤在「常规」末尾，长页面里很难找到）。
+  {
+    id: "systemPrompt",
+    icon: ScrollText,
+    titleId: "settings.systemPrompt",
     groupId: "basics",
   },
   {

@@ -1471,13 +1471,14 @@ export function SettingsPage({
                               }
                               onOpenOnboardingDialog={() => requestOnboardingDialog()}
                             />
-                            {/* 自定义系统提示词（docs/spec/custom-system-prompt.md）是本机
-                              全局事实源：与模型配置/Memory 同样绑定本地 Host services，
-                              激活远程 workspace 时不得读远端快照。 */}
-                            <ServiceProvider services={localHostServices}>
-                              <SystemPromptSection />
-                            </ServiceProvider>
                           </>
+                        ) : activeSection === "systemPrompt" ? (
+                          // 自定义系统提示词（docs/spec/custom-system-prompt.md）是本机全局事实源：
+                          // 与模型配置/Memory 同样绑定本地 Host services，激活远程 workspace 时
+                          // 不得读远端快照。自成一栏（基础设置 → 系统提示词）。
+                          <ServiceProvider services={localHostServices}>
+                            <SystemPromptSection />
+                          </ServiceProvider>
                         ) : activeSection === "appearance" ? (
                           <AppearanceSectionContent
                             codePreviewSettings={codePreviewSettings}

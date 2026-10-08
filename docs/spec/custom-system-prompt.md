@@ -182,9 +182,14 @@ build()
 
 ### UI（packages/ui）
 
-- `settings/SystemPromptSection.tsx` 重写为分段编辑器（自包含组件，SettingsPage 侧仍以
-  `<ServiceProvider services={localHostServices}>` 包裹——系统提示词是本机全局事实，远程
-  workspace 激活时不得读远端 Host）：
+- 设置页入口：**基础设置 → 系统提示词**（自成一栏）。导航 id `systemPrompt`（
+  `lib/settingsNavigation.ts` 的 `SettingsSectionId` + `settingsPageConfig.ts` 的
+  `BASE_SETTINGS_SECTIONS`，`groupId: "basics"`，紧跟「模型配置」），标题复用
+  `settings.systemPrompt`。渲染在 `SettingsPage.tsx` 的 `activeSection === "systemPrompt"`
+  分支里——原先挂在「常规」分区末尾，长页面里很难找到。
+- `settings/SystemPromptSection.tsx` 为分段编辑器（自包含组件，SettingsPage 侧仍以
+  `<ServiceProvider services={localHostServices}>` 包裹——系统提示词是本机全局事实，
+  远程 workspace 激活时不得读远端 Host）：
   - 顶部：说明文案 + 「已改写 N 段」徽标（两作用域合计，按**已保存值**计数）。
   - 批量动作：「全部恢复继承」立即提交 `{}`（并清空 v1 旧字段）；「主身份全部改为自定义
     （以内置原文为起点）」把**主身份三段**置为 override 草稿、预填内置原文，保留另一页签的
@@ -219,8 +224,8 @@ build()
 
 ## 验收场景
 
-1. 默认状态：全部段为「继承」，卡片只读回显内置原文，徽标「已改写 0 段」；会话 system
-   prompt 为内置拼装（contextUsage 分段可见）。
+1. 默认状态：设置页「基础设置 → 系统提示词」可直达该栏；全部段为「继承」，卡片只读回显内置
+   原文，徽标「已改写 0 段」；会话 system prompt 为内置拼装（contextUsage 分段可见）。
 2. 单段覆盖：CLI 前缀改「覆盖」并输入文本保存 → 活动会话空闲时前缀重建，该段内容替换、
    其余段（含动态段）不变；新建会话同样生效；setting.json 落盘。
 3. 追加：Agent 身份「追加」→ 生效文本 = 内置原文 + 空行 + 追加文本；contextUsage 中
