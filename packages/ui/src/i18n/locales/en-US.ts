@@ -1784,7 +1784,7 @@ const enUS: Record<string, string> = {
   "webRemoteControl.browser.lanUnavailable": "The relay is not on this local network, or no LAN address was detected — there is no LAN entry point right now.",
   "webRemoteControl.browser.public": "Public",
   "webRemoteControl.browser.publicUnavailable": "No public URL configured — if the relay runs on this machine, set a port-forward / DDNS address under “Advanced settings” below.",
-  "webRemoteControl.browser.notConfigured": "No relay configured yet. Expand “Advanced settings” below and set the relay URL and pairing token.",
+  "webRemoteControl.browser.notConfigured": "No relay configured yet, so there is no link or QR code. Expand “Advanced settings” below, fill in the relay URL and pairing token — the LAN and public links appear here as soon as you save.",
   "remote.title": "Connect remote environment",
   "remote.description":
     "Connect to a remote workspace over SSH, Server, WSL, or Docker, then choose a directory in the current window.",

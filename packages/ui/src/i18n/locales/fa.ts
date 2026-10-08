@@ -1748,7 +1748,7 @@ const faIR: Record<string, string> = {
   "webRemoteControl.browser.lanUnavailable": "رله در شبکهٔ محلی این دستگاه نیست، یا نشانی شبکهٔ محلی پیدا نشد — در حال حاضر ورودی شبکهٔ محلی وجود ندارد.",
   "webRemoteControl.browser.public": "اینترنت",
   "webRemoteControl.browser.publicUnavailable": "نشانی عمومی پیکربندی نشده — اگر رله روی همین دستگاه است، در «تنظیمات پیشرفته» زیر، نشانی port-forward / DDNS را وارد کنید.",
-  "webRemoteControl.browser.notConfigured": "هنوز رله‌ای پیکربندی نشده. «تنظیمات پیشرفته» زیر را باز کنید و نشانی رله و توکن جفت‌سازی را وارد کنید.",
+  "webRemoteControl.browser.notConfigured": "هنوز رله‌ای پیکربندی نشده، بنابراین لینک و کد QR وجود ندارد. «تنظیمات پیشرفته» زیر را باز کنید و نشانی رله و توکن جفت‌سازی را وارد کنید؛ پس از ذخیره، لینک‌های شبکهٔ محلی و اینترنت بلافاصله اینجا ظاهر می‌شوند.",
   "remote.title": "اتصال به محیط از راه دور",
   "remote.description":
     "از طریق SSH، Server، WSL یا Docker به فضای کاری از راه دور متصل شوید، سپس در پنجره فعلی یک پوشه انتخاب کنید.",

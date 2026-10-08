@@ -1659,7 +1659,7 @@ const zhCN: Record<string, string> = {
   "webRemoteControl.browser.lanUnavailable": "中继不在本机局域网，或未检测到局域网地址——当前没有内网入口。",
   "webRemoteControl.browser.public": "外网",
   "webRemoteControl.browser.publicUnavailable": "未配置公开地址——中继在本机时，可在下方「高级设置」里填端口映射 / DDNS 地址。",
-  "webRemoteControl.browser.notConfigured": "尚未配置中继。展开下方「高级设置」填好中继地址与配对码。",
+  "webRemoteControl.browser.notConfigured": "尚未配置中继，所以还没有链接和二维码。展开下方「高级设置」填入中继地址与配对码，保存后这里会立即出现内网 / 外网两条链接。",
   "remote.title": "连接远程环境",
   "remote.description":
     "通过 SSH、Server、WSL 或 Docker 连接远程工作区，并在当前窗口中继续选择目录。",

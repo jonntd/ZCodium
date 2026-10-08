@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { Check, Copy, LoaderCircle, Play, Square } from "lucide-react";
+import { Check, Copy, LoaderCircle, Play, Square, TriangleAlert } from "lucide-react";
 import type { RemoteRelayStatus } from "@zcode/shared";
 import { RemoteRelayConfigForm } from "@/RemoteRelayConfigForm.js";
 import { Button } from "@/components/ui/button.js";
@@ -99,7 +99,12 @@ export function RemoteRelayAccessPanel() {
   });
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const remoteRelayGetStatus = platform.remoteRelayGetStatus?.bind(platform);
+  // ⚠ 这里**不能**写 `platform.remoteRelayGetStatus?.bind(platform)`：`.bind()` 每次 render
+  // 都产出新的函数引用 → `useCallback` 依赖随之变化 → effect 每次 render 重跑 →
+  // `refresh()` → `setStatus(新对象)` → 再 render ⇒ **无限 IPC 轮询循环**（主进程被
+  // RemoteRelayGetStatus 打满，而每个请求都要读配置文件 + 重新探测局域网地址）。
+  // 平台方法本身是无 `this` 的箭头函数（desktopPlatform.ts），直接引用即可，引用恒定。
+  const remoteRelayGetStatus = platform.remoteRelayGetStatus;
   const supported = remoteRelayGetStatus != null;
 
   const refresh = useCallback(async () => {
@@ -188,7 +193,7 @@ export function RemoteRelayAccessPanel() {
         : t("settings.remoteRelay.statusStopped");
 
   return (
-    <section className="mt-4 rounded-xl border border-border bg-card p-4">
+    <section className="flex flex-col rounded-xl border border-border bg-card p-4">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="text-ui-base font-medium text-foreground">
@@ -201,7 +206,8 @@ export function RemoteRelayAccessPanel() {
         <Button
           type="button"
           variant={status?.running ? "outline" : "default"}
-          disabled={toggling}
+          // 没配置时启动没有意义（没有中继地址可拨）：禁用而不是让它静默失败。
+          disabled={toggling || !status?.configured}
           className="shrink-0 enabled:cursor-pointer"
           onClick={() => void handleToggleRun()}
         >
@@ -225,7 +231,7 @@ export function RemoteRelayAccessPanel() {
         ) : null}
       </div>
 
-      {status?.configured ? (
+      {status == null ? null : status.configured ? (
         <div className="grid gap-2">
           <AccessLinkRow
             label={t("webRemoteControl.browser.lan")}
@@ -251,9 +257,12 @@ export function RemoteRelayAccessPanel() {
           />
         </div>
       ) : (
-        <p className="text-ui-sm leading-5 text-foreground-subtle">
-          {t("webRemoteControl.browser.notConfigured")}
-        </p>
+        // 未配置时明确交代「为什么没有链接」+「去哪里填」：只留一句灰字时用户会以为功能坏了
+        // （实测反馈：「二维码和链接都不显示」）。
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-ui-sm leading-5 text-foreground-subtle">
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <span className="min-w-0 flex-1">{t("webRemoteControl.browser.notConfigured")}</span>
+        </div>
       )}
 
       {/* 中继配置：原「设置 → 远程访问」的全部配置项都在这里，未配置时默认展开

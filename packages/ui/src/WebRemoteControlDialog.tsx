@@ -71,7 +71,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent
           showCloseButton={false}
-          className="max-h-[calc(100vh-6rem)] max-w-lg gap-0 overflow-hidden rounded-2xl p-0"
+          className="max-h-[calc(100vh-6rem)] max-w-4xl gap-0 overflow-hidden rounded-2xl p-0"
         >
           <Button
             type="button"
@@ -102,8 +102,11 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
               </div>
             </DialogHeader>
 
-            <div className="mt-5 grid gap-4">
-              <section className="flex min-h-[360px] flex-col rounded-xl border border-border bg-card p-4">
+            {/* 两种接入方式**并排**：Bot Channel 与「浏览器直连」是同一件事的两个选项，
+                竖排时下面那张卡片会被挤出可视区（用户实测：只看到 Bot Channel，
+                以为远程访问没做）。窄窗口（<768px）自动回落到竖排。 */}
+            <div className="mt-5 grid gap-4 md:grid-cols-2 md:items-stretch">
+              <section className="flex min-h-[320px] flex-col rounded-xl border border-border bg-card p-4">
                 <div className="mb-4 flex items-start gap-2">
                   <BotIcon className="mt-0.5 size-4 shrink-0 text-foreground-subtle" />
                   <div className="min-w-0 space-y-1">
