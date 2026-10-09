@@ -2420,24 +2420,12 @@ const faIR: Record<string, string> = {
   "settings.officialServices.title": "اتصال‌های خدمات Z.AI",
   "settings.officialServices.description":
     "این‌ها خدمات Z.AI (ZCode) هستند. روشن کردن هر یک به سرورهای Z.AI متصل می‌شود — مگر نیاز داشته باشید، خاموش نگه‌شان دارید. برخی قابلیت‌ها هنگام راه‌اندازی بارگذاری می‌شوند؛ پس از تغییر این کلیدها، برنامه را دوباره راه‌اندازی کنید.",
-  "settings.officialServices.account.title": "پیکربندی API Z.AI",
-  "settings.officialServices.account.desc":
-    "برای استفاده از قابلیت‌های مرتبط، کلید API Z.AI را پیکربندی کنید.",
-  "settings.officialServices.codingPlan.title": "طرح و سهمیه",
-  "settings.officialServices.codingPlan.desc": "مشاهده طرح، سهمیه و مصرف Z.AI.",
-  "settings.officialServices.feedback.title": "کانال بازخورد Z.AI",
-  "settings.officialServices.feedback.desc":
-    "بازخورد را از طریق API Z.AI ارسال کنید؛ وقتی خاموش است، از GitHub Issues استفاده کنید.",
-  "settings.officialServices.officialMcp.title": "Z.AI MCP",
-  "settings.officialServices.officialMcp.desc": "استفاده از سرویس اعتبارنامه MCP Z.AI.",
-  "settings.officialServices.offPeak.title": "وظایف خارج از ساعت اوج",
-  "settings.officialServices.offPeak.desc": "استفاده از دروازه وظایف خارج از ساعت اوج Z.AI.",
   "settings.officialServices.marketplace.title": "بازار افزونه‌ها و CDN Z.AI",
   "settings.officialServices.marketplace.desc":
     "دانلود افزونه‌ها و منابع از بازار افزونه‌ها و CDN Z.AI.",
   "settings.officialServices.clientConfig.title": "پیکربندی کلاینت Z.AI",
   "settings.officialServices.clientConfig.desc":
-    "دریافت پیکربندی کلاینت Z.AI و داده‌های پیش‌گرمایش راه‌اندازی.",
+    "دریافت پیکربندی کلاینت Z.AI و داده‌های پیش‌گرمایش راه‌اندازی؛ شامل قالب‌های Provider نیست (پیش‌تنظیم‌های مدل از پیکربندی داخلی می‌آیند).",
   "settings.usageTitle": "آمار مصرف",
   "settings.usageDescription": "مرور فعالیت تقریبی و مصرف مدل تجمیع‌شده از نشست‌های محلی.",
   "resourceManager.storage.summaryTotal": "مجموع مصرف‌شده توسط ZCodium",
@@ -2860,6 +2848,38 @@ const faIR: Record<string, string> = {
   "settings.modelProvider.apiFormat.title.anthropicMessages": "Anthropic messages",
   "settings.modelProvider.apiKey": "کلید API",
   "settings.modelProvider.apiKeyPlaceholder": "کلید API را وارد کنید",
+  "orcaRouter.title": "OrcaRouter",
+  "orcaRouter.description":
+    "OrcaRouter یک درگاه هوش مصنوعی سازگار با OpenAI است. از کلید API موجود استفاده کنید یا حساب OrcaRouter خود را متصل کنید؛ هر دو به یک کلید API یکسان در {baseUrl} منتهی می‌شوند.",
+  "orcaRouter.apiKey.title": "استفاده از کلید API",
+  "orcaRouter.apiKey.save": "ذخیره کلید",
+  "orcaRouter.apiKey.invalid":
+    "کلیدهای API OrcaRouter با sk-orca- شروع می‌شوند. مقدار را بررسی و دوباره تلاش کنید.",
+  "orcaRouter.pkce.title": "اتصال با OrcaRouter",
+  "orcaRouter.pkce.description":
+    "OAuth 2.0 + PKCE. بدون client secret و بدون ثبت نشانی بازگشت؛ صفحه مجوز کدی نشان می‌دهد که آن را اینجا وارد می‌کنید.",
+  "orcaRouter.pkce.connect": "اتصال با OrcaRouter",
+  "orcaRouter.pkce.openHint": "این نشانی را باز کنید، تأیید کنید و کد را در پایین وارد کنید",
+  "orcaRouter.pkce.open": "باز کردن صفحه مجوز",
+  "orcaRouter.pkce.copy": "کپی نشانی مجوز",
+  "orcaRouter.pkce.copied": "نشانی مجوز کپی شد",
+  "orcaRouter.pkce.codePlaceholder": "کد مجوز را وارد کنید",
+  "orcaRouter.pkce.submitCode": "پایان اتصال",
+  "orcaRouter.connect.failed": "شروع مجوز OrcaRouter ممکن نشد",
+  "orcaRouter.connected": "متصل · {masked}",
+  "orcaRouter.notConnected": "متصل نیست",
+  "orcaRouter.clear": "پاک کردن",
+  "orcaRouter.clear.failed": "پاک کردن اعتبارنامه OrcaRouter ممکن نشد. دوباره تلاش کنید.",
+  "orcaRouter.needsReauth":
+    "OrcaRouter این اعتبارنامه را رد کرد. برای جایگزینی دوباره متصل شوید؛ کلید ذخیره‌شده تا موفقیت ورود جدید حذف نمی‌شود.",
+  "orcaRouter.model.selectPlaceholder": "انتخاب مدل",
+  "orcaRouter.model.search": "جستجوی مدل",
+  "orcaRouter.model.empty": "هیچ مدلی در فهرست کنونی با توان این ورودی سازگار نیست.",
+  "orcaRouter.catalog.failed": "فهرست مدل‌های OrcaRouter در دسترس نیست.",
+  "orcaRouter.catalog.degradedSeed":
+    "فهرست زنده مدل‌ها در دسترس نیست؛ فهرست تأییدشدهٔ آفلاین نمایش داده می‌شود ({count} مدل).",
+  "orcaRouter.catalog.degradedLastKnownGood":
+    "به‌روزرسانی فهرست مدل‌ها ناموفق بود؛ آخرین فهرست موفق نمایش داده می‌شود ({count} مدل).",
   "settings.modelProvider.apiKeyDisabledHint":
     "برای فعال‌سازی این فراهم‌کننده، یک کلید API تنظیم کنید.",
   "settings.modelProvider.getApiKey": "دریافت کلید API",
@@ -3393,6 +3413,8 @@ const faIR: Record<string, string> = {
   "settings.modelProvider.reorderProvider": "برای تغییر ترتیب فراهم‌کننده بکشید",
   "settings.modelProvider.reorderModel": "برای تغییر ترتیب مدل بکشید",
   "settings.modelProvider.empty": "هنوز فراهم‌کننده مدل سفارشی وجود ندارد",
+  "settings.modelProvider.emptyHint":
+    'برای ایجاد از قالب‌های آماده روی "افزودن ارائه‌دهنده" بزنید، یا یک ارائه‌دهنده سفارشی بسازید و کلید API را وارد کنید.',
   "settings.modelProvider.deleteConfirmDescription":
     "این کار پیکربندی فراهم‌کننده سفارشی را حذف می‌کند. ویرایش‌های مرتبط در صفحه تنظیمات فعلی به‌طور خودکار بازگردانده نمی‌شوند.",
   "settings.modelProvider.deleteConfirmAction": "حذف فراهم‌کننده",

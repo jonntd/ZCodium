@@ -2492,23 +2492,12 @@ const enUS: Record<string, string> = {
   "settings.officialServices.title": "Z.AI service connections",
   "settings.officialServices.description":
     "These are Z.AI (ZCode) services. Turning one on connects to Z.AI servers — keep them off unless you need them. Some features load at startup; restart the app after changing these switches.",
-  "settings.officialServices.account.title": "Z.AI API configuration",
-  "settings.officialServices.account.desc": "Configure a Z.AI API key to use related capabilities.",
-  "settings.officialServices.codingPlan.title": "Plan and quota",
-  "settings.officialServices.codingPlan.desc": "Check the Z.AI plan, quota and usage.",
-  "settings.officialServices.feedback.title": "Z.AI feedback channel",
-  "settings.officialServices.feedback.desc":
-    "Send feedback through the Z.AI API; when off, use GitHub Issues.",
-  "settings.officialServices.officialMcp.title": "Z.AI MCP",
-  "settings.officialServices.officialMcp.desc": "Use the Z.AI MCP credential service.",
-  "settings.officialServices.offPeak.title": "Off-peak tasks",
-  "settings.officialServices.offPeak.desc": "Use the Z.AI off-peak task gateway.",
   "settings.officialServices.marketplace.title": "Z.AI marketplace and CDN",
   "settings.officialServices.marketplace.desc":
     "Download plugins and assets from the Z.AI marketplace and CDN.",
   "settings.officialServices.clientConfig.title": "Z.AI client config",
   "settings.officialServices.clientConfig.desc":
-    "Fetch the Z.AI client configuration and startup warmup data.",
+    "Fetch the Z.AI client configuration and startup warmup data; does not include Provider templates (model presets come from the built-in config).",
   "settings.usageTitle": "Usage stats",
   "settings.usageDescription":
     "Review rough activity and model usage aggregated from local sessions.",
@@ -2939,6 +2928,38 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.apiFormat.title.anthropicMessages": "Anthropic messages",
   "settings.modelProvider.apiKey": "API key",
   "settings.modelProvider.apiKeyPlaceholder": "Enter API key",
+  "orcaRouter.title": "OrcaRouter",
+  "orcaRouter.description":
+    "OrcaRouter is an OpenAI-compatible AI gateway. Use an existing API key or connect your OrcaRouter account; both end up as the same API key against {baseUrl}.",
+  "orcaRouter.apiKey.title": "Use API key",
+  "orcaRouter.apiKey.save": "Save key",
+  "orcaRouter.apiKey.invalid":
+    "OrcaRouter API keys start with sk-orca-. Check the value and try again.",
+  "orcaRouter.pkce.title": "Connect with OrcaRouter",
+  "orcaRouter.pkce.description":
+    "OAuth 2.0 + PKCE. No client secret and no redirect URI to register; the authorization page shows a code you paste back here.",
+  "orcaRouter.pkce.connect": "Connect with OrcaRouter",
+  "orcaRouter.pkce.openHint": "Open this URL, approve, then paste the code below",
+  "orcaRouter.pkce.open": "Open authorization page",
+  "orcaRouter.pkce.copy": "Copy authorization URL",
+  "orcaRouter.pkce.copied": "Authorization URL copied",
+  "orcaRouter.pkce.codePlaceholder": "Paste the authorization code",
+  "orcaRouter.pkce.submitCode": "Finish connecting",
+  "orcaRouter.connect.failed": "Could not start the OrcaRouter authorization",
+  "orcaRouter.connected": "Connected · {masked}",
+  "orcaRouter.notConnected": "Not connected",
+  "orcaRouter.clear": "Clear",
+  "orcaRouter.clear.failed": "Could not clear the OrcaRouter credential. Try again.",
+  "orcaRouter.needsReauth":
+    "OrcaRouter rejected this credential. Connect again to replace it; the stored key is kept until a new login succeeds.",
+  "orcaRouter.model.selectPlaceholder": "Select a model",
+  "orcaRouter.model.search": "Search models",
+  "orcaRouter.model.empty": "No model in the current catalog matches this entry.",
+  "orcaRouter.catalog.failed": "The OrcaRouter model catalog is unavailable.",
+  "orcaRouter.catalog.degradedSeed":
+    "Live model catalog unavailable. Showing the verified offline seed ({count} models).",
+  "orcaRouter.catalog.degradedLastKnownGood":
+    "Live model catalog refresh failed. Showing the last known good catalog ({count} models).",
   "settings.modelProvider.apiKeyDisabledHint": "Set an API key to enable this provider.",
   "settings.modelProvider.getApiKey": "Get API key",
   "settings.modelProvider.viewUsage": "View usage",
@@ -3502,6 +3523,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.reorderProvider": "Drag to reorder provider",
   "settings.modelProvider.reorderModel": "Drag to reorder model",
   "settings.modelProvider.empty": "No custom model providers yet",
+  "settings.modelProvider.emptyHint":
+    'Click "Add provider" to create one from a preset template, or create a custom provider and fill in its API key.',
   "settings.modelProvider.deleteConfirm": 'Delete "{name}"?',
   "settings.modelProvider.deleteConfirmTitle": 'Delete provider "{name}"?',
   "settings.modelProvider.deleteConfirmDescription":

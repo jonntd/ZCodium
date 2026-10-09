@@ -912,6 +912,7 @@ export function InlineEditableProviderCard({
           providerHeaders={provider.config.api?.headers ?? null}
           onSaveProviderHeaders={handleSaveProviderHeaders}
           onDetectRemoteModels={detectRemoteModels}
+          discoveryTemplateId={provider.templateId}
         />
       </div>
     </div>
