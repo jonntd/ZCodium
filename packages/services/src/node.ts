@@ -455,7 +455,6 @@ import {
 import { createProviderProvisioningTarget } from "./model-provider/providerProvisioningTarget.js";
 import { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
 import { buildOffPeakModelSelectionView } from "./model-provider/offPeakModelSelectionView.js";
-import { resolveClientConfigPlatform } from "./runtime-tools/clientPlatform.js";
 import {
   createAccountRequestAuthService,
   type IAccountRequestAuthService,
@@ -1596,7 +1595,6 @@ export function createLocalServices(options: {
     }),
   );
   const providerConfigLog = createServiceLogger("provider-config");
-  const clientConfigPlatform = resolveClientConfigPlatform();
   // ZCodium 去智谱化：官方 CDN 的 builtin 配置是 Coding Plan 套餐模板与账号
   // Provider 的投递通道，且 revision 高于本地时无条件覆盖——保留它会复活已被
   // 移除的套餐产品面。停用远端源，builtin 配置唯一事实源是仓库内
