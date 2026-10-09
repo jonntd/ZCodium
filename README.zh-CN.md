@@ -142,6 +142,27 @@ cd zcodium
 zcode --help        # 或直接运行：node bin/zcode.mjs --help
 ```
 
+## 自建中继（手机远控，Docker）
+
+手机浏览器要访问桌面上的工作区，中间需要一台中继。官方中继是别人的服务器；本仓库提供**自建中继**，跑在你自己的 VPS（或本机）上，会话内容端到端加密（E2EE），中继只转发密文。
+
+每次发版都会构建并推送与桌面**同版本**的中继镜像，所以升级中继就是换个 tag 再 pull：
+
+```bash
+# 无域名 / 纯 IP（有域名 + TLS 则用 docker-compose.image.yml）
+RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml pull
+RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
+```
+
+| 项 | 说明 |
+| --- | --- |
+| 镜像 | `ghcr.io/<仓库所有者>/zcode-relay:<版本>`，另附一个 commit sha tag；**公开可拉，无需 docker login** |
+| `latest` | 只跟正式版（预发布不推），生产建议钉死具体版本 |
+| 免 registry | 每个 Release 附带 `zcode-relay-<版本>.tar.gz`，`docker load -i` 即可导入 |
+| 桌面侧接线 | 「移动端远程控制 → 浏览器直连 → 高级设置」里填中继地址、主机密钥与配对码 |
+
+完整说明（环境变量、Caddy + TLS、纯 IP 变体、**在本机跑中继 + 反向隧道**、排障）见 [`deploy/vps-relay/README.md`](deploy/vps-relay/README.md)。
+
 ## 构建与发布
 
 - **GitHub 构建**：审计后的代码在本仓库通过 GitHub Actions 构建，CLI 发行包随版本发布到 [Releases](https://github.com/ZCodium-project/ZCodium/releases)，站点由独立仓库构建，部署在 https://zcodium-project.github.io/。所有产物都来自本仓库经过审计的源码，不包含上游未同步的改动。

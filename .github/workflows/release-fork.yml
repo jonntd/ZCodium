@@ -149,6 +149,14 @@ jobs:
             ./install.sh        # installs the zcode command into ~/.zcode/runtime
             zcode --help        # or run: node bin/zcode.mjs --help
             ```
+          - **Self-hosted relay (Docker, optional)**: only needed for phone remote control. The image carries the web bundle built from this very release, so the phone page can never drift from the desktop:
+
+            ```bash
+            RELAY_VERSION=<VERSION> docker compose -f docker-compose.image.no-tls.yml pull
+            RELAY_VERSION=<VERSION> docker compose -f docker-compose.image.no-tls.yml up -d
+            ```
+
+            Image `ghcr.io/<OWNER>/zcode-relay:<VERSION>` (public, no `docker login`). Offline: `docker load -i zcode-relay-<VERSION>.tar.gz`. Full guide: `deploy/vps-relay/README.md`.
 
           ## 中文
 
@@ -164,6 +172,14 @@ jobs:
           - **Windows（.exe）**：运行 `ZCodium-<VERSION>-win-x64.exe`。没有 ZCode 官方签名，SmartScreen 会显示警告——只是警告，点"**更多信息**" -> "**仍要运行**"。
           - **Linux x64（.AppImage）**：`chmod +x ZCodium-<VERSION>-linux-x86_64.AppImage && ./ZCodium-<VERSION>-linux-x86_64.AppImage`.
           - **Linux arm64（.AppImage）**：`chmod +x ZCodium-<VERSION>-linux-arm64.AppImage && ./ZCodium-<VERSION>-linux-arm64.AppImage`.
+          - **自建中继（Docker，可选）**：只在要用手机远控时需要。镜像里带着与本版桌面**同版本**的 web 产物，不会再出现「桌面更新了、手机页还是旧的」：
+
+            ```bash
+            RELAY_VERSION=<VERSION> docker compose -f docker-compose.image.no-tls.yml pull
+            RELAY_VERSION=<VERSION> docker compose -f docker-compose.image.no-tls.yml up -d
+            ```
+
+            镜像 `ghcr.io/<OWNER>/zcode-relay:<VERSION>`（公开可拉，无需 docker login）；离线环境用 `docker load -i zcode-relay-<VERSION>.tar.gz`。完整说明见 `deploy/vps-relay/README.md`。
 
           ## Downloads / 产物
 
@@ -173,8 +189,10 @@ jobs:
           - Linux x64: `ZCodium-<VERSION>-linux-x86_64.AppImage`
           - Linux arm64: `ZCodium-<VERSION>-linux-arm64.AppImage`
           - CLI: `zcodium-<VERSION>.tar.gz`
+          - Relay image: `ghcr.io/<OWNER>/zcode-relay:<VERSION>`（+ `zcode-relay-<VERSION>.tar.gz`）
           NOTES
           sed -i "s/<VERSION>/${TAG#v}/g" /tmp/release-notes.md
+          sed -i "s/<OWNER>/${GITHUB_REPOSITORY_OWNER}/g" /tmp/release-notes.md
           args=(--draft --title "$TAG" --notes-file /tmp/release-notes.md)
           if [ "$PRERELEASE" = "true" ]; then
             args+=(--prerelease)

@@ -142,6 +142,27 @@ cd zcodium
 zcodium --help      # or run directly: node bin/zcode.mjs --help
 ```
 
+## Self-hosted relay (phone remote control, Docker)
+
+Reaching a desktop workspace from a phone browser needs a relay in between. The official one is someone else's server; this repo ships a **self-hosted relay** you run on your own VPS (or locally). Session content is end-to-end encrypted (E2EE) — the relay only forwards ciphertext.
+
+Every release builds and pushes a relay image **at the same version as the desktop**, so upgrading the relay is just a new tag:
+
+```bash
+# Bare IP / no domain (use docker-compose.image.yml for a domain + TLS)
+RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml pull
+RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
+```
+
+| | |
+| --- | --- |
+| Image | `ghcr.io/<repo-owner>/zcode-relay:<version>`, plus a commit-sha tag; **public — no `docker login` needed** |
+| `latest` | Stable releases only (pre-releases never push it); pin an explicit version in production |
+| No registry | Each release also attaches `zcode-relay-<version>.tar.gz` — import it with `docker load -i` |
+| Desktop side | Fill in relay URL, host secret and pairing token under “Direct browser access → Advanced settings” |
+
+Full guide (environment variables, Caddy + TLS, bare-IP variant, **running the relay locally with a reverse tunnel**, troubleshooting): [`deploy/vps-relay/README.md`](deploy/vps-relay/README.md).
+
 ## Build and Release
 
 - **GitHub builds**: audited code is built in this repository with GitHub Actions. CLI distributions are published to [Releases](https://github.com/ZCodium-project/ZCodium/releases), and the project site is built in [its own repository](https://github.com/ZCodium-project/zcodium-project.github.io) and served at https://zcodium-project.github.io/. Every artifact comes from the audited source in this repository and contains no unsynced upstream changes.
