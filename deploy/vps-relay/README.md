@@ -223,15 +223,19 @@ curl -s http://127.0.0.1:3180/healthz   # → {"ok":true}
 cp .env.example .env   # 填入两个密钥
 
 # 有域名（配合 Caddy 终结 TLS）
-RELAY_VERSION=v3.14.11 docker compose -f docker-compose.image.yml up -d
+RELAY_VERSION=3.14.11 docker compose -f docker-compose.image.yml up -d
 
 # 纯 IP / 无域名
-RELAY_VERSION=v3.14.11 docker compose -f docker-compose.image.no-tls.yml up -d
+RELAY_VERSION=3.14.11 docker compose -f docker-compose.image.no-tls.yml up -d
 
 # 升级：换个 tag 再 pull + up 即可
-RELAY_VERSION=v3.14.12 docker compose -f docker-compose.image.no-tls.yml pull
-RELAY_VERSION=v3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
+RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml pull
+RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 ```
+
+> ⚠ tag **不带 `v` 前缀**（CI 推的是 `${TAG#v}`）：`RELAY_VERSION=v3.14.11` 会
+> `manifest unknown`。嫌麻烦可以直接用 [DEPLOY-DOCKER.md](./DEPLOY-DOCKER.md) 的一键脚本，
+> 它会自动生成 `.env` / compose 并完成健康检查。
 
 | 项 | 说明 |
 | --- | --- |

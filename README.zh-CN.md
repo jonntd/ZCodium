@@ -146,7 +146,7 @@ zcode --help        # 或直接运行：node bin/zcode.mjs --help
 
 手机浏览器要访问桌面上的工作区，中间需要一台中继。官方中继是别人的服务器；本仓库提供**自建中继**，跑在你自己的 VPS（或本机）上，会话内容端到端加密（E2EE），中继只转发密文。
 
-每次发版都会构建并推送与桌面**同版本**的中继镜像，所以升级中继就是换个 tag 再 pull：
+每次发版都会构建并推送与桌面**同版本**的中继镜像，所以升级中继就是换个 tag 再 pull。**想一键部署（自动装 Docker、生成密钥、起容器、健康检查），见 [deploy/vps-relay/DEPLOY-DOCKER.md](deploy/vps-relay/DEPLOY-DOCKER.md)**：
 
 ```bash
 # 无域名 / 纯 IP（有域名 + TLS 则用 docker-compose.image.yml）

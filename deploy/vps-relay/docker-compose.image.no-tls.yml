@@ -5,7 +5,7 @@
 #
 # 用法：
 #   cp .env.example .env && 填入两个密钥
-#   RELAY_VERSION=v3.14.11 docker compose -f docker-compose.image.no-tls.yml up -d
+#   RELAY_VERSION=3.14.11 docker compose -f docker-compose.image.no-tls.yml up -d
 #
 # 仓库是公开的 ⇒ 从 ghcr.io 拉取**不需要** docker login。
 #

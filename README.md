@@ -146,7 +146,7 @@ zcodium --help      # or run directly: node bin/zcode.mjs --help
 
 Reaching a desktop workspace from a phone browser needs a relay in between. The official one is someone else's server; this repo ships a **self-hosted relay** you run on your own VPS (or locally). Session content is end-to-end encrypted (E2EE) — the relay only forwards ciphertext.
 
-Every release builds and pushes a relay image **at the same version as the desktop**, so upgrading the relay is just a new tag:
+Every release builds and pushes a relay image **at the same version as the desktop**, so upgrading the relay is just a new tag. **For one-command deployment (installs Docker, generates secrets, starts the container, health-checks), see [deploy/vps-relay/DEPLOY-DOCKER.md](deploy/vps-relay/DEPLOY-DOCKER.md)**:
 
 ```bash
 # Bare IP / no domain (use docker-compose.image.yml for a domain + TLS)
