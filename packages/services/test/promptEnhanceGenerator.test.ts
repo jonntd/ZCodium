@@ -147,6 +147,35 @@ test("标记内指令回显重试后仍回显判 invalid-output,不写草稿", a
   assert.equal(calls.length, 2);
 });
 
+test("标记内元描述/占位符模板/复述系统提示判回显,不写草稿", async () => {
+  // 2026-10-10 实抓自辅助档位模型（DeepSeek-V4-Flash）的三类坏输出：
+  // ① 改写思路元描述 ② 带占位符的通用模板（即「输出系统提示词」）③ 复述系统提示条目。
+  const garbageBodies = [
+    "请对用户输入中由「帮我写个脚本」代表的原始提示词进行改写。首先识别其核心目标；",
+    "将下方指定的原始提示词改写为一份结构更清晰的增强版提示词。\n【原始提示词占位——请在此处粘贴用户实际输入的原始提示词内容】",
+    "你是一个专业的提示词（Prompt）工程专家，擅长为「编程 / 代码助手」类的 AI 优化用户给出的提示词。",
+    "硬性约束：输出有且只有增强后的提示词正文本身。",
+  ];
+  for (const body of garbageBodies) {
+    assert.ok(
+      ENHANCE_ECHO_PATTERN.test(body),
+      `应拦截回显特征: ${body.slice(0, 40)}`,
+    );
+  }
+  const { generator, calls } = buildGenerator({
+    responseText: `### BEGIN RESPONSE ###\n${garbageBodies[1]}\n### END RESPONSE ###`,
+  });
+  await assert.rejects(
+    generator.generate({ workspacePath: "/tmp/ws", text: "帮我写个脚本" }),
+    (error: unknown) => {
+      assert.ok(error instanceof PromptEnhanceGenerationError);
+      assert.equal(error.reason, "invalid-output");
+      return true;
+    },
+  );
+  assert.equal(calls.length, 2);
+});
+
 test("模型调用失败包装为 request-failed,不重试", async () => {
   const { generator, calls } = buildGenerator({
     generateError: new Error("upstream 502"),

@@ -65,6 +65,9 @@ interface PromptEnhanceDraftResult {
   `ENHANCE_ECHO_PATTERN` 回显检测、`sanitizeEnhancedPrompt` 清洗(围栏/样板语/
   工具脚手架/引号/emoji;**清洗后为空必须回退原文**,不得清空草稿),全部从
   desktop main 原样迁入 `promptEnhanceGenerator.ts`。
+- **语言对齐**(2026-10-08 修订):增强结果语言严格跟随用户输入语言——中文进中文出、
+  英文进英文出,其余语言同理;代码/路径/标识符/URL 原样保留。取代原"必须使用简体中文"
+  约束(移植自腾讯版 WorkBuddy 的增强提示词结构)。
 - **辅助档位**(runtime 端 `prompt_enhance` 特判,对齐 `git_commit_message`):
   最低公开 reasoning 档位 + 输出预算 min(5000, 模型上限)(覆盖原旁路 4096),
   忽略调用方 `maxOutputTokens`;anthropic 的 `thinking: disabled` 由统一执行面
