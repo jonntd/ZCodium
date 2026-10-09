@@ -89,4 +89,8 @@ export {
 } from "./lib/uiFontSize.js";
 export { generateMobileDeviceFingerprint, setStreamClientId } from "./lib/streamClientId.js";
 export { GlobalDatabaseStartupLoading } from "./root/GlobalDatabaseStartupLoading.js";
+// 非桌面入口（Web 远控）的启动兜底：桌面用 RootStartupLoading 阻塞启动渲染，
+// Web 侧不阻塞，改为在 workspace tab 注入前把它当作 initialWorkspaceLoadingFallback，
+// 避免渲染空 RootShell 露出浏览器白底。两处必须共用同一组件，否则又是两套首屏视觉。
+export { RootStartupLoading } from "./root/RootStartupLoading.js";
 export { DataRootDecisionApp } from "./data-root-decision/DataRootDecisionApp.js";

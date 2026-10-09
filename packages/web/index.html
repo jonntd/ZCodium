@@ -368,6 +368,10 @@
         aria-label="Loading..."
       >
         <div class="zcode-boot-loading__logo-shell">
+          <!-- ⚠ 与 packages/ui/src/root/RootStartupLoading.tsx 的 ZCodeStartupLogo 是**同一套**
+               品牌首屏视觉（同 viewBox、同渐变、同三段 path、同动画参数）。这里手抄一遍是
+               因为 HTML 壳必须在 JS 入口执行前就渲染出来。改任一侧都必须同步另一侧——
+               不一致时用户会看到「中继页首屏」与「桌面 App 首屏」是两种观感。 -->
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="118px"
@@ -390,37 +394,24 @@
                 <stop offset="1" stop-color="#818cf8" />
               </linearGradient>
             </defs>
+            <!-- 整枚 logo 一起呼吸（3s 后起播、1.8s 一轮、最低 0.4 透明度），
+                 参数与 RootStartupLoading 的 <animate> 逐值对齐。 -->
+            <animate
+              attributeName="opacity"
+              begin="3s"
+              dur="1.8s"
+              repeatCount="indefinite"
+              values="1;0.4;1"
+            />
             <path
               fill="url(#zcode-brand-z-gradient)"
               d="M184 224H512L453 308Q439 328 415 328H184Z"
-            >
-              <animate
-                attributeName="opacity"
-                dur="1.5s"
-                repeatCount="indefinite"
-                values="1;0.3;1"
-              />
-            </path>
-            <path fill="url(#zcode-brand-z-gradient)" d="M584 224H832L424 800H176Z">
-              <animate
-                attributeName="opacity"
-                begin="0.75s"
-                dur="1.5s"
-                repeatCount="indefinite"
-                values="1;0.3;1"
-              />
-            </path>
+            />
+            <path fill="url(#zcode-brand-z-gradient)" d="M584 224H832L424 800H176Z" />
             <path
               fill="url(#zcode-brand-z-gradient)"
               d="M536 720L600 656L648 704L824 528L888 592L648 832Z"
-            >
-              <animate
-                attributeName="opacity"
-                dur="1.5s"
-                repeatCount="indefinite"
-                values="1;0.3;1"
-              />
-            </path>
+            />
           </svg>
         </div>
       </div>

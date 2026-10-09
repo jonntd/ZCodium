@@ -34,8 +34,27 @@ import {
   type MessagePortLike,
   type MessagePortPayload,
 } from "@zcode/rpc";
-import { HostMessageTypes, RelayE2eeChannel, encryptRelayReport } from "@zcode/shared";
+import {
+  HostMessageTypes,
+  RelayE2eeChannel,
+  ZCODE_COMMIT,
+  encryptRelayReport,
+} from "@zcode/shared";
 import { WebSocket } from "ws";
+
+/** `@zcode/shared/version.ts` 在无 define（非构建环境）时的 fallback，不算「知道提交」。 */
+const UNKNOWN_COMMIT = "unknown";
+
+/**
+ * 解析随 host-report 上报的 commit 戳：显式入参优先（测试可注入），否则用本进程的
+ * 构建期常量 `ZCODE_COMMIT`。返回 `null` 表示"不知道"，调用方据此**不上报该字段**
+ * ——手机端的判定是 fail-open 的，报一个 `"unknown"` 只会污染判断。
+ */
+function resolveBuildCommitId(explicit: string | undefined): string | null {
+  const value = (explicit ?? ZCODE_COMMIT)?.trim();
+  if (!value || value === UNKNOWN_COMMIT) return null;
+  return value;
+}
 
 /** 只要求 Host 进程的 postMessage 能力，便于单测替身。 */
 export interface RelayHostProcess {
@@ -106,6 +125,13 @@ export interface RemoteRelayClientOptions {
   /** 展示用主机名，仅用于中继的 /api/server-info。 */
   hostLabel?: string;
   appVersion?: string;
+  /**
+   * 构建期 commit 戳（`ZCODE_COMMIT`，git 短 SHA）。随 host-report 上报，供**手机端**
+   * 判定「中继托管的 web 产物是不是旧构建」——中继的 `packages/web/dist` 是手动部署的
+   * 静态产物，桌面更新后手机可能还在跑旧 bundle，症状是同一页面两侧不一致
+   * （docs/spec/web-remote-ui-parity.md §7）。不传时默认取本进程的构建期常量。
+   */
+  buildCommitId?: string;
   logger?: {
     info(message: string, detail?: unknown): void;
     warn(message: string, detail?: unknown): void;
@@ -287,11 +313,16 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
     // 中继不解析不落明文日志——「中继只见密文」涵盖最后一条旁路。
     const report = {
       workspacePath: workspace.workspacePath,
-      ...(workspace.workspaceIdentity
-        ? { workspaceIdentity: workspace.workspaceIdentity }
-        : {}),
+      ...(workspace.workspaceIdentity ? { workspaceIdentity: workspace.workspaceIdentity } : {}),
       ...(options.hostLabel ? { hostLabel: options.hostLabel } : {}),
       ...(options.appVersion ? { appVersion: options.appVersion } : {}),
+      // 构建期 commit 戳：手机端拿它跟自己的 bundle 提交比对，判定产物是否过期。
+      // 显式传 `buildCommitId` 优先（便于测试注入），否则用本进程折叠进去的
+      // `ZCODE_COMMIT`。`"unknown"`（无 define / 非构建环境）不上报——上报了反而
+      // 会让手机端误以为"知道桌面提交"，见 relayBundleFreshness 的 fail-open 语义。
+      ...(resolveBuildCommitId(options.buildCommitId)
+        ? { buildCommitId: resolveBuildCommitId(options.buildCommitId) }
+        : {}),
     };
     const body = options.e2eeChannelKey
       ? JSON.stringify(encryptRelayReport(options.e2eeChannelKey, JSON.stringify(report)))

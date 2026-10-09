@@ -2,18 +2,29 @@
 import { createRoot } from "react-dom/client";
 import {
   AppErrorBoundary,
+  Button,
   Root,
+  RootStartupLoading,
   ZCodeIntlProvider,
   generateMobileDeviceFingerprint,
   playTaskNotificationSound,
   setStreamClientId,
+  useZCodeIntl,
   type Theme,
 } from "@zcode/ui";
 import "@zcode/ui/styles.css";
 import { connectViaWebSocket } from "@zcode/client";
-import { decryptRelayReport } from "@zcode/shared";
+import { ZCODE_COMMIT, ZCODE_VERSION, decryptRelayReport } from "@zcode/shared";
 import { connectWithBoundedRetry } from "./bootstrapRetry.js";
-import { resolveConnectionLostAction, resolveConnectionLostNoticePolicy } from "./connectionLostNotice.js";
+import {
+  resolveConnectionLostAction,
+  resolveConnectionLostNoticePolicy,
+} from "./connectionLostNotice.js";
+import {
+  relayBundleFreshnessNoticeKey,
+  resolveRelayBundleFreshnessNotice,
+  type RelayBundleFreshnessNotice,
+} from "./relayBundleFreshness.js";
 import { WebCallbackPage } from "./auth/WebCallbackPage.js";
 import { createWebAuthService } from "./auth/webAuthService.js";
 import { parseOAuthState, resolveSafeAppReturnTo } from "./auth/oauthStateCodec.js";
@@ -79,6 +90,10 @@ interface WebBootstrapResult {
   allowOpenWorkspace?: boolean;
   /** E2EE channelKey（分享链接 `#k=` fragment；spec vps-relay-bridge.md §16）。 */
   e2eeChannelKey?: string;
+  /** 桌面 Host 上报的应用版本（`/api/server-info` 的 `version`，或 E2EE 解密后的 `report.appVersion`）。 */
+  hostAppVersion?: string;
+  /** 桌面 Host 上报的构建期 commit 戳（只有 E2EE 路径拿得到，中继不解析明文）。 */
+  hostBuildCommitId?: string;
 }
 
 function isWebOAuthCallback(params: URLSearchParams): boolean {
@@ -353,6 +368,10 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     // 派生密钥解密并在客户端组合同一形状。缺 #k= / 密文损坏 ⇒ fail-closed
     // （报错上屏，不降级——中继没存明文，降级只会得到误导性的空信息）。
     let serverInfo: Partial<ServerRemoteInfo>;
+    // 桌面 Host 上报的构建期 commit 戳。**只有 E2EE 路径拿得到**：中继对明文上报会
+    // 白名单重组字段（`buildServerInfo()` 只回 serverId/version/workspaces/…），
+    // 但 E2EE 时它把整份密文原样回给手机，这里解密后就能读到任意字段。
+    let hostBuildCommitId: string | undefined;
     if (raw.e2ee === true) {
       const channelKey = resolveE2eeChannelKey();
       if (!channelKey || typeof raw.nonce !== "string" || typeof raw.ciphertext !== "string") {
@@ -365,6 +384,7 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
         workspaceIdentity?: string;
         hostLabel?: string;
         appVersion?: string;
+        buildCommitId?: string;
       };
       try {
         report = JSON.parse(
@@ -376,11 +396,13 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
           }),
         ) as typeof report;
       } catch {
-        throw new RelayReportDecryptError(
-          "server-info 解密失败：链接密钥不匹配或数据被篡改",
-        );
+        throw new RelayReportDecryptError("server-info 解密失败：链接密钥不匹配或数据被篡改");
       }
       const path = typeof report.workspacePath === "string" ? report.workspacePath : null;
+      hostBuildCommitId =
+        typeof report.buildCommitId === "string" && report.buildCommitId.trim().length > 0
+          ? report.buildCommitId
+          : undefined;
       serverInfo = {
         serverId: report.hostLabel || "zcode-relay",
         version: report.appVersion || "relay",
@@ -403,6 +425,10 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
     return {
       wsUrl,
       e2eeChannelKey: resolveE2eeChannelKey(),
+      // 非 E2EE 路径下中继只回 `version`（= 桌面 host-report 的 appVersion）；
+      // E2EE 路径下两者都能拿到，交给 relayBundleFreshness 决定比哪个。
+      ...(typeof serverInfo.version === "string" ? { hostAppVersion: serverInfo.version } : {}),
+      ...(hostBuildCommitId ? { hostBuildCommitId } : {}),
       ...(workspace?.path ? { initialWorkspaceAbsPath: workspace.path } : {}),
       ...(workspace?.workspaceIdentity
         ? { initialWorkspaceIdentity: workspace.workspaceIdentity }
@@ -418,7 +444,18 @@ async function resolveWebBootstrap(): Promise<WebBootstrapResult> {
 /** server-info 信封解密失败（缺 #k= / 篡改 / 错 key）：bootstrap 直接报错而非降级。 */
 class RelayReportDecryptError extends Error {}
 
+/**
+ * Web 启动失败页。
+ *
+ * ⚠ 这个组件渲染在 `Root` 之外（React 接管前就失败了），但**必须**与 App 内其它错误态
+ * 共用同一套组件与文案来源：
+ * - 文案走 `intl`，不再用 `/^zh\b/i.test(navigator.language)` 手判中英——那种写法
+ *   在 fa-IR 等语言下永远拿不到译文，是「中继页 UI 与桌面 App 不一致」的典型来源。
+ * - 按钮用 `@zcode/ui` 的 `Button`，而不是裸 `<button>` + 手抄的样式类，
+ *   否则 hover / focus-visible / cursor 与 App 内按钮对不上。
+ */
 function WebBootstrapErrorScreen({ message }: { message: string }) {
+  const { intl } = useZCodeIntl();
   return (
     <div className="h-dvh min-h-dvh w-screen bg-background text-foreground">
       <div className="mx-auto flex h-full w-full max-w-lg items-center px-4">
@@ -426,19 +463,21 @@ function WebBootstrapErrorScreen({ message }: { message: string }) {
           <div className="flex items-center gap-3">
             <span className="size-2 rounded-full bg-destructive" />
             <h1 className="text-ui-xs font-medium">
-              {/^zh\b/i.test(navigator.language) ? "Web 启动失败" : "Web bootstrap failed"}
+              {intl.formatMessage({ id: "webBootstrap.failed" })}
             </h1>
           </div>
           <p className="mt-2 break-all text-ui-xs/relaxed text-foreground-subtle">{message}</p>
-          <button
+          <Button
             type="button"
-            className="mt-4 rounded-lg border border-border bg-surface px-3 py-2 text-ui-xs text-foreground-subtle hover:bg-surface-hover"
+            variant="outline"
+            size="sm"
+            className="mt-4 enabled:cursor-pointer"
             onClick={() => {
               window.location.reload();
             }}
           >
-            {/^zh\b/i.test(navigator.language) ? "重试" : "Retry"}
-          </button>
+            {intl.formatMessage({ id: "common.retry" })}
+          </Button>
         </section>
       </div>
     </div>
@@ -448,8 +487,25 @@ function WebBootstrapErrorScreen({ message }: { message: string }) {
 function renderWebBootstrapError(error: unknown): void {
   document.title = "ZCodium - Web";
   root.render(
-    <WebBootstrapErrorScreen message={error instanceof Error ? error.message : String(error)} />,
+    <ZCodeIntlProvider>
+      <WebBootstrapErrorScreen message={error instanceof Error ? error.message : String(error)} />
+    </ZCodeIntlProvider>,
   );
+}
+
+/**
+ * 非桌面入口「初始 workspace 已给、workspace tab 尚未注入」那几帧的兜底。
+ *
+ * `Root.tsx:932-947` 专门为这种情形留了分支（`!isDesktop && initialWorkspaceAbsPath &&
+ * initialWorkspaceLoadingFallback`），但**两个入口此前都没传这个 prop**，分支是死代码 ⇒
+ * 这几帧会渲染一个空的 `RootShell`，在手机浏览器里就是白底（`Root.tsx:577-578` 的注释
+ * 描述的正是这个现象）。
+ *
+ * 复用桌面同款 `RootStartupLoading`，保证「中继页首屏」与「桌面 App 首屏」是同一套视觉。
+ */
+function WebInitialWorkspaceLoading() {
+  const { intl } = useZCodeIntl();
+  return <RootStartupLoading label={intl.formatMessage({ id: "common.loading" })} />;
 }
 
 /** 断线提示的挂载点 id（独立于 `root`，见 showWebConnectionLostNotice）。 */
@@ -474,19 +530,21 @@ function claimAutoReconnectSlot(): boolean {
   }
 }
 
+/**
+ * 交付之后传输断开时叠加的非破坏性提示。
+ *
+ * ⚠ 与 `WebBootstrapErrorScreen` 同理：它渲染在 `Root` 之外（不能卸载用户界面），
+ * 但文案与按钮必须与 App 内一致——走 `intl`（支持三语，不再手判中英）+ `Button`。
+ */
 function WebConnectionLostNotice({ code, reason }: { code: number; reason: string }) {
-  const isZh = /^zh\b/i.test(navigator.language);
+  const { intl } = useZCodeIntl();
   // 4004 = 被另一个页面顶替（多标签/换设备）：提示语必须与「桌面离线」区分，
   // 且**不**引导重连：否则两个标签会互相抢连接，形成刷新拉锯（见 connectionLostNotice.ts）。
   const { kind, showReconnect } = resolveConnectionLostNoticePolicy(code);
   const replaced = kind === "replaced";
-  const title = replaced
-    ? isZh
-      ? "此页面已被其他窗口接管"
-      : "This page was taken over by another window"
-    : isZh
-      ? "与桌面的连接已断开"
-      : "Connection to the desktop was lost";
+  const title = intl.formatMessage({
+    id: replaced ? "webConnectionLost.replaced" : "webConnectionLost.disconnected",
+  });
   const detail = reason || `code ${code}`;
   return (
     <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[9999] flex justify-center px-4">
@@ -495,15 +553,17 @@ function WebConnectionLostNotice({ code, reason }: { code: number; reason: strin
         <h1 className="font-medium">{title}</h1>
         {replaced ? null : <span className="truncate text-foreground-subtle">{detail}</span>}
         {showReconnect ? (
-          <button
+          <Button
             type="button"
-            className="ml-auto shrink-0 rounded-lg border border-border bg-surface px-3 py-1.5 text-foreground-subtle hover:bg-surface-hover"
+            variant="outline"
+            size="sm"
+            className="ml-auto shrink-0 enabled:cursor-pointer"
             onClick={() => {
               window.location.reload();
             }}
           >
-            {isZh ? "重连" : "Reconnect"}
-          </button>
+            {intl.formatMessage({ id: "webConnectionLost.reconnect" })}
+          </Button>
         ) : null}
       </section>
     </div>
@@ -522,7 +582,108 @@ function showWebConnectionLostNotice(event: { code: number; reason: string }): v
   const container = document.createElement("div");
   container.id = WEB_CONNECTION_LOST_NOTICE_ID;
   document.body.append(container);
-  createRoot(container).render(<WebConnectionLostNotice code={event.code} reason={event.reason} />);
+  createRoot(container).render(
+    // 提示渲染在 Root 之外，需要自己套一层 intl provider 才能取到与 App 同源的文案。
+    <ZCodeIntlProvider>
+      <WebConnectionLostNotice code={event.code} reason={event.reason} />
+    </ZCodeIntlProvider>,
+  );
+}
+
+/** 产物过期提示的挂载点 id（独立于 `root`，与断线提示同一套"不卸载界面"的理由）。 */
+const WEB_BUNDLE_STALE_NOTICE_ID = "zcode-web-bundle-stale-notice";
+/** 关闭记录（sessionStorage）：同一组不一致在本标签页内只提示一次。 */
+const WEB_BUNDLE_STALE_DISMISS_KEY = "zcode-web-bundle-stale-dismissed";
+
+/**
+ * 中继托管的 web 产物与桌面 Host 不是同一次构建时的提示（docs/spec/web-remote-ui-parity.md §7）。
+ *
+ * 为什么必须**可见**而不是只记日志：这条不一致的症状是"同一个页面两侧长得不一样"，
+ * 用户的第一反应是 UI bug（2026-10-09 的「提示词页面不一致」就是这样查了半天）。
+ * 一条能指出"产物过期、请重新部署"的提示，比任何日志都省事。
+ *
+ * 非阻塞、可关闭：产物过期是持续状态，常驻横幅会一直占位；关掉后本标签页不再提示，
+ * 换一组不一致（重新构建/重新部署后）会重新提示。
+ */
+function WebBundleStaleNotice({
+  notice,
+  onDismiss,
+}: {
+  notice: RelayBundleFreshnessNotice;
+  onDismiss: () => void;
+}) {
+  const { intl } = useZCodeIntl();
+  return (
+    <div className="pointer-events-none fixed inset-x-0 bottom-4 z-[9998] flex justify-center px-4">
+      <section className="pointer-events-auto flex w-full max-w-xl items-start gap-3 rounded-xl border border-card-border bg-card p-3 text-ui-xs shadow-lg">
+        <span className="mt-1 size-2 shrink-0 rounded-full bg-warning" />
+        <p className="min-w-0 flex-1 leading-5">
+          {notice.kind === "commit-mismatch"
+            ? intl.formatMessage(
+                { id: "webBundleStale.commit" },
+                { bundleCommit: notice.bundleCommit, hostCommit: notice.hostCommit },
+              )
+            : intl.formatMessage(
+                { id: "webBundleStale.version" },
+                { bundleVersion: notice.bundleVersion, hostVersion: notice.hostVersion },
+              )}
+        </p>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 enabled:cursor-pointer"
+          onClick={onDismiss}
+        >
+          {intl.formatMessage({ id: "webBundleStale.dismiss" })}
+        </Button>
+      </section>
+    </div>
+  );
+}
+
+function showWebBundleStaleNotice(notice: RelayBundleFreshnessNotice): void {
+  if (document.getElementById(WEB_BUNDLE_STALE_NOTICE_ID)) return;
+  const key = relayBundleFreshnessNoticeKey(notice);
+  try {
+    if (sessionStorage.getItem(WEB_BUNDLE_STALE_DISMISS_KEY) === key) return;
+  } catch {
+    // 拿不到 sessionStorage（隐私模式等）时照常提示，只是关不掉记忆。
+  }
+  const container = document.createElement("div");
+  container.id = WEB_BUNDLE_STALE_NOTICE_ID;
+  document.body.append(container);
+  const dismiss = () => {
+    try {
+      sessionStorage.setItem(WEB_BUNDLE_STALE_DISMISS_KEY, key);
+    } catch {
+      // 同上：写不进去也不影响关闭动作本身。
+    }
+    container.remove();
+  };
+  createRoot(container).render(
+    <ZCodeIntlProvider>
+      <WebBundleStaleNotice notice={notice} onDismiss={dismiss} />
+    </ZCodeIntlProvider>,
+  );
+}
+
+/**
+ * 比对「本 bundle 的版本/提交」与「桌面 Host 上报的版本/提交」，必要时提示产物过期。
+ *
+ * fail-open：任何一侧缺信息都不提示（见 relayBundleFreshness 的判定顺序）。
+ * 本地开发时两边版本号都是 package.json 的同一个值，所以真正起作用的是 commit 戳
+ * ——这也是 `packages/web/vite.config.ts` 要给 `__ZCODE_COMMIT__` 补 git 回退的原因。
+ */
+function reportBundleFreshness(bootstrap: WebBootstrapResult): void {
+  const notice = resolveRelayBundleFreshnessNotice(
+    { version: ZCODE_VERSION, commit: ZCODE_COMMIT },
+    { version: bootstrap.hostAppVersion, commit: bootstrap.hostBuildCommitId },
+  );
+  if (!notice) return;
+  // 不额外打日志：`packages/web/src` 全目录没有日志出口（`@zcode/ui` 的 logger 不在
+  // 公开导出面上），而提示本身已经把两个 commit 都写出来了，比一行 warn 更有用。
+  showWebBundleStaleNotice(notice);
 }
 
 async function bootstrapWebApp() {
@@ -539,6 +700,10 @@ async function bootstrapWebApp() {
     renderWebBootstrapError(error);
     return;
   }
+
+  // 产物过期提示与连接是否成功无关：拿到 host-report 就先判定一次，
+  // 这样即使随后 WS 连不上（桌面离线），用户也能知道"页面本身也是旧的"。
+  reportBundleFreshness(bootstrap);
 
   const autoReconnect = params.get("autoReconnect") === "1";
 
@@ -589,6 +754,7 @@ async function bootstrapWebApp() {
             preferDirectoryBrowser
             supportsEmbeddedBrowser={false}
             allowRemoteWorkspace={false}
+            initialWorkspaceLoadingFallback={<WebInitialWorkspaceLoading />}
           />
         </ZCodeIntlProvider>
       </AppErrorBoundary>,

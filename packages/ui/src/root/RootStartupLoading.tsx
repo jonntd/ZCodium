@@ -24,7 +24,13 @@ export function RootStartupLoading({ label, children, busy = true }: RootStartup
   );
 }
 
-/** 初始化与引导共用品牌图标，保持底色、描边、圆角和标志比例一致。 */
+/**
+ * 初始化与引导共用品牌图标，保持底色、描边、圆角和标志比例一致。
+ *
+ * ⚠ `packages/web/index.html` 的 `.zcode-boot-loading` 壳是**同一套视觉的手抄副本**
+ * （HTML 壳要在 JS 入口执行前渲染，无法复用本组件）。改这里的 viewBox / 渐变 /
+ * path / 动画参数，必须同步改那边，否则「中继页首屏」与「桌面 App 首屏」会不一致。
+ */
 export function ZCodeStartupLogoBadge({ animated = true }: { animated?: boolean }) {
   return (
     <div className="relative flex size-24 items-center justify-center rounded-3xl bg-[linear-gradient(180deg,#000000_0%,#151718_100%)] text-[#ffffff] shadow-xl/20 before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:border before:border-[rgba(255,255,255,0.1)] before:content-['']">

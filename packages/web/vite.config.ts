@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,6 +24,36 @@ import {
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const REPO_ROOT = resolve(HERE, "../..");
 const { version } = JSON.parse(readFileSync(resolve(REPO_ROOT, "package.json"), "utf-8"));
+
+/**
+ * 构建期 commit 戳（`__ZCODE_COMMIT__`）。
+ *
+ * 优先用 CI / 启动脚本注入的 `ZCODE_COMMIT`；本地直接 `vite build` 时它通常是空的，
+ * 此时回退到 `git rev-parse --short HEAD`。
+ *
+ * 为什么必须回退：中继托管的这份产物要跟桌面 Host 上报的 `buildCommitId`
+ * （`packages/desktop/scripts/build-metadata.mjs` 的 `resolveCommitId()`，同样是 git 短 SHA）
+ * 比对，用来提示「手机页面是旧构建」。恒为 `"unknown"` 就永远比不出来，
+ * 护栏形同虚设（见 docs/spec/web-remote-ui-parity.md §7）。
+ * ⚠ 必须用 `--short=8`：桌面侧就是 `git rev-parse --short=8 HEAD`，
+ * 两边长度不一致（7 位 vs 8 位）会让护栏每次都误报。
+ * 取不到 git（源码包 / 无 .git）时不抛错，维持 "unknown" —— 护栏 fail-open。
+ */
+function resolveBuildCommit(env: Record<string, string | undefined>): string {
+  const injected = env.ZCODE_COMMIT?.trim();
+  if (injected) return injected;
+  try {
+    return (
+      execFileSync("git", ["rev-parse", "--short=8", "HEAD"], {
+        cwd: REPO_ROOT,
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim() || "unknown"
+    );
+  } catch {
+    return "unknown";
+  }
+}
 
 function resolveZCodeEnv(value: string | undefined): "test" | "production" {
   return value?.trim().toLowerCase() === "production" ? "production" : "test";
@@ -89,7 +120,7 @@ export default defineConfig(({ mode }) => {
     define: {
       __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
       __ZCODE_VERSION__: JSON.stringify(version),
-      __ZCODE_COMMIT__: JSON.stringify(env.ZCODE_COMMIT || "unknown"),
+      __ZCODE_COMMIT__: JSON.stringify(resolveBuildCommit(env)),
       __ZCODE_ENV__: JSON.stringify(zcodeEnv),
       "import.meta.env.VITE_ZCODE_BASE_URL": JSON.stringify(zcodeEndpointOrigin),
       // 兼容旧 Web runtime 读取名；新代码统一读 VITE_ZCODE_BASE_URL。
