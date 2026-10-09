@@ -408,25 +408,20 @@ jobs:
       - name: Push relay image
         env:
           TAG: ${{ needs.release.outputs.tag }}
-          PRERELEASE: ${{ inputs.prerelease }}
           GHCR_TOKEN: ${{ github.token }}
           GHCR_ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
           # ⚠ 推送顺序有讲究：GHCR 包页面默认展示「最近推送」的那个 tag，并据此给出
-          # `docker pull ...:<tag>` 的一键命令。先推 sha 再推版本，页面才会显示版本号；
-          # 反过来页面会拿 commit sha 当版本展示，给出 `docker pull ...:<sha>` 这种没法用的命令。
+          # `docker pull ...:<tag>` 的一键命令。顺序固定为 sha → latest → 版本：
+          #   - 版本号**最后推**，页面头条才是版本号（否则会拿 commit sha 当版本展示，
+          #     给出 `docker pull ...:<sha>` 这种没法用的命令）；
+          #   - `latest` **每次都推**（含预发布），所以 `docker pull ...:latest` 永远可用。
           docker push "$IMAGE:${GITHUB_SHA::12}"
+          docker tag "$IMAGE:${TAG#v}" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
           docker push "$IMAGE:${TAG#v}"
-          # :latest 只跟正式版 —— 预发布也推 latest 的话，`latest` 会悄悄变成预发布产物。
-          # 正式版时它最后推，页面因此展示 `docker pull ...:latest`（可直接用的命令）。
-          if [ "$PRERELEASE" != "true" ]; then
-            docker tag "$IMAGE:${TAG#v}" "$IMAGE:latest"
-            docker push "$IMAGE:latest"
-          else
-            echo "预发布：跳过 :latest（只推 ${TAG#v} 与 sha 标签）"
-          fi
 
       - name: Attach relay image tarball to release
         env:

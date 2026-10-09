@@ -157,7 +157,7 @@ RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 | 项 | 说明 |
 | --- | --- |
 | 镜像 | `ghcr.io/<仓库所有者>/zcode-relay:<版本>`，另附一个 commit sha tag；**公开可拉，无需 docker login** |
-| `latest` | 只跟正式版（预发布不推），生产建议钉死具体版本 |
+| `latest` | **每次发布都推（含预发布）**，永远指向最新构建；⚠ 预发布期间它可能指向 audit 产物，生产建议钉死版本号 |
 | 免 registry | 每个 Release 附带 `zcode-relay-<版本>.tar.gz`，`docker load -i` 即可导入 |
 | 桌面侧接线 | 「移动端远程控制 → 浏览器直连 → 高级设置」里填中继地址、主机密钥与配对码 |
 

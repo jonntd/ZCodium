@@ -157,7 +157,7 @@ RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 | | |
 | --- | --- |
 | Image | `ghcr.io/<repo-owner>/zcode-relay:<version>`, plus a commit-sha tag; **public — no `docker login` needed** |
-| `latest` | Stable releases only (pre-releases never push it); pin an explicit version in production |
+| `latest` | Pushed on **every** release (pre-releases included) — always the newest build; ⚠ during a pre-release it may point at an audit build, so pin an explicit version in production |
 | No registry | Each release also attaches `zcode-relay-<version>.tar.gz` — import it with `docker load -i` |
 | Desktop side | Fill in relay URL, host secret and pairing token under “Direct browser access → Advanced settings” |
 

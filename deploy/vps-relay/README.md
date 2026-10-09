@@ -237,7 +237,7 @@ RELAY_VERSION=v3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 | --- | --- |
 | 镜像 | `ghcr.io/jonntd/zcode-relay:<版本>`（另附一个 12 位 commit sha 的 tag） |
 | 拉取鉴权 | **不需要** —— 仓库是公开的，镜像公开可拉 |
-| `latest` | **只跟正式版**。预发布不推 `latest`，避免 `latest` 悄悄变成预发布产物 |
+| `latest` | **每次发布都推（含预发布）**，永远指向最新构建。⚠ 预发布期间它可能指向 audit 产物，生产建议钉死版本号 |
 | 离线 / 无 registry | 每次发布同时把 `zcode-relay-<版本>.tar.gz` 附到 Release，`docker load -i <它>` 即可 |
 | 体积 | 构建时剔除了 source map（约 86M，中继只服务手机页用不到）：约 59M 而非 145M |
 

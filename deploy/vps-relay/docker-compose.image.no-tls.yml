@@ -17,7 +17,7 @@
 
 services:
   relay:
-    # 不写 tag 就是 :latest（只跟正式版，预发布不推 latest）。
+    # 不写 tag 就是 :latest（每次发布都推，含预发布 ⇒ 可能指向 audit 产物）。
     # 生产建议钉死具体版本，避免意外跟着 latest 走。
     image: ghcr.io/jonntd/zcode-relay:${RELAY_VERSION:-latest}
     restart: unless-stopped
