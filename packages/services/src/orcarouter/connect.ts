@@ -1,4 +1,4 @@
-import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { sha256 } from "@noble/hashes/sha2";
 import {
   buildOrcaAuthorizeUrl,
   buildOrcaExchangeBody,
@@ -10,9 +10,18 @@ import {
 } from "@zcode/shared";
 import type { OrcaCredentialStore } from "./credentialStore.js";
 
-/** base64url 无 padding 编码 */
+/** base64url 无 padding 编码（btoa 在浏览器与 Node 18+ 全局可用） */
 function base64Url(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString("base64url");
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
+}
+
+/** 加密随机数；与 WebCrypto subtle 不同，getRandomValues 在非 secure context 也可用 */
+function secureRandomBytes(byteLength: number): Uint8Array {
+  const bytes = new Uint8Array(byteLength);
+  globalThis.crypto.getRandomValues(bytes);
+  return bytes;
 }
 
 /** 每次尝试都必须用加密随机数新建 verifier 与 state */
@@ -23,20 +32,24 @@ export interface OrcaPkceMaterial {
 }
 
 export function createOrcaPkceMaterial(
-  generate: (byteLength: number) => Uint8Array = randomBytes,
+  generate: (byteLength: number) => Uint8Array = secureRandomBytes,
 ): OrcaPkceMaterial {
   const verifier = base64Url(generate(32));
-  const challenge = base64Url(createHash("sha256").update(verifier).digest());
+  const challenge = base64Url(sha256(new TextEncoder().encode(verifier)));
   const state = base64Url(generate(16));
   return Object.freeze({ verifier, challenge, state });
 }
 
-/** 恒定时间比较，避免用早退比较泄露 state 前缀 */
+/** 恒定时间比较，避免用早退比较泄露 state 前缀（隐私比较：不同即不等，不区分长短） */
 export function safeStateEquals(a: string, b: string): boolean {
-  const left = Buffer.from(a, "utf8");
-  const right = Buffer.from(b, "utf8");
-  if (left.length !== right.length) return false;
-  return timingSafeEqual(left, right);
+  const left = new TextEncoder().encode(a);
+  const right = new TextEncoder().encode(b);
+  const length = Math.max(left.length, right.length);
+  let diff = left.length ^ right.length;
+  for (let index = 0; index < length; index += 1) {
+    diff |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+  return diff === 0;
 }
 
 export type OrcaConnectPhase = "idle" | "waiting" | "exchanging" | "connected" | "error";
@@ -119,7 +132,7 @@ export class OrcaConnectController {
       fetchImpl: globalThis.fetch,
       timeoutMs: 30_000,
       now: Date.now,
-      generate: randomBytes,
+      generate: secureRandomBytes,
       ...deps,
     };
   }
@@ -142,7 +155,7 @@ export class OrcaConnectController {
    * verifier 只存在于本进程内存，直到 exchange 才使用；绝不进 URL、日志或遥测。
    */
   begin(): OrcaConnectState {
-    const generate = this.#deps.generate ?? randomBytes;
+    const generate = this.#deps.generate ?? secureRandomBytes;
     const now = this.#deps.now ?? Date.now;
     const generation = ++this.#generation;
     const material = createOrcaPkceMaterial(generate);
