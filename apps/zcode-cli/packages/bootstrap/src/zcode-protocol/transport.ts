@@ -224,11 +224,20 @@ export class ZCodeProtocolNdjsonConnection {
   private shouldBypassProcessingQueue(message: ZCodeProtocolMessage): boolean {
     // 模型任务占住串行队列时，停止/取消请求必须仍能进入 server，
     // 才能把底层 AbortSignal 传给真实模型请求。控制面只旁路当前执行，普通请求仍保持串行。
+    //
+    // workspaceGenerateText（提示词增强 / Git 提交消息等辅助生成）也必须旁路：
+    // 它是长请求（单次模型调用最长 60s，invalid-output 还会重试一次），若走串行
+    // 队列，在模型返回前会阻塞该 worker 的所有其它协议请求（发消息、读会话、
+    // 订阅、切会话……），UI 表现为「点击增强后整个程序卡死」且无取消入口。
+    // 它与 stop/cancel 一样只旁路自身执行，不参与状态排队；请求本身有
+    // AbortSignal.timeout(60s) 自兜底，operationId 取消面（workspaceCancelGenerateText）
+    // 保持先于它启动的时序（lastQueuedMessageStarted 门），旁路后仍可正常取消。
     return (
       "id" in message &&
       "method" in message &&
       (message.method === zcodeProtocolMethods.sessionStop ||
-        message.method === zcodeProtocolMethods.workspaceCancelGenerateText)
+        message.method === zcodeProtocolMethods.workspaceCancelGenerateText ||
+        message.method === zcodeProtocolMethods.workspaceGenerateText)
     );
   }
 
