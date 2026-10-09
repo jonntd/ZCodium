@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { test } from "node:test";
 
-import { isLocalRelayHost } from "@zcode/shared";
+import { isLocalRelayHost, resolveRelayLanHost } from "@zcode/shared";
 
 import {
   SHARE_LINK_MAX_TTL_SECONDS,
@@ -138,13 +138,22 @@ test("中继在本机局域网：内网链接把主机换成检测到的局域�
   assert.equal(parsed.searchParams.get("autoReconnect"), "1");
 });
 
-test("内网链接沿用中继地址的非默认端口（不能被 3180 顶掉）", () => {
+test("中继在本机（loopback）：内网链接换成检测到的局域网 IP，端口沿用中继地址", () => {
+  const link = buildRelayLanShareLink({
+    relayUrl: "ws://127.0.0.1:8443",
+    lanAddresses: ["192.168.8.105"],
+    pairingToken: TOKEN,
+  });
+  assert.ok((link ?? "").startsWith("http://192.168.8.105:8443/?token="), link);
+});
+
+test("中继在局域网内另一台机器：内网链接原样用它的主机（不能换成桌面机 IP）", () => {
   const link = buildRelayLanShareLink({
     relayUrl: "ws://10.0.0.5:8443",
     lanAddresses: ["192.168.8.105"],
     pairingToken: TOKEN,
   });
-  assert.ok((link ?? "").startsWith("http://192.168.8.105:8443/?token="), link);
+  assert.ok((link ?? "").startsWith("http://10.0.0.5:8443/?token="), link);
 });
 
 test("E2EE 时内网链接同样带 #k= fragment", () => {
@@ -182,6 +191,7 @@ test("isLocalRelayHost：loopback 与 RFC1918 私有网段算本机局域网", (
   for (const url of [
     "ws://127.0.0.1:3180",
     "ws://localhost:3180",
+    "ws://[::1]:3180",
     "ws://192.168.1.10:3180",
     "ws://10.0.0.5",
     "ws://172.16.0.9:3180",
@@ -191,5 +201,23 @@ test("isLocalRelayHost：loopback 与 RFC1918 私有网段算本机局域网", (
   }
   for (const url of ["wss://relay.example.com", "wss://8.8.8.8", "ws://172.32.0.1", ""]) {
     assert.equal(isLocalRelayHost(url), false, url);
+  }
+});
+
+test("resolveRelayLanHost：loopback → null（须换成局域网 IP）；私有 IP → 原样；公网/域名 → null", () => {
+  for (const url of ["ws://127.0.0.1:3180", "ws://localhost:3180", "ws://[::1]:3180"]) {
+    assert.equal(resolveRelayLanHost(url), null, url);
+  }
+  assert.equal(resolveRelayLanHost("ws://192.168.1.50:3180"), "192.168.1.50");
+  assert.equal(resolveRelayLanHost("ws://10.0.0.9:8443"), "10.0.0.9");
+  assert.equal(resolveRelayLanHost("ws://172.16.0.9:3180"), "172.16.0.9");
+  for (const url of [
+    "wss://relay.example.com",
+    "ws://104.223.21.20:3180",
+    "ws://8.8.8.8",
+    "ws://172.32.0.1",
+    "",
+  ]) {
+    assert.equal(resolveRelayLanHost(url), null, url);
   }
 });

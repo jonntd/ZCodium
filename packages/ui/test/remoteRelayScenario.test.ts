@@ -1,7 +1,8 @@
-// 远程访问「场景 → 中继地址」换算的测试。
+// 远程访问「连接协议 → 中继地址」换算的测试。
 //
-// 这里钉住的是一条填错就**直接连不上中继**的规则：地址框只填主机，协议由场景补
-// （内网 ws:// / 公网 wss://），且回填时不能把协议重复拼进去。
+// 这里钉住的是一条填错就**直接连不上中继**的规则：地址框只填主机，协议前缀由协议选项补
+// （明文 ws:// / TLS wss://），且回填时不能把协议重复拼进去。
+// 该维度只决定前缀，与地址是内网还是公网无关（纯 IP 部署即「公网地址 + 明文 ws」）。
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -13,7 +14,7 @@ import {
   stripRelayScheme,
 } from "../src/remoteRelayScenario.js";
 
-test("场景由上保存的协议反推，空配置默认内网", () => {
+test("协议选项由已保存的 url 反推，空配置默认明文 ws://", () => {
   assert.equal(resolveRelayScenario("ws://192.168.1.10:3180"), "lan");
   assert.equal(resolveRelayScenario("wss://relay.example.com"), "public");
   assert.equal(resolveRelayScenario("WSS://relay.example.com"), "public");
@@ -27,7 +28,7 @@ test("地址框只显示主机（协议不重复、端口保留）", () => {
   assert.equal(stripRelayScheme(""), "");
 });
 
-test("场景 + 主机拼回完整 url（内网 ws / 公网 wss）", () => {
+test("协议选项 + 主机拼回完整 url（明文 ws / TLS wss）", () => {
   assert.equal(buildRelayUrl("lan", "192.168.1.10:3180"), "ws://192.168.1.10:3180");
   assert.equal(buildRelayUrl("public", "relay.example.com"), "wss://relay.example.com");
   // 用户多打了空格：trim 后拼接，不产生 "ws:// relay…"
@@ -39,7 +40,7 @@ test("主机为空表示未配置（不产生 ws:// 空壳）", () => {
   assert.equal(buildRelayUrl("public", "   "), "");
 });
 
-test("回填往返：strip + build 对同一场景是幂等的", () => {
+test("回填往返：strip + build 对同一协议选项是幂等的", () => {
   for (const url of ["ws://192.168.1.10:3180", "wss://relay.example.com"]) {
     const scenario = resolveRelayScenario(url);
     assert.equal(buildRelayUrl(scenario, stripRelayScheme(url)), url);

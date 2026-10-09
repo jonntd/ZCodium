@@ -1376,7 +1376,7 @@ E2EE 的 `#k=` 仍在 fragment 里，不进任何请求。
 | resetPairing | 清空设置页的「配对码」并保存 → 下一次读取自动重新生成（`remoteRelayControlIpc.ensurePairingToken`），再把新值填到 relay 的 `RELAY_TOKEN` | — |
 | **配对码来源** | **自动生成**：配置文件缺失 `pairingToken` 时由 Main 生成 24 字节 base64url 并落盘（避免出现 `devtoken` 这类全局弱口令）。UI 里可直接看到/复制 | 小 |
 | **公开地址** | 与中继地址**通常是同一主机的不同协议**（桌面 WS 拨出 / 手机 HTTP 访问），因此缺省由中继地址推导：`deriveRemoteRelayPublicUrl`（`@zcode/shared`，`ws→http` / `wss→https`，主进程与 UI 共用同一实现）。配置表单默认只显示「中继地址」，仅当同源推导不成立（反向代理、端口映射、内网拨入）时才打开「公开地址与中继地址不同」覆盖项 | 小 |
-| **UI 入口** | 「移动端远程控制」弹层（工作区头部，`WebRemoteControlDialog`）里的「浏览器直连」卡片（`RemoteRelayAccessPanel`）：状态 + 启停 + **内网/外网两条链接**（各自复制 + 二维码）+ 折叠的「高级设置」（`RemoteRelayConfigForm`：场景/中继地址/主机密钥/公开地址/配对码/E2EE/并发槽位/工作区覆盖/随应用启动，保存即热应用）。**设置页不再有「远程访问」分区** | 中 |
+| **UI 入口** | 「移动端远程控制」弹层（工作区头部，`WebRemoteControlDialog`）里的「浏览器直连」卡片（`RemoteRelayAccessPanel`）：状态 + 启停 + **内网/外网两条链接**（各自复制 + 二维码）+ 折叠的「高级设置」（`RemoteRelayConfigForm`：连接协议/中继地址/主机密钥/公开地址/配对码/E2EE/并发槽位/工作区覆盖/随应用启动，保存即热应用）。**设置页不再有「远程访问」分区** | 中 |
 
 **为什么整块都在弹层里**（2026-10-08 定稿）：用户找"用手机连上来"的地方是工作区头部的
 「移动端远程控制」，设置页只是找配置的地方——但把配置留在设置页、链接搬到弹层，结果是
@@ -1687,13 +1687,18 @@ wsUrl / server-info（等价于 token 通道）；过期前留在浏览器历史
   但入口就在这个弹层里——用户不必先想起"设置里还有个远程访问"。
 - **两条链接**（`RemoteRelayStatus.lanShareUrl` / `publicShareUrl`，由 Main 算好，
   渲染层不拼链接）：
-  - **内网（同一 WiFi）**：主机 = 检测到的局域网 IP（`pickRemoteRelayLanAddresses`），
-    端口沿用中继地址；仅当 `isLocalRelayHost(relayUrl)`（loopback / RFC1918）**且**
-    检测到局域网地址时非空。
+  - **内网（同一 WiFi）**：仅当 `isLocalRelayHost(relayUrl)`（loopback / RFC1918）时非空，
+    端口沿用中继地址。主机取值**取决于中继在哪台机器上**（`resolveRelayLanHost`，
+    2026-10-09 修）：
+    - 中继主机是 **loopback** → 换成**检测到的本机局域网 IP**
+      （`pickRemoteRelayLanAddresses`；手机连不上 `127.0.0.1`），此时还需检测到局域网地址，
+      否则为 null；
+    - 中继主机**本身已是私有 IP** → **原样沿用该主机**（中继在局域网内的另一台机器，
+      如 NAS `ws://192.168.1.50:3180`；此前一律换成桌面机 IP，会指向一台没有中继的机器）。
   - **外网**：公开地址覆盖值优先，否则由公网中继地址推导；中继在本机且无覆盖值时 null。
   - 每条各给「复制链接」+ 内联二维码（`qrcode.toDataURL` 编码该链接本身，含 `#k=`；
     fragment 不进请求，302 后浏览器继承）；不可用的一条**显示原因**，不硬拼连不上的地址。
-- **中继配置**（`RemoteRelayConfigForm`，折叠在「高级设置」里）：场景 / 中继地址 /
+- **中继配置**（`RemoteRelayConfigForm`，折叠在「高级设置」里）：连接协议 / 中继地址 /
   主机密钥 / 公开地址覆盖 / 配对码 / E2EE + 密钥 / 并发槽位 / 工作区覆盖 / 随应用启动 /
   保存并应用。**未配置时默认展开**（用户打开弹层就是来填配置的）；保存成功后把新状态
   交回面板，链接与二维码立即刷新。
@@ -1712,6 +1717,76 @@ wsUrl / server-info（等价于 token 通道）；过期前留在浏览器历史
 > 时效签名链接（§18.1–§18.5）的**服务端与桌面端实现全部保留**（relay 侧继续校验
 > `?s=&t=&e=&h=`，`RemoteRelayGetShareLink` IPC 仍在），只是 UI 不再提供生成入口；
 > 将来若要给「临时授权给别人」这个场景做入口，再单独设计。
+
+> **2026-10-09 文案修正：配置表单的「使用场景」→「连接协议」**。
+> 原标签（选项「内网」/「公网」）描述的是**网络位置**，但 `resolveRelayScenario` 实际
+> 只按 `wss://` 前缀反推（`remoteRelayScenario.ts`）——该维度**只决定协议前缀**。
+> 两个维度独立，纯 IP / 无 TLS 部署（§2.5.1）正落在「**公网地址 + 明文 ws**」这个象限，
+> 于是表单必然显示成「内网」+ 公网 IP，被用户当场指出（2026-10-09 反馈：
+> 「我看现在内网 IP 设置的是外网」）。
+> ⇒ 选项文案改为「明文 ws://」/「TLS wss://」，字段名改为「连接协议」，描述里显式写明
+> 「与地址是内网还是公网无关」；`urlDescription` 同步补上「没有域名就填公网 IP，
+> 此时必须选明文 ws://」这条填错就连不上的提示。
+> **仅文案，逻辑与类型值（`"lan" | "public"`）不变**；`RemoteRelayAccessPanel` 里
+> 「内网/外网」两条**链接**的标签不改——那两条确实按网络位置区分（`lanShareUrl` 要求
+> `isLocalRelayHost`），与协议维度无关。
+
+> **2026-10-09 修 host 缺陷：内网链接的主机必须按「中继在哪台机器上」决定**。
+> `composeLanPublicUrl` 此前**一律**用 `lanAddresses[0]`（**桌面机自己**的局域网 IP）+
+> 中继端口，只在「中继就跑在本机（loopback）」时语义正确。中继跑在**局域网内的另一台
+> 机器**（如 NAS，`url = ws://192.168.1.50:3180`）时，生成的内网链接会指向**桌面机**——
+> 一台没有中继在监听的机器，正是 §18.6 想避免的「指向用户自己的机器」。
+> 该错误行为此前被测试钉死（`remote-relay-share-link.test.mjs` 的
+> `relayUrl: ws://10.0.0.5:8443` + `lanAddresses: ["192.168.8.105"]` →
+> 断言 `http://192.168.8.105:8443`），已一并改为 `http://10.0.0.5:8443`。
+> 现由 shared 新增的 `resolveRelayLanHost(url)` 统一判定（loopback → null，私有 IPv4 →
+> 该主机，其它 → null），`isPrivateIpv4Host` 抽成唯一实现并供
+> `pickRemoteRelayLanAddresses` 的排序复用。
+> 顺带修了 `relayHostname` 对**裸 IPv6**（无中括号，如已剥离协议的 `::1`）的解析：
+> 此前会被切成空串 ⇒ `isLoopbackRelayHost` 失效 ⇒ `ws://[::1]:3180` 这种 loopback
+> 中继既不生成内网链接、又被当成「非本机」。
+> 副作用（正向）：中继在公网时 `ensureLanPublicUrl` 不再把 `publicUrl` 自动写成一条
+> 局域网地址（此前会写，且那条地址手机在外网根本连不上），改为保持
+> `deriveRemoteRelayPublicUrl(url)` 的推导值。
+
+> **2026-10-09 后续：彻底移除 `publicUrl` 自动写入，「局域网 + 外网」只用一个中继**。
+> 上面那条「改为保持推导值」还不够——`resolveEffectiveConfig` 仍会把推导值塞进
+> `config.publicUrl`，于是 `buildStatus` 里 `publicUrlOverride` 判空失效：中继在本机时
+> 「外网」那一行会显示 `http://127.0.0.1:3180`（比显示局域网地址更糟）。
+> 现改为：
+> - `EffectiveRelayConfig.publicUrl` → **`publicUrlOverride`**，**只取文件里的原始值**
+>   （未填即 `null`）；「由 url 推导」只在 `buildRelayShareLink` 生成链接时做，那里对
+>   「中继在公网」等价、对「中继在本机」正确地不生效。
+> - **删除 `ensureLanPublicUrl` 及其三处调用**（`start()`、`RemoteRelayGetStatus` 两处）
+>   与 `isLoopbackPublicUrl`。§18.6 拆出 `lanShareUrl` 之后它已经多余：内网那条由
+>   `lanShareUrl` 负责，自动往 `publicUrl` 里写局域网地址只会让「外网」那一行显示一条
+>   和内网一样的地址，看着像配好了其实连不上，还挡住了「填端口映射 / DDNS 地址」这条路。
+> - 现在中继在本机且未填覆盖值时，「外网」那一行如实显示
+>   `webRemoteControl.browser.publicUnavailable` 的提示。
+>
+> **因此「局域网和外网都能跑」不需要两个中继**：一个中继跑在家里即可——
+> 桌面走 `ws://127.0.0.1:<port>` 拨入（`lanShareUrl` 由此拿到），外网经端口映射 / 隧道
+> （frp、cloudflared 等，VPS 只转发不做中继逻辑）后在「高级设置 → 公开地址」里填那个
+> 外网地址（`publicShareUrl` 由此拿到）。两条链接同时出现，各有复制与二维码。
+> 辅助脚本：`deploy/vps-relay/run-local.sh`（配对码 / 主机密钥直接读桌面配置，避免手填不一致）。
+
+> **2026-10-09 落地：外网入口用 VPS 反向隧道（已端到端验证）**。
+> 中继跑在家里（`ws://127.0.0.1:3180`），外网经 VPS 的一条 SSH 反向隧道进来：
+> `run-local.sh --tunnel` 会后台起中继 + 建 `VPS:3181 → 本机 3180` 的隧道（`-R 0.0.0.0:`，
+> 断线 `while` 重连，退出时 `trap` 收掉中继）。**VPS 只做 TCP 字节转发，不做中继逻辑**，
+> 所以 E2EE 语义与 §16 完全不变；VPS 上原有的 relay 容器（占 3180）无需改动。
+> 实测（2026-10-09）：VPS 侧 `http://127.0.0.1:3181/healthz` → `{"ok":true}`；
+> 公网 `http://<VPS>:3181/healthz` → `{"ok":true}`；正确配对码 → **302 + `set-cookie`**；
+> 错误配对码 → **401**；`/` 返回 web bundle（25970 B）。
+> 前置：VPS `sshd_config` 的 `GatewayPorts clientspecified`（否则 `-R 0.0.0.0:` 被降级成
+> 只绑 `127.0.0.1`）+ 安全组放行该端口。
+> 桌面配置相应为 `url = ws://127.0.0.1:3180`、`publicUrl = http://<VPS>:3181`
+> ⇒ `lanShareUrl`（本机局域网 IP）与 `publicShareUrl`（VPS 隧道端口）同时非空。
+>
+> 备选（未采纳，留档）：**两个中继并存**（VPS relay 当外网入口 + 家里中继当内网入口，
+> 桌面同时拨两个）。优点是两条路径互不依赖；代价是配置模型要加第二个端点、IPC 起两组
+> client、`RemoteRelayStatus` 要区分两条链接的来源，且当前 `lanShareUrl`/`publicShareUrl`
+> 的语义（**同一中继**的两种进入方式）会被打破 ⇒ 需要一次真正的功能设计。
 
 ### 18.7 兼容性与验收
 

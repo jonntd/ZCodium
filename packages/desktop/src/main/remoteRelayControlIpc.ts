@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { ipcMain } from "electron";
 import { getAppConfigDir } from "@zcode/services/node";
 import {
-  deriveRemoteRelayPublicUrl,
   generateRelayChannelKey,
   isLocalRelayHost,
   PlatformChannels,
@@ -13,10 +12,7 @@ import {
   type RemoteRelayShareLink,
   type RemoteRelayStatus,
 } from "@zcode/shared";
-import {
-  composeLanPublicUrl,
-  pickRemoteRelayLanAddresses,
-} from "./remoteRelayLanAddresses.js";
+import { pickRemoteRelayLanAddresses } from "./remoteRelayLanAddresses.js";
 import {
   parseRemoteRelaySetConfigRequest,
   parseRemoteRelayShareLinkRequest,
@@ -39,6 +35,13 @@ import {
  * - 不做 authorizeStart 一次性令牌（那是防渲染进程被攻破后静默开启的加固，后续可补）；
  * - 配对沿用 relay 的 `?token=` cookie 通道，另提供官方形状的时效签名链接
  *   （spec §18，签名在 remoteRelayShareLink.ts）；不做官方的多设备房间路由。
+ *
+ * ⚠ **公开地址（`publicUrl`）只认用户显式填的值，绝不自动写入**（2026-10-09 修）。
+ * 此前会探测本机局域网 IP 自动填进去，那在「只有一条链接」的年代是必要的；§18.6 拆成
+ * 内网/外网两条链接后，内网那条由 `lanShareUrl` 负责，自动填就变成副作用：
+ * 中继在本机时「外网」那一行会显示一条和内网一模一样的局域网地址（甚至 loopback），
+ * 看着像配好了其实连不上，也挡住了「填端口映射 / DDNS 地址」这条正确路径。
+ * 现在中继在本机且未填覆盖值时，「外网」那一行如实显示「未配置公开地址」的提示。
  */
 
 /** 由 index.ts 注入的窗口/工作区解析（依赖模块级 Map，必须留在 index.ts）。 */
@@ -65,7 +68,16 @@ interface EffectiveRelayConfig {
   hostSecret: string;
   pinnedWindowId: number | null;
   pinnedWorkspacePath: string | null;
-  publicUrl: string;
+  /**
+   * 用户**显式填写**的公开地址（配置文件里的 `publicUrl`）；未填为 null。
+   *
+   * ⚠ 只认文件里的原始值，**不能**用「由 url 推导」的结果顶替：中继在本机时推导值是
+   * `http://127.0.0.1:3180`，手机永远访问不到，却会被当成「用户填了覆盖值」，
+   * 于是「外网」那一行显示一个 loopback 地址（2026-10-09 修）。
+   * 缺省推导交给 `buildRelayShareLink` 在生成链接时做——那里对「中继在公网」等价，
+   * 对「中继在本机」则正确地不生效。
+   */
+  publicUrlOverride: string | null;
   pairingToken: string | null;
   /** 端到端加密开关（spec vps-relay-bridge.md §16）。 */
   e2ee: boolean;
@@ -81,40 +93,6 @@ export function getConfigFilePath(): string {
   // 收口到 services 数据根（~/.zcodium/v2，跟随 ZCODE_DATA_BASE_DIR 隔离），与 #19
   // 数据根迁移后其他 main 侧配置文件同源；迁移「只复制」会把旧配置带入新根。
   return join(getAppConfigDir(), "remote-relay.json");
-}
-
-/** 公开地址是否指向本机（127.0.0.1 / localhost / ::1）—— 这种地址手机永远访问不到。 */
-function isLoopbackPublicUrl(url: string): boolean {
-  return /^https?:\/\/(127\.|localhost|\[::1\])/i.test(url.trim());
-}
-
-/**
- * 打开 App（或读取状态）时自动探测本机局域网地址填入**手机侧公开地址**。
- *
- * 为什么必须自动：中继配成 loopback 时分享链接是 `http://127.0.0.1:...`，手机即使同一 WiFi
- * 也打不开，而用户几乎不可能知道自己该填哪个 IP。桌面 → 中继的连接地址保持原样（通常
- * loopback，稳定且不受 DHCP 影响），只把**手机要用的那个地址**换成检测结果。
- */
-async function ensureLanPublicUrl(
-  file: RemoteRelayFileConfig | null,
-  config: EffectiveRelayConfig,
-  logger?: RemoteRelayControlDeps["logger"],
-): Promise<{ file: RemoteRelayFileConfig | null; config: EffectiveRelayConfig }> {
-  if (config.publicUrl && !isLoopbackPublicUrl(config.publicUrl)) return { file, config };
-  const suggested = composeLanPublicUrl(
-    pickRemoteRelayLanAddresses(networkInterfaces()),
-    config.url,
-  );
-  if (!suggested) return { file, config };
-  const nextFile: RemoteRelayFileConfig = { ...file, publicUrl: suggested };
-  try {
-    await writeConfigFile(nextFile);
-    logger?.info(`[remote-relay] 已自动填入手机访问地址 ${suggested}（本机检测到局域网地址）`);
-    return { file: nextFile, config: { ...config, publicUrl: suggested } };
-  } catch (error) {
-    logger?.warn("[remote-relay] 手机访问地址写入失败，仅在本次会话内有效", error);
-    return { file, config: { ...config, publicUrl: suggested } };
-  }
 }
 
 /** 解析配置文件；不存在或损坏时返回 null（损坏会记 warn，但不算致命）。 */
@@ -204,8 +182,9 @@ function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRe
         ? cfgSlotBase
         : null;
 
-  // 公开地址缺省由中继地址推导（ws→http / wss→https）：两者通常是同一主机的不同协议。
-  const publicUrl = file?.publicUrl?.trim() || deriveRemoteRelayPublicUrl(url);
+  // 公开地址只认用户显式填的值；缺省推导（ws→http / wss→https）交给 buildRelayShareLink
+  // 在生成链接时做——见 `publicUrlOverride` 的注释。
+  const publicUrlOverride = file?.publicUrl?.trim() || null;
   const pairingToken = file?.pairingToken?.trim() || null;
 
   return {
@@ -218,7 +197,7 @@ function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRe
           ? file.windowId
           : null,
     pinnedWorkspacePath: envWorkspace || file?.workspace?.trim() || null,
-    publicUrl,
+    publicUrlOverride,
     pairingToken,
     e2ee,
     slots,
@@ -289,7 +268,9 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     const lanAddresses = pickRemoteRelayLanAddresses(networkInterfaces());
     const token = currentConfig?.pairingToken ?? "";
     const channelKey = currentConfig?.e2ee ? (currentConfig.channelKey ?? null) : null;
-    const publicUrlOverride = (currentConfig?.publicUrl ?? "").trim();
+    // 只认用户**显式填写**的覆盖值。中继在本机时「由 url 推导」会得到 http://127.0.0.1:3180，
+    // 手机永远访问不到，若拿它当覆盖值就会让「外网」那一行显示一个 loopback 地址。
+    const publicUrlOverride = currentConfig?.publicUrlOverride ?? null;
     return {
       configured: currentConfig !== null,
       running,
@@ -308,13 +289,16 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
               channelKey,
             })
           : null,
-      // 公网链接：公开地址覆盖值优先（端口映射 / DDNS / 反代）；中继在本机局域网**且没有**
-      // 覆盖值时给 null —— 那种配置本来就没有外网入口，硬拼一条只会和内网链接重复。
+      // 公网链接：中继本来就在公网时由 url 推导即可（buildRelayShareLink 内部做）；
+      // 中继在本机时必须由用户**显式填**外网地址，否则给 null —— 那种配置本来就没有外网
+      // 入口，硬拼一条只会和内网链接重复（或拼出一条连不上的 loopback 地址）。
       publicShareUrl:
-        currentConfig && token && (!isLocalRelayHost(currentConfig.url) || publicUrlOverride)
+        currentConfig &&
+        token &&
+        (!isLocalRelayHost(currentConfig.url) || publicUrlOverride !== null)
           ? (buildRelayShareLink({
               url: currentConfig.url,
-              publicUrl: publicUrlOverride || null,
+              publicUrl: publicUrlOverride,
               pairingToken: token,
               channelKey,
               ttlSeconds: null,
@@ -337,8 +321,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       return buildStatus(false);
     }
     const withToken = await ensurePairingToken(file, config, logger);
-    const withPublicUrl = await ensureLanPublicUrl(withToken.file, withToken.config, logger);
-    const withChannelKey = await ensureE2eeChannelKey(withPublicUrl.file, withPublicUrl.config, logger);
+    const withChannelKey = await ensureE2eeChannelKey(withToken.file, withToken.config, logger);
     const withSlotBase = await ensureSlotBase(withChannelKey.file, withChannelKey.config, logger);
     lastFileConfig = withSlotBase.file;
     config = withSlotBase.config;
@@ -378,11 +361,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       const file = await readConfigFile(logger);
       lastFileConfig = file;
       if (clients.length) {
-        if (currentConfig) {
-          const ensured = await ensureLanPublicUrl(file, currentConfig, logger);
-          lastFileConfig = ensured.file;
-          currentConfig = ensured.config;
-        }
+        if (currentConfig) lastFileConfig = file;
         return buildStatus(true);
       }
       // 未运行时也如实回答「有没有配置」：probe 结果只影响 configured/shareUrl 展示。
@@ -397,8 +376,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       // 未启动也要能显示链接，所以这里同样补配对码 / E2EE channelKey：
       // 首次打开设置页就会自动生成并落盘。
       const withToken = await ensurePairingToken(file, probe, logger);
-      const withPublicUrl = await ensureLanPublicUrl(withToken.file, withToken.config, logger);
-      const withChannelKey = await ensureE2eeChannelKey(withPublicUrl.file, withPublicUrl.config, logger);
+      const withChannelKey = await ensureE2eeChannelKey(withToken.file, withToken.config, logger);
       lastFileConfig = withChannelKey.file;
       currentConfig = withChannelKey.config;
       return buildStatus(false);
@@ -443,7 +421,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
         lastFileConfig = withChannelKey.file;
         const link = buildRelayShareLink({
           url: withChannelKey.config.url,
-          publicUrl: withChannelKey.config.publicUrl,
+          publicUrl: withChannelKey.config.publicUrlOverride,
           pairingToken: withChannelKey.config.pairingToken ?? "",
           channelKey: withChannelKey.config.e2ee ? withChannelKey.config.channelKey : null,
           ttlSeconds: request.ttlSeconds ?? null,

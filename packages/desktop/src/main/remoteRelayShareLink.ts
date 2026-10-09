@@ -90,11 +90,12 @@ export function buildRelayShareLink(input: RelayShareLinkInput): RelayShareLink 
 }
 
 /**
- * 内网接入链接（spec §18.6）：把主机换成**检测到的局域网地址**（端口沿用中继地址的端口），
- * 其余与永久链接完全一致——复用同一个 `buildRelayShareLink`，所以 `#k=`、`autoReconnect=1`
- * 等行为不会漂移。
+ * 内网接入链接（spec §18.6）：主机按中继所在机器决定（`composeLanPublicUrl`）——
+ * 中继在本机（loopback）时换成检测到的局域网地址；中继在局域网内另一台机器时原样沿用
+ * 它的主机；端口沿用中继地址的端口。其余与永久链接完全一致——复用同一个
+ * `buildRelayShareLink`，所以 `#k=`、`autoReconnect=1` 等行为不会漂移。
  *
- * 仅当「中继就在本机局域网（loopback / 私有网段）」**且**检测到局域网地址时返回非空：
+ * 仅当「中继就在本机局域网（loopback / 私有网段）」时返回非空：
  * 中继在 VPS 时局域网里根本没有它，拼一条 `http://192.168.x.x:3180` 只会指向用户
  * 自己的机器（那里没有中继在监听），比不给还糟。
  */

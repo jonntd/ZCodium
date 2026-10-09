@@ -45,6 +45,8 @@ export {
   extractRelayPort,
   isLocalRelayHost,
   isLoopbackRelayHost,
+  isPrivateIpv4Host,
+  resolveRelayLanHost,
 } from "./remote-relay.js";
 export {
   RELAY_E2EE_CHANNEL_KEY_BYTES,

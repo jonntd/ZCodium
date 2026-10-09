@@ -200,9 +200,9 @@ curl -s http://127.0.0.1:3180/healthz   # → {"ok":true}
 
 | 字段 | 值 | 为什么 |
 |---|---|---|
-| 使用场景 | **内网** | 拿到 `ws://`；选「公网」会拼成 `wss://`，而裸 IP 拿不到受信任证书，桌面侧 WS 客户端会拒连（`remoteRelayClient.ts` 没开 `rejectUnauthorized:false`） |
+| 连接协议 | **明文 ws://** | 拿到 `ws://`；选「TLS wss://」会拼成 `wss://`，而裸 IP 拿不到受信任证书，桌面侧 WS 客户端会拒连（`remoteRelayClient.ts` 没开 `rejectUnauthorized:false`）。⚠ 这一项**只决定协议前缀**，与地址是内网还是公网无关——纯 IP 部署正是「公网地址 + 明文 ws」，不要因为这一档旧称「内网」就以为该填局域网 IP |
 | 中继地址 | `<公网IP>:3180` | 桌面拨出的端点 |
-| 公开地址（打开覆盖） | `http://<公网IP>:3180` | 手机访问的地址；不填会被推导成和中继地址同 host |
+| 公开地址 | **留空即可** | 中继在公网（非本机局域网）时，手机访问地址由中继地址推导（`ws→http` / `wss→https`）——留空即得 `http://<公网IP>:3180`。只有当中继在**本机**、或手机地址与中继地址确实不同源（反代 / 端口映射）时才需要显式填 |
 
 外网另需放行 TCP 3180（云厂商安全组 + 宿主机防火墙）。
 代价与边界见 §2.5 的更正说明：丢的是**页面完整性**与 insecure origin 的浏览器能力，
@@ -339,23 +339,62 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 
 ---
 
-## 7. 本机先验证（不碰 VPS）
+## 7. 在本机跑（局域网 + 经隧道的外网都走它）
 
-`relay.mjs` 也接受 `ws://`，所以可以完全在本机跑通再上云：
+`relay.mjs` 也接受 `ws://`，所以可以让中继跑在**本机**，完全不过 VPS：
 
 ```bash
-cd /path/to/ZCodium
-# 两个密钥都用随机值；桌面设置页「远程访问」里会自动生成配对码，把同一个值填到 RELAY_TOKEN 即可
-RELAY_TOKEN="$(openssl rand -base64 24)" HOST_SECRET="$(openssl rand -base64 24)" \
+# 配对码 / 主机密钥直接从桌面配置里读，不用手填（手填不一致是最常见的连不上原因）
+bash deploy/vps-relay/run-local.sh
+```
+
+桌面「移动端远程控制 → 浏览器直连 → 高级设置」里把中继地址填成 `127.0.0.1:3180`
+（连接协议选「明文 ws://」）并保存，卡片上就会出现：
+
+- **内网（同一 WiFi）**：`http://<本机局域网IP>:3180/?token=…` —— 手机在 WiFi 下直连，不绕 VPS。
+- **外网**：默认**不生成**。要让手机在外网也能连，需把本机 3180 暴露出去，再把那个外网地址
+  填进 **「高级设置 → 公开地址」**——中继在本机时这一项**不会**被自动填，必须显式填。
+  最省事的做法见 §7.1（借 VPS 做反向隧道，无需域名、无需公网 IP）。
+
+> 若要走 VPS 中继（中继就跑在 VPS 上），见 §2 / §3：那时中继在公网，
+> 「内网」那条本来就没有入口（局域网里没有中继），只会有「外网」一条。
+
+### 7.1 外网入口：借 VPS 做反向隧道（不用域名、不用公网 IP）
+
+一个中继（跑在家里）服务两条路径：局域网直连走本机 IP，外网经 VPS 转发进来。
+VPS **只做 TCP 转发，不做中继逻辑**，所以内容仍受 E2EE 保护。
+
+```bash
+bash deploy/vps-relay/run-local.sh --tunnel
+```
+
+它会后台起中继、再建一条 SSH 反向隧道 `VPS:3181 → 本机 3180`（断线自动重连，Ctrl-C 一并收掉）。
+
+前提与默认值：
+
+| 项 | 说明 |
+| --- | --- |
+| `VPS_HOST` | SSH 别名，默认 `vps`（即 `~/.ssh/config` 里的条目） |
+| `TUNNEL_PORT` | VPS 上对外监听的端口，默认 `3181`。**不能与现有服务冲突**（本仓库的 relay 容器占着 `3180`，所以另开一个） |
+| `GatewayPorts` | VPS 的 `sshd_config` 需为 `clientspecified`（或 `yes`），否则 `-R 0.0.0.0:` 会被降级成只绑 `127.0.0.1`，公网进不来 |
+| 防火墙 | 云厂商安全组 + 宿主机防火墙都要放行 `TUNNEL_PORT` |
+| 断线重连 | 脚本内 `while` 循环 + `ServerAliveInterval`；要开机自启可自行包成 launchd agent |
+
+跑起来后把 `http://<VPS 公网IP>:3181` 填进「高级设置 → 公开地址」，两条链接就都出现：
+
+- 内网：`http://<本机局域网IP>:3180/?token=…`
+- 外网：`http://<VPS 公网IP>:3181/?token=…`
+
+> 隧道是纯字节转发，E2EE 不受影响；`3181` 上暴露的是**你家里的中继**，
+> 鉴权仍由配对码 / 签名链接负责（无 cookie 时 `/ws` 与 `/api/*` 一律 401）。
+>
+> 也可以换成 frp / cloudflared 等隧道工具，把出口指向本机 3180 即可，桌面侧配置不变。
+
+等价的裸命令（两个密钥需与 `~/.zcodium/v2/remote-relay.json` 里的
+`pairingToken` / `hostSecret` 一致，否则手机配对失败）：
+
+```bash
+RELAY_TOKEN="<桌面配置里的 pairingToken>" HOST_SECRET="<桌面配置里的 hostSecret>" \
 WEB_ROOT=packages/web/dist PORT=3180 \
   node deploy/vps-relay/relay.mjs
 ```
-
-桌面用 `ZCODE_REMOTE_RELAY_URL=ws://127.0.0.1:3180` 启动，
-设置页 →「远程访问」→「手机访问链接」里复制链接（形如
-`http://127.0.0.1:3180/?token=<自动生成的配对码>&autoReconnect=1`）。
-**注意**：配对码由桌面自动生成并写进 `~/.zcodium/v2/remote-relay.json`，
-中继侧的 `RELAY_TOKEN` 必须与它一致——直接用上面命令里 `openssl` 生成的值即可，
-或改成设置页里显示的值后重启 relay。
-
-这样能验证全部代码路径，且零外部依赖。

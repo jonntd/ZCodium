@@ -21,7 +21,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 /**
  * 中继配置表单（spec vps-relay-bridge.md §15 / §18.6）。
  *
- * 原「设置 → 远程访问」分区里的**全部配置项**（场景 / 中继地址 / 主机密钥 / 公开地址 /
+ * 原「设置 → 远程访问」分区里的**全部配置项**（连接协议 / 中继地址 / 主机密钥 / 公开地址 /
  * 配对码 / E2EE / 并发槽位 / 工作区覆盖 / 随应用启动 / 保存）整体搬到这里，作为
  * 「移动端远程控制」弹层内「浏览器直连」面板的「高级设置」折叠块——设置页不再保留
  * 任何远程访问入口，避免两处各有一半配置（迁移前就是这个问题）。
@@ -180,7 +180,7 @@ export function RemoteRelayConfigForm({
   const relayHost = stripRelayScheme(form.url);
   const derivedPublicUrl = deriveRemoteRelayPublicUrl(form.url ?? "");
   const publicUrlOverridden = (form.publicUrl ?? "").trim().length > 0;
-  // 内网场景若填的是 loopback，手机（即使同 WiFi）根本连不上：给出检测到的局域网地址一键替换。
+  // 手机访问地址若指向 loopback，手机（即使同 WiFi）根本连不上：给出检测到的局域网地址一键替换。
   const suggestedLanHost = composeLanSuggestion(status?.lanAddresses, extractRelayPort(form.url));
   // 判断的是**手机最终会用的地址**：有覆盖用覆盖，否则用推导值。它指向本机时手机永远连不上。
   // 桌面 → 中继仍可走 loopback，所以这里只建议替换公开地址，不动中继地址。
@@ -219,7 +219,8 @@ export function RemoteRelayConfigForm({
             })}
           </p>
 
-          {/* 场景决定 url 的协议（内网 ws:// / 公网 wss://），地址框只填主机 */}
+          {/* 协议选项决定 url 的前缀（明文 ws:// / TLS wss://），与地址是内网还是公网无关；
+              地址框只填主机 */}
           <div className="grid gap-1.5">
             <div className="text-ui-base font-medium text-foreground">
               {t("settings.remoteRelay.scenario")}
