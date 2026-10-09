@@ -116,8 +116,11 @@ curl -s http://127.0.0.1:3180/healthz
 
 | 文件 | 作用 |
 | --- | --- |
-| `Dockerfile` | 只装 relay + `ws@8`；非 root 运行；自带 healthcheck |
+| `Dockerfile` | 只装 relay + `ws@8`；非 root 运行；自带 healthcheck。**web bundle 走 bind mount** |
+| `Dockerfile.release` | 发布用变体：把 `packages/web/dist` 一并烘进镜像（由 CI 构建，见 §2.6）。构建上下文须为**仓库根** |
 | `docker-compose.yml` | 端口绑 `127.0.0.1`、只读挂载 `web/`、CPU/内存上限、`no-new-privileges` |
+| `docker-compose.image.yml` | 同上，但直接用**已发布镜像**（无 bind mount） |
+| `docker-compose.image.no-tls.yml` | 纯 IP 变体，同样直接用已发布镜像 |
 | `Caddyfile` | 自动 HTTPS + 反代；**自动处理 WebSocket 升级**，无需手写 Upgrade 头 |
 | `.env.example` | 两个密钥的模板与安全提示 |
 | `.dockerignore` | 排除 `.env` 与 `web/`，避免 secrets 进镜像层 |
@@ -209,6 +212,39 @@ curl -s http://127.0.0.1:3180/healthz   # → {"ok":true}
 **内容仍受 E2EE 保护**。
 
 ---
+
+### 2.6 方式三：用已发布镜像（推荐 —— 版本不再漂移）
+
+前两种方式都要你把 `packages/web/dist` 手动搬到 VPS，桌面更新后中继很可能还在跑旧 bundle
+（§2.5 提到的漂移）。发布流程里的 `relay` job（`.github/workflows/release-fork.yml`）会在每次
+发布时把 **web bundle 烘进镜像** 并推到 GHCR，于是「镜像 tag = 手机页版本」，升级只要 pull。
+
+```bash
+cp .env.example .env   # 填入两个密钥
+
+# 有域名（配合 Caddy 终结 TLS）
+RELAY_VERSION=v3.14.11 docker compose -f docker-compose.image.yml up -d
+
+# 纯 IP / 无域名
+RELAY_VERSION=v3.14.11 docker compose -f docker-compose.image.no-tls.yml up -d
+
+# 升级：换个 tag 再 pull + up 即可
+RELAY_VERSION=v3.14.12 docker compose -f docker-compose.image.no-tls.yml pull
+RELAY_VERSION=v3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
+```
+
+| 项 | 说明 |
+| --- | --- |
+| 镜像 | `ghcr.io/jonntd/zcode-relay:<版本>`（另附一个 12 位 commit sha 的 tag） |
+| 拉取鉴权 | **不需要** —— 仓库是公开的，镜像公开可拉 |
+| `latest` | **只跟正式版**。预发布不推 `latest`，避免 `latest` 悄悄变成预发布产物 |
+| 离线 / 无 registry | 每次发布同时把 `zcode-relay-<版本>.tar.gz` 附到 Release，`docker load -i <它>` 即可 |
+| 体积 | 构建时剔除了 source map（约 86M，中继只服务手机页用不到）：约 59M 而非 145M |
+
+> 两个变体只差端口绑定与是否启 Caddy，其余（密钥、资源上限、`no-new-privileges`）与 §2.3 一致。
+> 中继仍只做逐字节转发，E2EE 语义不变。
+>
+> 想把中继跑在**本机**（局域网直连 + 经 VPS 隧道的外网），见 §7。
 
 ## 3. 桌面侧接线
 

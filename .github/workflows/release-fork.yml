@@ -331,9 +331,103 @@ jobs:
           echo "::error::gh release upload failed after 3 attempts"
           exit 1
 
+  # 中继镜像：与桌面同版本发布，让 VPS 上的中继不再和桌面版本漂移。
+  # 原先中继的 web bundle 靠手动 scp 到 VPS，桌面更新后手机可能还在跑旧 bundle；
+  # 这里把 bundle 烘进镜像，一次发布 = 桌面 + 匹配的中继镜像。
+  relay:
+    needs: release
+    if: ${{ inputs.build_artifacts }}
+    runs-on: ubuntu-latest
+    permissions:
+      # 推 GHCR 需要 packages: write；上传 Release 资产需要 contents: write。
+      contents: write
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/zcode-relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web bundle
+        run: pnpm --filter @zcode/web build
+
+      # 中继只服务手机页，用不到 source map（占产物约六成：145M → 约 59M）。
+      - name: Drop source maps
+        run: find packages/web/dist -name '*.map' -delete
+
+      # 兜底：确认产物真的进了构建上下文。COPY 源**不存在**时 docker 会报错，
+      # 但「目录在、内容空」不会 —— 那会让镜像里没有手机页、中继全线 404。
+      - name: Assert web bundle is present
+        run: |
+          set -euo pipefail
+          test -f packages/web/dist/index.html
+          test -d packages/web/dist/assets
+          echo "web bundle ok: $(du -sh packages/web/dist | cut -f1)"
+
+      - name: Build relay image
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # 上下文必须是仓库根：镜像要从 packages/web/dist 取前端产物。
+          # 仓库根的 .dockerignore 已用 `!packages/web/dist/**` 放行它；
+          # deploy/vps-relay/.dockerignore 会排除 web/，所以不能拿那个目录当上下文。
+          docker build \
+            -f deploy/vps-relay/Dockerfile.release \
+            -t "$IMAGE:${TAG#v}" \
+            -t "$IMAGE:${GITHUB_SHA::12}" \
+            .
+
+      - name: Push relay image
+        env:
+          TAG: ${{ needs.release.outputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          docker push "$IMAGE:${TAG#v}"
+          docker push "$IMAGE:${GITHUB_SHA::12}"
+          # :latest 只跟正式版 —— 预发布也推 latest 的话，`latest` 会悄悄变成预发布产物。
+          if [ "$PRERELEASE" != "true" ]; then
+            docker tag "$IMAGE:${TAG#v}" "$IMAGE:latest"
+            docker push "$IMAGE:latest"
+          else
+            echo "预发布：跳过 :latest（只推 ${TAG#v} 与 sha 标签）"
+          fi
+
+      - name: Attach relay image tarball to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # 无 registry / 离线 VPS 可直接 docker load 这个 tar。
+          docker save "$IMAGE:${TAG#v}" | gzip -9 > "zcode-relay-${TAG#v}.tar.gz"
+          ls -lh "zcode-relay-${TAG#v}.tar.gz"
+          for attempt in 1 2 3; do
+            if gh release upload "$TAG" "zcode-relay-${TAG#v}.tar.gz" --clobber; then
+              exit 0
+            fi
+            echo "::warning::gh release upload failed (attempt $attempt/3), retrying in 10s"
+            sleep 10
+          done
+          echo "::error::gh release upload failed after 3 attempts"
+          exit 1
+
   publish:
-    needs: [release, build, desktop]
-    if: ${{ always() && inputs.keep_draft != true && needs.release.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped') }}
+    needs: [release, build, desktop, relay]
+    if: ${{ always() && inputs.keep_draft != true && needs.release.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped') && (needs.relay.result == 'success' || needs.relay.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
