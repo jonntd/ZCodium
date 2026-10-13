@@ -27,6 +27,7 @@ official product.
 | `skill-creator` | Skill creation and iteration tools |
 | `zcode-guide` | ZCode usage guide and diagnostics |
 | `restore-legacy-sessions` | ACP legacy session migration |
+| `visualize` | Interactive charts, explainers, and design previews in the conversation (new in ZCode 3.15.1) |
 
 Layout:
 
@@ -181,6 +182,7 @@ seeding can populate — use the seed install above for full parity.
 | Environment | Plugins | Computer Use |
 | --- | --- | --- |
 | Windows x64, ZCode 3.14.x | ✅ | ✅ verified end-to-end |
+| ZCode 3.15.1 | ✅ packages synced to the 3.15.1 set (adds `visualize`; doc skills → 0.1.8, computer-use → 0.6.4) | ⚠️ source-verified only — upstream has not shipped an OSS 3.15.1 binary yet; the CUA stub signatures and broker IPC (v3, backwards-compatible with v2 clients) are unchanged in source |
 | Windows x64, other versions | ✅ | ⚠️ likely — the patcher detects stub chunks by signature, not filename, but the helper's IPC contract may drift between releases |
 | Windows ARM64 | ✅ | ❌ `ax_native.node` is x64-only |
 | macOS arm64 / x64 | ✅ | ✅ verified on-device (3.14.3, arm64); x64 untested but same path |
@@ -201,11 +203,10 @@ Plugin packages keep the license declared in each package manifest:
 
 - **MIT**: `android-emulator`, `ios-simulator`, `plugin-creator`,
   `restore-legacy-sessions`, `skill-creator`, `computer-use`, `zcode-guide`
-- **Apache-2.0**: `image-search`
-- **Z.ai non-commercial license** (`skills/*/LICENSE.txt`): `documents`,
-  `pdf`, `presentations`, `spreadsheets` — personal, educational, and
-  non-commercial use only; commercial use requires written permission
-  from Z.ai
+- **Apache-2.0**: `image-search`, `visualize`, `documents`, `pdf`,
+  `presentations`, `spreadsheets` — the four document skills were
+  relicensed from a Z.ai non-commercial license to Apache-2.0 upstream
+  in ZCode 3.15.1
 
 Installer scripts and repository glue are MIT.
 

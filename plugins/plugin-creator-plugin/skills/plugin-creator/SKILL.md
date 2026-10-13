@@ -5,7 +5,7 @@ description: Create or update ZCode plugin source and a local test marketplace, 
 
 # Plugin Creator
 
-Deliver implemented plugin source, a local dev marketplace catalog, and precise UI instructions for the user to add the market, install/update the plugin and try it. Use ZCode manifests; the authoring workflow is adapted from Codex's plugin-creator.
+Deliver implemented plugin source, a local dev marketplace catalog, and precise UI instructions for the user to add the market, install/update the plugin and try it. Use ZCode manifests.
 
 The current handoff is manual. Do not register markets, install/update/enable plugins, or publish as part of this skill. Ordinary Desktop users are not expected to have a global `zcode` CLI or `node` command. Use existing file tools when helper runtimes are unavailable; do not ask users to install development tooling to complete the UI steps. A skill reference alone has no plugin requirements: ask what the plugin should do before generating files.
 

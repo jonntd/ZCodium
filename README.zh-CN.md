@@ -25,6 +25,7 @@ Computer Use（电脑控制）运行时——让开源安装补齐到与官方�
 | `skill-creator` | 技能创建与迭代工具 |
 | `zcode-guide` | ZCode 使用指南与诊断 |
 | `restore-legacy-sessions` | ACP 旧会话迁移 |
+| `visualize` | 在对话中创建交互图表、解释与设计预览（ZCode 3.15.1 新增） |
 
 目录结构：
 
@@ -159,6 +160,7 @@ zcode plugins install documents@zcode-plugins
 | 环境 | 插件 | Computer Use |
 | --- | --- | --- |
 | Windows x64 + ZCode 3.14.x | ✅ | ✅ 已端到端验证 |
+| ZCode 3.15.1 | ✅ 插件包已同步 3.15.1（新增 `visualize`；文档技能→0.1.8、computer-use→0.6.4） | ⚠️ 仅源码级验证——上游尚未发布开源版 3.15.1 二进制；源码中 CUA stub 签名与 broker IPC（v3，向下兼容 v2 客户端）未变 |
 | Windows x64 + 其他版本 | ✅ | ⚠️ 大概率可用——补丁器按签名而非文件名识别 stub，但 helper 的 IPC 契约可能随版本漂移 |
 | Windows ARM64 | ✅ | ❌ `ax_native.node` 只有 x64 版 |
 | macOS arm64 / x64 | ✅ | ✅ 已真机验证（3.14.3, arm64）；x64 同路径未实测 |
@@ -178,10 +180,9 @@ zcode plugins install documents@zcode-plugins
 
 - **MIT**：`android-emulator`、`ios-simulator`、`plugin-creator`、
   `restore-legacy-sessions`、`skill-creator`、`computer-use`、`zcode-guide`
-- **Apache-2.0**：`image-search`
-- **Z.ai 非商用许可**（`skills/*/LICENSE.txt`）：`documents`、`pdf`、
-  `presentations`、`spreadsheets`——仅限个人/教育/非商业用途，
-  商用需 Z.ai 书面授权
+- **Apache-2.0**：`image-search`、`visualize`、`documents`、`pdf`、
+  `presentations`、`spreadsheets`——四个文档技能包在 ZCode 3.15.1 中
+  已从 Z.ai 非商用许可改为 Apache-2.0
 
 安装脚本与仓库脚本以 MIT 发布。
 
