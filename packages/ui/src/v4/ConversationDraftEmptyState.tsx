@@ -14,7 +14,7 @@ const GREETING_BOUNDARY_HOURS = [5, 9, 12, 14, 18, 23] as const;
 const GREETING_MIN_FONT_SIZE_PX = 20;
 const GREETING_MAX_FONT_SIZE_PX = 30;
 
-type ChatEmptyGreetingMessageId =
+export type ChatEmptyGreetingMessageId =
   | "chat.empty.greeting.morningEarly"
   | "chat.empty.greeting.morning"
   | "chat.empty.greeting.noon"
@@ -22,7 +22,7 @@ type ChatEmptyGreetingMessageId =
   | "chat.empty.greeting.evening"
   | "chat.empty.greeting.lateNight";
 
-function getChatEmptyGreetingMessageId(date: Date = new Date()): ChatEmptyGreetingMessageId {
+export function getChatEmptyGreetingMessageId(date: Date = new Date()): ChatEmptyGreetingMessageId {
   const hour = date.getHours();
 
   if (hour >= 5 && hour < 9) return "chat.empty.greeting.morningEarly";
@@ -34,7 +34,7 @@ function getChatEmptyGreetingMessageId(date: Date = new Date()): ChatEmptyGreeti
   return "chat.empty.greeting.lateNight";
 }
 
-function getNextChatEmptyGreetingDelayMs(date: Date = new Date()) {
+export function getNextChatEmptyGreetingDelayMs(date: Date = new Date()) {
   const candidates = GREETING_BOUNDARY_HOURS.map((hour) => {
     const boundary = new Date(date);
     boundary.setHours(hour, 0, 0, 0);
@@ -50,13 +50,18 @@ function getNextChatEmptyGreetingDelayMs(date: Date = new Date()) {
   return Math.max(1, nextBoundary.getTime() - date.getTime());
 }
 
-function resolveGreetingFontSizePx({
+export function resolveGreetingFontSizePx({
   availableWidthPx,
   naturalTextWidthPx,
+  compactForRemoteControl = false,
 }: {
   availableWidthPx: number;
   naturalTextWidthPx: number;
+  compactForRemoteControl?: boolean;
 }) {
+  if (compactForRemoteControl) {
+    return GREETING_MIN_FONT_SIZE_PX;
+  }
   if (
     !Number.isFinite(availableWidthPx) ||
     !Number.isFinite(naturalTextWidthPx) ||
@@ -76,7 +81,13 @@ function resolveGreetingFontSizePx({
   );
 }
 
-export function ConversationDraftEmptyState({ className }: { className?: string }) {
+export function ConversationDraftEmptyState({
+  className,
+  compactForRemoteControl = false,
+}: {
+  className?: string;
+  compactForRemoteControl?: boolean;
+}) {
   const { intl } = useZCodeIntl();
   const isOfficeMode = useIsOfficeMode();
   const [greetingDate, setGreetingDate] = useState(() => new Date());
@@ -98,6 +109,10 @@ export function ConversationDraftEmptyState({ className }: { className?: string 
   }, [greetingDate]);
 
   useLayoutEffect(() => {
+    if (compactForRemoteControl) {
+      setGreetingFontSizePx(GREETING_MIN_FONT_SIZE_PX);
+      return;
+    }
     const container = greetingContainerRef.current;
     const measurement = greetingMeasurementRef.current;
     if (!container || !measurement) {
@@ -109,8 +124,8 @@ export function ConversationDraftEmptyState({ className }: { className?: string 
       frameId = null;
       const containerStyle = window.getComputedStyle(container);
       const horizontalPaddingPx =
-        Number.parseFloat(containerStyle.paddingInlineStart) +
-        Number.parseFloat(containerStyle.paddingInlineEnd);
+        Number.parseFloat(containerStyle.paddingLeft) +
+        Number.parseFloat(containerStyle.paddingRight);
       const availableWidthPx = Math.max(
         0,
         container.getBoundingClientRect().width - horizontalPaddingPx,
@@ -164,7 +179,7 @@ export function ConversationDraftEmptyState({ className }: { className?: string 
       }
       observer.disconnect();
     };
-  }, [greeting]);
+  }, [compactForRemoteControl, greeting]);
 
   return (
     <div
@@ -176,8 +191,8 @@ export function ConversationDraftEmptyState({ className }: { className?: string 
       <div
         aria-hidden="true"
         className={cn(
-          "pointer-events-none absolute start-1/2 top-1/2 aspect-[5/4] w-[min(72vw,25rem)] -mt-10",
-          "-translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 text-foreground-subtlest",
+          "pointer-events-none absolute left-1/2 top-1/2 aspect-[5/4] w-[min(72vw,25rem)] -mt-10",
+          "-translate-x-1/2 -translate-y-1/2 text-foreground-subtlest",
         )}
       >
         <ZCodeEmptyStateLogo className="h-full w-full" />
@@ -192,7 +207,9 @@ export function ConversationDraftEmptyState({ className }: { className?: string 
         }
         className={cn(
           "relative z-10 w-full px-4 text-center font-medium text-foreground",
-          "text-[length:var(--v4-draft-greeting-font-size)]/[1.2]",
+          compactForRemoteControl
+            ? "text-xl/[1.2]"
+            : "text-[length:var(--v4-draft-greeting-font-size)]/[1.2]",
         )}
       >
         <span
@@ -212,6 +229,7 @@ function ZCodeEmptyStateLogo({ className }: { className?: string }) {
   return (
     <>
       {/* 夜间资源已自带渐变和透明度，公共容器叠加遮罩会让它重复变淡；渐隐效果只属于浅色线框。*/}
+      {/* ZCodium 品牌 mark（本项目自有图形，替代官方 Z artwork；见 remove official UI paths）。 */}
       <svg
         aria-hidden="true"
         className={cn(
@@ -228,25 +246,9 @@ function ZCodeEmptyStateLogo({ className }: { className?: string }) {
         fill="none"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <defs>
-          <linearGradient
-            id="zcode-brand-z-gradient"
-            x1="712"
-            y1="224"
-            x2="300"
-            y2="800"
-            gradientUnits="userSpaceOnUse"
-          >
-            <stop offset="0" stopColor="#38bdf8" />
-            <stop offset="1" stopColor="#818cf8" />
-          </linearGradient>
-        </defs>
-        <path d="M184 224H512L453 308Q439 328 415 328H184Z" fill="url(#zcode-brand-z-gradient)" />
-        <path d="M584 224H832L424 800H176Z" fill="url(#zcode-brand-z-gradient)" />
-        <path
-          d="M536 720L600 656L648 704L824 528L888 592L648 832Z"
-          fill="url(#zcode-brand-z-gradient)"
-        />
+        <path d="M184 224H512L453 308Q439 328 415 328H184Z" fill="currentColor" />
+        <path d="M584 224H832L424 800H176Z" fill="currentColor" />
+        <path d="M536 720L600 656L648 704L824 528L888 592L648 832Z" fill="currentColor" />
       </svg>
     </>
   );

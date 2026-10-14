@@ -1,3 +1,4 @@
+import { requestSecurityMessagesEnUS } from "@/request-security-edition/messages.js";
 /** English translations */
 const enUS: Record<string, string> = {
   "startPlan.recommendation.subagentDescription":
@@ -125,6 +126,11 @@ const enUS: Record<string, string> = {
   "startup.database.elapsed": "Elapsed: {minutes} min {seconds} sec",
   "startup.database.longRunning":
     "Large histories can take longer. The app is still waiting for the database to finish.",
+  "rewards.title": "Rewards",
+  "rewards.menuTitle": "Refer a friend",
+  "rewards.menuBadge": "Rewards",
+  "rewards.loadFailed": "Unable to load this page. Please retry.",
+  "rewards.openWebsite": "Open website",
   "bashOutput.open": "View output for {title}",
   "bashOutput.fullFile": "Full output file",
   "bashOutput.retry": "Retry",
@@ -173,7 +179,109 @@ const enUS: Record<string, string> = {
     "The selected connection is unavailable. Please choose another connection.",
   "settings.modelProvider.navigationUnavailable":
     "The requested provider is unavailable. Please choose another provider.",
+  "marketingTouch.idle": "Ready",
+  "marketingTouch.verifying": "Verifying…",
+  "marketingTouch.submitting": "Processing…",
+  "marketingTouch.preparing": "Succeeded. Preparing the result…",
+  "marketingTouch.failed": "The action failed. Please try again later.",
+  "marketingTouch.uncertain":
+    "The result could not be confirmed. Check your benefits later. This action will not be retried this session to avoid duplicate submissions.",
+  "marketingTouch.succeeded": "Action succeeded",
   "workspace.context.lastActivity": "Last active {time}",
+  "bots.privateDelivery.retry": "Resend reply",
+  "bots.privateDelivery.retryHint":
+    "Resends the full reply as text. Content already received may be duplicated.",
+  "bots.privateDelivery.retryFailed": "Sending failed. Check the error details before retrying.",
+  "bots.boundGroups.title": "Bound groups",
+  "bots.boundGroups.count": "{count} topics",
+  "bots.boundGroups.countOne": "{count} topic",
+  "bots.boundGroups.toggle": "Enable group: {name}",
+  "bots.boundGroups.loading": "Loading groups…",
+  "bots.boundGroups.empty":
+    "No bound groups. Mention the bot with /enable in a group to add it here.",
+  "bots.boundGroups.botOff": "The bot is off. Enable it to change group switches.",
+  "bots.boundGroups.loadFailed": "Could not load groups. Refresh to retry.",
+  "bots.boundGroups.saveFailed": "The group change could not be confirmed. Refresh and retry.",
+  "bots.boundGroups.refresh": "Refresh",
+  "bots.topic.open": "Open topic in Feishu / Lark",
+  "bots.topic.details": "Topic details",
+  "bots.topic.loading": "Loading context…",
+  "bots.topic.unavailable": "Context is unavailable. Try again later.",
+  "bots.topic.coverage": "{count} discussion messages archived; only the read range is covered.",
+  "bots.topic.gap": "{count} discussion messages archived; some history is not covered.",
+  "bots.topic.historyOn": "The next mention reads new topic discussion.",
+  "bots.topic.historyOff":
+    "Topic history is off; only the current request and explicit references are submitted.",
+  "bots.topic.context": "Turn background and summary",
+  "bots.topic.correction": "Submit corrections as a new request. Original records are retained.",
+  "bots.group.syncing": "Replies sync to the Feishu/Lark group",
+  "bots.group.paused": "Group sync paused",
+  "bots.group.sharedWorkspace": "Members share workspace files.",
+  "bots.group.deliveryUnknown": "Feishu delivery unconfirmed",
+  "bots.group.deliveryFailed": "Feishu delivery failed",
+  "bots.group.confirmReceived": "Checked: received",
+  "bots.group.confirmNotReceived": "Checked: not received",
+  "bots.group.resend": "Resend result",
+
+  "bots.group.provider.feishu": "Feishu",
+  "manualClaimPlan.banner.aria": "Claimable trial plan",
+  "manualClaimPlan.banner.tag": "Limited-time offer",
+  "manualClaimPlan.banner.unit.tokens": "TOKENS",
+  "manualClaimPlan.banner.subtitle.daily": "{model} daily bonus",
+  "manualClaimPlan.banner.subtitle.oneTime": "{model} one-time bonus",
+  "manualClaimPlan.claim.ticket.benefit": "{model} {amount} {unit}",
+  "manualClaimPlan.claim.ticket.benefit.daily": "{model} daily {amount} {unit}",
+  "manualClaimPlan.banner.period.daily": "Daily",
+  "manualClaimPlan.banner.period.oneTime": "One-time",
+  "manualClaimPlan.banner.bonus": "bonus",
+  "manualClaimPlan.banner.close": "Close offer",
+  "manualClaimPlan.banner.claim": "Claim",
+  "manualClaimPlan.banner.dismissConfirm.title": "You’ll miss a claim opportunity",
+  "manualClaimPlan.banner.dismissConfirm.description":
+    "Claim opportunities for this offer are limited. If you close it, you may miss this opportunity. Would you like to claim it now?",
+  "manualClaimPlan.banner.dismissConfirm.claim": "Claim now",
+  "manualClaimPlan.banner.dismissConfirm.close": "Close anyway",
+  "manualClaimPlan.claim.success.title": "You now have access to {plan}",
+  "manualClaimPlan.claim.success.description": "Start Plan is ready to use.",
+  "manualClaimPlan.claim.success.description.prefix": "",
+  "manualClaimPlan.claim.success.description.suffix": " is ready to use.",
+  "manualClaimPlan.claim.success.pending.description.prefix": "",
+  "manualClaimPlan.claim.success.pending.description.beforeTime": " will be available on ",
+  "manualClaimPlan.claim.success.pending.description.afterTime": ".",
+  "manualClaimPlan.claim.failure.title": "Claim failed",
+  "manualClaimPlan.claim.failure.notFound": "This plan does not exist.",
+  "manualClaimPlan.claim.failure.unavailable": "This offer has ended or is unavailable.",
+  "manualClaimPlan.claim.failure.alreadyClaimed": "You have already claimed this plan.",
+  "manualClaimPlan.claim.failure.ineligible":
+    "Your account or app version is not eligible for this offer.",
+  "manualClaimPlan.claim.failure.quotaExhausted": "Today's claim quota has been exhausted.",
+  "manualClaimPlan.claim.failure.quotaExhausted.nextTime":
+    "Today's claim quota has been exhausted. Please check back next time.",
+  "manualClaimPlan.claim.failure.quotaExhausted.tomorrow":
+    "Today's claim quota has been exhausted. Please try again tomorrow.",
+  "manualClaimPlan.claim.failure.invalidRequest": "Invalid claim request. Refresh and try again.",
+  "manualClaimPlan.claim.failure.loginRequired": "Sign in before claiming this plan.",
+  "manualClaimPlan.claim.failure.generic": "Claim failed. Please try again later.",
+  "manualClaimPlan.claim.startUsingUnavailable":
+    "Start Plan is not ready yet. Your model settings were not changed; refresh and try again later.",
+  "manualClaimPlan.claim.dialog.confirm": "Start using",
+  "manualClaimPlan.claim.dialog.modelSettings": "View plan",
+  "manualClaimPlan.claim.dialog.acknowledge": "Got it",
+  "manualClaimPlan.claim.dialog.startsAt": "Starts",
+  "manualClaimPlan.claim.dialog.endsAt": "Valid until",
+  "manualClaimPlan.claim.dialog.replay": "Replay ticket animation",
+  "manualClaimPlan.claim.share.label": "Copy & share",
+  "manualClaimPlan.claim.share.close": "Close sharing",
+  "manualClaimPlan.claim.share.getImage": "Get image",
+  "manualClaimPlan.claim.share.saveImage": "Save image",
+  "manualClaimPlan.claim.share.copyImage": "Copy image",
+  "manualClaimPlan.claim.share.copyText": "Copy text",
+  "manualClaimPlan.claim.share.copyTextSucceeded": "Text copied",
+  "manualClaimPlan.claim.share.copyImageSucceeded": "Image copied",
+  "manualClaimPlan.claim.share.actionFailed": "Share action failed. Please try again.",
+  "manualClaimPlan.claim.share.twitterText":
+    "I claimed {subtitle} on ZCode. Download and install ZCode to claim yours. https://zcode.z.ai",
+  "manualClaimPlan.claim.share.twitterTextLabel": "Twitter/X post text",
   // Common
   "common.loading": "Loading...",
   "common.listSeparator": ", ",
@@ -223,14 +331,20 @@ const enUS: Record<string, string> = {
   "conversationShare.error.limitExceeded":
     "The selected conversation or its files exceed the sharing limit. Select fewer conversations.",
   "conversationShare.error.rateLimited": "Too many share attempts. Wait a moment, then try again.",
+  "conversationShare.error.invalidContractHttp":
+    "The share service returned HTTP {status}. Retry, and provide the error details if the problem persists.",
+  "conversationShare.error.invalidContract":
+    "The share service returned an unexpected response. Retry, and provide the error details if the problem persists.",
+  "conversationShare.issue.clientRequestIdLabel": "Client request ID",
+  "conversationShare.issue.codeLabel": "Error code",
   "conversationShare.error.network":
-    "Could not reach the sharing service. Check your connection and try again.",
+    "The share connection was interrupted or timed out. Check your network and retry.",
   "conversationShare.error.safetyCheckTimeout":
     "The share safety check took too long. Try again later.",
   "conversationShare.error.invalidSelection":
     "The selected conversation changed. Reopen the share panel and select it again.",
   "conversationShare.error.invalidConversation":
-    "The selection contains a structure that is not shareable yet. Deselect active turns or inline images, confirm preview files are complete, and retry.",
+    "The selected conversation cannot be published. Review the specific issues and retry.",
   "conversationShare.error.runningTurn":
     "A selected turn is still running. Deselect it and wait for it to finish before sharing.",
   "conversationShare.error.streamingRow":
@@ -328,7 +442,7 @@ const enUS: Record<string, string> = {
   "conversationShare.issue.uploadIncomplete":
     "The upload acknowledgement for {artifactDisplayName} does not match the file. Ensure it did not change and try again.",
   "conversationShare.issue.unknown":
-    "Share failed during {phase}; the server returned no actionable details. Try again later.",
+    "Share failed during {phase}; the cause could not be determined. Retry, and provide the error details if it persists.",
   "conversationShare.issue.details": "Error details",
   "conversationShare.issue.requestIdLabel": "Server request ID",
   "conversationShare.issue.requestId": "Server request ID: {requestId}",
@@ -366,10 +480,12 @@ const enUS: Record<string, string> = {
     "Review the title, access, and sensitive-content acknowledgement, then create the link.",
   "conversationShare.partial.confirmationTitle": "Confirm shared content",
   "conversationShare.publish.failedTitle": "Share publication failed",
-  "conversationShare.publish.failedDescription": "Fix the issue below, then retry.",
+  "conversationShare.publish.failedDescription":
+    "Review the failure reason and error details below.",
   "conversationShare.publish.retry": "Retry generation",
   "conversationShare.publish.footerMeta": "Share {selected} conversation turn(s), {access}",
-  "conversationShare.publish.failedFooter": "Adjust the content before publishing again",
+  "conversationShare.publish.failedFooter":
+    "Your selection is preserved. Review the error and retry.",
   "conversationShare.partial.selectAll": "Select all",
   "conversationShare.partial.deselectAll": "Deselect all",
   "conversationShare.partial.selectionCount": "{selected}/{total}",
@@ -381,13 +497,13 @@ const enUS: Record<string, string> = {
   "conversationShare.partial.publishing": "Generating…",
   "conversationShare.progress.collecting": "Collecting conversation and artifacts…",
   "conversationShare.progress.uploading": "Uploading artifacts…",
-  "conversationShare.progress.checking": "Waiting for safety checks to finish…",
+  "conversationShare.progress.checking": "Confirming publication…",
   "conversationShare.progress.collectingFailed": "Collecting conversation and artifacts failed",
   "conversationShare.progress.uploadingFailed": "Uploading artifacts failed",
-  "conversationShare.progress.checkingFailed": "Safety checks failed",
+  "conversationShare.progress.checkingFailed": "Publication confirmation failed",
   "conversationShare.phase.collecting": "Prepare content",
   "conversationShare.phase.uploading": "Upload artifacts",
-  "conversationShare.phase.checking": "Safety checks",
+  "conversationShare.phase.checking": "Confirm publication",
   "conversationShare.phase.collectingComplete": "Conversation and artifacts ready",
   "conversationShare.phase.uploadingComplete": "Artifacts uploaded",
   "conversationShare.phase.uploadingActive": "Uploading {completed} / {total}",
@@ -427,7 +543,7 @@ const enUS: Record<string, string> = {
   "conversationShare.import.complete": "Share import complete",
   "conversationShare.import.loginRequired":
     "This share cannot be imported anonymously. Sign in to ZCodium and try again",
-  "conversationShare.import.notFound": "The share is unavailable",
+  "conversationShare.import.notFound": "The share is unavailable for this account",
   "conversationShare.import.expired": "The share expired. Ask the author to create a new one",
   "conversationShare.import.integrityFailed": "Share file verification failed; import stopped",
   "conversationShare.import.failed": "Share import failed. Check your network and retry",
@@ -604,9 +720,9 @@ const enUS: Record<string, string> = {
   "bots.setup.guide.weixin.create.1":
     "Start Weixin QR login, scan the QR code with Weixin, then confirm on your phone.",
   "bots.setup.guide.weixin.create.2":
-    "ZCode saves the bot_token returned by iLink automatically; after scanning, send any message to the bot in Weixin to activate the chat.",
+    "ZCodium saves the bot_token returned by iLink automatically; after scanning, send any message to the bot in Weixin to activate the chat.",
   "bots.setup.guide.weixin.create.3":
-    "ZCode uses a built-in iLink client: `/ilink/bot/getupdates` for long polling and `/ilink/bot/sendmessage` for replies.",
+    "ZCodium uses a built-in iLink client: `/ilink/bot/getupdates` for long polling and `/ilink/bot/sendmessage` for replies.",
   "bots.setup.guide.weixin.bind.1": "Open the Weixin direct chat you want to bind.",
   "bots.setup.guide.weixin.bind.2": "Send {command}.",
   "bots.setup.guide.weixin.bind.3":
@@ -623,13 +739,13 @@ const enUS: Record<string, string> = {
   "bots.setup.guide.feishu.bind.3":
     "Return here after the bind succeeds to finish the workspace and CLI defaults.",
   "bots.setup.guide.webhook.create.1":
-    "Webhook mode does not require a native bot in the third-party product; your integration only needs to POST messages to ZCode.",
+    "Webhook mode does not require a native bot in the third-party product; your integration only needs to POST messages to ZCodium.",
   "bots.setup.guide.webhook.create.2":
     "Set a shared secret first; add an outbound webhook URL as well if you want asynchronous replies pushed back.",
   "bots.setup.guide.webhook.create.3":
     "Keep one stable userId per external user so binding and future context resolve to the same person.",
   "bots.setup.guide.webhook.bind.1":
-    "POST a private-message callback to ZCode's `/api/bots/webhook` endpoint.",
+    "POST a private-message callback to ZCodium's `/api/bots/webhook` endpoint.",
   "bots.setup.guide.webhook.bind.2":
     'The payload should at least include this botId, a stable userId, `chatType: "private"`, and set text to {command}.',
   "bots.setup.guide.webhook.bind.3":
@@ -685,20 +801,6 @@ const enUS: Record<string, string> = {
     "Feishu/Lark only support Card JSON 2.0 streaming cards, with tool calls shown only as collapsed summaries.",
   "bots.add": "Add",
   "bots.channel.telegram": "Telegram",
-  "bots.astrbot.bridgeLabel": "AstrBot bridge",
-  "bots.astrbot.bridgeDescription":
-    "Connect through this repository's bridge plugin; AstrBot owns the per-platform adapters.",
-  "bots.astrbot.copyPath": "Copy config path",
-  "bots.astrbot.openPlugin": "Open bridge plugin",
-  "bots.astrbot.runtimeFilePath": "Bridge runtime file (url / port / token / bind code):",
-  "bots.astrbot.step.install": "Install the astrbot-zcodium-plugin.",
-  "bots.astrbot.step.configure": "Fill the url, port, and token from that file into the plugin.",
-  "bots.astrbot.step.bind": "Send /bind <code> in chat to finish binding.",
-  "bots.astrbot.boundDescription":
-    "AstrBot bridge is bound; messages go through the official Bots pipeline.",
-  "bots.astrbot.unboundDescription":
-    "Install and configure astrbot-zcodium-plugin, then generate a bind code.",
-  "bots.channel.astrbot": "AstrBot",
   "bots.channel.weixin": "Weixin",
   "bots.channel.feishu": "Feishu",
   "bots.channel.lark": "Lark",
@@ -714,8 +816,6 @@ const enUS: Record<string, string> = {
   "bots.newBot.fallbackName": "New bot",
   "bots.newBot.comingSoon": "Coming soon",
   "bots.newBot.providerDescription.telegram": "Create a bot, then bind by message.",
-  "bots.newBot.providerDescription.astrbot":
-    "Connect through the AstrBot bridge plugin; AstrBot owns the platform adapters.",
   "bots.newBot.providerDescription.weixin": "Scan to log in; first message activates.",
   "bots.newBot.providerDescription.feishu": "Scan to create an app, then bind by message.",
   "bots.newBot.providerDescription.lark": "Scan to create an app, then bind by message.",
@@ -784,7 +884,7 @@ const enUS: Record<string, string> = {
   "bots.runtime.telegramLongPollingStarting": "Telegram long polling is starting.",
   "bots.runtime.telegramLongPollingStopped": "Telegram long polling is stopped.",
   "bots.runtime.telegramLongPollingHandledElsewhere":
-    "Telegram long polling is handled by another ZCode window.",
+    "Telegram long polling is handled by another ZCodium window.",
   "bots.runtime.telegramTokenMissing": "Telegram bot credential is missing.",
   "bots.runtime.telegramPollingFailedRetrying": "Telegram polling failed; retrying.",
   "bots.runtime.feishuWebSocketStarting": "Feishu WebSocket is starting.",
@@ -894,10 +994,9 @@ const enUS: Record<string, string> = {
   "login.oauth.loginFailure": "Login failed, please try again",
   "login.oauth.cancel": "Cancel",
   "login.oauth.retry": "Retry login",
-  "login.expired.title": "Your configuration has expired",
-  "login.expired.description":
-    "Your API key configuration is no longer valid. Please set it up again.",
-  "login.expired.action": "Configure again",
+  "login.expired.title": "Your session has expired",
+  "login.expired.description": "To keep your account secure, please sign in again.",
+  "login.expired.action": "Sign in again",
   "login.expired.restart": "Confirm and restart",
   "login.useApiKey": "Use API key",
   "login.apiKey.title": "API Key",
@@ -913,7 +1012,6 @@ const enUS: Record<string, string> = {
     "Built-in provider configuration for {provider} was not found. Please try again later.",
   "login.apiKey.saveError": "Failed to save API key: {error}",
   "login.apiKey.skipError": "Failed to skip API key setup: {error}",
-  "login.apiKey.moreProvidersHint": "Other model providers can be configured in Settings - Models",
   "login.skip": "Skip for now",
   "settings.onboarding": "Onboard",
   "settings.onboardingDescription":
@@ -928,14 +1026,66 @@ const enUS: Record<string, string> = {
   "logout.confirm.descriptionWithRunningSessions":
     "{count} session(s) are currently running. Disconnecting will interrupt them and restart the app.",
   "logout.confirm.descriptionDefault":
-    "The app will restart. Configure the API key again to continue.",
+    "The app will restart after disconnecting. You will need to connect your account again.",
   "logout.confirm.ok": "Disconnect and restart",
   "logout.confirm.cancel": "Cancel",
+  "sidebar.profile.accountId": "ID: {id}",
+  "sidebar.profile.copyUserId": "Click to copy user ID",
+  "sidebar.profile.userIdCopied": "User ID copied",
+  "sidebar.profile.userIdCopyFailed": "Copy failed. Please try again",
   "sidebar.profile.notLoggedIn": "Connect",
   "app.selectFile": "Select a file to get started",
   "app.workspace": "Workspace",
   "browser.title": "Browser",
   "browser.addressPlaceholder": "Enter a URL and press Enter",
+  "browser.permission.promptAriaLabel": "Site permission request",
+  "browser.permission.wantsToUse": "wants to use",
+  "browser.permission.siteInfo": "View site information",
+  "browser.permission.settings": "Site permissions",
+  "browser.permission.close": "Close",
+  "browser.permission.saved":
+    "Permissions updated. Reload the page to apply changes to active resources.",
+  "browser.permission.readError": "Could not load permissions.",
+  "browser.permission.saveError": "Could not save permission changes.",
+  "browser.permission.resetError": "Could not complete the permission reset.",
+  "browser.permission.retry": "Retry",
+  "browser.permission.unsupported": "Site permissions are available in the desktop browser.",
+  "browser.permission.reset": "Reset site permissions",
+  "browser.permission.resetDone": "Permissions reset. Reload the page to request access again.",
+  "browser.permission.allowOnce": "Allow once",
+  "browser.permission.allowAlways": "Allow on this site",
+  "browser.permission.blockAlways": "Block",
+  "browser.permission.cancel": "Cancel",
+  "browser.permission.share": "Share",
+  "browser.permission.media": "camera and microphone",
+  "browser.permission.mediaVideo": "camera",
+  "browser.permission.mediaAudio": "microphone",
+  "browser.permission.mediaBoth": "camera and microphone",
+  "browser.permission.clipboardRead": "clipboard reading",
+  "browser.permission.geolocation": "location",
+  "browser.permission.notifications": "notifications",
+  "browser.permission.midi": "MIDI devices",
+  "browser.permission.idleDetection": "idle detection",
+  "browser.permission.speakerSelection": "audio output selection",
+  "browser.permission.windowManagement": "window management",
+  "browser.permission.storageAccess": "storage access",
+  "browser.permission.keyboardLock": "keyboard lock",
+  "browser.permission.fileSystem": "file access",
+  "browser.permission.deviceHid": "HID devices",
+  "browser.permission.deviceUsb": "USB devices",
+  "browser.permission.deviceSerial": "serial devices",
+  "browser.permission.deviceBluetooth": "Bluetooth devices",
+  "browser.permission.unknownCapability": "an unknown capability",
+  "browser.permission.screenShareTitle": "{origin} wants to share your screen",
+  "browser.permission.screenShareDescription":
+    "Choose the screen or window to share. This choice applies only to this session.",
+  "browser.permission.deviceTitle": "{origin} wants to connect a device",
+  "browser.permission.connect": "Connect",
+  "browser.permission.screenGroup.screen": "Entire Screen",
+  "browser.permission.screenGroup.window": "Window",
+  "browser.permission.stateAllow": "Allow",
+  "browser.permission.stateDeny": "Block",
+  "browser.permission.stateAsk": "Ask",
   "browser.back": "Back",
   "browser.forward": "Forward",
   "browser.reload": "Refresh",
@@ -1011,6 +1161,7 @@ const enUS: Record<string, string> = {
   "subagentDirectory.status.lost": "Lost",
   "chat.statusPanel.endedAgents": "Ended",
   "chat.statusPanel.endedWorkflows": "Ended workflows",
+  "chat.statusPanel.workflowsLive": "{count} running",
   "workflowDirectory.title": "Workflow runs",
   "workflowDirectory.running": "Running",
   "workflowDirectory.runningEmpty": "No workflows are running",
@@ -1042,6 +1193,42 @@ const enUS: Record<string, string> = {
   "sidePane.openFile.category": "Files",
   "sidePane.openFile.emptyQuery": "Type to search files",
   "sidePane.review": "Review",
+  "pluginUi.loading": "Loading plugin UI...",
+  "pluginUi.loadFailed": "Plugin UI failed to load.",
+  "pluginUi.retry": "Reload",
+  "pluginUi.pin": "Keep expanded",
+  "pluginUi.unpin": "Stop keeping expanded",
+  "pluginUi.openInSidePane": "Open in side pane",
+  "pluginUi.openedInSidePane": "Opened in side pane",
+  "genUi.copyImage": "Copy image",
+  "genUi.title": "Interactive view",
+  "genUi.desktopOnly": "Open this interactive view in the desktop app",
+  "genUi.offline": "Workspace is offline. Reconnect and retry",
+  "genUi.failed": "Unable to load interactive view",
+  "genUi.loading": "Loading interactive view…",
+  "genUi.retry": "Retry",
+  "genUi.tweak": "Adjust design",
+  "genUi.expand": "Expand",
+  "genUi.collapse": "Collapse",
+  "genUi.expanded": "Showing in expanded view",
+  "genUi.confirm": "Interactive view wants to send a message",
+  "genUi.cancel": "Cancel",
+  "genUi.send": "Send",
+  "genUi.incomplete": "This response did not finish. The interactive view was not loaded.",
+  "genUi.waiting": "Interactive view will appear when generation completes",
+  "genUi.invalid": "Invalid interactive view reference",
+  "genUi.reset": "Reset",
+  "genUi.original": "Preview original",
+  "genUi.submit": "Submit design changes",
+  "genUi.from": "From interactive view {name}",
+  "pluginUi.fromPlugin": "From plugin {name}",
+  "pluginUi.followUp.title": "A plugin wants to send a message as you",
+  "pluginUi.followUp.description": "From plugin {name}. You can edit it before sending.",
+  "pluginUi.followUp.send": "Send",
+  "pluginUi.followUp.cancel": "Cancel",
+  "pluginUi.modelContext.label": "Plugin context",
+  "pluginUi.modelContext.remove": "Remove plugin context",
+  "sidePane.pluginUi": "Plugin",
   "whiteboard.title": "Whiteboard",
   "whiteboard.defaultName": "Whiteboard",
   "whiteboard.nameLabel": "Whiteboard name",
@@ -1132,7 +1319,7 @@ const enUS: Record<string, string> = {
   "treemapping.detail.directoryFiles": "{count} files",
   "diff.placeholder.badge": "UI placeholder",
   "diff.placeholder.description":
-    "This phase focuses on the end-side Diff panel shell first. Real Git services and command execution will be connected later.",
+    "This phase focuses on the right-side Diff panel shell first. Real Git services and command execution will be connected later.",
   "diff.placeholder.toast":
     "The Diff panel is still using UI placeholder mode for now because the Git service is not fully wired up yet.",
   "git.readonly": "Read-only",
@@ -1507,14 +1694,23 @@ const enUS: Record<string, string> = {
   "fileActions.copyAbsolutePath": "Copy absolute path",
   "fileActions.copyRelativePath": "Copy relative path",
   "appHeader.copyTaskPath": "Copy task path",
+  "appHeader.copyClaudeJsonlPath": "Copy JSONL path",
   "appHeader.copySessionId": "Copy session ID",
   "appHeader.reloadSession": "Reload session",
   "appHeader.reloadSessionSuccess": "Session reloaded",
   "appHeader.reloadSessionFailed": "Could not reload session",
   "appHeader.workspaceSessionActionLoading": "Applying session changes...",
   "appHeader.copyLogPath": "Copy log path",
+  "appHeader.goToProviderConfig": "Go to config",
+  "appHeader.goToProviderConfigPrefix": "Go to",
+  "appHeader.goToProviderConfigSuffix": "config",
+  "appHeader.openProviderConfigWithEditorPrefix": "Use",
+  "appHeader.openProviderConfigWithEditorMiddle": "to open",
+  "appHeader.openProviderConfigWithEditorSuffix": "config file",
+  "appHeader.openProviderConfigInEditorFailed": "Could not open provider config in {editor}",
   "workspaceHeader.help.menu": "Help",
   "workspaceHeader.help.issueReport": "Report an issue",
+  "workspaceHeader.help.reportVulnerability": "Report a vulnerability",
   "workspaceHeader.help.productRequest": "Request a feature",
   "workspaceHeader.help.productRequestDraft": "I would like to suggest: ",
   "workspaceHeader.help.community": "User community",
@@ -1631,6 +1827,8 @@ const enUS: Record<string, string> = {
     "You selected a WSL path:\n{path}\n\nWe recommend opening it through WSL connection, though you can still continue with the path.",
   "workspace.wslUncPrompt.openWsl": "Open WSL connection",
   "workspace.wslUncPrompt.continuePath": "Continue with path",
+  "taskList.codexConnectivityUnavailable":
+    "Warmup could not reach {host}. Starting a conversation may fail until the network is available.",
   "workspaceSidebar.workspaces": "Tasks",
   "workspaceSidebar.archivedTasks": "Archived",
   "workspaceSidebar.taskViewOptions": "Filter and sort",
@@ -1752,13 +1950,37 @@ const enUS: Record<string, string> = {
   "remote.connectingStepDescription":
     "We are establishing the {method} connection. You can follow the live setup progress here.",
   "webRemoteControl.trigger": "Mobile remote control",
+  "webRemoteControl.triggerStatus.idle": "Remote control is off",
+  "webRemoteControl.triggerStatus.starting": "Remote control is starting",
+  "webRemoteControl.triggerStatus.waiting": "Waiting for phone",
+  "webRemoteControl.triggerStatus.connecting": "Connecting phone",
+  "webRemoteControl.triggerStatus.connected": "Phone connected",
+  "webRemoteControl.triggerStatus.error": "Remote control failed",
   "webRemoteControl.title": "Mobile remote control",
-  "webRemoteControl.description": "Control ZCodium workspaces through chat bots.",
+  "webRemoteControl.description":
+    "Scan the QR code or open the link on your phone to control this workspace.",
+  "webRemoteControl.statusLabel": "Session status",
+  "webRemoteControl.status.idle": "Idle",
+  "webRemoteControl.status.starting": "Starting",
+  "webRemoteControl.status.running": "Waiting for phone",
+  "webRemoteControl.status.connecting": "Connecting phone",
+  "webRemoteControl.status.active": "Phone connected",
+  "webRemoteControl.status.error": "Connection failed",
+  "webRemoteControl.themeMenu.trigger": "Choose theme",
+  "webRemoteControl.statusDetail.idle": "Ready to connect.",
+  "webRemoteControl.statusDetail.starting": "Starting remote control...",
+  "webRemoteControl.statusDetail.running": "Scan the QR code or open the link on your phone.",
+  "webRemoteControl.statusDetail.connecting": "Phone is connecting...",
+  "webRemoteControl.statusDetail.active": "Your phone can control this workspace.",
+  "webRemoteControl.statusDetail.error": "Could not start mobile remote control.",
+  "webRemoteControl.generating": "Preparing QR code...",
+  "webRemoteControl.qrAlt": "Web remote control QR code",
+  "webRemoteControl.mobileQr.title": "Scan from phone",
+  "webRemoteControl.mobileQr.description": "Use your phone camera to open this workspace remotely.",
+  "webRemoteControl.statusTag.phone": "Phone",
+  "webRemoteControl.statusTag.ready": "Ready",
   "webRemoteControl.botChannel.title": "Use a bot channel",
   "webRemoteControl.botChannel.description": "Connect a chat bot for longer-running mobile access.",
-  "webRemoteControl.botChannel.astrbot.title": "AstrBot",
-  "webRemoteControl.botChannel.astrbot.description":
-    "Open this workspace through a chat platform connected via AstrBot.",
   "webRemoteControl.botChannel.weixin.title": "Weixin",
   "webRemoteControl.botChannel.weixin.description": "Open this workspace from Weixin chat.",
   "webRemoteControl.botChannel.feishu.title": "Feishu",
@@ -1769,6 +1991,84 @@ const enUS: Record<string, string> = {
   "webRemoteControl.botChannel.telegram.description": "Open this workspace from Telegram.",
   "webRemoteControl.botChannel.configure": "Configure in bot channels",
   "webRemoteControl.botChannel.manageBots": "Manage bots",
+  "webRemoteControl.linkLabel": "Remote control link",
+  "webRemoteControl.linkPending": "The remote control link will appear here once ready.",
+  "webRemoteControl.singlePageNote":
+    "This relay pairing supports one phone page at a time. If it is already open elsewhere, close the old page first.",
+  "webRemoteControl.copyLink.description": "Can't scan? Open the link on your phone.",
+  "webRemoteControl.failure.sessionNotFound":
+    "This Web remote control link is no longer valid. Start it again from desktop.",
+  "webRemoteControl.failure.sessionExpired":
+    "This Web remote control session has already ended. Generate a new link from desktop to continue.",
+  "webRemoteControl.failure.sessionConflict":
+    "This link is already being used by another page. Close the other page and scan again.",
+  "webRemoteControl.failure.kicked":
+    "The relay kicked this pairing. Close the other page and generate a new QR code from desktop.",
+  "webRemoteControl.failure.workspaceClosed":
+    "The shared desktop window has been closed. Go back to desktop and start Web remote control again.",
+  "webRemoteControl.failure.desktopDisconnected":
+    "The desktop side disconnected, so this Web remote control session can no longer continue.",
+  "webRemoteControl.failure.invalidMobileConnection":
+    "The current mobile connection is no longer valid. Reload the page and reconnect.",
+  "webRemoteControl.failure.desktopBootstrapTimeout":
+    "The desktop window did not respond in time. Make sure it is still running, then reload.",
+  "webRemoteControl.failure.connectionRecoveryTimeout":
+    "The mobile connection did not recover in time, so Web remote control cannot keep syncing yet.",
+  "webRemoteControl.failure.relayUnavailable":
+    "The external relay connection is unavailable. Make sure desktop is online, then try again.",
+  "webRemoteControl.failure.unsupportedAction":
+    "Web remote control mode can only open workspaces that are already open in the current desktop window.",
+  "webRemoteControl.failure.unexpectedError":
+    "Could not start mobile remote control. Try again from desktop.",
+  "webRemoteControl.copyLink": "Copy link",
+  "webRemoteControl.copyLink.copied": "Remote control link copied",
+  "webRemoteControl.copyLinkFailed": "Could not copy remote control link: {error}",
+  "webRemoteControl.refreshQr": "Refresh QR",
+  "webRemoteControl.refreshQr.confirmTitle": "Refresh QR code?",
+  "webRemoteControl.refreshQr.confirmDescription":
+    "Refreshing will invalidate any remote control links that were copied or scanned before. Connected phones will need to scan the new QR code.",
+  "webRemoteControl.refreshQr.success": "Remote control QR refreshed",
+  "webRemoteControl.refreshQr.failed": "Could not refresh remote control QR: {error}",
+  "webRemoteControl.stop": "Stop",
+  "webRemoteControl.switchWorkspace": "Switch workspace",
+  "webRemoteControl.expandNavigation": "Expand tasks and workspaces",
+  "webRemoteControl.collapseNavigation": "Collapse tasks and workspaces",
+  "webRemoteControl.noSwitchableWorkspaces": "No switchable workspaces",
+  "webRemoteControl.noTasks": "No tasks available in the current desktop window",
+  "webRemoteControl.openTask": "Open task {title}",
+  "webRemoteControl.taskStatus.idle": "Idle",
+  "webRemoteControl.taskStatus.running": "Running",
+  "webRemoteControl.taskStatus.completed": "Done",
+  "webRemoteControl.taskStatus.error": "Error",
+  "webRemoteControl.mobileHome.title": "ZCodium remote control",
+  "webRemoteControl.mobileHome.connected": "Connected to this desktop window",
+  "webRemoteControl.mobileHome.notice":
+    "This connection can view the projects, tasks, and sessions currently open on this device. If the QR code expires, return to desktop and connect again.",
+  "webRemoteControl.mobileHome.sectionTitle": "Workspaces and tasks on this device",
+  "webRemoteControl.mobileHome.summary": "{workspaceCount} workspaces · {taskCount} tasks",
+  "webRemoteControl.mobileHome.collapseAll": "Collapse all workspaces",
+  "webRemoteControl.mobileHome.organize": "Organize tasks",
+  "webRemoteControl.mobileHome.organizeByWorkspace": "By workspace",
+  "webRemoteControl.mobileHome.organizeByTimeline": "Timeline",
+  "webRemoteControl.mobileHome.sortBy": "Sort by",
+  "webRemoteControl.mobileHome.sortByCreated": "Created time",
+  "webRemoteControl.mobileHome.sortByUpdated": "Updated time",
+  "webRemoteControl.mobileHome.refresh": "Refresh workspaces and tasks",
+  "webRemoteControl.mobileHome.workspaceKind.local": "Local",
+  "webRemoteControl.mobileHome.workspaceKind.conversation": "Conversation",
+  "webRemoteControl.mobileHome.workspaceKind.remote": "Remote",
+  "webRemoteControl.mobileHome.disconnected": "Disconnected",
+  "webRemoteControl.mobileHome.reconnect": "Reconnect",
+  "webRemoteControl.mobileHome.reconnecting": "Reconnecting",
+  "webRemoteControl.mobileHome.updatedAt": "Updated {time}",
+  "webRemoteControl.mobileHome.taskCount": "{count} tasks",
+  "webRemoteControl.mobileHome.workspaceEmpty": "No tasks in this workspace",
+  "webRemoteControl.mobileShell.backHome": "Back to task home",
+  "webRemoteControl.mobileShell.chatTitle": "Task chat",
+  "webRemoteControl.mobileShell.reconnecting": "Reconnecting automatically...",
+  "webRemoteControl.stopSuccess": "Web remote control stopped",
+  "webRemoteControl.startFailed": "Failed to start Web remote control: {error}",
+  "webRemoteControl.stopFailed": "Failed to stop Web remote control: {error}",
   "remote.title": "Connect remote environment",
   "remote.description":
     "Connect to a remote workspace over SSH, Server, WSL, or Docker, then choose a directory in the current window.",
@@ -1781,9 +2081,11 @@ const enUS: Record<string, string> = {
   "remote.selectedMethod": "Selected method",
   "remote.methods": "Connection method",
   "remote.kind.ssh": "SSH",
+  "remote.kind.server": "Server",
   "remote.kind.wsl": "WSL",
   "remote.kind.docker": "Docker",
   "remote.kind.ssh.wizardDescription": "Remote host",
+  "remote.kind.server.wizardDescription": "Running ZCodium service",
   "remote.kind.wsl.wizardDescription": "Windows Subsystem for Linux",
   "remote.kind.docker.wizardDescription": "Local container",
   "remote.connect": "Connect",
@@ -1811,6 +2113,19 @@ const enUS: Record<string, string> = {
   "remote.log.requestingSession": "Requesting the host process to create a remote session...",
   "remote.log.sessionReady":
     "Remote session created successfully. You can choose a directory next.",
+  "server.description": "Connect to an already running ZCodium server.",
+  "server.url": "Server URL",
+  "server.urlPlaceholder": "e.g. https://studio.example.com:3030",
+  "server.name": "Display name",
+  "server.namePlaceholder": "e.g. Studio",
+  "server.token": "Token (optional)",
+  "server.tokenPlaceholder": "Enter connection token",
+  "server.workspacePath": "Default directory (optional)",
+  "server.workspacePathPlaceholder": "e.g. /srv/project",
+  "server.workspacePathDescription":
+    "Leave empty to choose a directory on the server after connecting.",
+  "server.validation.urlRequired": "Server URL is required",
+  "server.validation.invalidUrl": "Server URL is invalid",
   "wsl.description":
     "Connect to the default distro, or choose a specific distro installed on this device.",
   "wsl.distro": "Distribution",
@@ -1871,7 +2186,12 @@ const enUS: Record<string, string> = {
   // Task list
   "taskList.newTask": "New task",
   "taskList.newThread": "New task",
+  "taskList.newTask.claude": "Claude CLI",
+  "taskList.newTask.opencode": "OpenCode CLI",
+  "taskList.newTask.gemini": "Gemini CLI",
+  "taskList.newTask.codex": "Codex CLI",
   "taskList.forkedUntitled": "New task",
+  "taskList.selectProvider": "Select agent",
   "taskList.noTasks": "No tasks yet",
   "taskList.noArchivedTasks": "No archived tasks",
   "taskList.loading": "Loading tasks...",
@@ -2249,7 +2569,11 @@ const enUS: Record<string, string> = {
   "notification.file": "File: {paths}",
   "settings.closeToTrayOnWindows": "Hide to tray when closing window",
   "settings.closeToTrayOnWindowsDescription":
-    "Windows only. The close button and close-window shortcut hide the window, while Quit from the tray still exits the app.",
+    "The close button and close-window shortcut hide the window, while Quit from the tray still exits the app. On by default on Windows; on Linux it depends on whether the desktop environment provides a system tray.",
+  "settings.closeToTrayUnavailable":
+    "Your desktop environment has no system tray, so close-to-tray cannot be enabled.",
+  "settings.closeToTrayGnomeHint":
+    "On GNOME, install an AppIndicator extension and restart the app to enable this.",
   "settings.keepAwakeWhileRunning": "Keep computer running",
   "settings.keepAwakeWhileRunningDescription":
     "Prevent the system from sleeping due to idle. You can still sleep manually or by closing the lid. Desktop only.",
@@ -2275,6 +2599,20 @@ const enUS: Record<string, string> = {
   "settings.askUserQuestionAutoResolution": "Automatically continue questions",
   "settings.askUserQuestionAutoResolutionDescription":
     "When enabled, Agent questions automatically continue after 5 minutes without an answer. When disabled, current and future questions wait for your response.",
+  "settings.dynamicWorkflow": "Dynamic workflows",
+  "settings.dynamicWorkflowDescription":
+    "Let the model orchestrate many subagents working in parallel, so it can take on complex tasks and deliver polished results.",
+  "settings.dynamicWorkflow.option.disabled": "Off",
+  "settings.dynamicWorkflow.option.disabled.description":
+    "Turn workflows off. The model cannot start new ones, and the Workflows tab leaves the Automations page. Workflows already in your conversations stay readable.",
+  "settings.dynamicWorkflow.option.onDemand": "On command",
+  "settings.dynamicWorkflow.option.onDemand.description":
+    "The model starts a workflow only when you type /workflow.",
+  "settings.dynamicWorkflow.option.alwaysOn": "Always on",
+  "settings.dynamicWorkflow.option.alwaysOn.description":
+    "You can type /workflow, and the model can also start a workflow on its own when your request calls for one.",
+  "settings.dynamicWorkflow.defaultTag": "Default",
+  "settings.dynamicWorkflow.saveError": "Could not save the dynamic workflow setting",
   "settings.modelIoFullRetention": "Keep complete model I/O",
   "settings.modelIoFullRetentionDescription":
     "Keep complete model requests and responses without compression, size limits, or automatic deletion.",
@@ -2292,13 +2630,10 @@ const enUS: Record<string, string> = {
   "settings.taskAutoArchiveDays.option.30": "Archive after 30 days",
   "settings.dataBaseDir": "Data storage path",
   "settings.dataBaseDirDescription":
-    "Root directory for app data (defaults to user home directory). Existing data will be copied to the new location. The .zcodium/v2 suffix cannot be changed.",
+    "Root directory for app data (defaults to user home directory). Existing data will be copied to the new location. The .zcode/v2 suffix cannot be changed.",
   "settings.dataBaseDirPlaceholder": "Default: user home directory",
   "settings.dataBaseDirBrowse": "Choose folder",
   "settings.dataBaseDirSave": "Save",
-  "settings.dataBaseDirImport": "Import legacy data",
-  "settings.dataBaseDirImportHint":
-    "Copy data from the legacy data directory and restart (the current directory is backed up first)",
   "settings.dataBaseDirCopying": "Copying data, please do not close the app...",
   "settings.dataBaseDirCopyFailed": "Data copy failed. Path was not changed.",
   "settings.dataBaseDirForbiddenInstallDir":
@@ -2307,11 +2642,9 @@ const enUS: Record<string, string> = {
   "settings.locale.system": "System default",
   "settings.locale.zh-CN": "中文简体",
   "settings.locale.en-US": "English",
-  "settings.locale.fa-IR": "فارسی",
   "sidebar.settings.systemDefault": "System default",
   "sidebar.settings.locale.en-US": "English",
   "sidebar.settings.locale.zh-CN": "中文简体",
-  "sidebar.settings.locale.fa-IR": "فارسی",
   "sidebar.settings.interfaceZoom": "Interface zoom",
   "sidebar.settings.theme.light": "Light theme",
   "sidebar.settings.theme.zai-light": "Light theme",
@@ -2371,16 +2704,6 @@ const enUS: Record<string, string> = {
   "settings.migration.failedTitle": "Failures",
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "The source session was not found, or it no longer matches the current workspace filter.",
-  "settings.officialServicesTitle": "Z.AI services",
-  "settings.officialServices.title": "Z.AI service connections",
-  "settings.officialServices.description":
-    "These are Z.AI (ZCode) services. Turning one on connects to Z.AI servers — keep them off unless you need them. Some features load at startup; restart the app after changing these switches.",
-  "settings.officialServices.marketplace.title": "Z.AI marketplace and CDN",
-  "settings.officialServices.marketplace.desc":
-    "Download plugins and assets from the Z.AI marketplace and CDN.",
-  "settings.officialServices.clientConfig.title": "Z.AI client config",
-  "settings.officialServices.clientConfig.desc":
-    "Fetch the Z.AI client configuration and startup warmup data; does not include Provider templates (model presets come from the built-in config).",
   "settings.usageTitle": "Usage stats",
   "settings.usageDescription":
     "Review rough activity and model usage aggregated from local sessions.",
@@ -2449,7 +2772,7 @@ const enUS: Record<string, string> = {
   "settings.browser.title": "Browser Use",
   "settings.browser.control.title": "Enable built-in browser control",
   "settings.browser.control.description":
-    "Enable the Browser Use plugin so new sessions can access and control web pages in the built-in browser.",
+    "Enable the official Browser Use plugin so new sessions can access and control web pages in the built-in browser.",
   "settings.browser.control.enabledToast": "Built-in browser control enabled",
   "settings.browser.control.disabledToast": "Built-in browser control disabled",
   "settings.browser.security.section": "Security",
@@ -2657,9 +2980,10 @@ const enUS: Record<string, string> = {
     "MCP authorization was not completed or timed out. Authorize again.",
   "settings.mcp.failure.official_origin_untrusted":
     "The MCP server URL failed the security check. The connection was blocked.",
-  "settings.mcp.failure.not_authenticated": "No API key configured. Please configure one first.",
+  "settings.mcp.failure.not_authenticated":
+    "You are not signed in. Sign in to ZCodium to use this MCP server.",
   "settings.mcp.failure.coding_plan_required":
-    "No Coding Plan configured. Configure one in model settings first.",
+    "This account has no Coding Plan. Purchase or configure a Coding Plan to use this MCP server.",
   "settings.mcp.failure.server_not_found":
     "The MCP server was not found. Check the plugin or server configuration.",
   "settings.mcp.failure.server_unavailable":
@@ -2778,7 +3102,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.modelSaveFailure": "Failed to save {provider} / {model}: {error}",
   "settings.modelProvider.cancel": "Cancel",
   "settings.modelProvider.name": "Name",
-  "settings.modelProvider.namePlaceholder": "e.g. DeepSeek",
+  "settings.modelProvider.namePlaceholder": "e.g. Z.ai GLM",
   "settings.modelProvider.addProviderTitle": "Add model provider",
   "settings.modelProvider.addProviderDescription":
     "Configure a custom API endpoint and initial model.",
@@ -2809,40 +3133,16 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.apiFormat.title.chatCompletions": "Chat completions",
   "settings.modelProvider.apiFormat.title.responses": "Responses",
   "settings.modelProvider.apiFormat.title.anthropicMessages": "Anthropic messages",
+  "settings.modelProvider.anthropicEndpoint": "Anthropic endpoint",
+  "settings.modelProvider.anthropicEndpointPlaceholder": "e.g. https://api.anthropic.com",
+  "settings.modelProvider.openaiEndpoint": "OpenAI endpoint",
+  "settings.modelProvider.openaiEndpointPlaceholder": "e.g. https://api.openai.com/v1",
+  "settings.modelProvider.geminiEndpoint": "Gemini endpoint",
+  "settings.modelProvider.geminiEndpointPlaceholder":
+    "e.g. https://generativelanguage.googleapis.com",
+  "settings.modelProvider.endpointNoMatch": "No matching endpoint",
   "settings.modelProvider.apiKey": "API key",
   "settings.modelProvider.apiKeyPlaceholder": "Enter API key",
-  "orcaRouter.title": "OrcaRouter",
-  "orcaRouter.description":
-    "OrcaRouter is an OpenAI-compatible AI gateway. Use an existing API key or connect your OrcaRouter account; both end up as the same API key against {baseUrl}.",
-  "orcaRouter.apiKey.title": "Use API key",
-  "orcaRouter.apiKey.save": "Save key",
-  "orcaRouter.apiKey.invalid":
-    "OrcaRouter API keys start with sk-orca-. Check the value and try again.",
-  "orcaRouter.pkce.title": "Connect with OrcaRouter",
-  "orcaRouter.pkce.description":
-    "OAuth 2.0 + PKCE. No client secret and no redirect URI to register; the authorization page shows a code you paste back here.",
-  "orcaRouter.pkce.connect": "Connect with OrcaRouter",
-  "orcaRouter.pkce.openHint": "Open this URL, approve, then paste the code below",
-  "orcaRouter.pkce.open": "Open authorization page",
-  "orcaRouter.pkce.copy": "Copy authorization URL",
-  "orcaRouter.pkce.copied": "Authorization URL copied",
-  "orcaRouter.pkce.codePlaceholder": "Paste the authorization code",
-  "orcaRouter.pkce.submitCode": "Finish connecting",
-  "orcaRouter.connect.failed": "Could not start the OrcaRouter authorization",
-  "orcaRouter.connected": "Connected · {masked}",
-  "orcaRouter.notConnected": "Not connected",
-  "orcaRouter.clear": "Clear",
-  "orcaRouter.clear.failed": "Could not clear the OrcaRouter credential. Try again.",
-  "orcaRouter.needsReauth":
-    "OrcaRouter rejected this credential. Connect again to replace it; the stored key is kept until a new login succeeds.",
-  "orcaRouter.model.selectPlaceholder": "Select a model",
-  "orcaRouter.model.search": "Search models",
-  "orcaRouter.model.empty": "No model in the current catalog matches this entry.",
-  "orcaRouter.catalog.failed": "The OrcaRouter model catalog is unavailable.",
-  "orcaRouter.catalog.degradedSeed":
-    "Live model catalog unavailable. Showing the verified offline seed ({count} models).",
-  "orcaRouter.catalog.degradedLastKnownGood":
-    "Live model catalog refresh failed. Showing the last known good catalog ({count} models).",
   "settings.modelProvider.apiKeyDisabledHint": "Set an API key to enable this provider.",
   "settings.modelProvider.getApiKey": "Get API key",
   "settings.modelProvider.viewUsage": "View usage",
@@ -2863,12 +3163,13 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.connectionMode.loadFailed": "Connection settings failed",
   "settings.modelProvider.connectionMode.noAvailablePlan": "No available plan",
   "settings.modelProvider.accountProviderConfigMissing":
-    "Provider configuration is temporarily unavailable. Refresh and retry.",
-  "settings.modelProvider.startPlan.login": "Configure API",
-  "settings.modelProvider.startPlan.status.loginRequired": "Configure an API key to view",
+    "The account provider configuration is unavailable. Refresh and try again.",
+  "settings.modelProvider.startPlan.login": "Log in",
+  "settings.modelProvider.startPlan.status.loginRequired": "Log in to view and use your Start Plan",
   "settings.modelProvider.startPlan.status.expired": "Start Plan expired",
   "settings.modelProvider.startPlan.status.noPlan": "No available Start Plan",
-  "settings.modelProvider.startPlan.status.loginExpired": "API key expired. Configure it again.",
+  "settings.modelProvider.startPlan.status.loginExpired":
+    "Your login has expired. Please log in again.",
   "settings.modelProvider.startPlan.title": "{provider} - Coding Plan",
   "settings.modelProvider.startPlan.meta.today": "Today",
   "settings.modelProvider.startPlan.meta.tomorrow": "Tomorrow",
@@ -2883,15 +3184,10 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.startPlan.balance.title": "Today's balance",
   "settings.modelProvider.startPlan.balance.remaining": "{value} tokens remaining",
   "settings.modelProvider.startPlan.balance.used": "{value} used",
-  "settings.modelProvider.balance.title": "Account balance",
-  "settings.modelProvider.balance.refresh": "Refresh balance",
-  "settings.modelProvider.balance.notConfigured": "Enter an API key to check the balance.",
-  "settings.modelProvider.balance.unauthorized": "The API key is invalid or expired.",
-  "settings.modelProvider.balance.error": "Could not load the balance. Try again later.",
   "settings.modelProvider.startPlan.highlight.trial.label": "Trial period",
   "settings.modelProvider.startPlan.highlight.trial.value": "5 calendar days",
   "settings.modelProvider.startPlan.highlight.trial.description":
-    "Starts when an API key is configured.",
+    "Timing starts after signing in to ZCodium 3.x.",
   "settings.modelProvider.startPlan.highlight.quota.label": "Daily quota",
   "settings.modelProvider.startPlan.highlight.quota.value": "3M tokens daily",
   "settings.modelProvider.startPlan.highlight.quota.description":
@@ -2903,16 +3199,17 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.startPlan.compatibility":
     "Supports BYOK and BYOA. Base URL, API format, and API Key are maintained by ZCodium automatically.",
   "settings.modelProvider.codingPlan.title": "{provider} - Coding Plan",
-  "settings.modelProvider.codingPlan.webview.title": "Coding Plan",
+  "settings.modelProvider.codingPlan.webview.title": "Upgrade Plan",
   "settings.modelProvider.codingPlan.webview.authInjectFailed":
-    "Could not open the plan page. Try again.",
+    "Couldn't sign you into the plan page. Please retry.",
   "settings.modelProvider.codingPlan.webview.retry": "Retry",
   "settings.modelProvider.codingPlan.webview.loadFailed": "The plan page failed to load.",
-  "settings.modelProvider.codingPlan.webview.openWebsite": "Open website",
-  "settings.modelProvider.codingPlan.status.loginRequired": "Not configured",
+  "settings.modelProvider.codingPlan.webview.openWebsite": "Buy on the official website",
+  "settings.modelProvider.codingPlan.status.loginRequired": "Not signed in",
   "settings.modelProvider.codingPlan.status.disconnected": "Not connected",
   "settings.modelProvider.codingPlan.status.checking": "Checking",
-  "settings.modelProvider.codingPlan.status.notPurchased": "Not configured",
+  "settings.modelProvider.codingPlan.status.notPurchased":
+    "Not subscribed, enabled after subscription",
   "settings.modelProvider.codingPlan.status.purchased": "Subscribed",
   "settings.modelProvider.codingPlan.status.unavailable": "Fetch failed",
   "settings.modelProvider.codingPlan.status.teamExpired":
@@ -2921,30 +3218,50 @@ const enUS: Record<string, string> = {
     "Team plan not assigned. Contact your team admin.",
   "settings.modelProvider.codingPlan.status.unsupported": "Not supported yet",
   "settings.modelProvider.codingPlan.bigmodel.unregisteredHint":
-    "This BigModel API key is not registered yet. Please register first.",
+    "This BigModel account is not registered yet. Register first.",
   "settings.modelProvider.codingPlan.bigmodel.registerAction": "Register",
   "settings.modelProvider.codingPlan.description.disconnected":
     "Connect to view Coding Plan entitlements.",
   "settings.modelProvider.codingPlan.description.checking":
     "Checking Coding Plan entitlement with the current provider API key.",
+  "settings.modelProvider.codingPlan.description.notPurchased":
+    "No active Coding Plan was found for the current API key or account.",
+  "settings.modelProvider.codingPlan.description.purchased":
+    "Coding Plan is active and can be used by this provider.",
   "settings.modelProvider.codingPlan.description.credentialFailed":
-    "Could not fetch the plan. Re-configure the API key and retry.",
+    "Failed to retrieve your plan. Please sign in again and retry.",
   "settings.modelProvider.codingPlan.description.unavailable":
-    "Coding Plan entitlement is temporarily unavailable. Re-configure and retry.",
+    "Could not verify Coding Plan entitlement. Connect again and retry.",
   "settings.modelProvider.codingPlan.description.unsupported":
     "This provider does not support Coding Plan status checks yet.",
-  "settings.modelProvider.codingPlan.login": "Configure {provider} API key",
-  "settings.modelProvider.codingPlan.browserLogin": "Sign in via browser",
-  "settings.modelProvider.codingPlan.browserLoginHint":
-    'Browser sign-in did not complete. Make sure "Z.AI API configuration" is enabled under Settings → Z.AI services, then retry and finish the browser authorization.',
-  "settings.modelProvider.codingPlan.connect": "Configure {provider}",
+  "settings.modelProvider.codingPlan.login": "Sign in to {provider}",
+  "settings.modelProvider.codingPlan.connect": "Connect to {provider}",
+  "settings.modelProvider.codingPlan.purchaseLoginRequiredShort": "Sign in to purchase",
+  "settings.modelProvider.codingPlan.purchaseConnectRequiredShort": "Connect to purchase",
   "settings.modelProvider.codingPlan.disconnect": "Unlink",
-  "settings.modelProvider.codingPlan.upgrade": "Configure",
+  "settings.modelProvider.codingPlan.subscribe": "Subscribe",
+  "settings.modelProvider.codingPlan.upgrade": "Upgrade",
+  "settings.modelProvider.codingPlan.renew": "Renew",
   "settings.modelProvider.codingPlan.currentPlan": "Current",
+  "settings.modelProvider.codingPlan.purchased": "Purchased",
   "settings.modelProvider.codingPlan.startPlan.expiredBadge": "Expired",
   "settings.modelProvider.codingPlan.startPlan.expiredAction": "Ended",
+  "settings.modelProvider.codingPlan.cancelUpgrade": "Back",
+  "settings.modelProvider.codingPlan.purchase.title": "Upgrade Coding Plan",
+  "settings.modelProvider.codingPlan.purchase.pricingTitle": "Pricing",
+  "settings.modelProvider.codingPlan.purchase.pricingDescription":
+    "Find the perfect plan for you and kick-start your AI coding journey.",
+  "settings.modelProvider.codingPlan.purchase.moreInfo": "More Info",
+  "settings.modelProvider.codingPlan.purchase.billingCycleTitle": "Choose billing cycle",
+  "settings.modelProvider.codingPlan.purchase.paymentConfirmTitle": "Confirm payment",
+  "settings.modelProvider.codingPlan.purchase.paymentTitle": "Payment",
+  "settings.modelProvider.codingPlan.purchase.personal": "Individuals",
+  "settings.modelProvider.codingPlan.purchase.team": "Teams",
   "settings.modelProvider.codingPlan.purchase.individualsSectionTitle": "For Individuals",
+  "settings.modelProvider.codingPlan.purchase.teamsSectionTitle": "For Teams",
   "settings.modelProvider.codingPlan.purchaseBanner.startPlanTitle": "Start Plan",
+  "settings.modelProvider.codingPlan.purchaseBanner.startPlanDescription":
+    "Try platform GLM flagship model quota for free.",
   "settings.modelProvider.codingPlan.purchaseBanner.personalTitle": "For Individuals",
   "settings.modelProvider.codingPlan.purchaseBanner.personalDescription":
     "For individual developers with dedicated Coding Plan quota.",
@@ -2952,9 +3269,73 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.codingPlan.purchaseBanner.teamTitle": "For Teams",
   "settings.modelProvider.codingPlan.purchaseBanner.teamDescription":
     "For team collaboration with seats and centralized billing.",
+  "settings.modelProvider.codingPlan.purchaseBanner.teamStandardDescription":
+    "For small teams that need shared quota and seat management.",
+  "settings.modelProvider.codingPlan.purchaseBanner.teamAdvancedDescription":
+    "For high-throughput engineering teams that need more quota and flexible seats.",
+  "settings.modelProvider.codingPlan.purchase.choosePlan": "Choose a plan",
+  "settings.modelProvider.codingPlan.purchase.choosePlanDescription":
+    "Compare plan capacity first. Billing cycle and final payment are confirmed next.",
   "settings.modelProvider.codingPlan.purchase.selectPlan": "Select",
+  "settings.modelProvider.codingPlan.purchase.select": "Select",
+  "settings.modelProvider.codingPlan.purchase.selected": "Selected",
   "settings.modelProvider.codingPlan.purchase.fromPrice": "{price}+",
   "settings.modelProvider.codingPlan.purchase.fromPriceSuffix": "",
+  "settings.modelProvider.codingPlan.purchase.previewLoading": "Calculating payment amount",
+  "settings.modelProvider.codingPlan.purchase.previewLoadingDescription":
+    "Please wait. Confirmation and payment use the same payment details.",
+  "settings.modelProvider.codingPlan.purchase.previewUnavailableDescription":
+    "Payment amount is unavailable. Go back and choose the billing cycle again.",
+  "settings.modelProvider.codingPlan.purchase.teamTitle": "Team plans",
+  "settings.modelProvider.codingPlan.purchase.teamDescription":
+    "Seats, shared quota, and centralized billing are coming later.",
+  "settings.modelProvider.codingPlan.purchase.teamCardDescription":
+    "Shared quota, seat management, and centralized billing.",
+  "settings.modelProvider.codingPlan.purchase.comingSoon": "Coming soon",
+  "settings.modelProvider.codingPlan.purchase.chooseBillingCycle":
+    "Choose billing cycle for {plan}",
+  "settings.modelProvider.codingPlan.purchase.billingCycleDescription":
+    "Prices and discounts are refreshed before payment. Final amount is confirmed in the payment step.",
+  "settings.modelProvider.codingPlan.purchase.continueToPayment": "Continue to payment",
+  "settings.modelProvider.codingPlan.purchase.summaryPlan": "Plan",
+  "settings.modelProvider.codingPlan.purchase.summaryBillingCycle": "Billing cycle",
+  "settings.modelProvider.codingPlan.purchase.summaryDueToday": "Due today",
+  "settings.modelProvider.codingPlan.purchase.summaryStatus": "Status",
+  "settings.modelProvider.codingPlan.purchase.servicePeriod": "Service period",
+  "settings.modelProvider.codingPlan.purchase.durationValue": "{duration} {unit}",
+  "settings.modelProvider.codingPlan.purchase.autoRenewPeriod": "Auto-renews every {period}",
+  "settings.modelProvider.codingPlan.purchase.renewalPolicyTitle": "Renewal policy",
+  "settings.modelProvider.codingPlan.purchase.renewalPolicyCharge":
+    "Your subscription renews automatically at {price}{unit} unless cancelled.",
+  "settings.modelProvider.codingPlan.purchase.renewalPolicyPreview":
+    "Final discounts, credits, and payment amount are confirmed in the next payment preview.",
+  "settings.modelProvider.codingPlan.purchase.renewalPolicyCancel":
+    "You can turn off auto-renewal from plan management before the next renewal.",
+  "settings.modelProvider.codingPlan.purchase.termsAccepted":
+    "I understand and agree to the renewal policy and subscription terms.",
+  "settings.modelProvider.codingPlan.purchase.paymentPreparing": "Preparing payment",
+  "settings.modelProvider.codingPlan.purchase.securityChecking":
+    "Waiting for security verification",
+  "settings.modelProvider.codingPlan.purchase.paymentPolling": "Waiting for payment confirmation",
+  "settings.modelProvider.codingPlan.purchase.paymentStarted":
+    "Complete payment on this payment page",
+  "settings.modelProvider.codingPlan.purchase.paymentStartedDescription":
+    "Keep this panel open while the payment channel finishes. You can go back to the payment confirmation page before payment succeeds.",
+  "settings.modelProvider.codingPlan.purchase.paymentInProgress": "Payment in progress",
+  "settings.modelProvider.codingPlan.purchase.successTitle": "Payment successful",
+  "settings.modelProvider.codingPlan.purchase.successDescription":
+    "Your Coding Plan payment was successful. The provider status will refresh after you close this panel.",
+  "settings.modelProvider.codingPlan.purchase.successRefreshingDescription":
+    "Your payment was successful. We are refreshing plan status; you can close this panel and the provider page will continue refreshing.",
+  "settings.modelProvider.codingPlan.purchase.statusSyncing": "Syncing",
+  "settings.modelProvider.codingPlan.purchase.statusActive": "Active",
+  "settings.modelProvider.codingPlan.purchase.refreshNow": "Refresh now",
+  "settings.modelProvider.codingPlan.purchase.done": "Done",
+  "settings.modelProvider.codingPlan.purchase.teamMemberNoticeTitle":
+    "Assign members to your team plan",
+  "settings.modelProvider.codingPlan.purchase.teamMemberNoticeDescription":
+    "Add yourself or other members on the BigModel team plan management page. Once assigned, the team quota will be available in ZCodium.",
+  "settings.modelProvider.codingPlan.purchase.manageTeamPlan": "Manage team plan",
   "settings.modelProvider.codingPlan.manage": "Manage",
   "settings.modelProvider.planCard.codingPlan": "Coding Plan",
   "settings.modelProvider.planCard.startPlan": "Start Plan",
@@ -2963,7 +3344,7 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.planCard.usage.totalTokens": "Total tokens",
   "settings.modelProvider.codingPlan.recheck": "Recheck",
   "settings.modelProvider.codingPlan.checkingPlans": "Checking...",
-  "settings.modelProvider.codingPlan.switchAccount": "Switch API key",
+  "settings.modelProvider.codingPlan.switchAccount": "Switch account",
   "settings.modelProvider.codingPlan.useApiKeyProvider": "Use API key",
   "settings.modelProvider.codingPlan.nextResetAt": "Quota resets {date}",
   "settings.modelProvider.codingPlan.renewsAt": "Renews {date}",
@@ -2973,7 +3354,9 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.startPlan.expiresAt": "Expires {date}",
   "settings.modelProvider.codingPlan.openApiKeyProvider": "Open BigModel - API key",
   "settings.modelProvider.codingPlan.plansTitle": "Coding Plan",
+  "settings.modelProvider.codingPlan.billingDiscountInfo.open": "View 150% quota campaign details",
   "settings.modelProvider.codingPlan.audience.personal": "Individuals",
+  "settings.modelProvider.codingPlan.audience.enterprise": "Enterprise",
   "settings.modelProvider.codingPlan.period.monthly": "Monthly",
   "settings.modelProvider.codingPlan.period.quarterly": "Quarterly",
   "settings.modelProvider.codingPlan.period.yearly": "Yearly",
@@ -2984,16 +3367,50 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.codingPlan.unit.cny.quarter": "/quarter",
   "settings.modelProvider.codingPlan.unit.cny.year": "/year",
   "settings.modelProvider.codingPlan.monthlyEquivalent": "Equivalent to {price}/month",
+  "settings.modelProvider.codingPlan.monthlyFlexibleBilling": "Flexible monthly billing",
   "settings.modelProvider.codingPlan.providerFormDescription":
     "These settings are maintained by Coding Plan. Use the API Key entry for manual keys.",
   "settings.modelProvider.codingPlan.retry": "Retry",
+  "settings.modelProvider.codingPlan.viewPrices": "View prices",
+  "settings.modelProvider.codingPlan.productsLoading": "Loading Coding Plan",
+  "settings.modelProvider.codingPlan.productsLoadingDescription":
+    "Fetching the latest plans and prices from {provider}.",
+  "settings.modelProvider.codingPlan.purchase.authStateError":
+    "Failed to read your sign-in status. Please retry.",
+  "settings.modelProvider.codingPlan.purchase.authStateRetry": "Retry sign-in status",
+  "settings.modelProvider.codingPlan.productsError": "Could not load plans",
+  "settings.modelProvider.codingPlan.productsReconnectTitle": "Connect to view plans",
   "settings.modelProvider.codingPlan.reconnectToViewPlans": "Reconnect",
+  "settings.modelProvider.codingPlan.productsLoginRequired":
+    "Reconnect your {provider} account to refresh prices and available Coding Plan products.",
+  "settings.modelProvider.codingPlan.purchaseLoginRequired":
+    "Reconnect your account and try again.",
+  "settings.modelProvider.codingPlan.productsEmpty": "No plans available",
+  "settings.modelProvider.codingPlan.productsEmptyDescription":
+    "{provider} did not return any purchasable Coding Plan products for this account.",
   "settings.modelProvider.codingPlan.dynamicUnsupportedTitle": "Dynamic plans are not available",
   "settings.modelProvider.codingPlan.dynamicUnsupportedDescription":
     "In-app subscription is only connected for Z.ai / BigModel Coding Plan right now.",
+  "settings.modelProvider.codingPlan.priceUnavailable": "Price unavailable",
   "settings.modelProvider.codingPlan.systemBusy": "The system is busy. Please try again later.",
   "settings.modelProvider.codingPlan.subscriptionBusy": "Subscription busy",
   "settings.modelProvider.codingPlan.subscriptionBusyButton": "System busy",
+  "settings.modelProvider.codingPlan.pendingOrder":
+    "There is an unfinished order. Complete or cancel it before starting another purchase.",
+  "settings.modelProvider.codingPlan.paymentTimeout":
+    "Payment is still pending. Recheck your Coding Plan status after the payment page finishes.",
+  "settings.modelProvider.codingPlan.zaiOverseasPaymentRequired":
+    "Z.ai overseas plans must be paid through PayPal or the official Z.ai payment page, not the Alipay signing flow.",
+  "settings.modelProvider.codingPlan.paypalSetupRequired":
+    "Authorize PayPal before continuing the payment.",
+  "settings.modelProvider.codingPlan.paypalApproveUrlMissing":
+    "PayPal did not return an approval link. Try again later.",
+  "settings.modelProvider.codingPlan.paypalUnsupported":
+    "PayPal is not supported for this account or region.",
+  "settings.modelProvider.codingPlan.paypalCancelled":
+    "PayPal authorization was cancelled. Choose PayPal again to retry.",
+  "settings.modelProvider.codingPlan.paypalSubscribeFailed":
+    "PayPal subscription could not be created. Confirm that PayPal authorization finished, then try again or pay by card.",
   "settings.modelProvider.codingPlan.securityVerificationRequired":
     "Complete the security verification before continuing the purchase.",
   "settings.modelProvider.codingPlan.securityVerificationCancelled":
@@ -3007,8 +3424,236 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.codingPlan.start.freeEquityTitle": "Start free plan",
   "settings.modelProvider.codingPlan.start.freeEquityDetails":
     "Basic coding capability is available after sign-in.",
+  "settings.modelProvider.codingPlan.paymentDialog.title": "{product} auto-renewal plan",
+  "settings.modelProvider.codingPlan.paymentDialog.close": "Close payment dialog",
+  "settings.modelProvider.codingPlan.paymentDialog.originalAmount": "Plan price",
+  "settings.modelProvider.codingPlan.paymentDialog.discountActivity": "Discount",
+  "settings.modelProvider.codingPlan.paymentDialog.currentPlanCredit":
+    "Current plan remaining value",
+  "settings.modelProvider.codingPlan.paymentDialog.payAmount": "Amount due",
+  "settings.modelProvider.codingPlan.paymentDialog.deductions": "Deductions",
+  "settings.modelProvider.codingPlan.paymentDialog.alipayScan": "Scan with Alipay to pay",
+  "settings.modelProvider.codingPlan.paymentDialog.polling": "Waiting for payment confirmation",
+  "settings.modelProvider.codingPlan.paymentDialog.qrAlt": "Payment QR code",
+  "settings.modelProvider.codingPlan.paymentDialog.qrLoading": "Generating QR code",
+  "settings.modelProvider.codingPlan.paymentDialog.qrError":
+    "Could not generate the QR code. Try again.",
+  "settings.modelProvider.codingPlan.paymentDialog.qrExpired": "QR code expired",
+  "settings.modelProvider.codingPlan.paymentDialog.refreshQr": "Refresh QR code",
+  "settings.modelProvider.codingPlan.paymentDialog.tipAutoRenew":
+    "The subscription will auto-renew at {price}/month.",
+  "settings.modelProvider.codingPlan.paymentDialog.tipDeduction":
+    "Deduction priority: credits first, then balance, then Alipay.",
+  "settings.modelProvider.codingPlan.paymentDialog.tipPeriodic":
+    "The plan renews monthly until you cancel it according to the service terms.",
+  "settings.modelProvider.codingPlan.paymentDialog.tipCancel":
+    "You can turn off auto-renewal at least 3 days before the renewal date from your plan overview.",
+  "settings.modelProvider.codingPlan.paymentDialog.tipCancelPrefix":
+    "You can turn off auto-renewal at least 3 days before the renewal date from your ",
+  "settings.modelProvider.codingPlan.paymentDialog.planOverviewLink": "plan overview",
+  "settings.modelProvider.codingPlan.paymentDialog.tipCancelSuffix": ".",
+  "settings.modelProvider.codingPlan.paymentDialog.ruleTitle": "Account usage policy",
+  "settings.modelProvider.codingPlan.paymentDialog.ruleDescription":
+    "Use the subscribed account only within officially permitted product scopes. Do not lend, transfer, or provide it to third parties, and do not use it for improper or rule-breaking behavior. If violations are found, the platform may restrict or ban the account without refund.",
+  "settings.modelProvider.codingPlan.paymentDialog.agreement":
+    "Payment means you agree to the service and subscription auto-renewal terms. Virtual products are not refundable after payment.",
+  "settings.modelProvider.codingPlan.enterprise.purchaseMethod": "Service method",
+  "settings.modelProvider.codingPlan.enterprise.purchaseMethodTooltipTitle":
+    "Service method details",
+  "settings.modelProvider.codingPlan.enterprise.purchaseMethodTooltipDescription":
+    "1. Monthly one-time purchase only supports 1, 3, 6, or 12 months. 12 months gets 10% off.\n2. Continuous subscription: auto-renewal deducts in this order: gift balance > balance > Alipay.",
+  "settings.modelProvider.codingPlan.enterprise.tier.lite": "Lite",
+  "settings.modelProvider.codingPlan.enterprise.tier.pro": "Pro",
+  "settings.modelProvider.codingPlan.enterprise.tier.max": "Max",
+  "settings.modelProvider.codingPlan.enterprise.configTitle": "Team plan configuration",
+  "settings.modelProvider.codingPlan.enterprise.packageType": "Plan type",
+  "settings.modelProvider.codingPlan.enterprise.packageSeats": "Plan seats",
+  "settings.modelProvider.codingPlan.enterprise.autoRenewAuthorization":
+    "You authorize us to enable auto-renewal for you",
+  "settings.modelProvider.codingPlan.enterprise.seatMonthlyPrice": "{price} / seat / month",
+  "settings.modelProvider.codingPlan.enterprise.refresh": "Refresh",
+  "settings.modelProvider.codingPlan.enterprise.singleSeatPrice": "single-seat price",
+  "settings.modelProvider.codingPlan.enterprise.singleSeatFrom": "Single-seat pricing",
+  "settings.modelProvider.codingPlan.enterprise.unitPrice": "Single-seat price",
+  "settings.modelProvider.codingPlan.enterprise.seats": "Seats",
+  "settings.modelProvider.codingPlan.enterprise.seatInputUnit": "seats",
+  "settings.modelProvider.codingPlan.enterprise.seatsUnit": "seats",
+  "settings.modelProvider.codingPlan.enterprise.duration": "Duration",
+  "settings.modelProvider.codingPlan.enterprise.durationUnit.month": "mo",
+  "settings.modelProvider.codingPlan.enterprise.durationUnit.quarter": "qtr",
+  "settings.modelProvider.codingPlan.enterprise.durationUnit.year": "yr",
+  "settings.modelProvider.codingPlan.enterprise.durationInputUnit.month": "months",
+  "settings.modelProvider.codingPlan.enterprise.durationInputUnit.year": "years",
+  "settings.modelProvider.codingPlan.enterprise.durationDiscountOption": "10% off",
+  "settings.modelProvider.codingPlan.enterprise.calculating": "Calculating",
+  "settings.modelProvider.codingPlan.enterprise.productsLoadingDescription":
+    "Loading team plan pricing from BigModel.",
+  "settings.modelProvider.codingPlan.enterprise.productsEmptyDescription":
+    "No team plan products are currently available.",
+  "settings.modelProvider.codingPlan.enterprise.productsError": "Could not load team plans",
+  "settings.modelProvider.codingPlan.enterprise.choosePurchaseMethod": "Service method",
+  "settings.modelProvider.codingPlan.enterprise.purchaseMethodDescription":
+    "You authorize us to enable auto-renewal for you. Select service method, seats, and one-time purchase duration before confirming payment.",
+  "settings.modelProvider.codingPlan.enterprise.continuousDescription":
+    "Auto-renews for the selected billing period.",
+  "settings.modelProvider.codingPlan.enterprise.oneTimeDescription":
+    "One-time purchase for the selected duration.",
+  "settings.modelProvider.codingPlan.enterprise.unit.monthly": "/ seat / month",
+  "settings.modelProvider.codingPlan.enterprise.unit.quarterly": "/ seat / quarter",
+  "settings.modelProvider.codingPlan.enterprise.unit.yearly": "/ seat / year",
+  "settings.modelProvider.codingPlan.enterprise.benefitSeats": "Seat-based team access",
+  "settings.modelProvider.codingPlan.enterprise.benefitBilling": "Centralized billing and payment",
+  "settings.modelProvider.codingPlan.enterprise.benefitQuota": "Team coding quota",
+  "settings.modelProvider.codingPlan.enterprise.balanceTitle": "Balance deduction",
+  "settings.modelProvider.codingPlan.enterprise.useGiftBalance": "Use gift balance",
+  "settings.modelProvider.codingPlan.enterprise.useCashBalance": "Use balance",
+  "settings.modelProvider.codingPlan.enterprise.currentGiftBalance":
+    "Current gift balance {amount}",
+  "settings.modelProvider.codingPlan.enterprise.currentCashBalance":
+    "Current account balance {amount}",
+  "settings.modelProvider.codingPlan.enterprise.recharge": "Top up",
+  "settings.modelProvider.codingPlan.enterprise.giftBalance": "Gift balance",
+  "settings.modelProvider.codingPlan.enterprise.cashBalance": "Cash balance",
+  "settings.modelProvider.codingPlan.enterprise.balanceAvailable": "Available {amount}",
+  "settings.modelProvider.codingPlan.enterprise.giftBalanceDeduction": "Gift balance deduction",
+  "settings.modelProvider.codingPlan.enterprise.cashBalanceDeduction": "Cash balance deduction",
+  "settings.modelProvider.codingPlan.enterprise.calculateDescription":
+    "Payment amount will update after the order estimate is ready.",
+  "settings.modelProvider.codingPlan.enterprise.paymentNotesTitle": "Payment notes",
+  "settings.modelProvider.codingPlan.enterprise.paymentNotesDescription":
+    "Balance and gift deductions are estimated by BigModel. Continuous subscriptions must keep at least the required third-party payment amount.",
+  "settings.modelProvider.codingPlan.enterprise.amountDetails": "Amount details",
+  "settings.modelProvider.codingPlan.enterprise.seatQuantity": "Seats",
+  "settings.modelProvider.codingPlan.enterprise.seatCountValue": "{count} seats",
+  "settings.modelProvider.codingPlan.enterprise.orderOriginalAmount": "Original order amount",
+  "settings.modelProvider.codingPlan.enterprise.orderDiscount": "{discount} discount",
+  "settings.modelProvider.codingPlan.enterprise.teamAgreementPrefix": "I agree to the ",
+  "settings.modelProvider.codingPlan.enterprise.teamAgreementLink": "Team plan purchase agreement",
+  "settings.modelProvider.codingPlan.enterprise.cancel": "Cancel",
+  "settings.modelProvider.codingPlan.enterprise.confirmPay": "Confirm and pay",
+  "settings.modelProvider.codingPlan.enterprise.confirmTitle": "Buy {product} enterprise plan",
+  "settings.modelProvider.codingPlan.enterprise.paymentDialog.title":
+    "{product} enterprise plan payment",
+  "settings.modelProvider.codingPlan.enterprise.paymentDialog.tipTotal":
+    "The QR amount is the calculated total for seats and purchase duration.",
+  "settings.modelProvider.codingPlan.enterprise.paymentDialog.tipDeduction":
+    "Balance and gift deductions follow the confirmed estimate on the payment confirmation page.",
+  "settings.modelProvider.codingPlan.enterprise.paymentDialog.tipComplete":
+    "After payment succeeds, enterprise pricing and Coding Plan entitlement will refresh automatically.",
+  "settings.modelProvider.codingPlan.enterprise.pendingOrderTitle": "You have an unpaid order",
+  "settings.modelProvider.codingPlan.enterprise.pendingOrderDescription":
+    "Continue with it? You can cancel this order and choose a new plan, or continue paying for the original order.",
+  "settings.modelProvider.codingPlan.enterprise.pendingOrderCancel": "Cancel order",
+  "settings.modelProvider.codingPlan.enterprise.pendingOrderContinue": "Continue payment",
+  "settings.modelProvider.codingPlan.enterprise.pendingOrderProductMissing":
+    "The plan for this unpaid order was not found. Refresh plans and try again.",
+  "settings.modelProvider.codingPlan.overseasPayment.title": "{product} overseas payment",
+  "settings.modelProvider.codingPlan.overseasPayment.description":
+    "Amount due: {price}. Choose PayPal or continue on the official Z.ai payment page.",
+  "settings.modelProvider.codingPlan.overseasPayment.paypal": "PayPal",
+  "settings.modelProvider.codingPlan.overseasPayment.paypalDescription":
+    "Open PayPal authorization, then return here to continue.",
+  "settings.modelProvider.codingPlan.overseasPayment.paypalAuthorize": "Continue to PayPal",
+  "settings.modelProvider.codingPlan.overseasPayment.paypalContinue":
+    "I authorized PayPal, continue payment",
+  "settings.modelProvider.codingPlan.overseasPayment.selectPaymentMethod": "Payment method",
+  "settings.modelProvider.codingPlan.overseasPayment.cardPayment": "Credit card / debit card",
+  "settings.modelProvider.codingPlan.overseasPayment.savedCards": "Saved cards",
+  "settings.modelProvider.codingPlan.overseasPayment.refreshCards": "Refresh cards",
+  "settings.modelProvider.codingPlan.overseasPayment.deleteCard": "Delete card",
+  "settings.modelProvider.codingPlan.overseasPayment.cardsLoading": "Loading saved cards...",
+  "settings.modelProvider.codingPlan.overseasPayment.noSavedCards": "No saved cards yet.",
+  "settings.modelProvider.codingPlan.overseasPayment.addCard": "Add card",
+  "settings.modelProvider.codingPlan.overseasPayment.changeCard": "Change card",
+  "settings.modelProvider.codingPlan.overseasPayment.cardExpires": "Expires {month}/{year}",
+  "settings.modelProvider.codingPlan.overseasPayment.cardInformation": "Card information",
+  "settings.modelProvider.codingPlan.overseasPayment.nameOnCard": "Name on card",
+  "settings.modelProvider.codingPlan.overseasPayment.billingAddress": "Billing address",
+  "settings.modelProvider.codingPlan.overseasPayment.country": "Country",
+  "settings.modelProvider.codingPlan.overseasPayment.countryRequired":
+    "Select a billing country or region.",
+  "settings.modelProvider.codingPlan.overseasPayment.addressLine1": "Address line 1",
+  "settings.modelProvider.codingPlan.overseasPayment.city": "City",
+  "settings.modelProvider.codingPlan.overseasPayment.postalCode": "Postal code",
+  "settings.modelProvider.codingPlan.overseasPayment.payWithCard": "Pay with card",
+  "settings.modelProvider.codingPlan.overseasPayment.saveCard": "Save card",
+  "settings.modelProvider.codingPlan.overseasPayment.confirm": "Confirm",
+  "settings.modelProvider.codingPlan.overseasPayment.amount.originalAmount": "Original price",
+  "settings.modelProvider.codingPlan.overseasPayment.amount.discountActivity": "Discount",
+  "settings.modelProvider.codingPlan.overseasPayment.amount.currentPlanCredit":
+    "Current plan credit",
+  "settings.modelProvider.codingPlan.overseasPayment.amount.payAmount": "Amount due",
+  "settings.modelProvider.codingPlan.overseasPayment.amount.deductions": "Deductions",
+  "settings.modelProvider.codingPlan.overseasPayment.addCardBeforeConfirm":
+    "Add a card before confirming.",
+  "settings.modelProvider.codingPlan.overseasPayment.stripeNotReady":
+    "Stripe is still loading. Try again in a moment.",
+  "settings.modelProvider.codingPlan.overseasPayment.cardElementMissing":
+    "Card input is not ready. Refresh and try again.",
+  "settings.modelProvider.codingPlan.overseasPayment.stripe3dsFailed":
+    "Stripe 3DS verification failed.",
+  "settings.modelProvider.codingPlan.overseasPayment.stripePaymentMethodFailed":
+    "Stripe payment method failed.",
+  "settings.modelProvider.codingPlan.overseasPayment.stripePublishableKeyMissing":
+    "Stripe card entry is not configured in this build.",
+  "settings.modelProvider.codingPlan.overseasPayment.close": "Maybe later",
+  "settings.modelProvider.codingPlan.overseasPayment.renewalPolicyTitle": "Renewal Policy",
+  "settings.modelProvider.codingPlan.overseasPayment.accountPolicyTitle": "Account Usage Policy",
+  "settings.modelProvider.codingPlan.overseasPayment.period.month": "month",
+  "settings.modelProvider.codingPlan.overseasPayment.period.quarter": "quarter",
+  "settings.modelProvider.codingPlan.overseasPayment.period.year": "year",
+  "settings.modelProvider.codingPlan.overseasPayment.recurringPeriod.month": "Monthly",
+  "settings.modelProvider.codingPlan.overseasPayment.recurringPeriod.quarter": "Quarterly",
+  "settings.modelProvider.codingPlan.overseasPayment.recurringPeriod.year": "Yearly",
+  "settings.modelProvider.codingPlan.overseasPayment.renewalCharge":
+    "{price} will be charged automatically per {period}.",
+  "settings.modelProvider.codingPlan.overseasPayment.renewalChargeFallback":
+    "Future renewals will follow your selected subscription cycle. The actual renewal amount is subject to your renewal invoice.",
+  "settings.modelProvider.codingPlan.overseasPayment.renewalDeduction":
+    "Payments will be deducted first from bonus credits, then from your account balance, and finally via credit card.",
+  "settings.modelProvider.codingPlan.overseasPayment.renewalMinimum":
+    "Please note that a small minimum applies when charging your credit card. If the remaining amount is less, we will round up the deduction to meet this minimum.",
+  "settings.modelProvider.codingPlan.overseasPayment.renewalRecurring":
+    "{period} charges will continue on a recurring basis until you cancel in accordance with our Terms of Service.",
+  "settings.modelProvider.codingPlan.overseasPayment.renewalCancelPrefix":
+    "You may disable auto-renewal at least 1 day before the renewal date in your ",
+  "settings.modelProvider.codingPlan.overseasPayment.subscriptionSettingLink":
+    "subscription setting",
+  "settings.modelProvider.codingPlan.overseasPayment.renewalCancelSuffix": ".",
+  "settings.modelProvider.codingPlan.overseasPayment.accountPolicyPrefix":
+    "The GLM Coding Plan is strictly limited to use by the subscriber within ",
+  "settings.modelProvider.codingPlan.overseasPayment.supportedProductsLink":
+    "officially supported products",
+  "settings.modelProvider.codingPlan.overseasPayment.accountPolicyAfterSupportedProducts":
+    ". Any sharing, resale, transfer, or third-party access is strictly prohibited. Any improper, unauthorized, or policy-violating use may result in immediate account restriction or suspension with no refunds. Please comply with our ",
+  "settings.modelProvider.codingPlan.overseasPayment.termsLink": "Terms",
+  "settings.modelProvider.codingPlan.overseasPayment.accountPolicyBetween": " and ",
+  "settings.modelProvider.codingPlan.overseasPayment.policyLink": "Policy",
+  "settings.modelProvider.codingPlan.overseasPayment.accountPolicySuffix": ".",
+  "settings.modelProvider.codingPlan.overseasPayment.authorizationPrefix":
+    "You agree that Z.ai will charge your card the above amount now and on a recurring basis according to your subscription plan until you cancel in accordance with our ",
+  "settings.modelProvider.codingPlan.overseasPayment.authorizationTermsLink": "terms",
+  "settings.modelProvider.codingPlan.overseasPayment.authorizationSuffix": ".",
+  "settings.modelProvider.codingPlan.paymentDialog.agreementPrefix":
+    "Payment means you agree to the ",
+  "settings.modelProvider.codingPlan.paymentDialog.serviceAgreementLink": "Service agreement",
+  "settings.modelProvider.codingPlan.paymentDialog.agreementBetween": " and the ",
+  "settings.modelProvider.codingPlan.paymentDialog.subscriptionAgreementLink":
+    "Subscription and auto-renewal agreement",
+  "settings.modelProvider.codingPlan.paymentDialog.agreementSuffix":
+    ". Virtual products are not refundable after payment.",
+  "settings.modelProvider.codingPlan.product.soldOut": "Sold out",
+  "settings.modelProvider.codingPlan.product.forbidden": "Unavailable for this account",
+  "settings.modelProvider.codingPlan.product.unavailable": "Unavailable",
+  "settings.modelProvider.codingPlan.product.subscribeNow": "Subscribe now",
+  "settings.modelProvider.codingPlan.product.unavailableTooltipPrefix":
+    "This plan is unavailable for purchase. ",
+  "settings.modelProvider.codingPlan.product.unavailableTooltipLink": "view details",
+  "settings.modelProvider.codingPlan.product.included": "Included",
+  "settings.modelProvider.codingPlan.product.firstPromo": "First-time subscription discount",
+  "settings.modelProvider.codingPlan.product.delay": "Effective {time}",
   "settings.modelProvider.codingPlan.zai.plan.lite.name": "Lite",
-  "settings.modelProvider.codingPlan.zai.plan.lite.summary": "3x higher Claude Pro usage limits",
+  "settings.modelProvider.codingPlan.zai.plan.lite.summary": "Base usage limits",
   "settings.modelProvider.codingPlan.zai.plan.pro.name": "Pro",
   "settings.modelProvider.codingPlan.zai.plan.pro.summary":
     "Everything in Lite, plus 5x Lite usage",
@@ -3016,13 +3661,45 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.codingPlan.zai.plan.max.summary":
     "Everything in Pro, plus 20x Lite usage",
   "settings.modelProvider.codingPlan.bigmodel.plan.lite.name": "Lite",
-  "settings.modelProvider.codingPlan.bigmodel.plan.lite.summary": "3x Claude Pro usage quota",
+  "settings.modelProvider.codingPlan.bigmodel.plan.lite.summary": "Base usage quota",
   "settings.modelProvider.codingPlan.bigmodel.plan.pro.name": "Pro",
   "settings.modelProvider.codingPlan.bigmodel.plan.pro.summary":
     "5x Lite usage quota + all Lite benefits",
   "settings.modelProvider.codingPlan.bigmodel.plan.max.name": "Max",
   "settings.modelProvider.codingPlan.bigmodel.plan.max.summary":
     "20x Lite usage quota + all Pro benefits",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.lite.detail0": "Base usage allowance",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.lite.detail1":
+    "Light iteration for small repos",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.lite.detail2":
+    "Latest models rolled out over time",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.lite.detail3": "20+ coding tools",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.pro.detail0": "5x Lite usage allowance",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.pro.detail1":
+    "Daily development for mid-sized repos",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.pro.detail2":
+    "Priority access to latest models",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.pro.detail3": "Curated MCP tools",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.max.detail0":
+    "20x Lite usage allowance",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.max.detail1":
+    "Deep work on mid-to-large repos",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.max.detail2":
+    "First access to latest models",
+  "settings.modelProvider.codingPlan.bigmodel.purchase.plan.max.detail3":
+    "Peak-time resource priority",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.lite.detail0": "Base usage included",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.lite.detail1": "Small repo iteration",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.lite.detail2": "Latest models over time",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.lite.detail3": "20+ coding tools",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.pro.detail0": "5x Lite usage",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.pro.detail1": "Mid-sized repo development",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.pro.detail2": "Priority model access",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.pro.detail3": "Curated MCP tools",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.max.detail0": "20x Lite usage",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.max.detail1": "Mid-to-large repo work",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.max.detail2": "First model access",
+  "settings.modelProvider.codingPlan.zai.purchase.plan.max.detail3": "Peak-time priority",
   "settings.modelProvider.enabledStatus": "Enabled",
   "settings.modelProvider.enableModel": "Enable",
   "settings.modelProvider.disabledStatus": "Disabled",
@@ -3063,8 +3740,6 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.modelsEmpty": "No models are configured. Add a model to use it in chat.",
   "settings.modelProvider.addModel": "Add model",
   "settings.modelProvider.modelId": "Model ID",
-  "settings.modelProvider.detectModels": "Detect available models",
-  "settings.modelProvider.detectModelsEmpty": "No available models detected",
   "settings.modelProvider.modelDisplayName": "Display name",
   "settings.modelProvider.modelApiFormat.anthropic": "Anthropic messages",
   "settings.modelProvider.modelApiFormat.openaiCompatible": "OpenAI Compatible",
@@ -3110,6 +3785,14 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.newProviderName": "New provider",
   "settings.modelProvider.modelsPlaceholder": "One model name per line",
   "settings.modelProvider.modelsCount": "{count} models",
+  "settings.modelProvider.claudeMapping": "Claude model mapping",
+  "settings.modelProvider.claudeMappingDescription":
+    "Choose a matching model for each Claude model slot",
+  "settings.modelProvider.slot.haiku": "Haiku (light tasks)",
+  "settings.modelProvider.slot.sonnet": "Sonnet (general tasks)",
+  "settings.modelProvider.slot.opus": "Opus (complex tasks)",
+  "settings.modelProvider.slot.reasoning": "Reasoning (reasoning tasks)",
+  "settings.modelProvider.mappingNotSet": "Not set",
   "settings.modelProvider.presetTitle": "Providers",
   "settings.usage.sectionTitle": "Usage stats",
   "settings.usage.sectionDescription": "Built from local app session history.",
@@ -3127,19 +3810,20 @@ const enUS: Record<string, string> = {
     "From the selected provider tool-usage API: Network Search / Web Reader / Zread call counts.",
   "settings.usage.sourceProvider": "Source: {provider}",
   "settings.usage.billingBanner.title": "{provider} Coding Plan",
-  "settings.usage.billingBanner.description": "Configure the {provider} API key to query usage.",
+  "settings.usage.billingBanner.description":
+    "Connect your {provider} account to query Coding Plan entitlement, then keep coding in ZCodium after purchase or setup.",
   "settings.usage.billingBanner.compactDescription":
-    "Configure the {provider} API key to sync usage.",
-  "settings.usage.billingBanner.buy": "Configure Coding Plan",
+    "Connect your {provider} account to sync usage.",
+  "settings.usage.billingBanner.buy": "Buy Coding Plan",
   "settings.usage.billingBanner.apiKeys": "API keys",
   "settings.usage.billingBanner.usageDetails": "Usage details",
   "settings.usage.entitlementTitle": "Coding Plan entitlement",
   "settings.usage.entitlementDescription":
-    "Sync plan tier, 5-hour prompt pool, weekly quota and monthly tool quota from the configured Coding Plan.",
+    "Sync exact plan level, 5-hour prompt pool, weekly quota, and monthly tool quota from the connected Coding Plan account.",
   "settings.usage.entitlementError":
     "Unable to load Coding Plan entitlement. Try again later or check the provider configuration.",
   "usage.error.entitlement.credential":
-    "Coding Plan entitlement not found. Re-configure the API key, or confirm the Coding Plan is active.",
+    "No Coding Plan entitlement was found. Reconnect the Coding Plan account or confirm that the account has an active plan.",
   "usage.error.entitlement.generic":
     "Unable to load Coding Plan entitlement. Try again later or check the provider configuration.",
   "settings.usage.entitlementRemaining": "Tool usage",
@@ -3197,14 +3881,14 @@ const enUS: Record<string, string> = {
   "settings.usage.entitlementConcurrencyValue": "{value}",
   "settings.usage.entitlementPolicyHint":
     "Quota values follow the current usage guide and may change with platform policy.",
-  "settings.usage.entitlementLoginRequired": "Configure an API key first",
+  "settings.usage.entitlementLoginRequired": "Login required",
   "settings.usage.entitlementNotConfigured":
-    "No Z.ai / BigModel configuration found for quota queries. Configure an API key first.",
+    "No connected Z.ai or BigModel Coding Plan account is available for quota lookup. Connect a Coding Plan account first.",
   "settings.usage.entitlementStatusActive": "Active",
   "settings.usage.entitlementStatusError": "Error",
   "settings.usage.entitlementStatusLoading": "Loading",
-  "settings.usage.entitlementStatusLoginRequired": "API key required",
-  "settings.usage.entitlementStatusNoPlan": "Not configured",
+  "settings.usage.entitlementStatusLoginRequired": "Login required",
+  "settings.usage.entitlementStatusNoPlan": "Not subscribed",
   "settings.usage.entitlementStatusNotConfigured": "Not configured",
   "sidebar.usage.summaryTitle": "Last 30 days",
   "sidebar.usage.plan.title": "Usage remaining",
@@ -3216,9 +3900,9 @@ const enUS: Record<string, string> = {
   "sidebar.usage.plan.open": "More",
   "sidebar.usage.plan.loading": "Syncing...",
   "sidebar.usage.plan.unavailable": "No available entitlement data yet.",
-  "sidebar.usage.plan.loginRequired": "Configure an API key to see remaining quota.",
-  "sidebar.usage.plan.notConfigured": "No Coding Plan configured.",
-  "sidebar.usage.plan.noPlanShort": "Not configured",
+  "sidebar.usage.plan.loginRequired": "Login to view plan usage.",
+  "sidebar.usage.plan.notConfigured": "No connected Coding Plan account found.",
+  "sidebar.usage.plan.noPlanShort": "No plan",
   "sidebar.usage.plan.remainingShort": "{value} left",
   "sidebar.usage.plan.planTypeValue": "Plan: {plan}",
   "sidebar.usage.plan.tokensLimit": "Token quota",
@@ -3252,7 +3936,8 @@ const enUS: Record<string, string> = {
   "chat.planUsage.titleWithPlan": "{plan} Plan usage",
   "chat.planUsage.providerFallback": "Current provider",
   "chat.planUsage.open": "Details",
-  "chat.planUsage.noPlan": "No active Coding Plan configuration.",
+  "chat.planUsage.noPlan":
+    "No active Coding Plan was found for this account. Confirm that the connected account is subscribed.",
   "chat.planUsage.contextWindow": "Current context window",
   "chat.planUsage.contextDetail": "{used} / {total}",
   "chat.planUsage.promptPool": "5-hour prompt pool",
@@ -3265,7 +3950,7 @@ const enUS: Record<string, string> = {
   "chat.planUsage.noQuotaLimits":
     "No Coding Plan quota was found. Confirm that the connected account has an active Coding Plan.",
   "usage.error.chatPlan.credential":
-    "Could not read quota. Re-configure the API key, or confirm the Coding Plan is active.",
+    "Unable to read plan quota. Reconnect the Coding Plan account or confirm that the account has an active plan.",
   "usage.error.chatPlan.generic":
     "Unable to read plan quota. Try again later or check the provider configuration.",
   "settings.usage.range.all": "All time",
@@ -3294,9 +3979,9 @@ const enUS: Record<string, string> = {
   "settings.usage.lastRefreshTime": "Last refreshed: {time}",
   "settings.usage.error":
     "Unable to load usage stats. Try again later or check the network and provider configuration.",
-  "settings.usage.checkApiKey": "Check API key",
+  "settings.usage.checkApiKey": "Check account",
   "usage.error.stats.credential":
-    "Could not read usage stats. Re-configure the API key, or confirm the Coding Plan is active.",
+    "Unable to load usage stats. Reconnect the Coding Plan account or confirm that the account has an active plan.",
   "usage.error.stats.generic":
     "Unable to load usage stats. Try again later or check the network and provider configuration.",
   "settings.usage.emptyTitle": "No usage data yet",
@@ -3370,15 +4055,13 @@ const enUS: Record<string, string> = {
   "settings.usage.dayLabel.wed": "Wed",
   "settings.usage.dayLabel.fri": "Fri",
   "settings.modelProvider.presetDescription":
-    "Built-in Z.ai and BigModel providers; configure them with an API key.",
-  "settings.modelProvider.presetEmpty": "Not synced yet. Configure an API key first.",
+    "Built-in Z.ai and BigModel providers with OAuth-assisted configuration.",
+  "settings.modelProvider.presetEmpty": "Not synced yet. Complete OAuth login first.",
   "settings.modelProvider.customTitle": "Custom providers",
   "settings.modelProvider.refresh": "Refresh",
   "settings.modelProvider.reorderProvider": "Drag to reorder provider",
   "settings.modelProvider.reorderModel": "Drag to reorder model",
   "settings.modelProvider.empty": "No custom model providers yet",
-  "settings.modelProvider.emptyHint":
-    'Click "Add provider" to create one from a preset template, or create a custom provider and fill in its API key.',
   "settings.modelProvider.deleteConfirm": 'Delete "{name}"?',
   "settings.modelProvider.deleteConfirmTitle": 'Delete provider "{name}"?',
   "settings.modelProvider.deleteConfirmDescription":
@@ -3423,6 +4106,7 @@ const enUS: Record<string, string> = {
   "settings.resourceFilter.all": "All",
   "settings.resourceFilter.enabled": "Enabled",
   "settings.resourceFilter.disabled": "Disabled",
+  "settings.skills.agent.common": "Common",
   "settings.skills.copyToCommon": "Copy to common",
   "settings.skills.removeFromCommon": "Remove from common",
   "settings.skills.copiedToCommon": "Copied to common skills.",
@@ -3432,6 +4116,8 @@ const enUS: Record<string, string> = {
   "settings.skills.delete.title": "Delete skill",
   "settings.skills.delete.description":
     'Delete "{name}"? This removes the skill folder from disk and cannot be undone.',
+  "settings.skills.agent.glm": "ZCodium Agent",
+  "settings.skills.agent.unknown": "Unknown source",
   "settings.skills.create.open": "New skill",
   "settings.skills.create.taskCreateFailed":
     "Could not create a new task for the selected agent. Check availability and try again.",
@@ -3630,7 +4316,11 @@ const enUS: Record<string, string> = {
   "settings.subagents.model.select": "Select model",
   "settings.subagents.model.main": "Main",
   "settings.subagents.model.lite": "Lite",
+  "settings.subagents.permissionMode.default": "Default",
+  "settings.subagents.permissionMode.acceptEdits": "Accept edits",
   "settings.subagents.permissionMode.auto": "Auto",
+  "settings.subagents.permissionMode.bypassPermissions": "Bypass permissions",
+  "settings.subagents.permissionMode.dontAsk": "Don't ask",
   "settings.subagents.permissionMode.plan": "Plan",
   "settings.subagents.color.blue": "Blue",
   "settings.subagents.color.cyan": "Cyan",
@@ -3768,16 +4458,15 @@ const enUS: Record<string, string> = {
   "settings.plugins.marketplaces.update": "Update marketplace",
   "settings.plugins.marketplaces.remove": "Remove marketplace",
   "settings.plugins.marketplaces.empty": "No marketplaces added",
-  "settings.plugins.marketplaces.official": "Z.AI marketplace",
+  "settings.plugins.marketplaces.official": "Official",
   "settings.plugins.marketplaces.plugins": "{count} plugins",
-  "settings.plugins.marketplaces.refreshCatalogHint": "Refresh to load the Z.AI catalog.",
+  "settings.plugins.marketplaces.refreshCatalogHint": "Refresh to load the official catalog.",
   "settings.plugins.marketplacePlugins.title": "Marketplace plugins",
   "settings.plugins.marketplacePlugins.empty": "No marketplace plugins found",
-  "settings.plugins.store.officialMarketplaceDisabled":
-    'The Z.AI official plugin marketplace is off. Enable "Z.AI marketplace and CDN" under Settings → Z.AI services.',
   "settings.plugins.marketplacePlugins.install": "Install",
   "settings.plugins.marketplacePlugins.installed": "Installed",
   "settings.plugins.marketplace.searchPlaceholder": "Search Plugins, Skills, MCPs...",
+  "settings.plugins.marketplace.claudeCodePlugins": "Claude Code Plugins",
   "settings.plugins.marketplace.catalogLoading": "Loading plugins…",
   "settings.plugins.marketplace.sourceInfo.label": "Discover source information",
   "settings.plugins.marketplace.sourceInfo.title": "Discover uses GitHub marketplaces",
@@ -4066,6 +4755,7 @@ const enUS: Record<string, string> = {
   "settings.hooks.customJson": "Custom fields JSON",
   "settings.hooks.customJsonObjectError": "Custom fields must be a JSON object.",
   "settings.hooks.customJsonParseError": "Custom fields JSON parsing failed.",
+  "settings.plugins.zcodeOnly": "ZCodium Agent only",
   "settingsSync.dialog.title": "Import Settings",
   "settingsSync.dialog.description":
     "Only missing items will be imported. Existing settings will be skipped automatically.",
@@ -4144,6 +4834,7 @@ const enUS: Record<string, string> = {
   "onboarding.step.pluginsImport": "Plugins",
   "onboarding.step.commandsImport": "Commands",
   "onboarding.step.agentsFile": "AGENTS.md",
+  "onboarding.step.agentSettings": "Agent settings",
   "onboarding.step.migration": "Migration",
   "onboarding.stepDescription.session":
     "Review what we found and choose sessions and workspaces to migrate.",
@@ -4155,6 +4846,7 @@ const enUS: Record<string, string> = {
     "Import selected plugins from external agents before the final migration.",
   "onboarding.stepDescription.commandsImport":
     "Import selected commands from external agents before the final migration.",
+  "onboarding.stepDescription.agentSettings": "Choose which agents' providers to bring in.",
   "onboarding.stepDescription.migration":
     "Start migration and wait while ZCodium imports your selections.",
   "onboarding.sessions.empty":
@@ -4164,6 +4856,7 @@ const enUS: Record<string, string> = {
   "onboarding.sessions.chooseWorkspace": "Choose workspace",
   "onboarding.agentSettings.empty":
     "Nothing to import right now. Scan again or continue without migration.",
+  "onboarding.agentSettings.providersToggleAllAria": "Select or clear providers for all agents",
   "onboarding.agentSettings.categoryToggleAllAria": "Select or clear {category} for all agents",
   "onboarding.agentsFile.copyTitle": "Copy CLAUDE.md to AGENTS.md",
   "onboarding.agentsFile.sourceLabel": "Source",
@@ -4180,6 +4873,7 @@ const enUS: Record<string, string> = {
   "onboarding.finish.summary.label.skipped": "Skipped",
   "onboarding.finish.summary.label.failed": "Failed",
   "onboarding.footer.helper": "Skip anytime and resume migration from Settings later.",
+  "onboarding.footer.selection": "{count} items selected",
   "onboarding.footer.workspaceSelection": "{count} workspaces selected",
   "onboarding.action.continue": "Continue",
   "onboarding.action.beginMigration": "Begin migration",
@@ -4265,6 +4959,7 @@ const enUS: Record<string, string> = {
   "chat.send": "Send",
   "chat.scrollToBottom": "Scroll to bottom",
   "chat.message.edit": "Edit",
+  "chat.message.sentByScheduledTask": "Sent by scheduled task",
   "chat.message.restore": "Restore",
   "chat.message.copy": "Copy",
   "chat.message.copy.copied": "Copied",
@@ -4316,6 +5011,11 @@ const enUS: Record<string, string> = {
   "chat.history.workingFor": "Working for {duration}",
   "chat.history.workedFor": "Worked for {duration}",
   "chat.history.worked": "Worked",
+  "chat.topicPreparation.preparing": "Preparing materials",
+  "chat.topicPreparation.waitingStop": "Waiting for the current run to stop",
+  "chat.topicPreparation.failed": "Material preparation failed",
+  "chat.topicPreparation.retry": "Retry",
+  "chat.history.topicInterrupted": "Interrupted by a new message",
   "chat.history.stopped": "Stopped",
   "chat.history.duration.day": "d",
   "chat.history.duration.hour": "h",
@@ -4497,6 +5197,9 @@ const enUS: Record<string, string> = {
   "chat.toolbar.draftConfigWriteFailed": "Failed to update configuration. Please try again.",
   "chat.toolbar.model.description":
     "Choose the model used by this task. The shortcut opens the model menu.",
+  "chat.agentSwitch.switchTo": "{provider}",
+  "chat.agentSwitch.success": "Switched to {provider}",
+  "chat.agentSwitch.failed": "Could not switch agent",
   "chat.toolbar.model.manageModels": "Manage models",
   "chat.toolbar.model.searchPlaceholder": "Search models...",
   "chat.toolbar.model.empty": "No models found",
@@ -4616,6 +5319,8 @@ const enUS: Record<string, string> = {
   "chat.toolCall.changesGroup.tool.one": "{count} tool",
   "chat.toolCall.changesGroup.tool.other": "{count} tools",
   "chat.toolCall.execute.terminal": "Terminal",
+  "chat.toolCall.execute.expandCommand": "Show full command",
+  "chat.toolCall.execute.collapseCommand": "Collapse",
   "chat.toolCall.execute.noOutput": "No output.",
   "chat.toolCall.executeGroup.command.one": "{count} command",
   "chat.toolCall.executeGroup.command.other": "{count} commands",
@@ -4772,6 +5477,42 @@ const enUS: Record<string, string> = {
   "chat.toolCall.workflow.card.artifacts": "{count} artifacts",
   "chat.toolCall.workflow.digest.question": "{count} question",
   "chat.toolCall.workflow.digest.questions": "{count} questions",
+  // ── Holes (docs/dynamic-workflow/presentation.md "Holes on the timeline", transcript-and-notifications.md "The hole row's live state") ──
+  "chat.toolCall.workflow.digest.hole": "{count} hole to fill",
+  "chat.toolCall.workflow.digest.holes": "{count} holes to fill",
+  "chat.toolCall.workflow.card.hole": "{count} hole",
+  "chat.toolCall.workflow.card.holes": "{count} holes",
+  "chat.toolCall.workflow.hole.waiting": "waiting",
+  "chat.toolCall.workflow.hole.head.title": "Hole “{name}” · filled by the agent · {time}",
+  "chat.toolCall.workflow.hole.head.title.untimed": "Hole “{name}” · filled by the agent",
+  "chat.toolCall.workflow.hole.open": "Open the fill of “{name}”",
+  // Kind words of the FillWorkflowHole row (same table as CreateWorkflow / AmendWorkflow).
+  "chat.toolCall.workflow.hole.writing": "Filling hole",
+  "chat.toolCall.workflow.hole.revising": "Revising hole fill",
+  "chat.toolCall.workflow.hole.draft": "Hole draft",
+  "chat.toolCall.workflow.hole.awaitingConfirmation": "Hole fill awaiting confirmation",
+  "chat.toolCall.workflow.hole.ran": "Hole fill",
+  "chat.toolCall.workflow.hole.filled": "Hole filled",
+  "chat.toolCall.workflow.hole.phasesAdded": "{count} phases",
+  // The notification row's expanded body.
+  "chat.toolCall.workflow.hole.stands.between":
+    "The hole stands after “{before}” and before “{after}”;",
+  "chat.toolCall.workflow.hole.stands.after": "The hole stands after “{before}”;",
+  "chat.toolCall.workflow.hole.stands.before": "The hole stands before “{after}”;",
+  "chat.toolCall.workflow.hole.draftPath": "Draft",
+  "chat.toolCall.workflow.hole.waited": "Waiting · {time}",
+  "chat.backgroundResult.workflow.hole.waiting": "Workflow waiting for code",
+  "chat.backgroundResult.workflow.hole.filled": "Hole filled",
+  "chat.backgroundResult.workflow.hole.left": "Workflow left a hole",
+  // The run pane.
+  "chat.toolCall.workflow.run.hole.waitingFor": "Waiting for the agent to fill it",
+  "chat.toolCall.workflow.run.hole.filledAt": "Filled · {time}",
+  // The confirmation window.
+  "chat.permission.workflow.hole.title": "Fill this hole?",
+  "chat.permission.workflow.holes.label": "Holes",
+  "chat.permission.workflow.holes.note": "The run pauses at a hole until the agent fills it.",
+  // The sidebar run line.
+  "taskList.workflowRun.holeWaiting": "{name} · waiting",
   "chat.toolCall.workflow.digest.showAgents": "Show subagents",
   "chat.toolCall.workflow.digest.hideAgents": "Hide subagents",
   "chat.toolCall.workflow.completion.time": "time",
@@ -4787,10 +5528,13 @@ const enUS: Record<string, string> = {
   "chat.workflowLaunch.startedByYou": "Started by you from the workflows hub",
   "chat.workflowLaunch.settingsChangedByYou": "Settings changed by you",
   "chat.workflowLaunch.settings.model": "Subagent model",
-  "chat.workflowLaunch.settings.limit": "At once, at most",
+  "chat.workflowLaunch.settings.limit": "Max concurrency",
   "chat.workflowLaunch.settings.sessionModel": "session model",
-  "chat.workflowLaunch.settings.machineLimit": "this machine's limit",
-  "chat.workflowLaunch.settings.machineLimitValue": "{n} (this machine's limit)",
+  "chat.workflowLaunch.settings.defaultLimit": "default",
+  "chat.workflowLaunch.settings.defaultLimitValue": "default {n}",
+  // ── 可复用工作流（docs/dynamic-workflow/launch.md）：SaveWorkflow / ListSavedWorkflows
+  // 的聊天卡。overwrite 这个词由保存确认窗共用——同一次保存在两个面上必须同名，
+  // 照 run 卡复用 chat.toolCall.workflow.run.status.* 词汇表的同一条先例。
   "chat.toolCall.workflow.save.saving": "Saving workflow",
   "chat.toolCall.workflow.save.saved": "Saved workflow",
   "chat.toolCall.workflow.save.overwrite": "overwrite",
@@ -4828,6 +5572,7 @@ const enUS: Record<string, string> = {
     "Workflows saved in your open projects. Fill in the arguments and run them again.",
   "workflows.hub.sectionTitle": "Saved workflows",
   "workflows.hub.refresh": "Refresh",
+  "workflows.hub.openSettings": "Workflow settings",
   "workflows.hub.createViaChat": "Create in chat",
   "workflows.hub.group.current": "Current",
   "workflows.hub.global.title": "Global",
@@ -5031,7 +5776,7 @@ const enUS: Record<string, string> = {
   "chat.backgroundResult.workflow.stall.body":
     "No model request in this run has succeeded for {minutes} min. It is still running and retrying with backoff; stop it from the run card if you no longer need it.",
   "chat.backgroundResult.workflow.stall.reason": "Retry reason",
-  "chat.backgroundResult.workflow.stall.cap": "Current fan-out",
+  "chat.backgroundResult.workflow.stall.cap": "Max concurrency",
   "chat.backgroundResult.workflow.waiting": "Subagent is waiting for an answer",
   "chat.backgroundResult.workflow.answered": "Subagent question answered",
   "chat.backgroundResult.workflow.asked": "Subagent asked a question",
@@ -5072,7 +5817,7 @@ const enUS: Record<string, string> = {
   "chat.toolCall.workflow.run.usage.tokens": "{tokens} tokens",
   "chat.toolCall.workflow.run.usage.value": "{tokens} tokens · {steps} steps",
   // 实例表撞界后卡与详情页各有的那一句：停的是每一步的**详情**，不是 run，
-  // 它上面那些计数已经把表外的实例算进来了。
+  // 它上面那些计数已经把表外的实例算进来了（docs/dynamic-workflow/presentation.md）。
   "chat.toolCall.workflow.run.truncated": "Details shown for {shown} of {total} steps",
   "chat.toolCall.workflow.run.cancel": "Stop run",
   "chat.toolCall.workflow.run.cancelling": "Stopping…",
@@ -5105,6 +5850,52 @@ const enUS: Record<string, string> = {
   "chat.toolCall.workflow.run.resume": "Resume run",
   "chat.toolCall.workflow.run.resumeHint":
     "Continue from where it stopped: finished steps are reused, interrupted steps run again.",
+  // 「配置」弹层（docs/dynamic-workflow/presentation.md「The settings popover」）：改子代理模型与最大并发数，
+  // 应用即一次 GUI 修订（新 run 接着跑，旧 run 停下，已完成的步骤作缓存带过去）。
+  // 完成卡与 run 侧板上的「保存 / 再次运行」（docs/dynamic-workflow/transcript-and-notifications.md
+  // 「Saving the run, and running it again」）。两条路：交给 ZCodium 提炼，或按原样直接写下去。
+  "chat.toolCall.workflow.saveRun.action": "Save",
+  "chat.toolCall.workflow.saveRun.runAgain": "Run again",
+  "chat.toolCall.workflow.saveRun.starting": "Starting…",
+  "chat.toolCall.workflow.saveRun.chip": "Saved",
+  "chat.toolCall.workflow.saveRun.chip.hint": "View in the workflow hub",
+  "chat.toolCall.workflow.saveRun.announce.project": "Saved to the project",
+  "chat.toolCall.workflow.saveRun.announce.global": "Saved as a global workflow",
+  "chat.toolCall.workflow.saveRun.title": "Save workflow",
+  "chat.toolCall.workflow.saveRun.lead": "Let ZCodium refine and save it",
+  "chat.toolCall.workflow.saveRun.lead.hint":
+    "ZCodium distills a reusable workflow for you, then asks you to confirm.",
+  "chat.toolCall.workflow.saveRun.lead.sending": "Handed to ZCodium…",
+  "chat.toolCall.workflow.saveRun.lead.unsupported": "This agent cannot save directly.",
+  "chat.toolCall.workflow.saveRun.or": "or save it as is",
+  "chat.toolCall.workflow.saveRun.name": "Name",
+  "chat.toolCall.workflow.saveRun.name.placeholder": "pr-layered-review",
+  "chat.toolCall.workflow.saveRun.name.helper": "Letters, digits, - _ . ; 64 characters at most",
+  "chat.toolCall.workflow.saveRun.name.invalid": "Only letters, digits and - _ .",
+  "chat.toolCall.workflow.saveRun.scope.remoteOnly":
+    "A remote project can only save into the project.",
+  "chat.toolCall.workflow.saveRun.description": "Description",
+  "chat.toolCall.workflow.saveRun.description.helper":
+    "When-to-use and arguments can be added later in the workflow hub.",
+  "chat.toolCall.workflow.saveRun.consequence":
+    "Writes {path}; afterwards it runs again by name from Automations › Workflows.",
+  "chat.toolCall.workflow.saveRun.overwrite":
+    "This project already has a workflow of this name; saving overwrites it. Its run records stay.",
+  "chat.toolCall.workflow.saveRun.shadowing": "{text}.",
+  "chat.toolCall.workflow.saveRun.submit": "Save as is",
+  "chat.toolCall.workflow.saveRun.submit.overwrite": "Overwrite and save as is",
+  "chat.toolCall.workflow.saveRun.submit.saving": "Saving…",
+  "chat.toolCall.workflow.saveRun.error.invalid_name": "Only letters, digits and - _ .",
+  "chat.toolCall.workflow.saveRun.error.run_not_found":
+    "This run has no record here, so it cannot be saved directly.",
+  "chat.toolCall.workflow.saveRun.error.script_missing":
+    "This run did not keep its script, so use the path above.",
+  "chat.toolCall.workflow.saveRun.error.target_exists":
+    "A workflow of this name exists; confirm the overwrite and save again.",
+  "chat.toolCall.workflow.saveRun.error.compile_failed":
+    "The script did not pass typecheck; nothing was written.",
+  "chat.toolCall.workflow.saveRun.error.write_error": "Writing failed; nothing was saved.",
+  "chat.toolCall.workflow.saveRun.error.generic": "Saving failed.",
   "chat.toolCall.workflow.run.configure": "Configure",
   "chat.toolCall.workflow.run.settings.title": "Configure workflow",
   "chat.toolCall.workflow.run.settings.model": "Subagent model",
@@ -5113,11 +5904,11 @@ const enUS: Record<string, string> = {
   "chat.toolCall.workflow.run.settings.model.unavailable": "unavailable",
   "chat.toolCall.workflow.run.settings.model.noCatalog":
     "This agent has no model catalog; subagents stay on the session model.",
-  "chat.toolCall.workflow.run.settings.limit": "Subagents at once, at most",
-  "chat.toolCall.workflow.run.settings.limit.ceiling": "this machine allows up to {n}",
-  "chat.toolCall.workflow.run.settings.limit.atCeiling": "= this machine's limit",
-  "chat.toolCall.workflow.run.settings.limit.decrease": "Fewer at once",
-  "chat.toolCall.workflow.run.settings.limit.increase": "More at once",
+  "chat.toolCall.workflow.run.settings.limit": "Max concurrency",
+  "chat.toolCall.workflow.run.settings.limit.default": "default {n}",
+  "chat.toolCall.workflow.run.settings.limit.atDefault": "= default",
+  "chat.toolCall.workflow.run.settings.limit.decrease": "Lower max concurrency",
+  "chat.toolCall.workflow.run.settings.limit.increase": "Raise max concurrency",
   "chat.toolCall.workflow.run.settings.consequence.running":
     "Stops this run and starts a new one with these settings; finished steps are kept.",
   "chat.toolCall.workflow.run.settings.consequence.pending":
@@ -5126,7 +5917,7 @@ const enUS: Record<string, string> = {
     "Continues as a new run with these settings; finished steps are kept.",
   "chat.toolCall.workflow.run.settings.consequence.errored":
     "Retries as a new run with these settings; finished steps are kept.",
-  // 只改并发上限、而且运行正在跑：就地生效。
+  // 只改并发上限、而且运行正在跑：就地生效（docs/dynamic-workflow/concurrency.md）。
   "chat.toolCall.workflow.run.settings.consequence.concurrencyLive":
     "Applies to this run right away; no new run is started.",
   "chat.toolCall.workflow.run.settings.apply": "Apply",
@@ -5155,7 +5946,7 @@ const enUS: Record<string, string> = {
   "chat.toolCall.workflow.settingsChange.model": "subagents on {model}",
   "chat.toolCall.workflow.settingsChange.modelSession": "subagents back on the session model",
   "chat.toolCall.workflow.settingsChange.limit": "at most {n} at once",
-  "chat.toolCall.workflow.settingsChange.limitCeiling": "limit back to this machine's default",
+  "chat.toolCall.workflow.settingsChange.limitDefault": "limit back to the default",
   "chat.toolCall.workflow.run.result.title": "Result",
   "chat.toolCall.workflow.run.result.completedHint":
     "This run finished. Its result was delivered to the conversation as a background result message.",
@@ -5177,9 +5968,13 @@ const enUS: Record<string, string> = {
   "chat.toolCall.workflow.run.artifacts.previousVersion": "Previous version",
   "chat.toolCall.workflow.run.artifacts.nextVersion": "Next version",
   "chat.toolCall.workflow.run.artifacts.open": "Open artifact",
+  // 动作。「下载」（存到用户挑的位置）仍缺席；「作为文件打开」
+  // 落的是宿主 ~/.zcode/tmp 下的副本，不是用户挑的位置。
   "chat.toolCall.workflow.run.artifacts.reveal": "Reveal in workspace",
   "chat.toolCall.workflow.run.artifacts.copy": "Copy",
   "chat.toolCall.workflow.run.artifacts.copied": "Copied",
+  "chat.toolCall.workflow.run.artifacts.openAsFile": "Open as file",
+  "chat.toolCall.workflow.run.artifacts.openAsFileFailed": "Could not open this artifact as a file",
   "chat.toolCall.workflow.run.artifacts.openInBrowser": "Open in browser",
   "chat.toolCall.workflow.run.artifacts.openInBrowserNote":
     "Opens the copy in your workspace, not the bytes pinned to this version.",
@@ -5271,7 +6066,8 @@ const enUS: Record<string, string> = {
   "chat.toolCall.workflow.run.throttle.reason.overloaded": "overloaded",
   "chat.toolCall.workflow.run.throttle.reason.offpeak": "off-peak queue",
   "chat.toolCall.workflow.run.throttle.reason.transient": "transient error",
-  "chat.toolCall.workflow.run.concurrency.label": "Concurrency {cap}",
+  // 芯片上的数是一条界（min(共享 cap, 本 run 的 limit)），不是此刻在跑的个数。
+  "chat.toolCall.workflow.run.concurrency.label": "Max concurrency {cap}",
   "chat.toolCall.workflow.run.concurrency.cooldown": "cooling down until {time}",
   "chat.toolCall.workflow.run.subagentModel.label": "Subagents {model}",
   "chat.toolCall.workflow.subagentModel.withLevel": "{model} · thinking {level}",
@@ -5351,6 +6147,8 @@ const enUS: Record<string, string> = {
   "chat.attachments.clipboardText.description": "{lineCount} lines",
   "chat.attachments.preview.open": "Open image preview",
   "chat.attachments.preview.openVideo": "Open video preview",
+  "chat.attachments.preview.openText": "Open text attachment",
+  "chat.attachments.topicHistory": "Topic history · {count} messages",
   "chat.attachments.preview.openPdf": "Open PDF preview",
   "chat.attachments.preview.title": "Image preview",
   "chat.attachments.preview.pdfLoading": "Loading PDF preview…",
@@ -5435,8 +6233,8 @@ const enUS: Record<string, string> = {
   "chat.error.processExited": "Agent process exited unexpectedly",
   "chat.error.dismiss": "Dismiss error",
   "chat.error.retry": "Retry",
-  "chat.error.reloginProvider": "Re-configure {provider} API key",
-  "chat.error.action.relogin": "Configure again",
+  "chat.error.reloginProvider": "Sign in to {provider}",
+  "chat.error.action.relogin": "Sign in again",
   "chat.error.action.refreshQuota": "Refresh quota",
   "chat.error.action.switchModel": "Switch model",
   "chat.error.action.retryLater": "Try again later",
@@ -5448,7 +6246,7 @@ const enUS: Record<string, string> = {
   "chat.error.collapseDetails": "Hide details",
   "chat.error.feedback": "Report issue",
   "chat.error.feedbackOpened": "Feedback opened with the error context attached",
-  "chat.error.noAvailableModel": "No model available. Configure a custom model.",
+  "chat.error.noAvailableModel": "No model available. Upgrade or set a custom model.",
   "chat.error.sendFailed": "Failed to send. Try again later.",
   "chat.error.modelSettings": "Model settings",
   "chat.error.setModels": "Set",
@@ -5461,23 +6259,23 @@ const enUS: Record<string, string> = {
   "chat.quota.startPlan.modelVeryLow":
     "{model} has {percent} of its plan quota remaining ({remaining} tokens).",
   "chat.quota.startPlan.modelExhausted":
-    "All available quota for {model} has been used up. Switch to another model.",
+    "All available quota for {model} has been used up. Switch models or upgrade your plan.",
   "chat.quota.startPlan.dailyExhausted":
-    "Your Start Plan quota has been used up. Wait for the quota to reset.",
+    "Your Start Plan quota has been used up. Upgrade your plan or wait for the quota to reset.",
   "chat.quota.startPlan.concurrentLimit":
-    "The system is busy. Please switch models or try again later.",
+    "The system is busy. Please switch models, upgrade your account, or try again later.",
   "chat.quota.startPlan.concurrentLimit.retryExhausted":
-    "The system is busy, and automatic retries have reached the maximum count. Please try again later.",
+    "The system is busy, and automatic retries have reached the maximum count. Please try again later or upgrade your account.",
   "chat.quota.startPlan.concurrentLimit.switchModel":
     "The current model request concurrency limit has been reached. Switch models to continue your current task.",
   "chat.quota.mcp.quotaExhausted":
     'ZCodium MCP "{server}" has used up today\'s quota. It resets tomorrow.',
   "chat.quota.mcp.codingPlanRequired":
-    'No ZCodium MCP "{server}" quota. Configure an API key or a Coding Plan to use it.',
+    'No ZCodium MCP "{server}" quota. Sign in or get a Coding Plan to use it.',
   "chat.quota.providerLimited":
-    "The current quota or plan limit has been reached. Adjust the plan to continue.",
-  "chat.quota.action.upgrade": "Configure",
-  "chat.quota.action.renew": "Refresh",
+    "The current account quota or plan limit has been reached. Upgrade or adjust the plan to continue.",
+  "chat.quota.action.upgrade": "Upgrade",
+  "chat.quota.action.renew": "Renew",
   "chat.quota.action.switchModel": "Switch model",
   "chat.quota.action.switchProvider": "Switch provider",
   "chat.quota.action.refresh": "Refresh quota",
@@ -5498,7 +6296,7 @@ const enUS: Record<string, string> = {
   "chat.permission.allowForProject": "Always allow in this project",
   "chat.permission.cua.allowForProject": "Always allow Computer Use in this project",
   "chat.permission.cua.allowForProject.description":
-    "Do not ask again for Computer Use actions in this project",
+    "Do not ask again for official Computer Use actions in this project",
   "chat.permission.deny": "Deny",
   "chat.permission.denyAlways": "Always deny",
   "chat.permission.files": "Files",
@@ -5519,6 +6317,30 @@ const enUS: Record<string, string> = {
   "chat.permission.workflow.amends.scriptUnchanged": "script unchanged",
   "chat.permission.workflow.maxConcurrency": "At most {count} subagents at once",
   "chat.permission.workflow.subagentModel": "Subagents run on {model}",
+  // 脚本给某些子代理点名了模型时（docs/dynamic-workflow/launch.md「Models the script names」）：那些
+  // 名字不列（作者模型的选择），这一句只改口「默认」——它不再替每一个子代理说话。
+  "chat.permission.workflow.subagentModelDefault": "By default, subagents run on {model}",
+  // 确认窗里可调的两句（docs/dynamic-workflow/presentation.md「The confirmation window」）：句中的值
+  // 就是控件，所以句子被拆成控件前后的两截；改过的那一行句尾多一截「· 原为 X ↺」。
+  "chat.permission.workflow.settings.model.lead": "Subagents run on",
+  "chat.permission.workflow.settings.model.noCatalog": "Subagents stay on the session model",
+  "chat.permission.workflow.settings.model.noCatalogReason": "this agent has no model catalog",
+  "chat.permission.workflow.settings.model.leadDefault": "By default, subagents run on",
+  "chat.permission.workflow.settings.model.noCatalogDefault":
+    "By default, subagents stay on the session model",
+  "chat.permission.workflow.settings.limit.lead": "At most",
+  "chat.permission.workflow.settings.limit.trail": "subagents at once",
+  "chat.permission.workflow.settings.limit.none": "no limit of its own",
+  "chat.permission.workflow.settings.was": "was {value}",
+  "chat.permission.workflow.settings.reset": "Back to the proposed value",
+  // 改过设置后前两个选项换描述（docs/dynamic-workflow/launch.md「The options」）：会话免确认只管
+  // 「以后不再问」，调整只随这一次应答走。
+  "chat.permission.workflow.allowOnce.adjusted": "Run once with the adjusted settings",
+  "chat.permission.workflow.allowForSession.adjusted":
+    "This run with the adjusted settings; later runs are not asked and carry their own",
+  // ── 可复用工作流（docs/dynamic-workflow/launch.md）──
+  // saved 来源徽标（运行确认窗）：只说明脚本来自哪个文件、带了什么实参。
+  // 它不表达任何信任——保存不产生信任，已保存的工作流照样过完整的运行确认。
   "chat.permission.workflow.saved.badge": "Saved workflow",
   "chat.permission.workflow.saved.scope.project": "project",
   "chat.permission.workflow.saved.args": "Arguments",
@@ -5538,6 +6360,9 @@ const enUS: Record<string, string> = {
   "chat.permission.workflow.save.args.default": "Default",
   "chat.interactionOrigin.subagent": "Subagent",
   "chat.interactionOrigin.subagent.title": "Request from subagent: {agentType}",
+  "chat.interactionOrigin.subagent.named": "Subagent · {description}",
+  "chat.interactionOrigin.subagent.titleNamed":
+    "Request from subagent: {agentType} · {description}",
   "chat.cuaPermission.openAccessibility": "Open Accessibility Settings",
   "chat.cuaPermission.openScreenRecording": "Open Screen Recording",
   "chat.cuaPermission.opening": "Opening...",
@@ -5586,11 +6411,17 @@ const enUS: Record<string, string> = {
   "chat.permission.fileChange.mixedMany": "Update {count} files",
 
   // Modes
+  "mode.default": "Default",
   "mode.plan": "Plan",
+  "mode.acceptEdits": "Accept edits",
+  "mode.label.glm.default": "Default",
   "mode.label.glm.build": "Ask before changes",
   "mode.label.glm.edit": "Edit automatically",
   "mode.label.glm.plan": "Plan mode",
+  "mode.label.glm.guarded": "Autonomous mode",
+  "mode.description.glm.guarded": "Ask when there’s risk",
   "mode.label.glm.yolo": "Full access",
+  "mode.description.glm.default": "Use default confirmations.",
   "mode.description.glm.build": "Ask before file changes.",
   "mode.description.glm.edit": "Edit files automatically.",
   "mode.description.glm.plan": "Plan before editing.",
@@ -5632,18 +6463,20 @@ const enUS: Record<string, string> = {
   "zcode.error.ZCODE_RUNTIME_MODEL_UNAVAILABLE":
     "The current model is no longer available. Select an available model from the current model list to continue.",
   "zcode.error.ZCODE_BIGMODEL_TEAM_PLAN_MEMBER_REQUIRED":
-    "This model is unavailable. Check whether the API key has been added to the project member list.",
-  "zcode.error.providerBusiness.1006": "The API key has expired. Configure it again and retry.",
+    "The current model is unavailable. Check whether the current account has been added to the project member list.",
+  "zcode.error.CLAUDE_UNKNOWN_COMMAND":
+    "Claude Code does not recognize {command}. Check the command name, or switch to an Agent/skill that supports it and try again.",
+  "zcode.error.CLAUDE_UNKNOWN_COMMAND_WITH_ARGS":
+    "Claude Code does not recognize {command} (args: {args}). Check the command name, or switch to an Agent/skill that supports it and try again.",
+  "zcode.error.providerBusiness.1006": "Your login session has expired. Please sign in again.",
   "zcode.error.providerBusiness.1005":
-    "Today's free plan quota is used up. Switch models or wait for the quota to reset.",
+    "Today's free plan quota has been used up. Upgrade to continue now, or wait for the quota to reset.",
   "zcode.error.providerBusiness.3006":
     "The current model is not included in this plan. Switch to an allowed model and try again.",
   "zcode.error.providerBusiness.3002":
     "You're sending requests too quickly. Please try again later.",
   "zcode.error.providerBusiness.3001":
     "The request parameters are invalid. Check the input and try again.",
-  "zcode.error.providerBusiness.3007":
-    "The request was rejected by the gateway security check. Please try again later or contact support.",
   "zcode.error.providerBusiness.3008":
     "The system is busy. Please switch models, upgrade your account, or try again later.",
   "zcode.error.providerBusiness.3009":
@@ -5652,8 +6485,6 @@ const enUS: Record<string, string> = {
     "The system is busy. Please switch models, upgrade your account, or try again later.",
   "zcode.error.providerBusiness.3102":
     "This run exceeded the maximum single-run time. Create a new off-peak task to continue.",
-  "zcode.error.modelSuspiciousEmpty":
-    "The model returned no content (often caused by an expired token or plan issues). Please send again.",
   "zcode.error.providerBusiness.2007":
     "The upstream service is temporarily unavailable. Please try again later.",
   "zcode.error.providerBusiness.429":
@@ -5673,6 +6504,20 @@ const enUS: Record<string, string> = {
   "resourceManager.processCount": "{count} processes",
   "resourceManager.cpu": "CPU",
   "resourceManager.memory": "Memory",
+  "resourceManager.network": "Network",
+  "resourceManager.network.description":
+    "Records local app requests while this window is open. Keeps the latest 1,000.",
+  "resourceManager.network.filter": "Filter by URL, process, PID or method",
+  "resourceManager.network.clear": "Clear",
+  "resourceManager.network.unavailable": "Network requests are unavailable",
+  "resourceManager.network.count": "{count} requests · {dropped} evicted or dropped",
+  "resourceManager.network.previous": "Previous",
+  "resourceManager.network.next": "Next",
+  "resourceManager.network.time": "Time",
+  "resourceManager.network.process": "Process / PID",
+  "resourceManager.network.method": "Method",
+  "resourceManager.network.empty": "Waiting for new network requests…",
+  "resourceManager.network.noMatches": "No matching requests",
   "resourceManager.storage": "Storage",
   "resourceManager.appUsage": "ZCodium",
   "resourceManager.systemUsage": "System",
@@ -5954,14 +6799,15 @@ const enUS: Record<string, string> = {
   "feedback.submit.simple.logsTitle": "Logs",
   "feedback.submit.simple.logsLabel": "Upload diagnostic logs",
   "feedback.submit.simple.logsHint":
-    "Off by default. Uploads today's diagnostic logs, excluding databases, configuration files and model conversation traces. Automatic redaction may not remove all business information. Please choose carefully.",
+    "On by default; you can turn it off. Uploads today's diagnostic logs, a safe projection of CLI configuration, and today's model-call traces; databases are excluded. Automatic redaction may not remove all business information. Please choose carefully.",
   "feedback.submit.simple.footerHint": "Track progress later in My feedback.",
   "feedback.submit.missingDescription": "Please describe the issue first",
   "feedback.submit.addScreenshot": "Add screenshot",
   "feedback.submit.removeScreenshot": "Remove",
   "feedback.submit.contact.label": "Contact",
-  "feedback.submit.contact.hint": "Optional; other contact details are fine too.",
-  "feedback.submit.contact.placeholder": "example@domain.com / other contact",
+  "feedback.submit.contact.hint":
+    "Optional, for follow-up. You can also enter another social account.",
+  "feedback.submit.contact.placeholder": "example@domain.com / social account",
   "feedback.submit.supplemental.title": "Additional information",
   "feedback.submit.module.label": "Module",
   "feedback.submit.severity.label": "Impact",
@@ -6510,42 +7356,167 @@ const enUS: Record<string, string> = {
   "scheduledPreview.toast.running": "Running “{title}”…",
   "scheduledPreview.toast.view": "View",
   "scheduledPreview.addSchedule": "Add schedule",
-
-  // ---- Data root decision window ----
-  "dataRoot.loading": "Preparing…",
-  "dataRoot.title": "Data storage",
-  "dataRoot.status.absentWithLegacy":
-    "Legacy ZCodium / ZCode data was found. You can copy it into the new data directory, or start fresh; either way the old directory is kept as is.",
-  "dataRoot.status.unowned":
-    "The current data directory is not owned by this product (it may come from another branch or was created manually). It will be backed up first; nothing is deleted or merged.",
-  "dataRoot.status.corrupt":
-    "The data directory ownership record is damaged or from a newer version and cannot be read safely. It will be backed up first.",
-  "dataRoot.conflict.notice": "Conflicting directory will be renamed to a backup first: {path}",
-  "dataRoot.candidates.title": "Legacy data available",
-  "dataRoot.candidate.size": "Size",
-  "dataRoot.candidate.modified": "Modified",
-  "dataRoot.candidate.empty": "No legacy ~/.zcode data found. Only a fresh start is available.",
-  "dataRoot.disk.insufficient":
-    "Not enough disk space: about {required} required, {free} available. Free some space and retry.",
-  "dataRoot.progress.preparing": "Preparing to copy…",
-  "dataRoot.progress.copying": "Copying legacy data…",
-  "dataRoot.progress.finalizing": "Finalizing migration…",
-  "dataRoot.error.title": "Operation failed",
-  "dataRoot.error.retry": "Please retry, or start fresh.",
-  "dataRoot.done.restarting": "Restarting the app…",
-  "dataRoot.action.migrate": "Migrate legacy data",
-  "dataRoot.action.migrateHint":
-    "Copy legacy data into the new directory; the old directory stays. Neither side syncs afterwards.",
+  "chat.highspeed.label": "Highspeed",
+  "chat.highspeed.expiresAt": "Highspeed card expires at {time}",
+  "chat.highspeed.modelLocked": "Model is locked while Highspeed is active",
+  "chat.highspeed.originalModel": "Original model: {model}",
+  "chat.highspeed.remainingTime": "Time remaining: {time}",
+  "chat.highspeed.generatedBy": "Generated by Highspeed",
+  "chat.highspeed.shareAction": "Share",
+  "chat.highspeed.viewAction": "View",
+  "chat.highspeed.share": "Share this accelerated run",
+  "chat.highspeed.shareFailed": "Could not share. Try again later.",
+  "chat.highspeed.savedDuration": "About {duration} saved",
+  "chat.highspeed.statusTag": "HighSpeed",
+  "chat.highspeed.cardExpiredFallback":
+    "The Highspeed card has expired. The rest of this turn will continue with the original model.",
+  "chat.highspeed.requestFailedFallback":
+    "Highspeed is temporarily unavailable. The rest of this turn will continue with the original model.",
+  "globalNotice.highspeed.title": "Highspeed run completed",
+  "globalNotice.highspeed.summary": "{tokens} output tokens · {duration}s",
+  "globalNotice.highspeed.tagline": "Share a Highspeed moment",
+  "globalNotice.highspeed.sidebarTagline": "Share your speedup",
+  "globalNotice.highspeed.share": "Share",
+  "globalNotice.highspeed.view": "View",
+  "globalNotice.highspeed.imageCopied": "Acceleration stats copied",
+  "globalNotice.highspeed.imageCopyFailed": "Could not copy image. Try again.",
+  "globalNotice.highspeed.textCopied": "Share text copied",
+  "globalNotice.highspeed.textCopyFailed": "Could not copy share text. Try again.",
+  "globalNotice.highspeed.copyImage": "Copy image",
+  "globalNotice.highspeed.badge": "ZCode & Coding Plan Exclusive Benefits",
+  "globalNotice.highspeed.standardTaskSpeed": "Standard generation speed",
+  "globalNotice.highspeed.relativeTaskDuration": "Relative generation time",
+  "globalNotice.highspeed.speedSummary": "HighSpeed · {duration}",
+  "globalNotice.highspeed.lessWaiting": "{percent}% less waiting",
+  "globalNotice.highspeed.copySummary":
+    "I used the ZCode Highspeed card and saved {duration}s. Give it a try. Download ZCode https://zcode.z.ai",
+  "globalNotice.highspeed.imageSummary": "{tokens} tokens · {duration}s saved",
+  "globalNotice.highspeed.close": "Close Highspeed share card",
+  ...requestSecurityMessagesEnUS,
+  "bots.astrbot.boundDescription":
+    "AstrBot bridge is bound; messages go through the official Bots pipeline.",
+  "bots.astrbot.bridgeDescription":
+    "Connect through this repository's bridge plugin; AstrBot owns the per-platform adapters.",
+  "bots.astrbot.bridgeLabel": "AstrBot bridge",
+  "bots.astrbot.copyPath": "Copy config path",
+  "bots.astrbot.openPlugin": "Open bridge plugin",
+  "bots.astrbot.runtimeFilePath": "Bridge runtime file (url / port / token / bind code):",
+  "bots.astrbot.step.bind": "Send /bind <code> in chat to finish binding.",
+  "bots.astrbot.step.configure": "Fill the url, port, and token from that file into the plugin.",
+  "bots.astrbot.step.install": "Install the astrbot-zcodium-plugin.",
+  "bots.astrbot.unboundDescription":
+    "Install and configure astrbot-zcodium-plugin, then generate a bind code.",
+  "bots.channel.astrbot": "AstrBot",
+  "bots.newBot.providerDescription.astrbot":
+    "Connect through the AstrBot bridge plugin; AstrBot owns the platform adapters.",
+  "chat.toolCall.workflow.run.settings.limit.atCeiling": "= this machine's limit",
+  "chat.toolCall.workflow.run.settings.limit.ceiling": "this machine allows up to {n}",
+  "chat.toolCall.workflow.settingsChange.limitCeiling": "limit back to this machine's default",
+  "chat.workflowLaunch.settings.machineLimit": "this machine's limit",
+  "chat.workflowLaunch.settings.machineLimitValue": "{n} (this machine's limit)",
+  "dataRoot.action.cancel": "Cancel",
   "dataRoot.action.fresh": "Start fresh",
   "dataRoot.action.freshHint":
     "Do not import legacy data; the old directory stays and can be imported later from Settings.",
+  "dataRoot.action.import": "Import and restart",
+  "dataRoot.action.migrate": "Migrate legacy data",
+  "dataRoot.action.migrateHint":
+    "Copy legacy data into the new directory; the old directory stays. Neither side syncs afterwards.",
   "dataRoot.action.quit": "Quit",
   "dataRoot.action.quitHint": "Make no changes; you will be asked again next launch.",
-  "dataRoot.import.title": "Import from legacy data directory",
+  "dataRoot.candidate.empty": "No legacy ~/.zcode data found. Only a fresh start is available.",
+  "dataRoot.candidate.modified": "Modified",
+  "dataRoot.candidate.size": "Size",
+  "dataRoot.candidates.title": "Legacy data available",
+  "dataRoot.conflict.notice": "Conflicting directory will be renamed to a backup first: {path}",
+  "dataRoot.disk.insufficient":
+    "Not enough disk space: about {required} required, {free} available. Free some space and retry.",
+  "dataRoot.done.restarting": "Restarting the app…",
+  "dataRoot.error.retry": "Please retry, or start fresh.",
+  "dataRoot.error.title": "Operation failed",
   "dataRoot.import.description":
     "Legacy data will be copied into the current data directory. The current directory is backed up first; the app restarts when done.",
-  "dataRoot.action.import": "Import and restart",
-  "dataRoot.action.cancel": "Cancel",
+  "dataRoot.import.title": "Import from legacy data directory",
+  "dataRoot.loading": "Preparing…",
+  "dataRoot.progress.copying": "Copying legacy data…",
+  "dataRoot.progress.finalizing": "Finalizing migration…",
+  "dataRoot.progress.preparing": "Preparing to copy…",
+  "dataRoot.status.absentWithLegacy":
+    "Legacy ZCodium / ZCode data was found. You can copy it into the new data directory, or start fresh; either way the old directory is kept as is.",
+  "dataRoot.status.corrupt":
+    "The data directory ownership record is damaged or from a newer version and cannot be read safely. It will be backed up first.",
+  "dataRoot.status.unowned":
+    "The current data directory is not owned by this product (it may come from another branch or was created manually). It will be backed up first; nothing is deleted or merged.",
+  "dataRoot.title": "Data storage",
+  "login.apiKey.moreProvidersHint": "Other model providers can be configured in Settings - Models",
+  "orcaRouter.apiKey.invalid":
+    "OrcaRouter API keys start with sk-orca-. Check the value and try again.",
+  "orcaRouter.apiKey.save": "Save key",
+  "orcaRouter.apiKey.title": "Use API key",
+  "orcaRouter.catalog.degradedLastKnownGood":
+    "Live model catalog refresh failed. Showing the last known good catalog ({count} models).",
+  "orcaRouter.catalog.degradedSeed":
+    "Live model catalog unavailable. Showing the verified offline seed ({count} models).",
+  "orcaRouter.catalog.failed": "The OrcaRouter model catalog is unavailable.",
+  "orcaRouter.clear": "Clear",
+  "orcaRouter.clear.failed": "Could not clear the OrcaRouter credential. Try again.",
+  "orcaRouter.connect.failed": "Could not start the OrcaRouter authorization",
+  "orcaRouter.connected": "Connected · {masked}",
+  "orcaRouter.description":
+    "OrcaRouter is an OpenAI-compatible AI gateway. Use an existing API key or connect your OrcaRouter account; both end up as the same API key against {baseUrl}.",
+  "orcaRouter.model.empty": "No model in the current catalog matches this entry.",
+  "orcaRouter.model.search": "Search models",
+  "orcaRouter.model.selectPlaceholder": "Select a model",
+  "orcaRouter.needsReauth":
+    "OrcaRouter rejected this credential. Connect again to replace it; the stored key is kept until a new login succeeds.",
+  "orcaRouter.notConnected": "Not connected",
+  "orcaRouter.pkce.codePlaceholder": "Paste the authorization code",
+  "orcaRouter.pkce.connect": "Connect with OrcaRouter",
+  "orcaRouter.pkce.copied": "Authorization URL copied",
+  "orcaRouter.pkce.copy": "Copy authorization URL",
+  "orcaRouter.pkce.description":
+    "OAuth 2.0 + PKCE. No client secret and no redirect URI to register; the authorization page shows a code you paste back here.",
+  "orcaRouter.pkce.open": "Open authorization page",
+  "orcaRouter.pkce.openHint": "Open this URL, approve, then paste the code below",
+  "orcaRouter.pkce.submitCode": "Finish connecting",
+  "orcaRouter.pkce.title": "Connect with OrcaRouter",
+  "orcaRouter.title": "OrcaRouter",
+  "settings.dataBaseDirImport": "Import legacy data",
+  "settings.dataBaseDirImportHint":
+    "Copy data from the legacy data directory and restart (the current directory is backed up first)",
+  "settings.locale.fa-IR": "فارسی",
+  "settings.modelProvider.balance.error": "Could not load the balance. Try again later.",
+  "settings.modelProvider.balance.notConfigured": "Enter an API key to check the balance.",
+  "settings.modelProvider.balance.refresh": "Refresh balance",
+  "settings.modelProvider.balance.title": "Account balance",
+  "settings.modelProvider.balance.unauthorized": "The API key is invalid or expired.",
+  "settings.modelProvider.codingPlan.browserLogin": "Sign in via browser",
+  "settings.modelProvider.codingPlan.browserLoginHint":
+    'Browser sign-in did not complete. Make sure "Z.AI API configuration" is enabled under Settings → Z.AI services, then retry and finish the browser authorization.',
+  "settings.modelProvider.detectModels": "Detect available models",
+  "settings.modelProvider.detectModelsEmpty": "No available models detected",
+  "settings.modelProvider.emptyHint":
+    'Click "Add provider" to create one from a preset template, or create a custom provider and fill in its API key.',
+  "settings.officialServices.clientConfig.desc":
+    "Fetch the Z.AI client configuration and startup warmup data; does not include Provider templates (model presets come from the built-in config).",
+  "settings.officialServices.clientConfig.title": "Z.AI client config",
+  "settings.officialServices.description":
+    "These are Z.AI (ZCode) services. Turning one on connects to Z.AI servers — keep them off unless you need them. Some features load at startup; restart the app after changing these switches.",
+  "settings.officialServices.marketplace.desc":
+    "Download plugins and assets from the Z.AI marketplace and CDN.",
+  "settings.officialServices.marketplace.title": "Z.AI marketplace and CDN",
+  "settings.officialServices.title": "Z.AI service connections",
+  "settings.officialServicesTitle": "Z.AI services",
+  "settings.plugins.store.officialMarketplaceDisabled":
+    'The Z.AI official plugin marketplace is off. Enable "Z.AI marketplace and CDN" under Settings → Z.AI services.',
+  "sidebar.settings.locale.fa-IR": "فارسی",
+  "webRemoteControl.botChannel.astrbot.description":
+    "Open this workspace through a chat platform connected via AstrBot.",
+  "webRemoteControl.botChannel.astrbot.title": "AstrBot",
+  "zcode.error.modelSuspiciousEmpty":
+    "The model returned no content (often caused by an expired token or plan issues). Please send again.",
+  "zcode.error.providerBusiness.3007":
+    "The request was rejected by the gateway security check. Please try again later or contact support.",
 };
 
 export default enUS;

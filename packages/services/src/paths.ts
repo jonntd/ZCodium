@@ -1,12 +1,13 @@
 /* path 规则集中维护：旧 task 快照与 provider 配置路径仍在这里收口。 */
 import { lstatSync } from "node:fs";
-import { readExternalEnvVar } from "@zcode/shared";
 import { cp } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, join, win32 } from "node:path";
 import { homedir } from "node:os";
+import { readExternalEnvVar } from "@zcode/shared";
 import {
   DATA_BASE_DIR_FORBIDDEN_WINDOWS_INSTALL_DIR_ERROR_CODE,
+  ZCODE_AGENT_RUNTIME,
   ZCODE_DATA_ROOT_DIR_NAME,
 } from "@zcode/shared";
 
@@ -24,13 +25,13 @@ export function isDataBaseDirEnvOverrideActive(): boolean {
   return envDataBaseDir !== null;
 }
 
-interface DataBaseDirTargetValidationOptions {
+export interface DataBaseDirTargetValidationOptions {
   platform?: NodeJS.Platform | string;
   env?: Record<string, string | undefined>;
   appInstallDir?: string | null;
 }
 
-type DataBaseDirTargetValidationResult =
+export type DataBaseDirTargetValidationResult =
   | { ok: true }
   | {
       ok: false;
@@ -45,7 +46,7 @@ export function setDataBaseDir(dir: string | null): void {
   _dataBaseDir = dir?.trim() || null;
 }
 
-/** Get the current base directory. Priority: env ZCODE_DATA_BASE_DIR > setDataBaseDir() > homedir(). */
+/** Get the current base directory. Priority: setDataBaseDir() > env ZCODE_DATA_BASE_DIR > homedir(). */
 export function getDataBaseDir(): string {
   if (_dataBaseDir) return _dataBaseDir;
   if (envDataBaseDir) return envDataBaseDir;
@@ -71,12 +72,12 @@ export function getZCodeDataRootDir(): string {
   return join(getDataBaseDir(), ZCODE_DATA_ROOT_DIR_NAME);
 }
 
-/** 非项目对话共享的真实工作目录；默认 ~/.zcodium/workspace/default。 */
+/** 非项目对话共享的真实工作目录；默认 ~/.zcode/workspace/default。 */
 export function getConversationWorkspaceDir(): string {
   return join(getZCodeDataRootDir(), "workspace", "default");
 }
 
-/** {dataBaseDir}/.zcodium/v2 */
+/** {dataBaseDir}/.zcode/v2 */
 export function getAppConfigDir(): string {
   return join(getZCodeDataRootDir(), "v2");
 }
@@ -209,7 +210,7 @@ export function getGitCheckpointIndexRootDir(): string {
   return join(getZCodeDataRootDir(), "git-checkpoint-index");
 }
 
-/** ~/.zcodium/v2/tasks-index.sqlite */
+/** ~/.zcode/v2/tasks-index.sqlite */
 export function getTasksIndexDatabasePath(): string {
   return join(getAppConfigDir(), "tasks-index.sqlite");
 }
@@ -227,12 +228,12 @@ export function getWorkspaceHash(workspacePath: string, workspaceIdentity?: stri
     .slice(0, 12);
 }
 
-/** ~/.zcodium/v2/sessions/{workspaceHash} */
+/** ~/.zcode/v2/sessions/{workspaceHash} */
 function getTaskSessionDir(workspacePath: string, workspaceIdentity?: string): string {
   return join(getAppConfigDir(), "sessions", getWorkspaceHash(workspacePath, workspaceIdentity));
 }
 
-/** ~/.zcodium/v2/sessions/{workspaceHash}/{taskId}.json */
+/** ~/.zcode/v2/sessions/{workspaceHash}/{taskId}.json */
 export function getLegacyTaskSessionSnapshotPath(
   workspacePath: string,
   taskId: string,
@@ -241,13 +242,24 @@ export function getLegacyTaskSessionSnapshotPath(
   return join(getTaskSessionDir(workspacePath, workspaceIdentity), `${taskId}.json`);
 }
 
-/** ~/.zcodium/v2/sessions/{workspaceHash}/{taskId}.deleted.json */
+/** ~/.zcode/v2/sessions/{workspaceHash}/{taskId}.deleted.json */
 export function getLegacyDeletedTaskSessionSnapshotPath(
   workspacePath: string,
   taskId: string,
   workspaceIdentity?: string,
 ): string {
   return join(getTaskSessionDir(workspacePath, workspaceIdentity), `${taskId}.deleted.json`);
+}
+
+/**
+ * GLM（唯一 agent provider）的配置目录：~/.zcode/cli。
+ * Bugfix：GLM 配置改为直接读写新版 zcode-cli 的全局配置目录，不做 workspace 隔离，
+ * 避免同机不同工作区配置漂移。
+ */
+export function getProviderWorkspaceConfigDir(): string {
+  return ZCODE_AGENT_RUNTIME.nativeConfigDir
+    ? join(getDataBaseDir(), ZCODE_AGENT_RUNTIME.nativeConfigDir)
+    : join(getDataBaseDir(), ".zcode", "cli");
 }
 
 /**

@@ -49,6 +49,7 @@ export function WorkspacePinnedTasksSection({
   activeWorkspaceIdentity,
   activeTaskId,
   taskSortBy,
+  mobileActiveTaskKey,
   onSelectTask,
   onOpenFileTree,
 }: {
@@ -57,6 +58,7 @@ export function WorkspacePinnedTasksSection({
   activeWorkspaceIdentity?: string;
   activeTaskId: string | null;
   taskSortBy: "created" | "updated";
+  mobileActiveTaskKey?: string | null;
   onSelectTask: (
     targetWorkspacePath: string,
     taskId: string,
@@ -560,6 +562,7 @@ export function WorkspacePinnedTasksSection({
                     buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity) ===
                       activeWorkspaceKey && item.taskId === activeTaskId
                   }
+                  isMobileActive={mobileActiveTaskKey === itemKey}
                   onSelectTask={handlers.onSelectTask}
                   onArchiveTaskInline={handlers.onArchiveTaskInline}
                   onCancelArchiveConfirm={handleCancelArchiveConfirm}

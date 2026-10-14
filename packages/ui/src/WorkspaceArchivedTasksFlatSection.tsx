@@ -27,6 +27,7 @@ export function WorkspaceArchivedTasksFlatSection({
   activeWorkspaceIdentity,
   activeTaskId,
   sortBy,
+  mobileActiveTaskKey,
   actionsContainer,
   onSelectTask,
 }: {
@@ -35,6 +36,7 @@ export function WorkspaceArchivedTasksFlatSection({
   activeWorkspaceIdentity?: string;
   activeTaskId: string | null;
   sortBy: "created" | "updated";
+  mobileActiveTaskKey?: string | null;
   actionsContainer?: HTMLElement | null;
   onSelectTask: (
     targetWorkspacePath: string,
@@ -141,7 +143,7 @@ export function WorkspaceArchivedTasksFlatSection({
           const deleteLabel = intl.formatMessage({ id: "taskList.delete" });
           // archived 平铺列表同样是跨 workspace 视图，选中态要按 workspaceKey 隔离。
           const isActive = workspaceKey === activeWorkspaceKey && task.taskId === activeTaskId;
-          const isMobileActive = false;
+          const isMobileActive = mobileActiveTaskKey === `${workspaceKey}:${task.taskId}`;
           const taskKey = `${workspaceKey}:${task.taskId}`;
           const isDeleting = deletingTaskKeys.has(taskKey);
 
@@ -163,7 +165,7 @@ export function WorkspaceArchivedTasksFlatSection({
                     title={intl.formatMessage({ id: "taskList.mobileActive" })}
                     side="right"
                     align="center"
-                    triggerClassName="absolute -start-5 top-1/2 z-10 -translate-y-1/2"
+                    triggerClassName="absolute -left-5 top-1/2 z-10 -translate-y-1/2"
                   >
                     <span
                       data-mobile-active-task="true"
@@ -172,7 +174,7 @@ export function WorkspaceArchivedTasksFlatSection({
                         id: "taskList.mobileActive",
                       })}
                     >
-                      {/* 归档视图也可能保留手机端当前 task 的旧状态，展示同一标记避免列表间状态不一致。
+                      {/* Bugfix: 归档视图也可能保留手机端当前 task 的旧状态，展示同一标记避免列表间状态不一致。
                         上一版把标记放进标题行 flex 流里，会让只有手机标记的 task 标题右移；
                         这里用绝对定位放在标题左侧，让标题文本继续按原始位置对齐。 */}
                       <Smartphone className="size-3.5" />
@@ -194,7 +196,7 @@ export function WorkspaceArchivedTasksFlatSection({
                   className="flex min-w-0 flex-1 items-center gap-1.5"
                   title={task.workspacePath}
                 >
-                  {/* archived 列表以前本地和远端任务都显示 Folder，
+                  {/* Bugfix: archived 列表以前本地和远端任务都显示 Folder，
                     用户无法判断取消归档会作用在哪一侧。这里用 Cloud 区分远端来源。 */}
                   {isRemoteTask ? (
                     <Cloud className="size-3 shrink-0" />
@@ -252,7 +254,7 @@ export function WorkspaceArchivedTasksFlatSection({
                         });
                     }}
                   >
-                    {/* 取消归档按钮以前本地/远端都用 ArchiveX，
+                    {/* Bugfix: 取消归档按钮以前本地/远端都用 ArchiveX，
                       在混合归档列表中看不出操作目标。远端用 CloudDownload 明确会作用到远端 task。 */}
                     {isRemoteTask ? (
                       <CloudDownload className="size-3.5" />
@@ -262,7 +264,7 @@ export function WorkspaceArchivedTasksFlatSection({
                   </Button>
                 </ControlHintTooltip>
                 <ControlHintTooltip title={deleteLabel} side="top">
-                  {/* 删除请求期间 button 会 disabled，disabled 元素不产生 hover 事件；
+                  {/* Bugfix：删除请求期间 button 会 disabled，disabled 元素不产生 hover 事件；
                     用真实 span 承接 tooltip trigger，保持处理中仍能解释该 action。 */}
                   <span className="inline-flex shrink-0">
                     <Button
@@ -302,7 +304,7 @@ export function WorkspaceArchivedTasksFlatSection({
                                 ? { workspaceIdentity: task.workspaceIdentity }
                                 : {}),
                             });
-                            // 删除只发生在归档列表，不能把它当成“取消归档”写回普通列表。
+                            // Bugfix: 删除只发生在归档列表，不能把它当成“取消归档”写回普通列表。
                             // 这里直接从 task caches 移除目标项，避免失效整表 query cache 导致列表闪空。
                             removeTaskFromTaskCaches({
                               workspacePath: task.workspacePath,
@@ -335,7 +337,7 @@ export function WorkspaceArchivedTasksFlatSection({
       </ul>
       {syncingRemoteWorkspaces ? <TaskListRemoteSyncHint /> : null}
       {canToggleExpanded ? (
-        <div className="cursor-pointer ps-8.5 pb-4">
+        <div className="cursor-pointer pl-8.5 pb-4">
           <span
             className="text-ui-base text-foreground-subtlest hover:text-foreground-subtle"
             onClick={() => {

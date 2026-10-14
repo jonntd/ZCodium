@@ -237,7 +237,7 @@ function buildTaskResultRows(params: {
   return rows;
 }
 
-function CommandCenterScopeButton({
+export function CommandCenterScopeButton({
   active,
   label,
   onClick,
@@ -292,7 +292,7 @@ function scopeToPrefix(scope: CommandCenterSearchScope): string {
  * 独立组件便于复用与单测；按 DESIGN.md 语义角色，列表项里的相对时间属于
  * secondary copy，使用 text-ui-sm（不用 text-ui-xs，避免偏小）。
  */
-function CommandCenterConversationTimestamp({
+export function CommandCenterConversationTimestamp({
   className,
   children,
 }: {
@@ -320,7 +320,7 @@ function CommandCenterConversationTimestamp({
  * - 历史 chip 搜索词：text-ui-base（可读内容，与列表主体一致）
  * - chip 内 scope 前缀：text-ui-xs（badge 标记，比主体小一级形成层级）
  */
-function CommandCenterSearchHistory({
+export function CommandCenterSearchHistory({
   entries,
   expanded,
   onToggleExpanded,
@@ -349,7 +349,7 @@ function CommandCenterSearchHistory({
         <button
           type="button"
           aria-label={clearLabel}
-          className="ms-auto inline-grid size-6 place-items-center rounded-md text-foreground-subtlest hover:bg-surface-hover hover:text-foreground"
+          className="ml-auto inline-grid size-6 place-items-center rounded-md text-foreground-subtlest hover:bg-surface-hover hover:text-foreground"
           onClick={onClear}
         >
           <Trash2Icon className="size-3.5" />
@@ -357,7 +357,7 @@ function CommandCenterSearchHistory({
       </div>
       <div
         className={cn(
-          "relative flex flex-wrap gap-1.5 overflow-hidden px-3 pt-1 pb-2 pe-11",
+          "relative flex flex-wrap gap-1.5 overflow-hidden px-3 pt-1 pb-2 pr-11",
           expanded ? "" : "max-h-[34px]",
         )}
       >
@@ -383,7 +383,7 @@ function CommandCenterSearchHistory({
           <button
             type="button"
             aria-label={expanded ? collapseLabel : expandLabel}
-            className="absolute top-1 end-3 inline-grid size-6 place-items-center rounded-md text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+            className="absolute top-1 right-3 inline-grid size-6 place-items-center rounded-md text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
             onClick={onToggleExpanded}
           >
             <ChevronDownIcon
@@ -714,7 +714,7 @@ export const CommandCenterDialog = memo(function CommandCenterDialogComponent({
     return (
       <button
         type="button"
-        className="mt-0.5 flex min-h-7 w-full items-center gap-1.5 rounded-xl px-2.5 ps-8 text-start text-ui-base text-foreground-subtle hover:bg-menu-hover hover:text-foreground"
+        className="mt-0.5 flex min-h-7 w-full items-center gap-1.5 rounded-xl px-2.5 pl-8 text-left text-ui-base text-foreground-subtle hover:bg-menu-hover hover:text-foreground"
         onClick={() => setExpandedSections((current) => new Set(current).add(sectionId))}
       >
         {intl.formatMessage({ id: "commandCenter.moreResults" })}

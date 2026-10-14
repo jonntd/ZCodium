@@ -7,7 +7,7 @@ export interface CodingPlanUpgradeDialogTarget {
   initialTeamPlanKey?: string;
 }
 
-interface PendingCodingPlanUpgradeAfterLogin {
+export interface PendingCodingPlanUpgradeAfterLogin {
   loginAttemptId: number;
   target: CodingPlanUpgradeDialogTarget;
 }
