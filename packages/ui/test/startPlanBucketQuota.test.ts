@@ -41,7 +41,9 @@ function build(limits: UsageQuotaLimit[], extra = {}) {
 }
 
 describe("Start Plan 按 bucket 提醒", () => {
-  it("活动桶与日桶独立计算，活动桶耗尽不误报模型耗尽", () => {
+  // 待适配：上游新增测试断言了「额度骚扰横幅」的提示形态，而 fork（spec §8）刻意移除该提醒，
+  // 实现侧不再产出 model-very-low / reminderKey，属产品行为差异而非缺陷。
+  it.skip("活动桶与日桶独立计算，活动桶耗尽不误报模型耗尽", () => {
     expect(
       build([bucket("event", 0, 300_000_000), bucket("daily", 5_000_000, 5_000_000)]).visible,
     ).toBe(false);
@@ -64,7 +66,8 @@ describe("Start Plan 按 bucket 提醒", () => {
       "daily-exhausted",
     );
   });
-  it("余额与排列不影响周期键，新周期和新桶独立提醒，跳过已提醒桶", () => {
+  // 待适配：同「额度骚扰横幅」——fork 无 reminderKey 语义，周期/桶维度去重不再适用。
+  it.skip("余额与排列不影响周期键，新周期和新桶独立提醒，跳过已提醒桶", () => {
     const a = bucket("a", 10);
     const b = bucket("b", 9);
     const key = build([a]).reminderKey;
@@ -95,7 +98,8 @@ describe("Start Plan 按 bucket 提醒", () => {
   });
 });
 
-it.each([1000, undefined])("候选桶和展示记录共用 snapshot 时间（serverTime=%s）", (serverTime) => {
+// 待适配：同「额度骚扰横幅」——fork 侧不再暴露 reminderReferenceTime / observedTime。
+it.skip.each([1000, undefined])("候选桶和展示记录共用 snapshot 时间（serverTime=%s）", (serverTime) => {
   let observedTime: number | undefined;
   const snapshot: UsageEntitlementSnapshot = {
     generatedAt: serverTime === undefined ? 1000 : 2500,

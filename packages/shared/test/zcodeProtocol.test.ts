@@ -360,6 +360,12 @@ describe("ZCode Protocol", () => {
       }),
     ).toEqual({
       askUserQuestionAutoResolutionEnabled: false,
+      // fork 在 patcher-parity 线新增的运行时偏好字段（上游 schema 尚未包含），
+      // 解析时会补齐默认值一并下发，因此断言需列全，不能只写上游的两个字段。
+      batchDeleteApprovalThreshold: 50,
+      customSystemPrompt: "",
+      deleteProtectionEnabled: true,
+      language: "",
       modelIoFullRetentionEnabled: false,
     });
     expect(() =>

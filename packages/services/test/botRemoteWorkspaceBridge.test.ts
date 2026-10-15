@@ -219,9 +219,12 @@ describe("createBotRemoteWorkspaceService", () => {
 
     await bridge.getZCodeTaskService(target);
 
-    // settings 未配置 modelIoFullRetentionEnabled 时按默认关闭（=== true → false）下发
+    // settings 未配置 modelIoFullRetentionEnabled 时按默认关闭（=== true → false）下发；
+    // 另两个是 fork 新增的偏好字段（批量删除审批阈值 / 删除保护），同样带默认值下发。
     expect(remoteZCodeAgentService.syncAppRuntimePreferences).toHaveBeenCalledWith({
       askUserQuestionAutoResolutionEnabled: false,
+      batchDeleteApprovalThreshold: 50,
+      deleteProtectionEnabled: true,
       modelIoFullRetentionEnabled: false,
     });
   });

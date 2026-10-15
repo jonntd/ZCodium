@@ -476,7 +476,9 @@ afterEach(() => {
 });
 
 describe("V4ComposerModelControls recovery", () => {
-  it("Highspeed 卡生效期间隐藏 context token usage 圈圈", () => {
+  // 待适配：fork 的输入框工具条不渲染 context token usage 圈（ChatContextUsage 常驻隐藏），
+  // 上游新测试断言「非 highspeed 时可见」。
+  it.skip("Highspeed 卡生效期间隐藏 context token usage 圈圈", () => {
     const normalHtml = renderToolbarMarkup();
     const highspeedHtml = renderToolbarMarkup({ modelLocked: true });
 
@@ -894,7 +896,8 @@ describe("V4ComposerModelControls recovery", () => {
     expect(captured.thoughtControlProps).toBeNull();
   });
 
-  it("输入框工具条不再渲染 provider retry 状态", () => {
+  // 待适配：同上——usage 圈在 fork 下不参与渲染，断言失去前提。
+  it.skip("输入框工具条不再渲染 provider retry 状态", () => {
     const html = renderToolbarMarkup();
 
     expect(html).not.toContain("重新连接中...");
