@@ -1,7 +1,3 @@
-// 构建配置必须从相对路径加载 shared 源码：tsup/vite 会把相对依赖交给 esbuild 打包，
-// 而 workspace 包（@zcode/shared）会被 externalize 交给 Node 原生加载 .ts——Node 24 的
-// strip-types 不做 .js→.ts 重映射，P1a 后 zcodeEndpoint 内部的 "./env-names.js" 会解析失败。
-import { pickProductEndpointEnv } from "../shared/src/zcodeEndpoint.js";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -9,6 +5,9 @@ import { defineConfig } from "tsup";
 import { getBuildMetadata } from "./scripts/build-metadata.mjs";
 import { resolveDesktopProductFlavor } from "./scripts/desktop-product-identity.mjs";
 import { resolveUpdateFeedTarget } from "./scripts/update-feed-target.mjs";
+const { copyGenUiRuntimeAssets } = await import(
+  pathToFileURL(resolve(import.meta.dirname, "scripts/gen-ui-runtime-assets.mjs")).href
+);
 // tsup 会先打包配置文件；动态加载构建工具，避免其 import.meta.dirname 被重定位到 desktop。
 const { loadBuiltinProviderConfig } = await import(
   pathToFileURL(resolve(import.meta.dirname, "../../scripts/builtin-provider-config.mjs")).href
@@ -21,6 +20,13 @@ const { createZcodeCuaRuntimeAliasPlugin } = await import(
 const zcodeCuaRuntimeAliasPlugin = createZcodeCuaRuntimeAliasPlugin({
   runtimeRoot: resolve(import.meta.dirname, "../../runtimes/zcode-cua"),
 });
+const { resolveBuildTimeConfig, createBuildTimeConfigDefines } = await import(
+  pathToFileURL(resolve(import.meta.dirname, "../../scripts/build-time-config.mjs")).href
+);
+// 构建期可选能力（ARMS、事件上报、自动更新），见 docs/desktop/build-time-optional-capabilities.md
+const buildTimeConfigDefines = createBuildTimeConfigDefines(
+  await resolveBuildTimeConfig(process.env),
+);
 
 const buildMetadata = getBuildMetadata();
 // 更新源仓库坐标与 electron-builder publish 配置同源（update-feed-target.mjs），见 spec github-updates.md。
@@ -29,7 +35,7 @@ const updateFeedTarget = resolveUpdateFeedTarget();
 // 手动加载 .env 文件，tsup 不像 Vite 会自动读取 .env.*；这些文件只提供链接常量。
 function loadEnvFiles(): Record<string, string> {
   const vars: Record<string, string> = {};
-  const files = ["../../.env", "../../.env.local"];
+  const files = ["../../.env"];
   if (process.env.NODE_ENV === "production") {
     files.push("../../.env.production");
   } else {
@@ -56,20 +62,15 @@ function loadEnvFiles(): Record<string, string> {
   if (process.env.ZAI_BUSINESS_LOGIN_URL) {
     vars.ZAI_BUSINESS_LOGIN_URL = process.env.ZAI_BUSINESS_LOGIN_URL;
   }
+  if (process.env.CDN_DOMAIN) vars.CDN_DOMAIN = process.env.CDN_DOMAIN;
+  if (process.env.OSS_PATH_PREFIX) vars.OSS_PATH_PREFIX = process.env.OSS_PATH_PREFIX;
   if (process.env.VITE_ZAI_OAUTH_CLIENT_ID) {
     vars.VITE_ZAI_OAUTH_CLIENT_ID = process.env.VITE_ZAI_OAUTH_CLIENT_ID;
   }
   if (process.env.VITE_ZAI_OAUTH_ORIGIN) {
     vars.VITE_ZAI_OAUTH_ORIGIN = process.env.VITE_ZAI_OAUTH_ORIGIN;
   }
-  return {
-    ...vars,
-    ...Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] => entry[1] !== undefined,
-      ),
-    ),
-  };
+  return vars;
 }
 
 const env = loadEnvFiles();
@@ -77,6 +78,31 @@ const { environment: zcodeEnv } = await loadBuiltinProviderConfig();
 // 安装包身份与后端环境分轴：ZCODE_PREVIEW_IDENTITY=1 让生产后端的构建仍以 ZCode Preview 身份打包运行。
 const zcodeProductFlavor = resolveDesktopProductFlavor({ ...process.env, ZCODE_ENV: zcodeEnv });
 console.log(`[tsup] ZCODE_ENV=${zcodeEnv} ZCODE_PRODUCT_FLAVOR=${zcodeProductFlavor}`);
+
+function parseCsvEnv(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+export function resolveBuildRemoteCdnReleaseRoots(runtimeEnv: Record<string, string | undefined>) {
+  const domains = parseCsvEnv(runtimeEnv.CDN_DOMAIN);
+  const pathPrefixes = parseCsvEnv(runtimeEnv.OSS_PATH_PREFIX || "zcode/electron/releases");
+  if (domains.length === 0) {
+    return [];
+  }
+  if (pathPrefixes.length !== 1 && pathPrefixes.length !== domains.length) {
+    throw new Error(
+      `OSS_PATH_PREFIX must contain one value or match CDN_DOMAIN count (${domains.length}), got ${pathPrefixes.length}`,
+    );
+  }
+
+  return domains.map((domain, index) => {
+    const pathPrefix = pathPrefixes.length === 1 ? pathPrefixes[0] : pathPrefixes[index];
+    return `https://${domain}/${pathPrefix}`.replace(/\/+$/, "");
+  });
+}
 
 export function resolveDesktopTsupBundleSecurityOptions(
   runtimeEnv: Record<string, string | undefined> = process.env,
@@ -114,7 +140,6 @@ function createSharedDefines() {
     __ZCODE_COMMIT__: JSON.stringify(buildMetadata.buildCommitId),
     __ZCODE_BUILD_TIME__: JSON.stringify(buildMetadata.buildTime),
     __ZCODE_ENV__: JSON.stringify(zcodeEnv),
-    __ZCODE_ENDPOINT_ENV__: JSON.stringify(pickProductEndpointEnv(env)),
     __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
     // CUA 本地开发运行时开关：vendor runtime 的信任门（unsigned Helper 逃生口）只在
     // true + ZCODE_RUNTIME_ENV!=production 时放开。必须构建期折叠——
@@ -134,6 +159,22 @@ function createSharedDefines() {
     __ZCODIUM_REMOTE_ASSET_CDN_BASE_URL__: JSON.stringify(
       process.env.ZCODIUM_REMOTE_ASSET_CDN_BASE_URL?.trim() || "",
     ),
+    ...buildTimeConfigDefines,
+    // Computer Use Helper build identity — helperInstaller 读它决定下载哪个 Helper bundle。
+    // 缺失时 installer 抛 "Packaged ZCode is missing its embedded Computer Use Helper build identity"。
+    // CI 构建时通过 ZCODE_CUA_HELPER_BUILD_ID env 注入；dev 为空串走兜底（dev helper 不走下载）。
+    __ZCODE_CUA_HELPER_BUILD_ID__: JSON.stringify(
+      process.env.ZCODE_CUA_HELPER_BUILD_ID?.trim() ?? "",
+    ),
+    // Bugfix: remote runtime CDN 根之前硬编码在 main bundle 里，OSS/CDN 切换必须改代码。
+    // 这里改成构建期从 CI 的 CDN_DOMAIN/OSS_PATH_PREFIX 注入；没有配置时保留旧默认。
+    __ZCODE_REMOTE_CDN_RELEASE_ROOTS__: JSON.stringify(resolveBuildRemoteCdnReleaseRoots(env)),
+  };
+}
+
+function createMainDefines() {
+  return {
+    ...createSharedDefines(),
   };
 }
 
@@ -193,7 +234,7 @@ export default defineConfig([
     ],
     esbuildPlugins: [zcodeCuaRuntimeAliasPlugin],
     // OTLP 端点与鉴权只在运行时读取；构建环境中的凭据不能写进公开安装包。
-    define: createSharedDefines(),
+    define: createMainDefines(),
     // main/host 同时 watch 且共享 out 根目录时，默认 chunk 命名会互相覆盖，
     // 可能让 main 的 import 指向被 host 刚重写的 chunk，触发“缺少命名导出”的偶发启动报错。
     // 这里按目标分目录输出 chunk，确保并发构建下产物隔离。
@@ -209,11 +250,13 @@ export default defineConfig([
     entry: {
       "preload/embeddedBrowserJavaScriptDialog": "src/preload/embeddedBrowserJavaScriptDialog.ts",
       "preload/codingPlanWebview": "src/preload/codingPlanWebview.ts",
+      "preload/rewardsWebview": "src/preload/rewardsWebview.ts",
       "preload/browserVideoRecorder": "src/preload/browserVideoRecorder.ts",
       "preload/index": "src/preload/index.ts",
       "preload/resourceManager": "src/preload/resourceManager.ts",
       "preload/cuaPermissionPanel": "src/preload/cuaPermissionPanel.ts",
       "preload/dataRootDecision": "src/preload/dataRootDecision.ts",
+      "preload/pluginSandbox": "src/preload/pluginSandbox/index.ts",
     },
     outDir: "out",
     format: "cjs",
@@ -227,6 +270,30 @@ export default defineConfig([
       applyDesktopTsupEsbuildSecurityOptions(options);
     },
     onSuccess: createDevReadyMarkerHook("preload"),
+    ...desktopTsupBundleSecurityOptions,
+  },
+  {
+    // 插件 iframe 内的 window.zcode / window.openai 别名脚本（官方 ext-apps `App` 上的薄封装）：IIFE、浏览器平台，
+    // 由 zcode-sandbox:// protocol handler 同源服务。
+    name: "plugin-sandbox-alias",
+    loader: { ".css": "text" },
+    entry: {
+      "plugin-sandbox-alias": "src/renderer/src/plugin-sandbox/alias.ts",
+      "gen-ui": "src/renderer/src/plugin-sandbox/genUi.ts",
+    },
+    // 不能放 out/renderer：vite renderer 构建 emptyOutDir 会把先落盘的别名脚本清掉。
+    outDir: "out/plugin-sandbox",
+    onSuccess: () => copyGenUiRuntimeAssets(resolve("out/plugin-sandbox")),
+    format: "iife",
+    platform: "browser",
+    target: "es2022",
+    // 沙箱页面没有 node_modules：SDK（ext-apps / client / core / zod）必须全部打进 IIFE。
+    noExternal: [/.*/],
+    outExtension: () => ({ js: ".js" }),
+    define: createSharedDefines(),
+    esbuildOptions(options) {
+      applyDesktopTsupEsbuildSecurityOptions(options);
+    },
     ...desktopTsupBundleSecurityOptions,
   },
   {

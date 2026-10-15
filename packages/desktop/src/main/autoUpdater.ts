@@ -1,21 +1,24 @@
 /* eslint-disable max-lines -- autoUpdater 需要集中维护 Electron 事件、菜单状态与 IPC 交互，过度拆分会让更新状态流更难追踪 */
+import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import type { ISettingService } from "@zcode/services";
+import pkg, { CancellationToken } from "electron-updater";
+import semver from "semver";
+const { autoUpdater } = pkg;
 import {
   DEFAULT_LOCALE,
+  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+  PlatformChannels,
+  ZCODE_VERSION,
   desktopMenuMessageIds,
   formatDesktopMenuMessage,
   getDesktopMenuMessage,
-  PlatformChannels,
-  ZCODE_VERSION,
+  resolveRuntimeZCodeEndpointOrigin,
   type ElectronReleaseChannel,
   type Locale,
   type PostUpdateReleaseNotesPayload,
   type UpdateCheckResultPayload,
   type UpdateStatePayload,
 } from "@zcode/shared";
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
-import pkg, { CancellationToken } from "electron-updater";
-import semver from "semver";
 import { logger } from "./logger.js";
 import {
   cleanupStaleMacUpdateArtifacts,
@@ -23,7 +26,6 @@ import {
   resolveMacAppBundlePathFromResources,
   type MacBundleSwapResult,
 } from "./macUpdateInstaller.js";
-const { autoUpdater } = pkg;
 
 // 更新源仓库坐标由 tsup define 注入（见 scripts/update-feed-target.mjs，与 electron-builder
 // publish 配置同源）；缺失说明产物不是经本仓库构建脚本打包，fail-fast 而不是退回上游仓库。
@@ -44,7 +46,8 @@ function resolveUpdateFeedTargetForRuntime(): { owner: string; repo: string } {
 }
 
 export const CHECK_FOR_UPDATE_MENU_ID = "check-for-update";
-const AUTO_UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
+const AUTO_UPDATE_POLL_INTERVAL_MS = 15 * 60 * 1000;
+const AUTO_UPDATE_VISIBLE_POLL_INTERVAL_MS = 2 * 60 * 1000;
 const UPDATE_FEED_URL_ENV = "ZCODE_UPDATE_FEED_URL";
 const UPDATE_FEED_URL_SWITCH = "--zcode-update-feed-url";
 const DEV_AUTO_UPDATE_ENV = "ZCODE_AUTO_UPDATE_DEV";
@@ -59,6 +62,7 @@ let manualCheckWebContentsId: number | null = null;
 let pendingPostUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
 let deliveredPostUpdateReleaseNotesWebContentsId: number | null = null;
 let autoUpdatePollTimer: NodeJS.Timeout | null = null;
+let autoUpdatePollIntervalMs: number | null = null;
 let checkForUpdatesInFlight = false;
 let autoUpdateCheckGeneration = 0;
 let activeAutoUpdateCheckId: number | null = null;
@@ -135,10 +139,14 @@ interface InitAutoUpdaterOptions {
   settingService?: SettingServiceLike;
   locale?: Locale;
   updateFeedSource?: RuntimeUpdateFeedSource;
+  deviceMid?: string;
+  resolveEndpointOrigin?: () => string | Promise<string>;
 }
 
 let quitAndInstallInFlight = false;
 let devAutoUpdateVersionOverride: string | null = null;
+let recheckAfterDownload: ((reason: string) => void) | null = null;
+let pendingFailedDownloadRecheck = false;
 
 type MutableAutoUpdaterForDev = typeof autoUpdater & {
   currentVersion?: semver.SemVer;
@@ -241,7 +249,19 @@ function shouldDownloadAvailableUpdate(version: string): boolean {
 }
 
 function canPollForUpdatesFromState(state: AutoUpdaterMenuState): boolean {
-  return state.kind === "idle" || state.kind === "update-downloaded";
+  return (
+    state.kind === "idle" || state.kind === "update-available" || state.kind === "update-downloaded"
+  );
+}
+
+function hasVisibleUpdateTarget(state: AutoUpdaterMenuState): boolean {
+  return state.kind === "update-available" || state.kind === "update-downloaded";
+}
+
+function resolveAutoUpdatePollInterval(state: AutoUpdaterMenuState): number {
+  return hasVisibleUpdateTarget(state)
+    ? AUTO_UPDATE_VISIBLE_POLL_INTERVAL_MS
+    : AUTO_UPDATE_POLL_INTERVAL_MS;
 }
 
 function getAutoUpdaterReleaseChannelForCurrentState(): ElectronReleaseChannel {
@@ -285,6 +305,12 @@ function completeAutoUpdateCheck(reason: string, checkId: number | null): void {
   settlingAutoUpdateCheckId = null;
 
   const pendingChannel = pendingManifestReleaseChannelRefresh;
+  const shouldRecheckFailedDownload = pendingFailedDownloadRecheck;
+  pendingFailedDownloadRecheck = false;
+  if (shouldRecheckFailedDownload && !pendingChannel && !activeForceAutoUpdateListener) {
+    // 下载失败发生在本次检查收口前。等标记清掉后再查一次，避免复查被进行中的检查直接丢掉。
+    queueMicrotask(() => recheckAfterDownload?.("download-failed"));
+  }
   if (!pendingChannel) {
     return;
   }
@@ -334,6 +360,14 @@ function settleAutoUpdateCheckResult(
 function shouldIgnoreStaleAvailableUpdate(infoChannel: ElectronReleaseChannel | null): boolean {
   const expectedChannel = activeAutoUpdateCheckChannel ?? availableUpdateChannel;
   return Boolean(infoChannel && infoChannel !== expectedChannel);
+}
+
+function isReadyUpdateCurrentTarget(): boolean {
+  return Boolean(
+    readyUpdateVersion &&
+    menuState.kind === "update-downloaded" &&
+    menuState.version === readyUpdateVersion,
+  );
 }
 
 function buildUpdateDownloadedState(version: string): AutoUpdaterMenuState {
@@ -491,10 +525,14 @@ async function quitAndInstallUpdate(rejectUnavailable = false) {
     return;
   }
 
-  if (menuState.kind !== "update-downloaded" || !readyUpdateVersion) {
-    // renderer 可能因为旧 UpdateReady 缓存残留而展示“重启以更新”，
-    // 但 main 在 staging error 后已经清掉 ready。此时不能再执行退出准备或调用
-    // quitAndInstall，否则会杀掉 host 进程却没有安装器接管，表现成按钮没反应。
+  if (
+    menuState.kind !== "update-downloaded" ||
+    !readyUpdateVersion ||
+    !isReadyUpdateCurrentTarget()
+  ) {
+    // 修复原因：renderer 可能因为旧 UpdateReady 缓存残留而展示“重启以更新”，
+    // 但 main 在 staging error 后已经清掉 ready。目标已经换成更高版本时，
+    // 这里也不能安装仍低于目标的旧包。
     logger.warn(`[auto-update] ignore quitAndInstall request: state=${menuState.kind}`);
     if (rejectUnavailable) {
       throw new Error(`Update is not ready to install: state=${menuState.kind}`);
@@ -669,6 +707,7 @@ function setAutoUpdaterMenuState(nextState: AutoUpdaterMenuState) {
   menuState = nextState;
   syncMenuItemState();
   broadcastAutoUpdaterState();
+  ensureAutoUpdatePollInterval();
   for (const listener of autoUpdaterStateListeners) {
     listener(menuState);
   }
@@ -800,17 +839,27 @@ export function resolveUpdateFeedSourceFromStartupConfig(
   const argv = options.argv ?? process.argv;
   const env = options.env ?? process.env;
   const feedUrl = readSwitchValue(argv, UPDATE_FEED_URL_SWITCH) ?? env[UPDATE_FEED_URL_ENV]?.trim();
-  if (!feedUrl) {
-    return undefined;
-  }
-  return { url: feedUrl };
+  return feedUrl
+    ? {
+        url: feedUrl,
+      }
+    : undefined;
 }
 
 async function resolveUpdateReleaseChannel(
-  _settingService: SettingServiceLike | undefined,
+  settingService: SettingServiceLike | undefined,
 ): Promise<ElectronReleaseChannel> {
-  // 审计版只从 GitHub latest 元数据更新，旧 preview 偏好不能恢复官方通道请求。
-  return "stable";
+  if (!settingService) {
+    return "stable";
+  }
+
+  try {
+    const settings = await settingService.get();
+    return settings.receivePreviewUpdates === true ? "preview" : "stable";
+  } catch (error) {
+    logger.warn("[auto-update] read preview update setting failed:", error);
+    return "stable";
+  }
 }
 
 async function syncAutoUpdateCheckChannelFromSettings(
@@ -828,7 +877,8 @@ async function syncAutoUpdateCheckChannelFromSettings(
       `[auto-update] ${reason}: check channel ${availableUpdateChannel} -> ${nextChannel}`,
     );
   }
-  // 检查状态与 generic provider 的 latest 稳定通道保持一致。
+  // 服务端 manifest provider 会在 checkForUpdates 内部读取 preview 设置。
+  // 如果 begin 阶段仍用默认 stable 作为 expected channel，冷启动 preview 结果会被误判为 stale。
   availableUpdateChannel = nextChannel;
   activeAutoUpdateCheckChannel = nextChannel;
 }
@@ -1105,6 +1155,15 @@ function handleAutoUpdateFailure(error: unknown, source: string) {
   }
 
   logger.error(`[auto-update] ${source}:`, error);
+  if (
+    source.endsWith("check failed") &&
+    hasVisibleUpdateTarget(menuState) &&
+    !activeForceAutoUpdateListener
+  ) {
+    notifyForceAutoUpdate({ kind: "error", message });
+    sendManualCheckResult({ kind: "error", message });
+    return;
+  }
   if (menuState.kind === "update-downloaded" && readyUpdateVersion) {
     const failedReadyVersion = readyUpdateVersion;
     // macOS Squirrel 可能在 update-downloaded 后才发现包无法 stage。
@@ -1119,8 +1178,8 @@ function handleAutoUpdateFailure(error: unknown, source: string) {
   clearAvailableUpdateState();
   clearDownloadingUpdateState();
   if (failedDownload?.version && !readyUpdateVersion && !activeForceAutoUpdateListener) {
-    // 用户点击“下载更新”后如果下载启动或 staging 很快失败，
-    // 清空 available/downloading 并广播 idle 会让 renderer 入口和弹窗同时消失。
+    // 修复原因：用户点击“下载更新”后如果下载启动或 staging 很快失败，
+    // 旧逻辑会清空 available/downloading 并广播 idle，renderer 入口和弹窗同时消失。
     // 失败并不等同于用户跳过该版本，应退回“发现更新”状态，让用户能看到并重试下载。
     availableUpdateReleaseNotes = failedDownload.releaseNotes;
     availableUpdateChannel = failedDownload.channel;
@@ -1140,6 +1199,12 @@ function handleAutoUpdateFailure(error: unknown, source: string) {
   }
   notifyForceAutoUpdate({ kind: "error", message });
   sendManualCheckResult({ kind: "error", message });
+  // 下载失败也是一次下载结束，无论来自 Promise reject 还是 error 事件。
+  // 没有强制更新在进行时立即复查，避免弱网失败期间错过更高版本。
+  // 失败可能发生在启动检查的结果处理里，记下原因，等这次检查收口后再查。
+  if (failedDownload && !activeForceAutoUpdateListener) {
+    recheckAfterDownload?.("download-failed");
+  }
 }
 
 async function isSkippedUpdateVersion(
@@ -1181,7 +1246,7 @@ async function shouldAutoDownloadAndInstallUpdates(
   }
 }
 
-async function skipAvailableUpdateVersion(
+export async function skipAvailableUpdateVersion(
   version: string,
   settingService: SettingServiceLike | undefined,
 ): Promise<void> {
@@ -1271,7 +1336,7 @@ async function clearSkippedUpdateVersionForManualCheck(
   }
 }
 
-function downloadAvailableUpdate(reason = "renderer") {
+export function downloadAvailableUpdate(reason = "renderer") {
   if (!canUseAutoUpdaterInCurrentRuntime()) {
     logger.info(`[auto-update] skip ${reason} download: not packaged`);
     return;
@@ -1330,7 +1395,7 @@ function downloadAvailableUpdate(reason = "renderer") {
     });
 }
 
-function cancelDownloadingUpdate(reason = "renderer") {
+export function cancelDownloadingUpdate(reason = "renderer") {
   if (activeForceAutoUpdateListener) {
     logger.info(`[auto-update] skip ${reason} cancel download: force update active`);
     return;
@@ -1357,6 +1422,7 @@ function cancelDownloadingUpdate(reason = "renderer") {
     availableUpdateReleaseNotes = releaseNotes;
     availableUpdateChannel = channel;
     setAutoUpdaterMenuState(buildUpdateAvailableState(version, releaseNotes, channel));
+    recheckAfterDownload?.("download-finished");
     return;
   }
 
@@ -1439,10 +1505,10 @@ export function getAutoUpdaterState(): UpdateStatePayload {
 }
 
 export function refreshAutoUpdaterReleaseChannel(
-  _receivePreviewUpdates: boolean,
+  receivePreviewUpdates: boolean,
   reason = "settings receivePreviewUpdates changed",
 ) {
-  const nextChannel: ElectronReleaseChannel = "stable";
+  const nextChannel: ElectronReleaseChannel = receivePreviewUpdates ? "preview" : "stable";
 
   if (!canUseAutoUpdaterInCurrentRuntime()) {
     logger.info(`[auto-update] skip ${reason}: not packaged`);
@@ -1588,15 +1654,15 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   // 再决定是否下载。若继续让 electron-updater 自动下载，它只会按当前 app 版本判断，
   // 导致 `3.1.2` 已 ready `3.1.3` 时每次轮询都可能重复下载 `3.1.3`。
   autoUpdater.autoDownload = false;
-  // Windows/NSIS 在窗口关闭后会异步启动安装；如果用户紧接着关机，安装器可能被系统中断，
-  // 留下半更新状态并导致下次启动失败。
-  // 这里仅在 Windows 关闭“退出即自动安装”，要求用户显式点更新；其他平台保持原有行为，避免改动既有升级链路。
-  // macOS 例外：MacUpdater 在 autoInstallOnAppQuit=true 时下载完成会立刻触发原生 Squirrel
-  // 暂存，而 Squirrel 用“运行中应用的 designated requirement”校验新包——旧版未密封安装的
-  // 隐式要求是 cdhash 精确匹配，任何新包都无法满足，暂存必然失败并把 ready 态清空
+  // Bugfix: Windows/NSIS 在窗口关闭后会异步启动安装；如果用户紧接着关机，安装器可能被系统中断，
+  // 留下半更新状态并导致下次启动失败。macOS/Linux 也先关掉退出即装，只在 ready 包仍等于当前目标时
+  // 由 before-quit 主动安装，避免目标已经升高后退出装上旧包。
+  // macOS 额外原因：MacUpdater 在 autoInstallOnAppQuit=true 时下载完成会立刻触发原生 Squirrel
+  // 暂存，而 Squirrel 用“运行中应用的 designated requirement”校验新包——旧版未密封安装的隐式
+  // 要求是 cdhash 精确匹配，任何新包都无法满足，暂存必然失败并把 ready 态清空
   // （用户表现即“下载完弹窗直接消失”）。mac 安装由 macUpdateInstaller 直替换接管，
   // 依据 docs/spec/macos-direct-swap-update.md。
-  autoUpdater.autoInstallOnAppQuit = process.platform !== "win32" && process.platform !== "darwin";
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.logger = logger;
   applyUpdateProvider(options);
 
@@ -1617,10 +1683,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
       return;
     }
 
-    // 发布链路即使改成“安装包先、latest 后”，CDN 生效仍可能晚于客户端的轮询节奏。
-    // 如果 checking / downloading 阶段继续并发触发 checkForUpdates，会把同一轮更新流重复拉起，
-    // 造成无效请求、噪音日志，甚至把用户看到的菜单状态来回覆盖，所以自动轮询只在 idle 或
-    // update-downloaded 态进入；后者继续轮询是为了发现取代已下载版本的新版本。
+    // 已展示的目标不能被一次复查盖成 checking。下载中也不另起检查，等这次下载结束后再查。
     if (reason === "poll" && !canPollForUpdatesFromState(menuState)) {
       logger.info(`[auto-update] skip ${reason}: state=${menuState.kind}`);
       return;
@@ -1642,11 +1705,25 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
       })
       .finally(() => {
         finishAutoUpdateCheck(reason, checkId);
+        ensureAutoUpdatePollInterval();
       });
+  };
+  recheckAfterDownload = (recheckReason: string) => {
+    // 下载失败需要等当前检查收口。完成和取消的结果已经被这次检查覆盖，不再排队。
+    if (checkForUpdatesInFlight) {
+      if (recheckReason === "download-failed") {
+        pendingFailedDownloadRecheck = true;
+      }
+      return;
+    }
+    triggerCheckForUpdates(recheckReason);
   };
 
   autoUpdater.on("checking-for-update", () => {
     logger.info("[auto-update] checking for update...");
+    if (hasVisibleUpdateTarget(menuState) || menuState.kind === "download-progress") {
+      return;
+    }
     setAutoUpdaterMenuState({ kind: "checking", enabled: false });
   });
 
@@ -1727,9 +1804,20 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
       logger.info(
         `[auto-update] already up to date (local=${getCurrentAppVersionForUpdate()}, remote=${info.version})`,
       );
-      if (readyUpdateVersion) {
+      if (readyUpdateVersion && isReadyUpdateCurrentTarget()) {
         setAutoUpdaterMenuState(buildUpdateDownloadedState(readyUpdateVersion));
         sendManualCheckResult({ kind: "ready", version: readyUpdateVersion });
+        return;
+      }
+      if (hasVisibleUpdateTarget(menuState)) {
+        sendManualCheckResult({
+          kind: "available",
+          version:
+            menuState.kind === "update-available" ? menuState.version : (readyUpdateVersion ?? ""),
+          ...(menuState.kind !== "checking" && menuState.channel
+            ? { channel: menuState.channel }
+            : {}),
+        });
         return;
       }
 
@@ -1797,6 +1885,9 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
     }
     setAutoUpdaterMenuState(buildUpdateDownloadedState(info.version));
     notifyForceAutoUpdate({ kind: "ready", version: info.version });
+    if (!activeForceAutoUpdateListener) {
+      recheckAfterDownload?.("download-finished");
+    }
 
     if (activeForceAutoUpdateListener) {
       notifyForceAutoUpdate({ kind: "installing" });
@@ -1863,20 +1954,152 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   });
 
   triggerCheckForUpdates("startup");
+  ensureAutoUpdatePollInterval();
+  app.on("before-quit", (event) => {
+    if (process.platform === "win32" || quitAndInstallInFlight || !isReadyUpdateCurrentTarget()) {
+      return;
+    }
+    event.preventDefault();
+    void quitAndInstallUpdate();
+  });
+}
 
+function ensureAutoUpdatePollInterval() {
+  if (menuState.kind === "download-progress") {
+    if (autoUpdatePollTimer) {
+      clearInterval(autoUpdatePollTimer);
+      autoUpdatePollTimer = null;
+      autoUpdatePollIntervalMs = null;
+    }
+    return;
+  }
+  const nextInterval = resolveAutoUpdatePollInterval(menuState);
+  if (autoUpdatePollTimer && autoUpdatePollIntervalMs === nextInterval) {
+    return;
+  }
+  if (autoUpdatePollTimer) {
+    clearInterval(autoUpdatePollTimer);
+  }
+  autoUpdatePollIntervalMs = nextInterval;
   autoUpdatePollTimer = setInterval(() => {
-    triggerCheckForUpdates("poll");
-  }, AUTO_UPDATE_POLL_INTERVAL_MS);
+    recheckAfterDownload?.("poll");
+  }, nextInterval);
   autoUpdatePollTimer.unref?.();
 }
 
 export function requestForceAutoUpdate(
-  _onStateChange: (state: ForceAutoUpdateState) => void,
-  _reason = "force-update",
+  onStateChange: (state: ForceAutoUpdateState) => void,
+  reason = "force-update",
   _minimumVersion?: string,
 ) {
-  // 审计版禁用强制升级，保留兼容入口和清理函数，不触发网络、下载或安装。
-  return () => {};
+  const dispose = () => {
+    if (activeForceAutoUpdateListener === onStateChange) {
+      activeForceAutoUpdateListener = null;
+    }
+  };
+
+  activeForceAutoUpdateListener = onStateChange;
+  forceAutoUpdateLastLoggedProgressBucket = null;
+  logger.info(`[force-update] 自动升级开始 reason=${reason}`);
+  onStateChange({ kind: "checking" });
+
+  if (!canUseAutoUpdaterInCurrentRuntime()) {
+    const message = "not packaged";
+    logger.info(`[force-update] 自动升级跳过：${message}`);
+    onStateChange({ kind: "dev-skipped", message });
+    return dispose;
+  }
+
+  if (menuState.kind === "update-downloaded") {
+    onStateChange({ kind: "installing" });
+    void quitAndInstallUpdate();
+    return dispose;
+  }
+
+  if (menuState.kind === "update-available") {
+    downloadAvailableUpdate("force-update");
+    return dispose;
+  }
+
+  if (menuState.kind === "download-progress") {
+    onStateChange({
+      kind: "downloading",
+      ...("version" in menuState && menuState.version ? { version: menuState.version } : {}),
+      progress: menuState.progress,
+    });
+    return dispose;
+  }
+
+  if (checkForUpdatesInFlight) {
+    logger.info(`[force-update] 自动升级复用进行中的更新检查`);
+    return dispose;
+  }
+
+  const checkId = beginAutoUpdateCheck();
+  setAutoUpdaterMenuState({ kind: "checking", enabled: false });
+  autoUpdater
+    .checkForUpdates()
+    .catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`[auto-update] ${reason} check failed:`, err);
+      setAutoUpdaterMenuState(
+        readyUpdateVersion
+          ? buildUpdateDownloadedState(readyUpdateVersion)
+          : { kind: "idle", enabled: true },
+      );
+      onStateChange({ kind: "error", message });
+    })
+    .finally(() => {
+      finishAutoUpdateCheck(reason, checkId);
+    });
+
+  return () => {
+    if (activeForceAutoUpdateListener === onStateChange) {
+      activeForceAutoUpdateListener = null;
+    }
+  };
+}
+
+export function requestAutoUpdateCheckWithoutWindow(reason = "force-update") {
+  logger.info(`[auto-update] ${reason}: user requested update check without renderer window`);
+
+  if (!canUseAutoUpdaterInCurrentRuntime()) {
+    logger.info(`[auto-update] skip ${reason}: not packaged`);
+    return;
+  }
+
+  if (menuState.kind === "update-downloaded") {
+    void quitAndInstallUpdate();
+    return;
+  }
+  if (menuState.kind === "update-available") {
+    downloadAvailableUpdate(reason);
+    return;
+  }
+  if (menuState.kind === "download-progress") {
+    logger.info(`[auto-update] skip ${reason}: update already ${menuState.kind}`);
+    return;
+  }
+  if (checkForUpdatesInFlight) {
+    logger.info(`[auto-update] skip ${reason}: check already in flight`);
+    return;
+  }
+
+  const checkId = beginAutoUpdateCheck();
+  setAutoUpdaterMenuState({ kind: "checking", enabled: false });
+  autoUpdater
+    .checkForUpdates()
+    .catch((err) => {
+      logger.error(`[auto-update] ${reason} check failed:`, err);
+      setAutoUpdaterMenuState(
+        readyUpdateVersion
+          ? buildUpdateDownloadedState(readyUpdateVersion)
+          : { kind: "idle", enabled: true },
+      );
+    })
+    .finally(() => {
+      finishAutoUpdateCheck(reason, checkId);
+    });
 }
 
 export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
@@ -1911,10 +2134,9 @@ export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
     return;
   }
 
-  if (menuState.kind === "update-downloaded") {
-    // 菜单文案已经切到“重启以更新”，如果仍只发 ready toast，
-    // 用户点击系统菜单不会安装更新，而顶部按钮会安装，两个入口语义不一致。
-    // 这里复用按钮背后的安装逻辑，让菜单点击真正触发重启安装。
+  if (menuState.kind === "update-downloaded" && isReadyUpdateCurrentTarget()) {
+    // 菜单文案已经是“重启以更新”。只有 ready 包仍等于当前目标时才安装；
+    // 目标已经更高时落到下面的重新检查，避免装上旧包。
     void quitAndInstallUpdate();
     return;
   }
@@ -1926,16 +2148,6 @@ export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
     } satisfies UpdateCheckResultPayload);
     return;
   }
-  if (menuState.kind === "update-available") {
-    targetWindow.webContents.send(PlatformChannels.UpdateCheckResult, {
-      kind: "available",
-      version: menuState.version,
-      ...(menuState.channel ? { channel: menuState.channel } : {}),
-      ...(menuState.releaseNotes ? { releaseNotes: menuState.releaseNotes } : {}),
-    } satisfies UpdateCheckResultPayload);
-    return;
-  }
-
   if (checkForUpdatesInFlight) {
     logger.info("[auto-update] skip manual check: check already in flight");
     targetWindow.webContents.send(PlatformChannels.UpdateCheckResult, {
@@ -1947,10 +2159,10 @@ export function checkForUpdateMenuClick(originWindow?: BrowserWindow | null) {
 
   manualCheckWebContentsId = targetWindow.webContents.id;
   const manualCheckChannel = getAutoUpdaterReleaseChannelForCurrentState();
-  // Windows 自绘菜单不能只等 electron-updater 的 checking 事件。
-  // 某些环境里用户点击后会先重新打开菜单，如果事件尚未送达 renderer，就仍显示“检查更新”。
-  // 这里在发起手动检查前先落一份稳定状态，后续 download-progress 再覆盖成百分比。
-  setAutoUpdaterMenuState({ kind: "checking", enabled: false });
+  // 已发现的版本继续显示，检查结果回来后再替换，避免菜单先闪成“正在检查”。
+  if (!hasVisibleUpdateTarget(menuState)) {
+    setAutoUpdaterMenuState({ kind: "checking", enabled: false });
+  }
   const checkId = beginAutoUpdateCheck();
   void (async () => {
     await clearSkippedUpdateVersionForManualCheck(manualCheckChannel, autoUpdaterSettingService);

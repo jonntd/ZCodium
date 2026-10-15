@@ -123,6 +123,9 @@ export function assertConversationShareRemoved(): void {
 
 export const ZCODIUM_ISSUES_URL = "https://github.com/ZCodium-project/ZCodium/issues";
 
+/** ZCodium 项目站点：审计结论、发布说明与文档入口。 */
+export const ZCODIUM_SITE_URL = "https://zcodium-project.github.io/";
+
 /**
  * 已下线功能的中文名：只用于报错文案。
  * 报错不能直接印英文 key——用户看到 "codingPlan 未开启" 无从判断是什么功能，
@@ -150,7 +153,9 @@ function isRemovedOfficialServiceKey(
  * 不做类型收窄，会把整段账号/套餐流程打成上百个类型错误。账号子系统的物理删除另开 issue 跟踪，
  * 本轮只摘掉开关依赖、保留代码形状，因此这里保留条件判断的写法。
  */
-export function isOfficialServiceRemoved(key: OfficialServiceKey | RemovedOfficialServiceKey): boolean {
+export function isOfficialServiceRemoved(
+  key: OfficialServiceKey | RemovedOfficialServiceKey,
+): boolean {
   return isRemovedOfficialServiceKey(key);
 }
 
@@ -306,5 +311,7 @@ export function assertOfficialPlatformAccessible(input: string | URL): void {
       `ZCodium 默认不连接官方平台，${key} 功能未开启。可在设置的“官方服务”里打开；反馈请访问 ${ZCODIUM_ISSUES_URL}`,
     );
   }
-  throw new Error(`该官方平台地址在 ZCodium 已下线或未登记，不能访问。反馈请访问 ${ZCODIUM_ISSUES_URL}`);
+  throw new Error(
+    `该官方平台地址在 ZCodium 已下线或未登记，不能访问。反馈请访问 ${ZCODIUM_ISSUES_URL}`,
+  );
 }

@@ -61,6 +61,7 @@ export const buildNodeReplHostBundle = async ({
     outfile,
     platform: "node",
     target: "node24",
+    external: ["sharp"],
   });
   // 构建期守卫：alias 一旦漂移（入口漏挂、exports 表改名），产物会静默带进 workspace
   // stub，打包态 CUA 整体失效且表现为超时。这里立刻失败，别再让它溜到用户手上。

@@ -3,9 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createNodeRequire } from "../../nodeRequire.js";
 // 与既有 Repo 一致：避免构建器把 node:sqlite 改写成不存在的 npm sqlite 包。
-const { DatabaseSync } = createNodeRequire()(
-  "node:sqlite",
-) as typeof import("node:sqlite");
+const { DatabaseSync } = createNodeRequire()("node:sqlite") as typeof import("node:sqlite");
 import { TaskIndexRepo } from "#src/session/taskIndexRepo.js";
 import { AutomationRepo } from "#src/session/automationRepo.js";
 import { OffPeakTaskRepo } from "#src/session/offPeakTaskRepo.js";
@@ -18,7 +16,7 @@ import {
   markTasksStoragePrepared,
 } from "#src/session/tasksDatabase/prepared.js";
 
-type TasksStoragePhase =
+export type TasksStoragePhase =
   | "checking"
   | "waiting_for_lock"
   | "migrating"

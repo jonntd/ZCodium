@@ -1,17 +1,20 @@
+import { useState } from "react";
 import {
   DesktopCommandIds,
-  ZCODIUM_ISSUES_URL,
   TID_WORKSPACE_HELP_MENU_RESOURCE_MANAGER,
   TID_WORKSPACE_HELP_MENU_TRIGGER,
 } from "@zcode/shared";
 import {
   ActivityIcon,
+  BookOpenIcon,
   CircleHelpIcon,
+  DownloadIcon,
   LightbulbIcon,
   InfoIcon,
   MessageSquareIcon,
   UsersIcon,
   RefreshCwIcon,
+  ShieldAlertIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge.js";
 import { Button } from "@/components/ui/button.js";
@@ -24,8 +27,10 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
+import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import { useDesktopUpdateMenu } from "@/hooks/useDesktopUpdateMenu.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
+import { useVulnerabilityReportUrl } from "@/hooks/useVulnerabilityReportUrl.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { createHelpMenuActionHandlers } from "@/lib/helpMenuActions.js";
 
@@ -42,16 +47,16 @@ export function WorkspaceHelpMenuButton({
 }) {
   const { intl } = useZCodeIntl();
   const platform = usePlatform();
+  const [open, setOpen] = useState(false);
+  const { url: vulnerabilityReportUrl, loading: vulnerabilityReportLoading } =
+    useVulnerabilityReportUrl(open);
   const updateMenu = useDesktopUpdateMenu(isDesktop);
+  const openFeatureRequest = useFeedbackStore((state) => state.openFeatureRequest);
   const helpMenuLabel = intl.formatMessage({ id: "workspaceHeader.help.menu" });
   const helpMenuActions = createHelpMenuActionHandlers({
     platform,
     intl,
   });
-  const handleOpenFeatureRequest = () => {
-    // 审计版：功能建议直接指向本仓库 Issues。
-    void platform.openExternal(ZCODIUM_ISSUES_URL);
-  };
   const handleOpenCommunity = () => {
     void platform.openCommunity();
   };
@@ -64,7 +69,7 @@ export function WorkspaceHelpMenuButton({
   };
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <ControlHintTooltip title={helpMenuLabel} side="bottom">
         <DropdownMenuTrigger asChild>
           <Button
@@ -86,8 +91,12 @@ export function WorkspaceHelpMenuButton({
       </ControlHintTooltip>
       <DropdownMenuContent
         align="end"
-        className="min-w-0 w-max [&_[data-slot=dropdown-menu-item]]:pe-6"
+        className="min-w-0 w-max [&_[data-slot=dropdown-menu-item]]:pr-6"
       >
+        <DropdownMenuItem onSelect={helpMenuActions.openProductDocs}>
+          <BookOpenIcon className="size-4" />
+          {intl.formatMessage({ id: "workspaceHeader.help.docs" })}
+        </DropdownMenuItem>
         <DropdownMenuItem onSelect={handleOpenCommunity}>
           <UsersIcon className="size-4" />
           {intl.formatMessage({ id: "workspaceHeader.help.community" })}
@@ -96,7 +105,21 @@ export function WorkspaceHelpMenuButton({
           <MessageSquareIcon className="size-4" />
           {intl.formatMessage({ id: "workspaceHeader.help.issueReport" })}
         </DropdownMenuItem>
-        <DropdownMenuItem onSelect={handleOpenFeatureRequest}>
+        {vulnerabilityReportLoading || vulnerabilityReportUrl ? (
+          <DropdownMenuItem
+            disabled={vulnerabilityReportLoading}
+            aria-busy={vulnerabilityReportLoading}
+            onSelect={
+              vulnerabilityReportUrl
+                ? () => platform.openExternal(vulnerabilityReportUrl)
+                : undefined
+            }
+          >
+            <ShieldAlertIcon className="size-4" />
+            {intl.formatMessage({ id: "workspaceHeader.help.reportVulnerability" })}
+          </DropdownMenuItem>
+        ) : null}
+        <DropdownMenuItem onSelect={openFeatureRequest}>
           <LightbulbIcon className="size-4" />
           {intl.formatMessage({ id: "workspaceHeader.help.productRequest" })}
         </DropdownMenuItem>
@@ -105,6 +128,11 @@ export function WorkspaceHelpMenuButton({
         {isDesktop ? (
           <>
             <DropdownMenuSeparator />
+            {/* 独立导出入口曾被移除；复用原菜单动作，保持打包、系统定位与提示一致。 */}
+            <DropdownMenuItem onSelect={helpMenuActions.exportLogs}>
+              <DownloadIcon className="size-4" />
+              {intl.formatMessage({ id: "titleBar.menu.help.exportLogs" })}
+            </DropdownMenuItem>
             <DropdownMenuItem
               data-testid={TID_WORKSPACE_HELP_MENU_RESOURCE_MANAGER}
               onSelect={handleOpenResourceManager}

@@ -1,3 +1,4 @@
+/* oxlint-disable eslint(max-lines) -- Gen UI 源文件过滤（上游）与按文件撤销账本（fork）共用同一份 file-changes 投影状态机，拆分会重复请求键、缓存失效与撤销修订的判定。 */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChevronRightIcon, Loader2Icon, Undo2Icon } from "lucide-react";
 import type {
@@ -21,6 +22,7 @@ import { buildChangeSummaryFilePreviewSource } from "@/messageChangeSummaryPrevi
 import { OpenSplitButton } from "@/OpenSplitButton.js";
 import { logger } from "@/logger.js";
 import { openDiff } from "@/v4/conversationFileChangeDiff.js";
+import { collectGenUiSourcePaths, matchesGenUiSourcePath } from "@/gen-ui/contract.js";
 import { ConversationFileRewindDialog } from "@/v4/ConversationFileRewindDialog.js";
 import type {
   ConversationFileChangesRequestOptions,
@@ -30,16 +32,22 @@ import type {
 interface ConversationFileSummaryPanelProps {
   header: TurnHeaderRow;
   context: ConversationRowRenderContext;
+  assistantText?: string;
 }
 
 export function ConversationFileSummaryPanel({
   header,
   context,
+  assistantText = "",
 }: ConversationFileSummaryPanelProps) {
   const { intl } = useZCodeIntl();
-  const summary = header.fileChanges;
+  const genUiSources = useMemo(() => collectGenUiSourcePaths(assistantText), [assistantText]);
+  const filtersSources = genUiSources.length > 0;
   const [open, setOpen] = useState(false);
-  const [details, setDetails] = useState<V4ConversationFileChangesResult | null>(null);
+  const [loadedDetails, setLoadedDetails] = useState<{
+    key: string;
+    result: V4ConversationFileChangesResult | null;
+  } | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   // 按文件撤销（docs/spec/per-file-rewind.md）：null = 整轮撤销入口（缺省全选）；
@@ -49,6 +57,35 @@ export function ConversationFileSummaryPanel({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const cachePolicy: ConversationFileChangesRequestOptions["cachePolicy"] =
+    header.state === "running" ? "in-flight" : "terminal";
+  const fileChangesState = header.fileChanges?.state;
+  // header 只有聚合值。按当前投影读取明细后过滤，不能把源文件行数从普通文件中猜着扣除。
+  const requestKey = JSON.stringify([
+    context.workspaceIdentity?.trim() || context.workspacePath,
+    context.workspaceRemoteSessionId,
+    context.sessionId,
+    header.rowId,
+    header.entityId,
+    cachePolicy,
+    header.fileChanges,
+  ]);
+  const settled = loadedDetails?.key === requestKey;
+  const details = settled ? loadedDetails.result : null;
+  const items = useMemo(
+    () => details?.items.filter((item) => !matchesGenUiSourcePath(item.path, genUiSources)) ?? [],
+    [details, genUiSources],
+  );
+  const summary =
+    details && items.length !== details.items.length && header.fileChanges
+      ? {
+          ...header.fileChanges,
+          files: items.length,
+          additions: items.reduce((sum, item) => sum + (item.additions ?? 0), 0),
+          deletions: items.reduce((sum, item) => sum + (item.deletions ?? 0), 0),
+        }
+      : header.fileChanges;
 
   const filesChangedLabel = intl.formatMessage(
     {
@@ -68,24 +105,21 @@ export function ConversationFileSummaryPanel({
     Boolean(context.applyFileRewind && context.previewFileRewind) &&
     header.actions?.canRewindFiles === true &&
     !isReverted;
-  const items = details?.items ?? [];
   const target = useMemo<ConversationRowTarget | null>(
     () => (header.entityId ? { rowId: header.rowId, entityId: header.entityId } : null),
     [header.entityId, header.rowId],
   );
-  const cachePolicy: ConversationFileChangesRequestOptions["cachePolicy"] =
-    header.state === "running" ? "in-flight" : "terminal";
-  const fileChangesState = summary?.state;
   // 部分撤销后 state 仍是 active（剩余文件可继续撤销），终端缓存必须随撤销账本失效。
   const revertedRevision = String(summary?.revertedPaths?.length ?? 0);
+  const needsDetails = open || filtersSources;
 
   useEffect(() => {
-    if (!open || !context.fetchFileChanges || !target) return;
+    if (!needsDetails || !context.fetchFileChanges || !target) return;
 
     let disposed = false;
     // 运行中的 fileChanges 是某个 projection revision 的局部结果；turn
     // 进入终态后必须废弃局部 details，并用可持久缓存的终态策略重新读取。
-    setDetails(null);
+    // requestKey 已同步隔离旧结果；同一摘要展开重读时保留已加载内容，避免卸载按钮丢失焦点。
     setLoadingDetails(true);
     void context
       .fetchFileChanges(target, {
@@ -96,7 +130,7 @@ export function ConversationFileSummaryPanel({
       .then(
         (result) => {
           if (disposed) return;
-          setDetails(result);
+          setLoadedDetails({ key: requestKey, result });
           setLoadingDetails(false);
         },
         (loadError: unknown) => {
@@ -105,6 +139,7 @@ export function ConversationFileSummaryPanel({
             error: loadError instanceof Error ? loadError.message : String(loadError),
             rowId: target.rowId,
           });
+          setLoadedDetails({ key: requestKey, result: null });
           setLoadingDetails(false);
         },
       );
@@ -112,7 +147,16 @@ export function ConversationFileSummaryPanel({
     return () => {
       disposed = true;
     };
-  }, [cachePolicy, context.fetchFileChanges, fileChangesState, open, revertedRevision, target]);
+  }, [
+    cachePolicy,
+    context.fetchFileChanges,
+    fileChangesState,
+    needsDetails,
+    open,
+    requestKey,
+    revertedRevision,
+    target,
+  ]);
 
   const handlePreviewRewind = useCallback(
     async (singlePath: string | null) => {
@@ -168,16 +212,23 @@ export function ConversationFileSummaryPanel({
   );
 
   useEffect(() => {
-    if (!details || !summary || summary.files <= 0 || details.items.length > 0) {
+    if (
+      !details ||
+      !header.fileChanges ||
+      header.fileChanges.files <= 0 ||
+      details.items.length > 0
+    ) {
       return;
     }
     logger.warn("[ConversationFileSummaryPanel] 文件摘要详情为空", {
-      expectedFiles: summary.files,
+      expectedFiles: header.fileChanges.files,
       rowId: header.rowId,
       turnId: header.turnId,
     });
-  }, [details, header.rowId, header.turnId, summary]);
+  }, [details, header.rowId, header.turnId, header.fileChanges]);
 
+  // 在明细到达前不闪现源文件的聚合统计；读取失败后恢复原摘要，仍可展开重试。
+  if (filtersSources && context.fetchFileChanges && target && !settled) return null;
   if (!summary || summary.files <= 0) return null;
 
   return (
@@ -295,7 +346,7 @@ export function ConversationFileSummaryPanel({
                             }}
                           />
                         </div>
-                        {/* writeCount 是撤销预检使用的操作轨迹，摘要行已经用 +/- 表达最终结果；
+                        {/* 修复原因：writeCount 是撤销预检使用的操作轨迹，摘要行已经用 +/- 表达最终结果；
                             在这里展示会把内部操作次数误当成变更指标，因此只在撤销弹窗保留。 */}
                         <span className="flex shrink-0 items-center gap-2 tabular-nums text-ui-base">
                           {item.additions > 0 ? (
@@ -365,6 +416,7 @@ export function ConversationFileSummaryPanel({
                             previewSource: filePreviewSource,
                           }}
                           onOpenCodeViewer={context.onOpenCodeViewer}
+                          hideOpenWithMenu={context.compactForRemoteControl === true}
                           stopPropagation
                         />
                       </div>

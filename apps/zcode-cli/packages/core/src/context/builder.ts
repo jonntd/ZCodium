@@ -21,6 +21,7 @@ import { buildSkillsSection } from "./sections/skills.js";
 import { buildRequestUserContextSection } from "./sections/request-user-context.js";
 import { buildCurrentDateSection } from "./sections/current-date.js";
 import { buildMemorySection } from "./sections/memory.js";
+import { ACTIVE_PROJECT_MEMORY_RETRIEVAL_BRANCH } from "../memory/project-memory-retrieval-branch.js";
 import { buildDesktopContextSection } from "./sections/desktop.js";
 import {
   buildContextManagementSection,
@@ -159,14 +160,14 @@ export class ContextBuilder {
     // guidance——契约里已把 Report outcomes faithfully 搬过去），保留 memory 与其后各段。
     if (!hasCustomSystemPrompt) {
       if (!isWorkflowActor && this.config.presentationSurface === "zcode_desktop") {
-        // 注入门不因分段改变：分段只决定门开后该段的内容（clear 时不构建）。
-        const desktopSection = applySegmentToSection(
-          buildDesktopContextSection(),
-          mainSegments?.desktop,
-        );
-        if (desktopSection) {
-          sections.push(desktopSection);
-        }
+              // 注入门不因分段改变：分段只决定门开后该段的内容（clear 时不构建）。
+              const desktopSection = applySegmentToSection(
+                buildDesktopContextSection(this.config.genUiOutputDirectory),
+                mainSegments?.desktop,
+              );
+              if (desktopSection) {
+                sections.push(desktopSection);
+              }
       }
 
       // behaviour part right after stable sp...
@@ -187,7 +188,10 @@ export class ContextBuilder {
 
       // Memory
       if (this.config.memoryRoot) {
-        const memorySection = buildMemorySection(this.config.memoryRoot);
+        const memorySection = buildMemorySection(
+          this.config.memoryRoot,
+          ACTIVE_PROJECT_MEMORY_RETRIEVAL_BRANCH,
+        );
         if (memorySection) {
           sections.push(memorySection);
         }
@@ -276,7 +280,6 @@ export class ContextBuilder {
       messages.push({
         role: "system",
         content: cliPrefixContent,
-        cacheControl: EPHEMERAL_CACHE_CONTROL,
       });
     }
 

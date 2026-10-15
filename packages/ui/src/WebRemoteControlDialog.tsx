@@ -42,6 +42,11 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
   onOpenChange: (open: boolean) => void;
   workspacePath: string;
   workspaceIdentity?: string;
+  // 触发方（WorkspaceWebRemoteControlTrigger / 侧栏底部）会一并带上远程会话与初始任务标识。
+  // 本弹层的手机端入口走自建中继（RemoteRelayAccessPanel，自己读活动工作区），不再消费这两个值，
+  // 保留形参只为调用方签名稳定。
+  remoteSessionId?: string;
+  initialTaskId?: string;
 }) {
   const { intl } = useZCodeIntl();
   const [botsDialogOpen, setBotsDialogOpen] = useState(false);

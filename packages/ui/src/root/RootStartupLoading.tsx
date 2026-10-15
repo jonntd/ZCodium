@@ -39,7 +39,7 @@ export function ZCodeStartupLogoBadge({ animated = true }: { animated?: boolean 
   );
 }
 
-function ZCodeStartupLogo({
+export function ZCodeStartupLogo({
   className,
   animated = true,
 }: {

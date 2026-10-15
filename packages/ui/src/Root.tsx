@@ -152,6 +152,7 @@ function RootInner({
   preferDirectoryBrowser,
   supportsEmbeddedBrowser: explicitSupportsEmbeddedBrowser,
   allowRemoteWorkspace = true,
+  webRemoteControlWorkspaceSwitcher,
   initialWorkspaceLoadingFallback,
 }: RootProps) {
   useEffect(() => {
@@ -409,8 +410,9 @@ function RootInner({
     modelSelectionViewHydrated:
       rootProviderAvailability.hydrated || rootModelSelectionRead.state.status === "error",
   });
+  const isWebRemoteControlRoot = Boolean(webRemoteControlWorkspaceSwitcher);
   const providerAvailabilityLoginEntryGuardEnabled =
-    shouldEnableProviderAvailabilityLoginEntryGuard();
+    shouldEnableProviderAvailabilityLoginEntryGuard({ isWebRemoteControlRoot });
   const { startupCheckCompleted: providerAvailabilityStartupCheckCompleted } =
     useProviderAvailabilityLoginEntryGuard({
       enabled: providerAvailabilityLoginEntryGuardEnabled,
@@ -437,6 +439,7 @@ function RootInner({
       },
     });
   const isResolvingProviderStartupState = shouldResolveProviderStartupState({
+    isWebRemoteControlRoot,
     providerStartupSyncPending,
     providerAvailabilityStartupCheckCompleted,
   });

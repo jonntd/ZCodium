@@ -14,6 +14,7 @@ import { MemoTaskItem, TaskListItemContextMenuContent } from "@/TaskListItem.js"
 import { TaskListLoadingHint } from "@/TaskListLoadingHint.js";
 import { TaskRenameDialog } from "@/TaskRenameDialog.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
+import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import { logger } from "@/logger.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 
@@ -45,6 +46,7 @@ export const TaskList = memo(function TaskList({
   onSetTaskPinned,
   onArchiveTask,
   onSetTaskUnread,
+  mobileActiveTaskKey,
   readOnlyReason,
 }: {
   workspacePath: string;
@@ -66,6 +68,7 @@ export const TaskList = memo(function TaskList({
   onSetTaskPinned: (taskId: string, pinned: boolean) => Promise<ZCodeTaskMeta | null>;
   onArchiveTask: (taskId: string) => Promise<ZCodeTaskMeta | null>;
   onSetTaskUnread: (taskId: string, unread: boolean) => Promise<ZCodeTaskMeta | null>;
+  mobileActiveTaskKey?: string | null;
   readOnlyReason?: string;
 }) {
   const { intl } = useZCodeIntl();
@@ -361,7 +364,10 @@ export const TaskList = memo(function TaskList({
         task={task}
         isPinned={isPinned}
         isActive={isWorkspaceActive && task.taskId === activeTaskId}
-        isMobileActive={false}
+        isMobileActive={
+          mobileActiveTaskKey ===
+          `${buildTaskWorkspaceKey(workspacePath, workspaceIdentity)}:${task.taskId}`
+        }
         onSelectTask={handleSelectTaskItem}
         onArchiveTaskInline={handleArchiveTaskFromInline}
         onCancelArchiveConfirm={handleCancelArchiveConfirm}

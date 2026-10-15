@@ -34,6 +34,7 @@ import type {
   ModelhubFetchModelsRequest,
   RemoteTarget,
   ServerRemoteInfo,
+  WebRemoteControlStatus,
 } from "@zcode/shared";
 import { WEB_DEFAULT_THEME, resolveWebInitialTheme } from "./webThemeSeed.js";
 
@@ -167,6 +168,16 @@ function createWebPlatform(
       });
     },
     cancelPendingRemoteConnection: (_requestId?: string) => Promise.resolve(),
+    // Web 端不作为 Web 远程控制的发起端，保留空实现以兼容统一接口。
+    startWebRemoteControl: () =>
+      Promise.reject(new Error("Web remote control can only be started from desktop")),
+    refreshWebRemoteControlPairing: () =>
+      Promise.reject(new Error("Web remote control pairing can only be refreshed from desktop")),
+    stopWebRemoteControl: () => Promise.resolve(),
+    getWebRemoteControlStatus: () =>
+      Promise.resolve<WebRemoteControlStatus>({
+        status: "idle",
+      }),
     disposeRemoteSession: () => Promise.resolve(),
     isDockerAvailable: () => Promise.resolve(false),
     listWSLDistros: () => Promise.resolve([]),

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import {
   buildRemoteModelListRequest,
   parseRemoteModelListPage,
@@ -122,7 +122,10 @@ test("executor：非 2xx 返回失败结果并携带状态码", async () => {
   });
   const result = await executor(openAiRequest());
   assert.equal(result.success, false);
-  assert.match(result.success ? "" : result.message, /^Provider 返回 401 Unauthorized（请求：GET https:\/\/gateway\.example\/v1\/models）$/);
+  assert.match(
+    result.success ? "" : result.message,
+    /^Provider 返回 401 Unauthorized（请求：GET https:\/\/gateway\.example\/v1\/models）$/,
+  );
 });
 
 test("executor：网络异常与无法解析的响应都转为失败结果", async () => {

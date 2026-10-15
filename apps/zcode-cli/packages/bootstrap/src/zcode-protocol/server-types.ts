@@ -35,6 +35,7 @@ import type { ZCodeApp, ZCodeAppOptions } from "../app/types.js";
 import type { V4InteractionRegistry } from "../zcode-protocol-v4/interaction-registry.js";
 import type { ConversationV4Gateway } from "../zcode-protocol-v4/v4-gateway.js";
 import type { SessionResidentPool, SessionResidentPoolOptions } from "./session-resident-pool.js";
+import type { DynamicWorkflowMode } from "@zcode/shared";
 
 export interface ParamsSchema<T> {
   parse(input: unknown): T;
@@ -84,6 +85,7 @@ export interface ZCodeProtocolToolInputTransmissionState {
 
 export interface ZCodeProtocolSessionRecord {
   app: ZCodeApp;
+  subagentRuntimeConfigEnabled?: boolean;
   memoryEnabled: boolean;
   nativeSearchEnhancementsEnabled: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
@@ -162,23 +164,28 @@ export interface ZCodeProtocolAgentServerContext {
      * 工作流工具面、`/workflow` 与 dynamic-workflows 技能一律不露出。
      */
     dynamicWorkflowEnabled: boolean;
-    /**
-     * host 同步的自定义系统提示词（docs/spec/custom-system-prompt.md）；
-     * undefined = 内置默认。新会话的权威来源是反向请求（现读 settingService，冷启动安全），
-     * 这里只是热更通道的进程缓存；两个来源都归一化为 trim 后非空或 undefined。
-     */
-    customSystemPrompt?: string;
-    /**
-     * host 同步的分段系统提示词（docs/spec/custom-system-prompt.md v2）。语义与
-     * customSystemPrompt 的空串不同：**缺席 = 从未使用**（不同步），`{}` = 已全部恢复继承
-     * （仍同步，让新建 CLI client 拿到清空态）。
-     */
-    customSystemSegments?: CustomSystemSegments;
-    /**
-     * host 同步的回复语言（docs/spec/response-language.md）。空串在 CLI handler 里
-     * 归一化为 undefined（跟随用户消息），缓存里只存非空值或缺席。
-     */
-    language?: string;
+        /**
+         * host 同步的自定义系统提示词（docs/spec/custom-system-prompt.md）；
+         * undefined = 内置默认。新会话的权威来源是反向请求（现读 settingService，冷启动安全），
+         * 这里只是热更通道的进程缓存；两个来源都归一化为 trim 后非空或 undefined。
+         */
+        customSystemPrompt?: string;
+        /**
+         * host 同步的分段系统提示词（docs/spec/custom-system-prompt.md v2）。语义与
+         * customSystemPrompt 的空串不同：**缺席 = 从未使用**（不同步），`{}` = 已全部恢复继承
+         * （仍同步，让新建 CLI client 拿到清空态）。
+         */
+        customSystemSegments?: CustomSystemSegments;
+        /**
+         * host 同步的回复语言（docs/spec/response-language.md）。空串在 CLI handler 里
+         * 归一化为 undefined（跟随用户消息），缓存里只存非空值或缺席。
+         */
+        language?: string;
+        /**
+         * 与 dynamicWorkflowEnabled 同行到达的灰度 mode（launch.md「On demand: activation」）。
+         * 缺席（旧 Host 只发布尔）= alwaysOn；`onDemand` 让 createRecord 写 runtimeConfig.dynamicWorkflowToolsOnDemand。
+         */
+        dynamicWorkflowMode?: DynamicWorkflowMode;
   };
   // 竖切：v4 conversation 通道（订阅/帧/命令），与旧 session/* 方法并存。
   // 构造顺序问题（gateway 闭包持有 context）用可选字段收口，server 构造完立即赋值。
@@ -198,6 +205,16 @@ export interface ZCodeProtocolAgentServerContext {
     options?: ZCodeProtocolClientRequestOptions,
   ): Promise<T>;
 }
+
+/** server → client 请求失败的协议错误码；server.ts 抛出，适配层按码翻译，不在业务逻辑中散落字面量。 */
+export const PROTOCOL_CLIENT_REQUEST_ERROR_CODES = {
+  /** 没有 ZCode Protocol client 挂载，无法投递请求。 */
+  noClientAttached: -32020,
+  /** 请求在收到应答前被取消。 */
+  cancelled: -32021,
+  /** 请求等待应答超时。 */
+  timedOut: -32022,
+} as const;
 
 export class ProtocolRequestError extends Error {
   constructor(
@@ -307,8 +324,8 @@ export function toProtocolError(error: unknown): {
   };
 }
 
-function createProtocolTraceId(_sessionId: SessionId): TraceContext["traceId"] {
-  // traceId 是 session 之上的观测链路，不应由 sessionId 拼出来。
+export function createProtocolTraceId(_sessionId: SessionId): TraceContext["traceId"] {
+  // Bugfix: traceId 是 session 之上的观测链路，不应由 sessionId 拼出来。
   // 这里复用 agent/contracts 的 UUID 算法，保证 app 和 agent 两端 trace 格式一致。
   return createTraceId();
 }
