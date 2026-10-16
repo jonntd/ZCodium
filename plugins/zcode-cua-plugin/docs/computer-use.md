@@ -344,7 +344,7 @@ Minimize round trips while keeping the state fresh:
 
 ```typescript
 await target.click(42);
-await target.setValue(42, "openai.com");
+await target.setValue(42, "example.com");
 await target.pressKey("Return");
 await target.typeText("hello");
 await target.scroll(42, "down", 1);

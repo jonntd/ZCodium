@@ -65,4 +65,4 @@ Scaffold components are selected with `--with-skills`, `--with-mcp`, `--with-hoo
 
 These helpers prepare files only. Their use does not authorize registration or installation. If Node is unavailable, use file tools and the manifest/catalog examples above; asking the user to install Node is not part of this handoff.
 
-Codex's `interface`, availability/authentication `policy`, `.app.json`, implicit `~/.agents/plugins/marketplace.json` discovery and `codex://` handoff links are not this workflow's contract. Use ZCode's format, and distinguish source inspection from any schema/runtime validation actually performed.
+Fields and conventions from other plugin formats, such as `interface`, availability/authentication `policy`, `.app.json`, implicit `~/.agents/plugins/marketplace.json` discovery and custom-scheme handoff links, are not this workflow's contract. Use ZCode's format, and distinguish source inspection from any schema/runtime validation actually performed.

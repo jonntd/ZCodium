@@ -14574,6 +14574,7 @@ var BROKER_METHODS = [
   "element_set_value",
   "element_perform_action",
   "element_select_text",
+  "element_scroll",
   // 原生粘贴：Helper 内部完成「保存剪贴板 → 写入 → 发粘贴键 → 还原」，
   // 取代 host 侧用 read_clipboard/write_clipboard 拼装的四步（后者已删除）。
   // 原子化顺带消掉还原竞态：四步之间用户或别的进程改写剪贴板会被覆盖。
@@ -14927,7 +14928,7 @@ async function dispatchRequest(backend, request) {
 }
 
 // src/broker/ipcVersion.ts
-var CUA_BROKER_IPC_VERSION = 2;
+var CUA_BROKER_IPC_VERSION = 3;
 
 // src/broker/server/brokerServer.ts
 var DEFAULT_MAX_LINE_BYTES = 16 * 1024 * 1024;
@@ -17188,6 +17189,35 @@ function createAxReadOnlyMethods(source, registry2 = new AxTokenRegistry(), opti
       );
     };
   }
+  if (source.elementScroll) {
+    const elementScroll = source.elementScroll.bind(source);
+    methods.element_scroll = async (params) => {
+      const direction = typeof params.direction === "string" ? params.direction : "";
+      if (direction !== "up" && direction !== "down" && direction !== "left" && direction !== "right") {
+        throw permissionDenied(
+          "element_scroll: direction must be one of up|down|left|right. action_sent=false.",
+          { action_sent: false }
+        );
+      }
+      const rawAmount = params.amount;
+      if (typeof rawAmount !== "number" || !Number.isSafeInteger(rawAmount) || rawAmount < 1 || rawAmount > 100) {
+        throw permissionDenied(
+          "element_scroll: amount must be an integer 1..100. action_sent=false.",
+          { action_sent: false }
+        );
+      }
+      const ref = await refForAction(source, registry2, params, "element_scroll");
+      await readLiveForAction(source, ref, "element_scroll");
+      const outcome = await elementScroll(ref, direction, rawAmount);
+      if (outcome && typeof outcome === "object" && "ok" in outcome && outcome.ok === false && outcome.axError === "action_unsupported") {
+        throw actionUnavailable(
+          "element_scroll: no scrollable container in the element's ancestor chain (or the axis is not scrollable). action_sent=false. Use strategy=event for a raw coordinate scroll, or target an element inside a scrollable list.",
+          { action_sent: false, reason: "no_scrollable_container" }
+        );
+      }
+      return assertActionSucceeded(outcome, "element_scroll");
+    };
+  }
   return methods;
 }
 function normalizeApp(app) {
@@ -18336,6 +18366,20 @@ function activateConcreteWindow(adapter, pid, bundleId, windowId, method) {
     );
   }
 }
+function activateWindowsApplication(adapter, pid, expectedBundleId, method) {
+  if (typeof adapter.activateApplication !== "function") {
+    throw notAuthorized(
+      `${method}: app-scoped input needs to bring pid ${pid} to the foreground, but native activation support is unavailable in this ZCode build. action_sent=false.`,
+      { action_sent: false }
+    );
+  }
+  if (!adapter.activateApplication(pid, expectedBundleId)) {
+    throw permissionDenied(
+      `${method}: target app (pid ${pid}) could not be brought to the foreground, so nothing was sent. action_sent=false. Target an element instead so the action goes through accessibility on a background app, or re-observe the app and retry.`,
+      { action_sent: false, expected_pid: pid, reason: "activation_failed" }
+    );
+  }
+}
 function provenAttachedSurfaceArgs(target) {
   return target.allowProvenAttachedSurface === true ? [true] : [];
 }
@@ -18679,9 +18723,33 @@ async function replaceTextValueWithVerifiedInput(options) {
   );
   return { ok: true, axError: null };
 }
-async function dispatchWindowsForegroundKeyed(axSource, adapter, method, pid, dispatch) {
-  await assertExpectedPidIsFrontmost(axSource, pid, null, method);
+async function dispatchWindowsForegroundKeyed(axSource, adapter, method, target, dispatch) {
   assertGlobalInputAllowed(adapter, method);
+  if (!axSource) {
+    throw elementUnavailable(
+      `${method}: raw foreground event for app_ref pid ${target.pid} was refused because no live application source is available. action_sent=false.`,
+      {
+        action_sent: false,
+        expected_pid: target.pid,
+        method,
+        reason: "application_source_unavailable"
+      }
+    );
+  }
+  if (!await targetIsFrontmost(axSource, target.pid)) {
+    if (adapter.hasActiveInputHolds?.()) {
+      throw permissionDenied(
+        `${method}: refused to bring pid ${target.pid} to the foreground because another key hold is still active \u2014 switching foreground now would misroute the held keys. action_sent=false. Wait for the hold to finish and retry.`,
+        { action_sent: false, reason: "input_hold_active", expected_pid: target.pid }
+      );
+    }
+    if (target.windowId !== void 0 && target.windowId !== null) {
+      activateConcreteWindow(adapter, target.pid, target.bundleId, target.windowId, method);
+    } else {
+      activateWindowsApplication(adapter, target.pid, target.bundleId, method);
+    }
+  }
+  await assertExpectedPidIsFrontmost(axSource, target.pid, null, method);
   await dispatch();
 }
 function assertAxOutcomeSucceeded(outcome, method) {
@@ -19178,7 +19246,7 @@ function createElectronInputHandlers(options) {
           axSource,
           adapter,
           "type_text_to_app",
-          target.pid,
+          target,
           () => {
             if (typeof adapter.typeTextGlobal !== "function") {
               throw notAuthorized(
@@ -19341,7 +19409,7 @@ function createElectronInputHandlers(options) {
           axSource,
           adapter,
           "press_key_to_app",
-          target.pid,
+          target,
           () => {
             if (typeof adapter.pressKeyGlobal !== "function") {
               throw notAuthorized(
@@ -19469,7 +19537,7 @@ function createElectronInputHandlers(options) {
           axSource,
           adapter,
           "hold_key_to_app",
-          target.pid,
+          target,
           async () => {
             if (typeof adapter.holdKeyGlobal !== "function") {
               throw notAuthorized(
@@ -20642,7 +20710,7 @@ function wantsCapability(requested, names) {
 }
 function hasTokenScopedElementActions(axSource) {
   return Boolean(
-    axSource?.elementPress || axSource?.elementShowMenu || axSource?.elementFocus || axSource?.elementSetValue || axSource?.elementPerformAction || axSource?.elementSelectText
+    axSource?.elementPress || axSource?.elementShowMenu || axSource?.elementFocus || axSource?.elementSetValue || axSource?.elementPerformAction || axSource?.elementSelectText || axSource?.elementScroll
   );
 }
 function hasAppScopedKeyboard(adapter) {
@@ -21954,6 +22022,10 @@ function createNativeAxSource(addon, options = {}) {
   if (typeof activateApplication === "function") {
     source.activateApplication = (pid) => activateApplication(pid);
   }
+  const scrollElement = addon.scrollElement;
+  if (typeof scrollElement === "function") {
+    source.elementScroll = (ref, direction, amount) => scrollElement(ref, direction, amount);
+  }
   return source;
 }
 
@@ -22802,6 +22874,9 @@ function createAxWinReadOnlySource(native, sourceOptions = {}) {
       return adaptOutcome(native.selectText(ref, start, length));
     }
   };
+  if (typeof native.scrollElement === "function") {
+    source.elementScroll = (ref, direction, amount) => adaptOutcome(native.scrollElement(ref, direction, amount));
+  }
   return source;
 }
 
@@ -23032,6 +23107,7 @@ function createNodeAutomationAdapter(options) {
     native.isFocusStealPrevented
   );
   const activateApplication = wrapOptionalNativeMethod(native.activateApplication);
+  const hasActiveInputHolds = wrapOptionalNativeMethod(native.hasActiveInputHolds);
   const activateWindow = wrapOptionalNativeMethod(native.activateWindow);
   const activateAppFrameSurface = wrapOptionalNativeMethod(
     native.activateAppFrameSurface
@@ -23718,6 +23794,7 @@ function createNodeAutomationAdapter(options) {
     reenableActivation: reenableActivation ?? linuxNoFocusGate?.reenableActivation,
     isFocusStealPrevented: isFocusStealPrevented ?? linuxNoFocusGate?.isFocusStealPrevented,
     activateApplication,
+    hasActiveInputHolds,
     activateWindow,
     activateAppFrameSurface,
     pipStart,

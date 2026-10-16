@@ -40,7 +40,7 @@ node scripts/scan-legacy-sessions.mjs workspaces --agent glm
 After the user chooses a workspace, list conversations:
 
 ```bash
-node scripts/scan-legacy-sessions.mjs conversations --agent glm --workspace /Users/mbear/test/z-m
+node scripts/scan-legacy-sessions.mjs conversations --agent glm --workspace /Users/dev/test/z-m
 ```
 
 Use `--query <text>` to narrow conversations by title, message content, task id, or session id. Use `--json` when feeding the result into `jq` or another script.
