@@ -1020,7 +1020,6 @@ const enUS: Record<string, string> = {
 
   // App header
   "app.currentTheme": "Current: {theme}",
-  "app.login": "Connect",
   "app.logout": "Disconnect",
   "logout.confirm.title": "Disconnect and restart ZCodium?",
   "logout.confirm.descriptionWithRunningSessions":
@@ -1033,7 +1032,6 @@ const enUS: Record<string, string> = {
   "sidebar.profile.copyUserId": "Click to copy user ID",
   "sidebar.profile.userIdCopied": "User ID copied",
   "sidebar.profile.userIdCopyFailed": "Copy failed. Please try again",
-  "sidebar.profile.notLoggedIn": "Connect",
   "app.selectFile": "Select a file to get started",
   "app.workspace": "Workspace",
   "browser.title": "Browser",

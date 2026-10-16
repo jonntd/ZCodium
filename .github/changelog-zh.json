@@ -18,5 +18,7 @@
   "86a44b3": "Bridges AstrBot into the official BotsService as a transport provider: loopback WebSocket (bridge v2) to the AstrBot plugin, with interactive permission / question / menu selections, reconnect replay and task-stream settlement (#1).",
   "d042521": "README 顶部新增功能总览与截图。",
   "e701117": "版本号提升至 3.14.7。",
-  "0c4e115": "发布收尾：补齐 v3.14.7 的中英双语 changelog 条目（英文提交补中文说明，#1/#8 的中文提交补英文说明）。"
+  "0c4e115": "发布收尾：补齐 v3.14.7 的中英双语 changelog 条目（英文提交补中文说明，#1/#8 的中文提交补英文说明）。",
+  "b1d1c369": "修复启动时误用 ZCode 上游最低版本规则：ZCodium 的 1.x 版本不再触发上游强制升级拦截，避免主窗口被阻止；启动阶段也不再请求上游客户端配置。常规自动更新流程未在本次修复中调整。",
+  "577bac82": "侧栏访客态显示 ZCodium，移除 Footer 中的账号登录入口，并恢复 fa-IR 波斯语快捷切换；模型提供商 OAuth/API Key 授权流程保持不变。"
 }

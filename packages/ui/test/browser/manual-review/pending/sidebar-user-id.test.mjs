@@ -84,12 +84,13 @@ async function open(params = {}, clipboard = "ok", width = 960) {
   }, clipboard);
   await page.goto(`${origin}fixture?${new URLSearchParams(params)}`);
   const trigger = page.getByRole("button", {
-    name: params.guest === "1" ? "连接使用" : "Alex",
+    name: params.guest === "1" ? "ZCodium" : "Alex",
     exact: true,
   });
   await trigger.waitFor();
   assert.equal(await trigger.getByText("Pro", { exact: true }).count(), 0);
   await trigger.click();
+  assert.equal(await page.getByTestId("login-menu-item").count(), 0);
   return page;
 }
 for (const theme of ["light", "dark"])
@@ -180,6 +181,26 @@ test("长 ID 截断、英文和键盘复制", async () => {
     await page.close();
   }
 });
+for (const theme of ["light", "dark"])
+  for (const mobile of ["0", "1"])
+    test(`访客品牌占位及波斯语快捷语言 ${theme} mobile=${mobile}`, async () => {
+      const page = await open({ guest: "1", theme, mobile }, "ok", mobile === "1" ? 390 : 960);
+      try {
+        await page.evaluate(() => {
+          window.selectedLocale = null;
+          window.addEventListener("zcode-locale-change", (event) => {
+            window.selectedLocale = event.detail;
+          });
+        });
+        await page.getByRole("menuitem", { name: "界面语言", exact: true }).click();
+        const persian = page.getByRole("menuitemradio", { name: "فارسی", exact: true });
+        await persian.waitFor();
+        await persian.click();
+        assert.equal(await page.evaluate(() => window.selectedLocale), "fa-IR");
+      } finally {
+        await page.close();
+      }
+    });
 for (const params of [{ guest: "1" }, { id: "" }])
   test(`无 ID 隐藏 ${JSON.stringify(params)}`, async () => {
     const page = await open(params);

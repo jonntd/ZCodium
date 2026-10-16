@@ -3,7 +3,6 @@ import type { Locale, UserInfo } from "@zcode/shared";
 import { memo, useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   DesktopCommandIds,
-  TID_LOGIN_MENU_ITEM,
   TID_LOGIN_TRIGGER,
   TID_LOGOUT_BUTTON,
   TID_TASK_SETTINGS_BUTTON,
@@ -33,7 +32,6 @@ import {
   Globe,
   Gift,
   Loader2,
-  LogInIcon,
   LogOut,
   Maximize,
   Palette,
@@ -73,15 +71,9 @@ function getSidebarProfileName(user?: UserInfo | null): string {
   return "ZCodium";
 }
 
-function getSidebarProfileBadge(
-  user: UserInfo | null | undefined,
-  formatMessage: ReturnType<typeof useZCodeIntl>["intl"]["formatMessage"],
-): string {
-  if (user) {
-    return getSidebarProfileName(user);
-  }
-
-  return formatMessage({ id: "sidebar.profile.notLoggedIn" });
+function getSidebarProfileBadge(user: UserInfo | null | undefined): string {
+  // 未连接账号不等于无法使用应用；底部是身份展示区，使用品牌名，避免旧的“连接使用”造成误解。
+  return getSidebarProfileName(user);
 }
 
 function getAvatarFallbackText(user: UserInfo | null | undefined): string {
@@ -97,7 +89,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   onSettingsButtonClick,
   onUsageClick,
   onUpgradeClick,
-  onLogin,
   onLogout,
   settingsButtonMode = "settings",
   user,
@@ -118,7 +109,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   onUpgradeClick?: Parameters<
     typeof WorkspaceSidebarFooterUsageSummaryContent
   >[0]["onUpgradeClick"];
-  onLogin?: () => void;
   onLogout?: () => void;
   settingsButtonMode?: "settings" | "back";
   user?: UserInfo | null;
@@ -139,7 +129,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
   const zoomOutShortcutLabel = useShortcutCommandLabel("zoomOut");
   const resetZoomShortcutLabel = useShortcutCommandLabel("resetZoom");
   const isRestoringOAuthSession = useZCodeStore((state) => state.isRestoringOAuthSession);
-  const profileBadge = getSidebarProfileBadge(user, intl.formatMessage);
+  const profileBadge = getSidebarProfileBadge(user);
   const avatarFallbackText = getAvatarFallbackText(user);
   const avatarKey = user?.avatarUrl ?? user?.id ?? "guest";
   const showAuthRestoreLoading = !user && isRestoringOAuthSession;
@@ -236,8 +226,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
       <div className="flex min-w-0 gap-2">
         <DropdownMenu open={profileMenuOpen} onOpenChange={setProfileMenuOpen}>
           <DropdownMenuTrigger asChild>
-            {/* Bugfix: 头像和 Login 之前直接绑定到登录动作，导致用户无法从这里打开偏好设置。
-              现在把这一块改成统一的设置菜单入口，登录/退出留在菜单项里，交互职责更清晰。 */}
+            {/* 该触发器现在只打开偏好菜单；保留历史 test id 供现有 profile-menu E2E 使用。 */}
             <Button
               type="button"
               variant="ghost"
@@ -338,6 +327,11 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
                   <DropdownMenuRadioItem value="zh-CN">
                     {intl.formatMessage({
                       id: "sidebar.settings.locale.zh-CN",
+                    })}
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="fa-IR">
+                    {intl.formatMessage({
+                      id: "sidebar.settings.locale.fa-IR",
                     })}
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
@@ -444,15 +438,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
                   {intl.formatMessage({ id: "rewards.menuBadge" })}
                 </Badge>
               </DropdownMenuItem>
-            ) : null}
-            {onLogin && !user ? (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onSelect={onLogin} data-testid={TID_LOGIN_MENU_ITEM}>
-                  <LogInIcon className="size-4" />
-                  {intl.formatMessage({ id: "app.login" })}
-                </DropdownMenuItem>
-              </>
             ) : null}
             {onLogout ? <DropdownMenuSeparator /> : null}
             {onLogout ? (

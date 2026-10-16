@@ -907,7 +907,6 @@ const faIR: Record<string, string> = {
     "نقش، حالت رابط کاربری و ترجیحات خود را دوباره انتخاب کنید. برای درون‌برد داده‌ها از تنظیمات مهاجرت استفاده کنید.",
   "settings.onboardingOpen": "باز کردن راه‌اندازی اولیه",
   "app.currentTheme": "فعلی: {theme}",
-  "app.login": "اتصال",
   "app.logout": "قطع اتصال",
   "logout.confirm.title": "قطع اتصال و راه‌اندازی دوباره ZCodium؟",
   "logout.confirm.descriptionWithRunningSessions":
@@ -916,7 +915,6 @@ const faIR: Record<string, string> = {
     "برنامه دوباره راه‌اندازی می‌شود. برای ادامه، کلید API را دوباره پیکربندی کنید.",
   "logout.confirm.ok": "قطع اتصال و راه‌اندازی دوباره",
   "logout.confirm.cancel": "لغو",
-  "sidebar.profile.notLoggedIn": "اتصال",
   "app.selectFile": "برای شروع، فایلی را انتخاب کنید",
   "app.workspace": "فضای کاری",
   "browser.title": "مرورگر",
