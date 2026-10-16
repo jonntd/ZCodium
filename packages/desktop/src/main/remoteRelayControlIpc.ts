@@ -1,11 +1,6 @@
-import { randomBytes, randomInt } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
-import { join } from "node:path";
 import { ipcMain } from "electron";
-import { getAppConfigDir } from "@zcode/services/node";
 import {
-  generateRelayChannelKey,
   isLocalRelayHost,
   PlatformChannels,
   type RemoteRelayFileConfig,
@@ -16,8 +11,16 @@ import { pickRemoteRelayLanAddresses } from "./remoteRelayLanAddresses.js";
 import {
   parseRemoteRelaySetConfigRequest,
   parseRemoteRelayShareLinkRequest,
-  unwrapLegacyRemoteRelayConfigFile,
 } from "./remoteRelayConfigPayload.js";
+import {
+  ensureRelaySecrets,
+  getConfigFilePath,
+  readConfigFile,
+  resolveEffectiveConfig,
+  shouldAutoStartRelay,
+  writeConfigFile,
+  type EffectiveRelayConfig,
+} from "./remoteRelayConfig.js";
 import { buildRelayLanShareLink, buildRelayShareLink } from "./remoteRelayShareLink.js";
 import {
   createRemoteRelayClient,
@@ -61,196 +64,6 @@ export interface RemoteRelayControlDeps {
     windowId: number,
     pinnedPath: string | null,
   ) => { workspacePath: string; workspaceIdentity?: string } | null;
-}
-
-interface EffectiveRelayConfig {
-  url: string;
-  hostSecret: string;
-  pinnedWindowId: number | null;
-  pinnedWorkspacePath: string | null;
-  /**
-   * 用户**显式填写**的公开地址（配置文件里的 `publicUrl`）；未填为 null。
-   *
-   * ⚠ 只认文件里的原始值，**不能**用「由 url 推导」的结果顶替：中继在本机时推导值是
-   * `http://127.0.0.1:3180`，手机永远访问不到，却会被当成「用户填了覆盖值」，
-   * 于是「外网」那一行显示一个 loopback 地址（2026-10-09 修）。
-   * 缺省推导交给 `buildRelayShareLink` 在生成链接时做——那里对「中继在公网」等价，
-   * 对「中继在本机」则正确地不生效。
-   */
-  publicUrlOverride: string | null;
-  pairingToken: string | null;
-  /** 端到端加密开关（spec vps-relay-bridge.md §16）。 */
-  e2ee: boolean;
-  /** 并发客户端槽位数（spec §17）。 */
-  slots: number;
-  /** 槽位基址（spec §17）：实际槽位号 = slotBase + k。null = 尚未生成。 */
-  slotBase: number | null;
-  channelKey: string | null;
-  source: "env" | "file";
-}
-
-export function getConfigFilePath(): string {
-  // 收口到 services 数据根（~/.zcodium/v2，跟随 ZCODE_DATA_BASE_DIR 隔离），与 #19
-  // 数据根迁移后其他 main 侧配置文件同源；迁移「只复制」会把旧配置带入新根。
-  return join(getAppConfigDir(), "remote-relay.json");
-}
-
-/** 解析配置文件；不存在或损坏时返回 null（损坏会记 warn，但不算致命）。 */
-async function readConfigFile(logger?: RemoteRelayControlDeps["logger"]): Promise<RemoteRelayFileConfig | null> {
-  try {
-    const raw = await readFile(getConfigFilePath(), "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      logger?.warn("中继配置文件不是 JSON 对象，已忽略", getConfigFilePath());
-      return null;
-    }
-    const { config, recovered } = unwrapLegacyRemoteRelayConfigFile(parsed);
-    if (recovered) {
-      // 历史 bug：保存时把 { config, apply } 信封当成 config 写了进来（preload 签名不匹配）。
-      // 读到时自动还原并立刻修回扁平文件，避免 App 反复读不到 url 而掉线。
-      logger?.warn("中继配置是历史信封形状，已自动还原", getConfigFilePath());
-      await writeConfigFile(config).catch(() => {});
-    }
-    return config;
-  } catch {
-    return null;
-  }
-}
-
-/** 配对码：24 字节随机（base64url），与官方 `createPassword` 同量级，禁止出现 `devtoken` 这类共享弱口令。 */
-function generatePairingToken(): string {
-  return randomBytes(24).toString("base64url");
-}
-
-async function writeConfigFile(config: RemoteRelayFileConfig): Promise<void> {
-  const path = getConfigFilePath();
-  await mkdir(join(path, ".."), { recursive: true });
-  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-}
-
-/**
- * 配对码缺失时自动生成并落盘。
- *
- * 为什么放在这里而不是让用户手填：配对码是中继与手机之间的共享密钥，
- * 手填很容易退化成 `devtoken` 这种全局弱口令（且会被拼进分享链接）。
- * 只需要用户在**中继侧**设同一个 `RELAY_TOKEN`——UI 里能看到/复制它。
- * 想要轮换时清空该字段并保存即可（下一次读取会重新生成）。
- */
-async function ensurePairingToken(
-  file: RemoteRelayFileConfig | null,
-  config: EffectiveRelayConfig,
-  logger?: RemoteRelayControlDeps["logger"],
-): Promise<{ file: RemoteRelayFileConfig | null; config: EffectiveRelayConfig }> {
-  if (config.pairingToken) return { file, config };
-  const pairingToken = generatePairingToken();
-  const nextFile: RemoteRelayFileConfig = { ...file, pairingToken };
-  try {
-    await writeConfigFile(nextFile);
-    logger?.info(`[remote-relay] 已自动生成配对码并写入 ${getConfigFilePath()}`);
-    return { file: nextFile, config: { ...config, pairingToken } };
-  } catch (error) {
-    // 落盘失败（只读目录等）时仍让本次会话可用：内存里保留新配对码。
-    logger?.warn("[remote-relay] 配对码写入失败，仅在本次会话内有效", error);
-    return { file, config: { ...config, pairingToken } };
-  }
-}
-
-/** env 逐字段优先于文件；没有 url 即视为未配置。 */
-function resolveEffectiveConfig(file: RemoteRelayFileConfig | null): EffectiveRelayConfig | null {
-  const envUrl = process.env.ZCODE_REMOTE_RELAY_URL?.trim();
-  const fileUrl = file?.url?.trim();
-  const url = envUrl || fileUrl;
-  if (!url) return null;
-  if (!/^wss?:\/\//i.test(url)) return null;
-
-  const envSecret = process.env.ZCODE_REMOTE_RELAY_HOST_SECRET?.trim();
-  const envWindow = Number(process.env.ZCODE_REMOTE_RELAY_WINDOW ?? "");
-  const envWorkspace = process.env.ZCODE_REMOTE_RELAY_WORKSPACE?.trim();
-  // E2EE 是显式开关（默认关）：两端必须同时具备能力（spec §16.6 灰度顺序）。
-  const envE2ee = /^(1|true)$/i.test(process.env.ZCODE_REMOTE_RELAY_E2EE?.trim() ?? "");
-  const e2ee = envE2ee || file?.e2ee === true;
-  // 并发客户端槽位数（spec §17）：每槽位一条独立连接 + 独立 Host attachment。
-  const envSlots = Number.parseInt(process.env.ZCODE_REMOTE_RELAY_SLOTS?.trim() ?? "", 10);
-  const rawSlots = Number.isInteger(envSlots) ? envSlots : file?.slots;
-  const slots = Math.min(8, Math.max(1, Number.isInteger(rawSlots) ? (rawSlots as number) : 1));
-  const envSlotBase = Number.parseInt(process.env.ZCODE_REMOTE_RELAY_SLOT_BASE?.trim() ?? "", 10);
-  const cfgSlotBase = Number.isInteger(file?.slotBase) ? (file?.slotBase as number) : null;
-  const slotBase =
-    envSlotBase !== null && Number.isInteger(envSlotBase) && envSlotBase >= 0 && envSlotBase <= 91
-      ? envSlotBase
-      : cfgSlotBase !== null && cfgSlotBase >= 0 && cfgSlotBase <= 91
-        ? cfgSlotBase
-        : null;
-
-  // 公开地址只认用户显式填的值；缺省推导（ws→http / wss→https）交给 buildRelayShareLink
-  // 在生成链接时做——见 `publicUrlOverride` 的注释。
-  const publicUrlOverride = file?.publicUrl?.trim() || null;
-  const pairingToken = file?.pairingToken?.trim() || null;
-
-  return {
-    url,
-    hostSecret: envSecret ?? file?.hostSecret?.trim() ?? "",
-    pinnedWindowId:
-      Number.isInteger(envWindow) && envWindow > 0
-        ? envWindow
-        : typeof file?.windowId === "number" && file.windowId > 0
-          ? file.windowId
-          : null,
-    pinnedWorkspacePath: envWorkspace || file?.workspace?.trim() || null,
-    publicUrlOverride,
-    pairingToken,
-    e2ee,
-    slots,
-    slotBase,
-    channelKey: file?.channelKey?.trim() || null,
-    source: envUrl ? "env" : "file",
-  };
-}
-
-/**
- * 槽位基址缺失时自动生成并落盘（spec §17）：
- * 多桌面共用一台 relay 时各桌面的 slotBase 随机错开（0..91，碰撞 ≈1%），
- * 单桌面无感。与 pairingToken/channelKey 同一套「首次自动生成」惯例。
- */
-async function ensureSlotBase(
-  file: RemoteRelayFileConfig | null,
-  config: EffectiveRelayConfig,
-  logger?: RemoteRelayControlDeps["logger"],
-): Promise<{ file: RemoteRelayFileConfig | null; config: EffectiveRelayConfig }> {
-  if (config.slotBase !== null) return { file, config };
-  const slotBase = randomInt(0, 92);
-  const nextFile: RemoteRelayFileConfig = { ...file, slotBase };
-  try {
-    await writeConfigFile(nextFile);
-    logger?.info(`[remote-relay] 已生成槽位基址 ${slotBase} 并写入 ${getConfigFilePath()}`);
-  } catch (error) {
-    logger?.warn("[remote-relay] 槽位基址写入失败，仅在本次会话内有效", error);
-  }
-  return { file: nextFile, config: { ...config, slotBase } };
-}
-
-/**
- * 启用 E2EE 且 channelKey 缺失时自动生成并落盘。
- *
- * 与 pairingToken 同理：手填 32 字节密钥不现实，且用户很可能复用弱值。
- * 生成只发生一次；清空该字段保存即可轮换（旧链接全部失效）。
- */
-async function ensureE2eeChannelKey(
-  file: RemoteRelayFileConfig | null,
-  config: EffectiveRelayConfig,
-  logger?: RemoteRelayControlDeps["logger"],
-): Promise<{ file: RemoteRelayFileConfig | null; config: EffectiveRelayConfig }> {
-  if (!config.e2ee || config.channelKey) return { file, config };
-  const channelKey = generateRelayChannelKey();
-  const nextFile: RemoteRelayFileConfig = { ...file, channelKey };
-  try {
-    await writeConfigFile(nextFile);
-    logger?.info(`[remote-relay] 已生成 E2EE channelKey 并写入 ${getConfigFilePath()}`);
-  } catch (error) {
-    // 落盘失败时仅本次会话内有效：重启后会重新生成（旧链接将失效），warn 提示。
-    logger?.warn("[remote-relay] E2EE channelKey 写入失败，仅在本次会话内有效", error);
-  }
-  return { file: nextFile, config: { ...config, channelKey } };
 }
 
 export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
@@ -314,17 +127,14 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
   async function start(): Promise<RemoteRelayStatus> {
     if (clients.length) return buildStatus(true);
     const file = await readConfigFile(logger);
-    lastFileConfig = file;
-    let config = resolveEffectiveConfig(file);
+    // 先补齐再解析（spec §15.4）：全新设备还没有中继地址时，这里也会生成配对码
+    // 并落盘——「保存即生成」，随后才判断有没有可拨的地址。
+    lastFileConfig = await ensureRelaySecrets(file, logger);
+    const config = resolveEffectiveConfig(lastFileConfig);
     if (!config) {
       currentConfig = null;
       return buildStatus(false);
     }
-    const withToken = await ensurePairingToken(file, config, logger);
-    const withChannelKey = await ensureE2eeChannelKey(withToken.file, withToken.config, logger);
-    const withSlotBase = await ensureSlotBase(withChannelKey.file, withChannelKey.config, logger);
-    lastFileConfig = withSlotBase.file;
-    config = withSlotBase.config;
     currentConfig = config;
     // 每个槽位一个独立客户端实例：独立连接、独立 attachmentId、独立 E2EE 握手与重连
     // 循环（spec §17）。同一窗口 Host 可并存多个 attachment（官方预留设计，已验证）。
@@ -364,21 +174,18 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
         if (currentConfig) lastFileConfig = file;
         return buildStatus(true);
       }
-      // 未运行时也如实回答「有没有配置」：probe 结果只影响 configured/shareUrl 展示。
+      // 未运行时也先补齐密钥（spec §15.4）：全新设备**首次打开设置页**就生成配对码
+      // 并落盘（此前无 url 时 probe 为 null 直接早退，什么都不生成）。
+      lastFileConfig = await ensureRelaySecrets(file, logger);
       const previous = currentConfig;
-      const probe = resolveEffectiveConfig(file);
+      const probe = resolveEffectiveConfig(lastFileConfig);
       if (!probe) {
         currentConfig = null;
         const status = buildStatus(false);
         currentConfig = previous;
         return status;
       }
-      // 未启动也要能显示链接，所以这里同样补配对码 / E2EE channelKey：
-      // 首次打开设置页就会自动生成并落盘。
-      const withToken = await ensurePairingToken(file, probe, logger);
-      const withChannelKey = await ensureE2eeChannelKey(withToken.file, withToken.config, logger);
-      lastFileConfig = withChannelKey.file;
-      currentConfig = withChannelKey.config;
+      currentConfig = probe;
       return buildStatus(false);
     });
 
@@ -411,19 +218,16 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       async (_event, payload: unknown): Promise<RemoteRelayShareLink> => {
         const request = parseRemoteRelayShareLinkRequest(payload);
         const file = await readConfigFile(logger);
-        lastFileConfig = file;
-        const config = resolveEffectiveConfig(file);
-        if (!config) return { shareUrl: null, expiresAt: null };
         // 与「读状态」同一套补齐链：配对码 / E2EE channelKey 缺失时自动生成并落盘，
         // 否则 E2EE 开着但链接缺 #k=，手机端会卡在 confirm 校验失败。
-        const withToken = await ensurePairingToken(file, config, logger);
-        const withChannelKey = await ensureE2eeChannelKey(withToken.file, withToken.config, logger);
-        lastFileConfig = withChannelKey.file;
+        lastFileConfig = await ensureRelaySecrets(file, logger);
+        const config = resolveEffectiveConfig(lastFileConfig);
+        if (!config) return { shareUrl: null, expiresAt: null };
         const link = buildRelayShareLink({
-          url: withChannelKey.config.url,
-          publicUrl: withChannelKey.config.publicUrlOverride,
-          pairingToken: withChannelKey.config.pairingToken ?? "",
-          channelKey: withChannelKey.config.e2ee ? withChannelKey.config.channelKey : null,
+          url: config.url,
+          publicUrl: config.publicUrlOverride,
+          pairingToken: config.pairingToken ?? "",
+          channelKey: config.e2ee ? config.channelKey : null,
           ttlSeconds: request.ttlSeconds ?? null,
         });
         return link ?? { shareUrl: null, expiresAt: null };
@@ -431,12 +235,17 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     );
   }
 
-  /** App 启动后调用：有配置（env 或文件）就自动连接。 */
+  /**
+   * App 启动后调用：**先补齐密钥**（全新设备还没有中继地址也生成配对码并落盘，
+   * spec §15.4），有配置（env 或文件）就自动连接。
+   */
   async function autoStart(): Promise<void> {
     const envUrl = process.env.ZCODE_REMOTE_RELAY_URL?.trim();
     const file = await readConfigFile(logger);
-    const shouldStart = Boolean(envUrl) || (Boolean(file?.url) && file?.autoStart !== false);
-    if (!shouldStart) return;
+    // 无条件补齐：全新设备一开机就有配对码，打开设置页即可看到/复制（spec §15.4）。
+    // start() 会再读一次文件，补齐幂等无副作用。
+    lastFileConfig = await ensureRelaySecrets(file, logger);
+    if (!shouldAutoStartRelay(lastFileConfig, envUrl)) return;
     await start().catch((error: unknown) => {
       logger?.warn("[remote-relay] 自动启动失败", error);
     });

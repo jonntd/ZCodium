@@ -10,6 +10,15 @@
 > 「刷新/手机 attachment 复用同一 Host，等待现有准备，不启动第二个执行者」）。
 > 本 spec 补的是**传输**这一段，不是会话运行时。
 
+> **v3（2026-10-16）密钥补齐语义**：
+> - **配对码「App 启动即生成」**：`autoStart()` 在 App 启动时**无条件**补齐配对码并落盘，
+>   **不再要求先填中继地址**（此前全新设备不填 url 时 `GetStatus`/`start` 会在
+>   `resolveEffectiveConfig` 返回 null 时早退，什么都不生成；见 §15.4）。
+> - **主机密钥统一默认值**：桌面与 relay 两端缺省都用 `DEFAULT_RELAY_HOST_SECRET`
+>   （`packages/shared/src/remote-relay.ts`，relay.mjs 同值回退），可自行修改。
+>   ⚠ 默认值是**公开常量**，仅适合自评 / 内网 / 防火墙后的个人 VPS；生产部署应在
+>   relay `.env` 设强随机 `HOST_SECRET` 并把桌面改成同一个值。
+
 ## 1. 先排除两条看似可行、实际不可用的捷径
 
 ### 1.1 不能复用 `/ws/host`
@@ -1249,8 +1258,9 @@ E2EE 的 `#k=` 仍在 fragment 里，不进任何请求。
 
 ### 环境变量
 
-**relay（VPS）**：`PORT`、`RELAY_TOKEN`（手机配对码）、`HOST_SECRET`（桌面密钥）、`WEB_ROOT`、
-`HOST_WAIT_GRACE_MS`（host 缺位时手机等待宽限，默认 5000，见 §12.3.1）、
+**relay（VPS）**：`PORT`、`RELAY_TOKEN`（手机配对码，**必填**；可由桌面 App 启动时自动生成后抄过来）、
+`HOST_SECRET`（桌面密钥，**未设时回退统一默认值** `DEFAULT_RELAY_HOST_SECRET` 并打 warn，见 §15.4）、
+`WEB_ROOT`、`HOST_WAIT_GRACE_MS`（host 缺位时手机等待宽限，默认 5000，见 §12.3.1）、
 `HEARTBEAT_INTERVAL_MS`（心跳间隔，默认 30000）、`IDLE_TIMEOUT_MS`（空闲回收阈值，默认 60000）
 **桌面**：`ZCODE_REMOTE_RELAY_URL`（如 `wss://vps.example`）、
 `ZCODE_REMOTE_RELAY_HOST_SECRET`、`ZCODE_REMOTE_RELAY_WINDOW`（可选，缺省跟随 focused window）
@@ -1373,8 +1383,9 @@ E2EE 的 `#k=` 仍在 fragment 里，不进任何请求。
 | start/stop/getStatus | `remoteRelayClient` 已有 start/stop/state，补 IPC 暴露（~40 行） | 小 |
 | 内置端点 | 自建 relay 地址 → **配置文件** `~/.zcodium/v2/remote-relay.json`（或 UI 输入一次） | 小 |
 | createQrUrl（sid/hash/t 签名链接） | 简化版：`https://<vps>/?token=RELAY_TOKEN&autoReconnect=1`（relay 已实现 cookie 配对，并保留非 token 参数）；后续可升级为签名链接 | 小 |
-| resetPairing | 清空设置页的「配对码」并保存 → 下一次读取自动重新生成（`remoteRelayControlIpc.ensurePairingToken`），再把新值填到 relay 的 `RELAY_TOKEN` | — |
-| **配对码来源** | **自动生成**：配置文件缺失 `pairingToken` 时由 Main 生成 24 字节 base64url 并落盘（避免出现 `devtoken` 这类全局弱口令）。UI 里可直接看到/复制 | 小 |
+| resetPairing | 清空设置页的「配对码」并保存 → 下一次读取（`autoStart`/`GetStatus`/`start` 的补齐链）自动重新生成（`ensurePairingToken`），再把新值填到 relay 的 `RELAY_TOKEN` | — |
+| **配对码来源** | **App 启动即自动生成**：`autoStart()` 在 App 启动时**无条件**补齐（`ensureRelaySecrets` 链，**不要求先填中继地址**），缺失即生成 24 字节 base64url 并落盘（避免出现 `devtoken` 这类全局弱口令）。UI 里可直接看到/复制；新设备把旧设备的配对码抄过来即可（须与 relay `RELAY_TOKEN` 一致）。清空保存即轮换 | 小 |
+| **主机密钥来源** | **统一默认值**：`DEFAULT_RELAY_HOST_SECRET`（`packages/shared/src/remote-relay.ts`，relay.mjs 同值回退）。文件/env 未设时桌面用默认值并落盘，可自行修改（两侧改成同一个值）。⚠ 默认值是公开常量，仅适合自评/内网：任何能访问 relay `/host` 的人都等于拿到桌面 Host 的服务面；生产部署应在 relay `.env` 设强随机 `HOST_SECRET` 并同步桌面 | 小 |
 | **公开地址** | 与中继地址**通常是同一主机的不同协议**（桌面 WS 拨出 / 手机 HTTP 访问），因此缺省由中继地址推导：`deriveRemoteRelayPublicUrl`（`@zcode/shared`，`ws→http` / `wss→https`，主进程与 UI 共用同一实现）。配置表单默认只显示「中继地址」，仅当同源推导不成立（反向代理、端口映射、内网拨入）时才打开「公开地址与中继地址不同」覆盖项 | 小 |
 | **UI 入口** | 「移动端远程控制」弹层（工作区头部，`WebRemoteControlDialog`）里的「浏览器直连」卡片（`RemoteRelayAccessPanel`）：状态 + 启停 + **内网/外网两条链接**（各自复制 + 二维码）+ 折叠的「高级设置」（`RemoteRelayConfigForm`：连接协议/中继地址/主机密钥/公开地址/配对码/E2EE/并发槽位/工作区覆盖/随应用启动，保存即热应用）。**设置页不再有「远程访问」分区** | 中 |
 
@@ -1499,7 +1510,8 @@ E2EE 适配器的**收包侧**必须是「单一 FIFO 队列 + 泵守卫」，�
 - `~/.zcodium/v2/remote-relay.json` 增 `e2ee?: boolean`、`channelKey?: string`（32B base64url，
   与 `hostSecret` 同等敏感）；env `ZCODE_REMOTE_RELAY_E2EE`（`1`/`true`）。
 - **默认 false = 现行为逐字节不变**。开启是显式动作：设置页开关或写配置。
-- 启用 e2ee 且 `channelKey` 缺失时自动生成并落盘；分享链接追加 `#k=<channelKey>`。
+- 启用 e2ee 且 `channelKey` 缺失时自动生成并落盘（补齐时机同样是 App 启动与读配置，
+  §15.4 的 `ensureRelaySecrets` 链）；分享链接追加 `#k=<channelKey>`。
 - 轮换：清空 `channelKey` 保存 → 自动重生成，旧链接全部失效。
 
 ## 16.6 灰度顺序（两端能力必须同时具备）

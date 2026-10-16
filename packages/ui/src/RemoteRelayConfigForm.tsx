@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, LoaderCircle, RefreshCw, TriangleAlert } from "lucide-react";
 import type { RemoteRelayFileConfig, RemoteRelayStatus } from "@zcode/shared";
-import { deriveRemoteRelayPublicUrl } from "@zcode/shared";
+import { DEFAULT_RELAY_HOST_SECRET, deriveRemoteRelayPublicUrl } from "@zcode/shared";
 import {
   buildRelayUrl,
   composeLanSuggestion,
@@ -279,7 +279,9 @@ export function RemoteRelayConfigForm({
           <ConfigField
             id="remote-relay-host-secret"
             label={t("settings.remoteRelay.hostSecret")}
-            description={t("settings.remoteRelay.hostSecretDescription")}
+            description={t("settings.remoteRelay.hostSecretDescription", {
+              default: DEFAULT_RELAY_HOST_SECRET,
+            })}
             placeholder="••••••••"
             type="password"
             value={form.hostSecret ?? ""}

@@ -13,7 +13,11 @@
 export interface RemoteRelayFileConfig {
   /** 中继主机端点，如 `wss://relay.example.com`（本机验证可用 `ws://127.0.0.1:3180`）。 */
   url?: string;
-  /** 与中继 `HOST_SECRET` 一致的共享密钥。 */
+  /**
+   * 与中继 `HOST_SECRET` 一致的共享密钥。**留空 = 统一默认值**
+   * `DEFAULT_RELAY_HOST_SECRET`（App 启动补齐时落盘，可自行修改——两侧改成同一个值）；
+   * env `ZCODE_REMOTE_RELAY_HOST_SECRET` 逐字段优先于文件。
+   */
   hostSecret?: string;
   /** 覆盖上报的工作区路径；不填则跟随窗口当前工作区。 */
   workspace?: string;
@@ -34,7 +38,8 @@ export interface RemoteRelayFileConfig {
   autoStart?: boolean;
   /** 浏览器侧访问的公开源（用于拼分享链接）；缺省由 url 推导（wss→https / ws→http）。 */
   publicUrl?: string;
-  /** 中继的 `RELAY_TOKEN`（手机配对码，用于拼分享链接）。 */
+  /** 中继的 `RELAY_TOKEN`（手机配对码，用于拼分享链接）。留空时由 Main 在 App 启动时
+   *  自动生成并落盘（spec §15.4）；须与中继服务端的 `RELAY_TOKEN` 一致，清空保存即轮换。 */
   pairingToken?: string;
   /**
    * 端到端加密开关（spec vps-relay-bridge.md §16）。默认 false = 现行为逐字节不变。
@@ -48,6 +53,28 @@ export interface RemoteRelayFileConfig {
    * 启用 e2ee 且缺失时由 Main 自动生成并落盘；清空保存即轮换（旧链接全部失效）。
    */
   channelKey?: string;
+}
+
+/**
+ * 主机密钥的统一默认值（spec vps-relay-bridge.md §15.4）：
+ * 桌面与 relay 两端缺省都用它，用户可在任一侧改成同一个自定义值。
+ *
+ * ⚠ 这是**公开常量**：任何能访问 relay `/host` 的人都等于拿到桌面 Host 的完整服务面
+ * （终端、文件、Git，等价 RCE）。仅适合自评 / 内网 / 防火墙后的个人 VPS；生产部署
+ * 请在 relay `.env` 设强随机 `HOST_SECRET`（`openssl rand -base64 32`）并在桌面
+ * 「高级设置 → 主机密钥」改成同一个值。
+ */
+export const DEFAULT_RELAY_HOST_SECRET = "zcodium";
+
+/**
+ * 解析生效的主机密钥（spec §15.4）：env（`ZCODE_REMOTE_RELAY_HOST_SECRET`）>
+ * 配置文件 > 统一默认值。纯函数，桌面 Main 与 relay 侧（各自实现同值回退）共用语义。
+ */
+export function resolveRelayHostSecret(
+  envValue: string | undefined,
+  fileValue: string | undefined,
+): string {
+  return envValue?.trim() || fileValue?.trim() || DEFAULT_RELAY_HOST_SECRET;
 }
 
 /** `zcode:remote-relay-get-status` 的响应。 */

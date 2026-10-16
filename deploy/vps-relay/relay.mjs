@@ -22,8 +22,10 @@
  * 环境变量：
  *   PORT               监听端口，默认 3180
  *   WEB_ROOT           web bundle 目录，默认 ./web
- *   RELAY_TOKEN        手机配对码（必填）
- *   HOST_SECRET        桌面共享密钥（必填）
+ *   RELAY_TOKEN        手机配对码（必填；可由桌面 App 启动时自动生成后抄过来）
+ *   HOST_SECRET        桌面共享密钥（未设时回退统一默认值 DEFAULT_HOST_SECRET 并打 warn，
+ *                      与 packages/shared/src/remote-relay.ts 的 DEFAULT_RELAY_HOST_SECRET
+ *                      保持一致；⚠ 默认值是公开常量，仅适合自评/内网）
  *   HOST_WAIT_GRACE_MS host 暂时缺位时手机等待的宽限毫秒数，默认 5000
  *   HEARTBEAT_INTERVAL_MS 两侧 ping 间隔，默认 30000（见下「心跳与空闲回收」）
  *   IDLE_TIMEOUT_MS    一侧多久无任何活动即视为僵尸连接并关闭，默认 60000
@@ -64,8 +66,14 @@ const gzipAsync = promisify(gzipCallback);
 
 const PORT = Number(process.env.PORT) || 3180;
 const WEB_ROOT = resolve(process.env.WEB_ROOT || "./web");
+/**
+ * 主机密钥统一默认值（spec vps-relay-bridge.md §15.4）：与桌面
+ * `packages/shared/src/remote-relay.ts` 的 `DEFAULT_RELAY_HOST_SECRET` 保持一致——
+ * 两端缺省都用它，任一侧改了另一边要同步。⚠ 公开常量，仅适合自评/内网。
+ */
+const DEFAULT_HOST_SECRET = "zcodium";
 const RELAY_TOKEN = (process.env.RELAY_TOKEN || "").trim();
-const HOST_SECRET = (process.env.HOST_SECRET || "").trim();
+const HOST_SECRET = (process.env.HOST_SECRET || "").trim() || DEFAULT_HOST_SECRET;
 /** host 暂时缺位时手机等待的宽限：桌面侧对「手机离线连坐」用 ~100ms 快速补位，
  *  正常刷新远小于上限；仅当桌面真的离线（App 已退出等）才会等满后 4002。 */
 const HOST_WAIT_GRACE_MS = Number(process.env.HOST_WAIT_GRACE_MS) || 5000;
@@ -82,9 +90,16 @@ const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS) || 30_00
 /** 超过该时长无任何活动（消息 / ping / pong）的一侧视为僵尸连接并关闭。 */
 const IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MS) || 60_000;
 
-if (!RELAY_TOKEN || !HOST_SECRET) {
-  console.error("[relay] RELAY_TOKEN 与 HOST_SECRET 必须同时设置");
+if (!RELAY_TOKEN) {
+  console.error(
+    "[relay] RELAY_TOKEN 未设置：手机配对码，可在桌面 App 启动后从「移动端远程控制 → 高级设置」复制",
+  );
   process.exit(1);
+}
+if (!(process.env.HOST_SECRET || "").trim()) {
+  console.warn(
+    "[relay] HOST_SECRET 未设置，回退统一默认值（仅适合自评/内网；生产请 openssl rand -base64 32 生成，并同步桌面「主机密钥」）",
+  );
 }
 
 const MIME = {

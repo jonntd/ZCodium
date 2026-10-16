@@ -48,11 +48,13 @@ export type {
   RemoteRelayShareLinkRequest,
 } from "./remote-relay.js";
 export {
+  DEFAULT_RELAY_HOST_SECRET,
   deriveRemoteRelayPublicUrl,
   extractRelayPort,
   isLocalRelayHost,
   isLoopbackRelayHost,
   isPrivateIpv4Host,
+  resolveRelayHostSecret,
   resolveRelayLanHost,
 } from "./remote-relay.js";
 export {

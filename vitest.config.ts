@@ -17,6 +17,7 @@ const nodeRunTestFiles = [
   "packages/shared/test/customSystemPrompt.test.ts",
   "packages/shared/test/deleteProtection.test.ts",
   "packages/shared/test/remoteRelayE2ee.test.ts",
+  "packages/shared/test/remoteRelayHostSecret.test.ts",
   "packages/shared/test/systemPromptSegments.test.ts",
   "packages/ui/test/appRuntimePreferences.test.ts",
   "packages/ui/test/chatLoadingVisibility.test.ts",

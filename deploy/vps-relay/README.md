@@ -72,15 +72,17 @@ proof 鉴权**：`GET /api/remote-control/link` 必须带
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `RELAY_TOKEN` | ✅ | **手机配对码**。手机打开 `https://<域名>/?token=<它>` 一次即可；它同时是**时效签名链接**（桌面设置页可生成，spec vps-relay-bridge.md §18）的 HMAC 密钥——轮换它即可让所有旧链接/旧 cookie 全部失效 |
-| `HOST_SECRET` | ✅ | **桌面共享密钥**。桌面用它连 `/host`，也用它调 `/api/host-report` |
+| `RELAY_TOKEN` | ✅ | **手机配对码**。手机打开 `https://<域名>/?token=<它>` 一次即可；它同时是**时效签名链接**（桌面设置页可生成，spec vps-relay-bridge.md §18）的 HMAC 密钥——轮换它即可让所有旧链接/旧 cookie 全部失效。桌面 App 启动时会自动生成一个（「高级设置 → 配对码」），把那个值填到这里即可 |
+| `HOST_SECRET` | | **桌面共享密钥**。桌面用它连 `/host`，也用它调 `/api/host-report`。留空 = 使用与桌面一致的**统一默认值**（仅适合自评/内网：默认值是公开常量，任何能访问 `/host` 的人都等于拿到桌面 Host 的服务面）；改了桌面端就要同步改这里 |
 | `PORT` | | 监听端口，默认 `3180` |
 | `WEB_ROOT` | | web bundle 目录，默认 `./web` |
 | `HOST_WAIT_GRACE_MS` | | host 暂时缺位时手机端的等待宽限，默认 `5000` |
 | `HEARTBEAT_INTERVAL_MS` | | 向 host/client 两侧 ping 的间隔，默认 `30000` |
 | `IDLE_TIMEOUT_MS` | | 一侧多久无任何活动即按僵尸连接关闭，默认 `60000` |
 
-两个密钥都必须足够长（建议 `openssl rand -base64 32` 生成），**且不要写进日志**。
+`RELAY_TOKEN` 必须足够长（建议 `openssl rand -base64 32` 生成），**且不要写进日志**；
+`HOST_SECRET` 生产部署同样建议用 `openssl rand -base64 32`，并同步填到桌面
+「移动端远程控制 → 高级设置 → 主机密钥」。
 
 ### 2.3 方式一：Docker Compose（推荐）
 
