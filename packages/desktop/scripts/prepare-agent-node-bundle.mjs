@@ -32,6 +32,10 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(desktopRoot, "..", "..");
 const cliBundlePath = resolve(repoRoot, "apps/zcode-cli/packages/cli/dist/zcode.cjs");
+// 修复原因：合并上游时丢了这行定义，导致 stageKoffiForCuaPlugin() 抛
+// ReferenceError: adaptersRoot is not defined（只有真实 CUA producer 的机器才会走到该分支，
+// 上游开源占位包不 staged cua plugin，所以 CI 覆盖不到）。koffi 的安装根与上游一致。
+const adaptersRoot = resolve(repoRoot, "apps/zcode-cli/packages/adapters");
 const pnpmRunEnv = {
   ...process.env,
   // pnpm 11 会在 apps/zcode-cli 子 workspace 执行 run 前触发 install；

@@ -5,11 +5,9 @@
  * 并且每个都需要中文注释
  */
 
-// Login entry
-/** 右上角登录触发按钮 */
+// Provider authentication and sidebar profile menu
+/** 侧栏底部头像/偏好菜单触发按钮（沿用历史 test id） */
 export const TID_LOGIN_TRIGGER = "login-trigger";
-/** 用户菜单中的登录操作 */
-export const TID_LOGIN_MENU_ITEM = "login-menu-item";
 /** 登录页切换到 API Key 登录方式按钮 */
 export const TID_LOGIN_USE_API_KEY_BUTTON = "login-use-api-key-button";
 /** API Key 登录 provider 选择触发器 */

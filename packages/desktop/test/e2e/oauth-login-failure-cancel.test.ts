@@ -1,5 +1,4 @@
 import {
-  TID_LOGIN_MENU_ITEM,
   TID_LOGIN_TRIGGER,
   TID_OAUTH_CANCEL,
   TID_OAUTH_ERROR,
@@ -58,88 +57,46 @@ describe("OAuth 登录失败态的取消交互", () => {
 async function ensureLoginPanelOpen(): Promise<void> {
   await browser.waitUntil(async () => (await hasChannelButton()) || (await hasLoginTrigger()), {
     timeout: 60_000,
-    timeoutMsg: "启动后没有出现 OAuth 登录面板或手动登录入口",
+    timeoutMsg: "启动后没有出现 OAuth 登录面板或工作区侧栏",
   });
 
   if (await hasChannelButton()) {
     return;
   }
 
-  // 启动期已有可用 workspace shell 时,登录入口在头像菜单里:
-  // TID_LOGIN_TRIGGER 打开菜单,TID_LOGIN_MENU_ITEM 才真正打开 WelcomeScreen。
-  // Radix 菜单触发器依赖 pointerdown 激活,必须派发完整指针事件序列(对齐 e2ecase-regression)。
-  await clickVisibleTestIdByDom(TID_LOGIN_TRIGGER, {
-    timeout: 20_000,
-    timeoutMsg: "没有可见可点击的头像菜单入口",
-  });
-  await clickVisibleTestIdByDom(TID_LOGIN_MENU_ITEM, {
-    timeout: 20_000,
-    timeoutMsg: "头像菜单里没有登录菜单项",
-  });
+  await openProviderConnectFromCommandPalette();
 }
 
-async function clickVisibleTestIdByDom(
-  targetTestId: string,
-  {
-    timeout = 10_000,
-    timeoutMsg = `页面没有可见可点击的 test id: ${targetTestId}`,
-  }: { timeout?: number; timeoutMsg?: string } = {},
-): Promise<void> {
-  let latestReason = "not-started";
+async function openProviderConnectFromCommandPalette(): Promise<void> {
+  const opened = await browser.execute(() => {
+    const button = Array.from(document.querySelectorAll("button")).find((item) =>
+      /^(Search|搜索|جستجو)/.test(item.textContent?.trim() ?? ""),
+    );
+    button?.click();
+    return Boolean(button);
+  });
+  if (!opened) throw new Error("没有可见的命令面板入口");
+
+  const input = await browser.$('[data-slot="command-input"]');
+  await input.waitForDisplayed({ timeout: 20_000 });
+  await input.setValue("login");
   await browser.waitUntil(
-    async () => {
-      const result = (await browser.execute((testIdValue: string) => {
-        function isVisible(element: HTMLElement) {
-          const style = window.getComputedStyle(element);
-          if (
-            style.display === "none" ||
-            style.visibility === "hidden" ||
-            Number(style.opacity) === 0
-          ) {
-            return false;
-          }
-          if (element.getClientRects().length === 0) {
-            return false;
-          }
-          return !element.closest('[aria-hidden="true"], [hidden]');
-        }
-
-        const element = Array.from(document.querySelectorAll<HTMLElement>("[data-testid]")).find(
-          (item) => item.dataset.testid === testIdValue && isVisible(item),
-        );
-        if (!element) {
-          return { clicked: false, reason: "missing-visible" };
-        }
-
-        // Radix 菜单触发器依赖 pointerdown 激活,单发 element.click() 会让菜单不展开。
-        element.focus();
-        const usePointerEvent = typeof window.PointerEvent === "function";
-        for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
-          const event = usePointerEvent
-            ? new PointerEvent(type, {
-                bubbles: true,
-                cancelable: true,
-                pointerId: 1,
-                pointerType: "mouse",
-                isPrimary: true,
-              })
-            : new MouseEvent(type, {
-                bubbles: true,
-                cancelable: true,
-                view: window,
-              });
-          element.dispatchEvent(event);
-        }
-        return { clicked: true };
-      }, targetTestId)) as { clicked: boolean; reason?: string };
-      latestReason = result.reason ?? "clicked";
-      return result.clicked;
-    },
-    {
-      timeout,
-      timeoutMsg: `${timeoutMsg}: ${latestReason}`,
-    },
+    async () =>
+      browser.execute(() =>
+        Array.from(document.querySelectorAll('[data-slot="command-item"]')).some((item) =>
+          /connect|连接|اتصال/i.test(item.textContent ?? ""),
+        ),
+      ),
+    { timeout: 20_000, timeoutMsg: "命令面板中没有模型提供商连接入口" },
   );
+  const clicked = await browser.execute(() => {
+    const item = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-slot="command-item"]'),
+    ).find((entry) => /connect|连接|اتصال/i.test(entry.textContent ?? ""));
+    item?.click();
+    return Boolean(item);
+  });
+  if (!clicked) throw new Error("无法选择模型提供商连接命令");
 }
 
 async function deliverTamperedOAuthCallback(): Promise<void> {

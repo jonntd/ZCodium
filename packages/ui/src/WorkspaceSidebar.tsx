@@ -242,7 +242,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onCancelRemoteProject: _onCancelRemoteProject,
   onReconnectRemoteWorkspace,
   onLogout,
-  onLogin,
   user,
   reconnectingRemoteWorkspaceKeys,
   remoteWorkspaceErrorByWorkspaceKey,
@@ -303,7 +302,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
   onCancelRemoteProject: (sessionId: string) => Promise<void>;
   onReconnectRemoteWorkspace: (workspaceKey: string) => Promise<void>;
   onLogout?: () => void;
-  onLogin?: () => void;
   user?: UserInfo | null;
   reconnectingRemoteWorkspaceKeys: string[];
   remoteWorkspaceErrorByWorkspaceKey: Record<string, string>;
@@ -1707,7 +1705,6 @@ export const WorkspaceSidebar = memo(function WorkspaceSidebarComponent({
             onSettingsButtonClick={openSettingsTab}
             onUsageClick={openSettingsTab}
             onUpgradeClick={handleOpenCodingPlanUpgrade}
-            onLogin={onLogin}
             onLogout={onLogout}
             user={user}
             workspacePath={workspacePath}

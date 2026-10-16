@@ -1214,7 +1214,6 @@ export function App({
         providerConfigFile={providerConfigFile}
         handleOpenBrowserPermissionSettings={handleOpenBrowserPermissionSettings}
         onLogout={onLogout}
-        onLogin={onLogin}
         user={user}
         reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
         remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}

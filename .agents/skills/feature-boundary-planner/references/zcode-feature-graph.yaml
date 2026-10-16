@@ -5023,6 +5023,34 @@ nodes:
         symbol: "ChannelMentionContent"
       - file: "packages/ui/src/v4/BotTopicPreparation.tsx"
         symbol: "BotTopicPreparationList"
+  - id: "capability.sidebar-footer-profile-locale"
+    kind: "capability"
+    label: "Sidebar footer signed-out identity and locale shortcut"
+    aliases: ["侧栏左下角", "连接使用占位", "fa-IR 快捷语言", "sidebar footer locale"]
+    docs:
+      [
+        "docs/ui/workspace-sidebar-footer.md",
+        "docs/testing/settings-language-e2e-coverage-matrix.md",
+      ]
+    codeSeeds:
+      - file: "packages/ui/src/WorkspaceSidebarFooter.tsx"
+        symbol: "WorkspaceSidebarFooter"
+      - file: "packages/ui/src/WorkspaceSidebar.tsx"
+        symbol: "WorkspaceSidebar"
+      - file: "packages/ui/src/SettingsPage.tsx"
+        symbol: "SettingsPage"
+      - file: "packages/ui/src/i18n/IntlProvider.tsx"
+        symbol: "ZCodeIntlProvider"
+    invariants:
+      - "When no account is connected, the profile trigger displays the ZCodium brand and its footer menu never exposes an account login/connect entry."
+      - "Model-provider OAuth/API Key authentication remains owned by provider settings and the existing command flow, not the footer account menu."
+      - "The footer locale shortcut includes system plus every supported locale (zh-CN, en-US, fa-IR) and commits through the same parent-owned locale preference as Settings."
+  - id: "surface.sidebar-footer-profile-locale"
+    kind: "ui-surface"
+    label: "Workspace and Settings sidebar footer profile/preferences menu"
+    codeSeeds:
+      - file: "packages/ui/src/WorkspaceSidebarFooter.tsx"
+        symbol: "WorkspaceSidebarFooter"
 
 edges:
   - from: "capability.permission-full-access"
@@ -8369,3 +8397,7 @@ edges:
     type: "must-remain-isolated-from"
     rank: "invariant-only"
     condition: "Bot output stays bot-channel-continuous; mobile input and recovery retain replayable semantics."
+  - from: "capability.sidebar-footer-profile-locale"
+    to: "surface.sidebar-footer-profile-locale"
+    type: "renders-in"
+    rank: "must-inspect"

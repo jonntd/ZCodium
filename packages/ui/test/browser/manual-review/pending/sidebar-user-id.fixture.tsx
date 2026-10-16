@@ -6,7 +6,8 @@ import "@/styles.css";
 
 const params = new URLSearchParams(location.search);
 const theme = params.get("theme") === "dark" ? "dark" : "light";
-const locale = params.get("locale") === "en-US" ? "en-US" : "zh-CN";
+const locale =
+  params.get("locale") === "fa-IR" ? "fa-IR" : params.get("locale") === "en-US" ? "en-US" : "zh-CN";
 document.documentElement.className = `theme-zai-${theme}`;
 createRoot(document.getElementById("root")!).render(
   <ZCodeIntlProvider initialLocale={locale}>
@@ -15,7 +16,9 @@ createRoot(document.getElementById("root")!).render(
         <WorkspaceSidebarFooter
           theme={theme}
           localeMenuValue={locale}
-          onLocaleChange={() => {}}
+          onLocaleChange={(value) => {
+            window.dispatchEvent(new CustomEvent("zcode-locale-change", { detail: value }));
+          }}
           onThemeChange={() => {}}
           onLogout={() => {}}
           isDesktop={params.get("mobile") !== "1"}

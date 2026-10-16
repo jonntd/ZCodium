@@ -450,7 +450,7 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
     expect(source).toContain(") : null}");
   });
 
-  it("keeps profile menu grouped as language theme zoom usage auth", () => {
+  it("keeps profile menu grouped as preferences and usage without an account login entry", () => {
     const source = readFileSync(
       resolve(process.cwd(), "packages/ui/src/WorkspaceSidebarFooter.tsx"),
       "utf8",
@@ -460,7 +460,6 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
     const themeIndex = source.indexOf('id: "settings.themeMode"');
     const zoomIndex = source.indexOf('id: "sidebar.settings.interfaceZoom"');
     const usageIndex = source.indexOf("<WorkspaceSidebarFooterUsageSummary");
-    const loginIndex = source.indexOf('id: "app.login"');
     const logoutIndex = source.indexOf('id: "app.logout"');
     const separatorBeforeAuthIndex = source.indexOf("<DropdownMenuSeparator />", usageIndex);
 
@@ -469,7 +468,7 @@ describe("WorkspaceSidebarFooter web remote control tooltip", () => {
     expect(zoomIndex).toBeGreaterThan(themeIndex);
     expect(usageIndex).toBeGreaterThan(zoomIndex);
     expect(separatorBeforeAuthIndex).toBeGreaterThan(usageIndex);
-    expect(loginIndex).toBeGreaterThan(separatorBeforeAuthIndex);
+    expect(source).not.toContain('id: "app.login"');
     expect(logoutIndex).toBeGreaterThan(separatorBeforeAuthIndex);
   });
 

@@ -61,7 +61,7 @@
   "86a44b3": "接入 AstrBot 桥接：作为官方 BotsService 的传输 provider，经 bridge v2 回环 WebSocket 对接 AstrBot 插件，支持交互式权限/问题/菜单选择、重连重放与任务流结算（#1）。",
   "d042521": "README 顶部新增功能总览与截图。",
   "e701117": "版本号提升至 3.14.7。",
-  "0c4e115": "发布收尾：补齐 v3.14.7 的中英双语 changelog 条目。",
+  "0c4e115": "发布收尾：补齐 v3.14.7 的中英双语 changelog 条目（英文提交补中文说明，#1/#8 的中文提交补英文说明）。",
   "91c8a85": "新增 ZcodePro 上游同步手册：plugin 镜像合并流程与冲突决策表落成文档。",
   "389cfb0": "安装文档改用可穿越 Windows 执行策略的安装命令（-ExecutionPolicy Bypass，规避 Mark-of-the-Web 拦截）。",
   "238a6f1": "放宽 CLI bundle 中 zcode-guide 的 seed 门：requiredSeedPaths 重写为包内真实存在的必需路径，修复市场安装报「Bundled plugin cache directory missing」。",
@@ -82,5 +82,7 @@
   "744c992": "VPS 中继桥接桌面 Host：手机浏览器经中继接管本机窗口 Host（落地 spec §12）。",
   "7c260ee": "Web 端 bootstrap 等待 Host Initialize 交付点：有界重试 + 断线非破坏提示。",
   "f2de5b1": "modelhub 模型拉取下沉 services：Web 端经 Host RPC 转发，消除浏览器 CORS 限制。",
-  "b91c0e5": "Web 端顶部浮层补齐「切换侧边栏」按钮。"
+  "b91c0e5": "Web 端顶部浮层补齐「切换侧边栏」按钮。",
+  "b1d1c369": "修复启动时误用 ZCode 上游最低版本规则：ZCodium 的 1.x 版本不再触发上游强制升级拦截，避免主窗口被阻止；启动阶段也不再请求上游客户端配置。常规自动更新流程未在本次修复中调整。",
+  "577bac82": "侧栏访客态显示 ZCodium，移除 Footer 中的账号登录入口，并恢复 fa-IR 波斯语快捷切换；模型提供商 OAuth/API Key 授权流程保持不变。"
 }
