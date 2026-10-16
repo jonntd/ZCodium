@@ -25,7 +25,7 @@
  *   RELAY_TOKEN        手机配对码（必填；可由桌面 App 启动时自动生成后抄过来）
  *   HOST_SECRET        桌面共享密钥（未设时回退统一默认值 DEFAULT_HOST_SECRET 并打 warn，
  *                      与 packages/shared/src/remote-relay.ts 的 DEFAULT_RELAY_HOST_SECRET
- *                      保持一致；⚠ 默认值是公开常量，仅适合自评/内网）
+ *                      保持一致；⚠ 默认值是当前部署真实密钥，仓库若公开即等于公开它）
  *   HOST_WAIT_GRACE_MS host 暂时缺位时手机等待的宽限毫秒数，默认 5000
  *   HEARTBEAT_INTERVAL_MS 两侧 ping 间隔，默认 30000（见下「心跳与空闲回收」）
  *   IDLE_TIMEOUT_MS    一侧多久无任何活动即视为僵尸连接并关闭，默认 60000
@@ -69,9 +69,10 @@ const WEB_ROOT = resolve(process.env.WEB_ROOT || "./web");
 /**
  * 主机密钥统一默认值（spec vps-relay-bridge.md §15.4）：与桌面
  * `packages/shared/src/remote-relay.ts` 的 `DEFAULT_RELAY_HOST_SECRET` 保持一致——
- * 两端缺省都用它，任一侧改了另一边要同步。⚠ 公开常量，仅适合自评/内网。
+ * 两端缺省都用它（当前部署的真实 HOST_SECRET，新设备开箱即用），任一侧改了另一边要同步。
+ * ⚠ 这是真实部署密钥：仓库若公开等于公开它，公开前应先轮换。
  */
-const DEFAULT_HOST_SECRET = "zcodium";
+const DEFAULT_HOST_SECRET = "EnJg3T1jRQ7ZCQFFjRC7xx7o+ep/U9exWd4tzijiu8c=";
 const RELAY_TOKEN = (process.env.RELAY_TOKEN || "").trim();
 const HOST_SECRET = (process.env.HOST_SECRET || "").trim() || DEFAULT_HOST_SECRET;
 /** host 暂时缺位时手机等待的宽限：桌面侧对「手机离线连坐」用 ~100ms 快速补位，

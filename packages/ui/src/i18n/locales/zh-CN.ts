@@ -2642,7 +2642,7 @@ const zhCN: Record<string, string> = {
   "settings.remoteRelay.url": '中继地址',
   "settings.remoteRelay.urlDescription": '只填主机（可选端口）：中继在本机或局域网时填局域网地址（如 192.168.1.10:3180）；中继在 VPS 时填域名（如 relay.example.com），没有域名就填公网 IP（如 203.0.113.10:3180，此时必须选「明文 ws://」）。协议前缀按上面的「连接协议」自动补。',
   "settings.remoteRelay.hostSecret": '主机密钥',
-  "settings.remoteRelay.hostSecretDescription": '留空使用统一默认值 {default}；需与中继服务端的 HOST_SECRET 一致（可修改，默认值是公开常量、仅适合自评/内网）。',
+  "settings.remoteRelay.hostSecretDescription": '留空即使用与桌面一致的统一默认值；须与中继服务端的 HOST_SECRET 相同，两侧可各自修改。',
   "settings.remoteRelay.publicUrl": '公开地址',
   "settings.remoteRelay.publicUrlDescription": '手机浏览器访问的地址；不填则由中继地址推导。',
   "settings.remoteRelay.publicUrlOverride": '公开地址与中继地址不同',

@@ -59,12 +59,14 @@ export interface RemoteRelayFileConfig {
  * 主机密钥的统一默认值（spec vps-relay-bridge.md §15.4）：
  * 桌面与 relay 两端缺省都用它，用户可在任一侧改成同一个自定义值。
  *
- * ⚠ 这是**公开常量**：任何能访问 relay `/host` 的人都等于拿到桌面 Host 的完整服务面
- * （终端、文件、Git，等价 RCE）。仅适合自评 / 内网 / 防火墙后的个人 VPS；生产部署
- * 请在 relay `.env` 设强随机 `HOST_SECRET`（`openssl rand -base64 32`）并在桌面
- * 「高级设置 → 主机密钥」改成同一个值。
+ * 取当前实际部署（VPS `.env` 的 `HOST_SECRET`）正在用的值，使新设备开箱即用——
+ * 自动回填的就是中继认的那个密钥，不需要手工同步。
+ *
+ * ⚠ 这是**真实部署密钥**：任何能访问 relay `/host` 的人都等于拿到桌面 Host 的完整
+ * 服务面（终端、文件、Git，等价 RCE）。若本仓库推向公开远端，等于公开该密钥——
+ * 公开前应先轮换（relay `.env` 与桌面两边同步改成新值）。
  */
-export const DEFAULT_RELAY_HOST_SECRET = "zcodium";
+export const DEFAULT_RELAY_HOST_SECRET = "EnJg3T1jRQ7ZCQFFjRC7xx7o+ep/U9exWd4tzijiu8c=";
 
 /**
  * 解析生效的主机密钥（spec §15.4）：env（`ZCODE_REMOTE_RELAY_HOST_SECRET`）>

@@ -16,8 +16,9 @@
 >   `resolveEffectiveConfig` 返回 null 时早退，什么都不生成；见 §15.4）。
 > - **主机密钥统一默认值**：桌面与 relay 两端缺省都用 `DEFAULT_RELAY_HOST_SECRET`
 >   （`packages/shared/src/remote-relay.ts`，relay.mjs 同值回退），可自行修改。
->   ⚠ 默认值是**公开常量**，仅适合自评 / 内网 / 防火墙后的个人 VPS；生产部署应在
->   relay `.env` 设强随机 `HOST_SECRET` 并把桌面改成同一个值。
+>   默认值取**当前部署（VPS `.env` 的 `HOST_SECRET`）正在用的值**，使新设备开箱即用。
+>   ⚠ 这是**真实部署密钥**：仓库若公开即等于公开它（任何能访问 relay `/host` 的人都
+>   等于拿到桌面 Host 的服务面），公开前应先轮换（relay `.env` 与桌面两边同步改新值）。
 
 ## 1. 先排除两条看似可行、实际不可用的捷径
 
@@ -1385,7 +1386,7 @@ E2EE 的 `#k=` 仍在 fragment 里，不进任何请求。
 | createQrUrl（sid/hash/t 签名链接） | 简化版：`https://<vps>/?token=RELAY_TOKEN&autoReconnect=1`（relay 已实现 cookie 配对，并保留非 token 参数）；后续可升级为签名链接 | 小 |
 | resetPairing | 清空设置页的「配对码」并保存 → 下一次读取（`autoStart`/`GetStatus`/`start` 的补齐链）自动重新生成（`ensurePairingToken`），再把新值填到 relay 的 `RELAY_TOKEN` | — |
 | **配对码来源** | **App 启动即自动生成**：`autoStart()` 在 App 启动时**无条件**补齐（`ensureRelaySecrets` 链，**不要求先填中继地址**），缺失即生成 24 字节 base64url 并落盘（避免出现 `devtoken` 这类全局弱口令）。UI 里可直接看到/复制；新设备把旧设备的配对码抄过来即可（须与 relay `RELAY_TOKEN` 一致）。清空保存即轮换 | 小 |
-| **主机密钥来源** | **统一默认值**：`DEFAULT_RELAY_HOST_SECRET`（`packages/shared/src/remote-relay.ts`，relay.mjs 同值回退）。文件/env 未设时桌面用默认值并落盘，可自行修改（两侧改成同一个值）。⚠ 默认值是公开常量，仅适合自评/内网：任何能访问 relay `/host` 的人都等于拿到桌面 Host 的服务面；生产部署应在 relay `.env` 设强随机 `HOST_SECRET` 并同步桌面 | 小 |
+| **主机密钥来源** | **统一默认值**：`DEFAULT_RELAY_HOST_SECRET`（`packages/shared/src/remote-relay.ts`，relay.mjs 同值回退）。文件/env 未设时桌面用默认值并落盘，可自行修改（两侧改成同一个值）。默认值取当前部署真实 `HOST_SECRET`（新设备开箱即用）。⚠ 这是真实部署密钥：仓库若公开即等于公开它，任何能访问 relay `/host` 的人都等于拿到桌面 Host 的服务面；公开前应先轮换（relay `.env` 与桌面两边同步改新值） | 小 |
 | **公开地址** | 与中继地址**通常是同一主机的不同协议**（桌面 WS 拨出 / 手机 HTTP 访问），因此缺省由中继地址推导：`deriveRemoteRelayPublicUrl`（`@zcode/shared`，`ws→http` / `wss→https`，主进程与 UI 共用同一实现）。配置表单默认只显示「中继地址」，仅当同源推导不成立（反向代理、端口映射、内网拨入）时才打开「公开地址与中继地址不同」覆盖项 | 小 |
 | **UI 入口** | 「移动端远程控制」弹层（工作区头部，`WebRemoteControlDialog`）里的「浏览器直连」卡片（`RemoteRelayAccessPanel`）：状态 + 启停 + **内网/外网两条链接**（各自复制 + 二维码）+ 折叠的「高级设置」（`RemoteRelayConfigForm`：连接协议/中继地址/主机密钥/公开地址/配对码/E2EE/并发槽位/工作区覆盖/随应用启动，保存即热应用）。**设置页不再有「远程访问」分区** | 中 |
 

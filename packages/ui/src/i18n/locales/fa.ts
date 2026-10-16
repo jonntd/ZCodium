@@ -2402,7 +2402,7 @@ const faIR: Record<string, string> = {
   "settings.remoteRelay.url": 'میزبان رله',
   "settings.remoteRelay.urlDescription": 'فقط می‌زبان (پورت اختیاری): اگر رله روی همین دستگاه یا شبکه شماست، آدرس شبکه محلی (مثل 192.168.1.10:3180)؛ اگر روی VPS است، دامنه (مثل relay.example.com) و بدون دامنه آدرس IP عمومی (مثل 203.0.113.10:3180 — در این حالت باید «ws:// بدون TLS» را انتخاب کنید). پیشوند پروتکل بر اساس «پروتکل اتصال» بالا اضافه می‌شود.',
   "settings.remoteRelay.hostSecret": 'رمز میزبان',
-  "settings.remoteRelay.hostSecretDescription": 'خالی بگذارید تا از پیش\u200cفرض یکپارچه {default} استفاده شود؛ باید با HOST_SECRET سرور رله یکسان باشد (قابل تغییر — پیش\u200cفرض یک ثابت عمومی است و فقط برای خودمیزبانی/شبکهٔ محلی مناسب است).',
+  "settings.remoteRelay.hostSecretDescription": 'خالی بگذارید تا از پیش\u200cفرض یکپارچه (یکسان در دسکتاپ و رله) استفاده شود؛ باید با HOST_SECRET سرور رله یکسان باشد. در هر دو طرف قابل تغییر است.',
   "settings.remoteRelay.publicUrl": 'آدرس عمومی',
   "settings.remoteRelay.publicUrlDescription": 'آدرسی که مرورگر تلفن باز می\u200cکند؛ در صورت خالی بودن از آدرس رله استخراج می\u200cشود.',
   "settings.remoteRelay.publicUrlOverride": 'آدرس عمومی با آدرس رله متفاوت است',

@@ -202,9 +202,9 @@ async function ensurePairingToken(
 /**
  * 主机密钥缺失时回填**统一默认值**并落盘（spec §15.4）。
  *
- * 默认值是公开常量（`DEFAULT_RELAY_HOST_SECRET`），仅适合自评/内网：默认值下任何
- * 能访问 relay `/host` 的人都等于拿到桌面 Host 的服务面。生产部署应在 relay `.env`
- * 设强随机 `HOST_SECRET`，并把桌面这里改成同一个值。env
+ * 默认值是 `DEFAULT_RELAY_HOST_SECRET`（取当前部署真实 `HOST_SECRET`，新设备开箱即用）。
+ * ⚠ 仓库若公开即等于公开该密钥：任何能访问 relay `/host` 的人都等于拿到桌面 Host 的
+ * 服务面；公开前应先轮换（relay `.env` 与桌面两边同步改新值）。env
  * `ZCODE_REMOTE_RELAY_HOST_SECRET` 覆盖时不写文件（env 逐字段优先于文件）。
  */
 async function ensureHostSecret(

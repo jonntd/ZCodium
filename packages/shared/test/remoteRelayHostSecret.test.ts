@@ -26,5 +26,8 @@ test("跨文件同步守卫：relay.mjs 的 DEFAULT_HOST_SECRET 与 shared 常�
     new URL("../../../deploy/vps-relay/relay.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(relaySource, new RegExp(`DEFAULT_HOST_SECRET = "${DEFAULT_RELAY_HOST_SECRET}"`));
+  assert.ok(
+    relaySource.includes(`DEFAULT_HOST_SECRET = "${DEFAULT_RELAY_HOST_SECRET}"`),
+    "relay.mjs 的 DEFAULT_HOST_SECRET 与 shared 的 DEFAULT_RELAY_HOST_SECRET 不一致",
+  );
 });

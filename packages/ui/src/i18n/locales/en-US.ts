@@ -2806,7 +2806,7 @@ const enUS: Record<string, string> = {
   "settings.remoteRelay.url": 'Relay host',
   "settings.remoteRelay.urlDescription": 'Host only (port optional): a LAN address when the relay runs on this machine or your network (e.g. 192.168.1.10:3180); the VPS domain when the relay is remote (e.g. relay.example.com), or a public IP if you have no domain (e.g. 203.0.113.10:3180 — then you must pick "Plain ws://"). The scheme prefix is prepended from the connection protocol above.',
   "settings.remoteRelay.hostSecret": 'Host secret',
-  "settings.remoteRelay.hostSecretDescription": 'Leave empty to use the built-in default {default}; must match HOST_SECRET on the relay server (editable — the default is a public constant, suited to self-hosting on a LAN only).',
+  "settings.remoteRelay.hostSecretDescription": 'Leave empty to use the built-in default (identical on desktop and relay); must match HOST_SECRET on the relay server. Editable on both sides.',
   "settings.remoteRelay.publicUrl": 'Public URL',
   "settings.remoteRelay.publicUrlDescription": 'What the phone browser opens; derived from the relay URL when empty.',
   "settings.remoteRelay.publicUrlOverride": 'Public URL differs from the relay URL',
