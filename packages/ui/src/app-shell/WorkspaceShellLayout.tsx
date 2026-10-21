@@ -2165,6 +2165,9 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
                       onSelectTask={handleSelectTaskInChat}
                       onStartDraftInWorkspace={handleCreateProjectDraft}
                       onOpenCodeViewer={handleOpenCodeViewer}
+                      // 修复原因：merge 11f63dc7 拉上游时丢失本行，侧栏行按钮「打开文件面板」
+                      // 因 prop 可选而静默消失（spec: docs/spec/sidebar-file-viewer.md §2 入口 B）。
+                      onOpenSidePaneFiles={handleOpenFiles}
                       onOpenBrowserUrl={handleOpenBrowserUrl}
                       fileTreeOpenRequest={fileTreeOpenRequest}
                       onCreateTask={handleCreateTaskInChat}
