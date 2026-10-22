@@ -8,6 +8,7 @@ import { estimateTokens } from "../utils.js";
 
 const ENVIRONMENT_HEADING = "# Environment";
 const WORKING_DIRECTORY_LABEL = "Primary working directory";
+const ADDITIONAL_DIRECTORIES_LABEL = "Additional directories";
 const IS_GIT_REPOSITORY_LABEL = "Is a git repository";
 const PLATFORM_LABEL = "Platform";
 const SHELL_LABEL = "Shell";
@@ -32,9 +33,10 @@ const UNKNOWN_GIT_STATUS = "(unknown)";
 export function buildEnvInfoSection(
   envInfo: EnvInfo,
   model?: Model,
+  additionalDirectories: readonly string[] = [],
   language?: string,
 ): ContextSection {
-  const content = buildEnvInfoContent(envInfo, model, language);
+  const content = buildEnvInfoContent(envInfo, model, additionalDirectories, language);
 
   return {
     name: "Environment Info",
@@ -67,12 +69,24 @@ export function buildGitSystemContextSection(envInfo: EnvInfo): ContextSection |
   };
 }
 
-function buildEnvInfoContent(info: EnvInfo, model?: Model, language?: string): string {
+function buildEnvInfoContent(
+  info: EnvInfo,
+  model: Model | undefined,
+  additionalDirectories: readonly string[],
+  language: string | undefined,
+): string {
   const hasGitRepository = isEnvInfoGitRepository(info);
   const lines: string[] = [
     ENVIRONMENT_HEADING,
     "You have been invoked in the following environment:",
     `- ${WORKING_DIRECTORY_LABEL}: ${info.cwd}`,
+    // 附加目录此前只进入能力发现，模型看不到目录范围；这里只投影本次运行已解析的路径。
+    ...(additionalDirectories.length
+      ? [
+          `- ${ADDITIONAL_DIRECTORIES_LABEL}:`,
+          ...additionalDirectories.map((path) => `  - ${path}`),
+        ]
+      : []),
     `- ${IS_GIT_REPOSITORY_LABEL}: ${hasGitRepository ? YES_LABEL : NO_LABEL}`,
     `- ${PLATFORM_LABEL}: ${info.platform}`,
     `- ${SHELL_LABEL}: ${info.shell}`,

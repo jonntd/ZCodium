@@ -70,6 +70,8 @@ binding.Makefile
 # packages/desktop/native/macos-window-bounds/main.swift 编出，源码入库、产物不入库）
 packages/desktop/resources/macos-window-bounds/
 /.tmp/
+# R3 服务器部署时写入的实际 commit 标记（harness/remote/deploy-server.sh 产出，随环境变化）
+.deployed-commit
 # Python 字节码（docker/plugin-eval/summarize.py 在主机上跑会生成）。
 __pycache__/
 *.pyc

@@ -113,7 +113,6 @@ export {
 } from "./env.js";
 export * from "./errors.js";
 export * from "./validation.js";
-export * from "./sessionCreateTelemetry.js";
 export * from "./api.js";
 export * from "./zcode-protocol/index.js";
 export * from "./account-provider-state.js";
@@ -129,6 +128,7 @@ export * from "./official-mcp-auth.js";
 export * from "./official-mcp-tool-error.js";
 export * from "./conversation-message-projection-policy.js";
 export * from "./conversation-share.js";
+export * from "./conversation-share-content.js";
 export * from "./conversation-preview-artifacts.js";
 export * from "./zcode-session-task-status.js";
 export * from "./zcode-session-content-profile.js";
@@ -146,6 +146,7 @@ export * from "./dynamic-workflow-feature.js";
 export * from "./markdown-artifact-images.js";
 export * from "./serviceAuthority.js";
 export * from "./server-remote.js";
+export * from "./source-server/index.js";
 
 export interface ICredentialStore {
   get(key: string): Promise<string | null>;
@@ -153,7 +154,6 @@ export interface ICredentialStore {
   delete(key: string): Promise<void>;
 }
 
-export * from "./test-ids.js";
 export * from "./test-ids-workflow.js";
 export * from "./channels.js";
 export * from "./storage.js";
@@ -178,9 +178,11 @@ export {
 export type { LaunchMarks } from "./launchMarks.js";
 export { LAUNCH_MARKS_QUERY_KEY, parseLaunchMarks, serializeLaunchMarks } from "./launchMarks.js";
 export type {
+  BrowserViewSurfaceScaleMode,
   CancelPendingRemoteConnectionRequest,
   BindRemoteWorkspaceSessionContextRequest,
-  BotRemoteWorkspaceReconnectedEvent,
+  BindRemoteWorkspaceSessionContextIpcResult,
+  BindRemoteWorkspaceSessionContextResult,
   BrowserTabResidencyState,
   BrowserViewCloseTabNotification,
   BrowserViewCloseTabRequest,
@@ -237,12 +239,14 @@ export type {
   PostUpdateReleaseNotesPayload,
   RemoteConnectionRuntimeLog,
   RemoteSessionClosedEvent,
+  RemoteSessionReconnectedEvent,
   RemoteServiceSession,
   SSHConfigAliasOption,
   TaskNotificationPayload,
   UpdateCheckResultPayload,
   UpdateStatePayload,
   WSLDistro,
+  WindowControlsOverlayReadyPayload,
   ZCodeStdioTapDevState,
 } from "./platform.js";
 export type {
@@ -299,7 +303,12 @@ export * from "./streaming-tool-input-preview.js";
 export * from "./tool-plan-adapter.js";
 export * from "./permission-request-preview.js";
 export * from "./web-remote-control.js";
-export * from "./web-remote-control-heartbeat.js";
+export {
+  WEB_REMOTE_CONTROL_HEARTBEAT_INTERVAL_MS,
+  WEB_REMOTE_CONTROL_HEARTBEAT_ACK_TIMEOUT_MS,
+} from "./web-remote-control-heartbeat.js";
+export * from "#src/web-remote-relay/index.js";
+
 export * from "./web-remote-control-rpc-transport.js";
 export * from "./settings-sync.js";
 export * from "./uuid.js";
@@ -363,6 +372,11 @@ export {
   isRequestSecurityFailure,
 } from "./request-security-edition/policy.js";
 export * from "./request-security-edition/verification-policy.js";
+
+export * from "./conversation-share-tool-presentation.js";
+
+// ZCodium 审计版保留的本仓库自有导出 / Fork-only exports retained by the audit build
+export * from "./test-ids.js";
 export * from "./bots/bridge.js";
 export * from "./data-root-decision.js";
 export * from "./data-root.js";
@@ -374,3 +388,6 @@ export * from "./processResourceSample.js";
 export * from "./remoteWorkspaceConnection.js";
 export type { SessionCreateSource } from "./sessionCreateSource.js";
 export { resolveSafeEndpointHostname } from "./endpointHostname.js";
+
+export type { BotRemoteWorkspaceReconnectedEvent } from "./platform.js";
+export type { WebRemoteControlAuthStateChange } from "./web-remote-control.js";

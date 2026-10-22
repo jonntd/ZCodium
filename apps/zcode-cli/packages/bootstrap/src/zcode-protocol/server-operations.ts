@@ -1,3 +1,8 @@
+import {
+  isAuxiliarySessionKind,
+  isReadonlyAgentSessionKind,
+  OFF_PEAK_EXECUTION_TOOL_DENYLIST,
+} from "@zcode/shared";
 /* eslint-disable max-lines -- ZCode Protocol 的 session/workspace 方法共享同一个 server context 与 snapshot helpers，迁移期先集中维护。 */
 import { observeSessionDebug } from "./session-debug.js";
 import {
@@ -72,6 +77,7 @@ import {
   getConversationMessageProjectionPolicy,
   isRemoteWorkspaceIdentity,
   parseRemoteWorkspaceIdentity,
+  type AppToolSearchMode,
   type CustomSystemSegments,
   type ZCodeAutomationBotDeliveryTarget,
   type ZCodeSessionCreateParams,
@@ -158,6 +164,7 @@ type ZCodeSessionRecordParams = (
 ) & { taskType?: SessionTaskType };
 
 interface SessionStartupPreferences {
+  additionalDirectories?: readonly string[];
   subagentRuntimeConfigEnabled?: boolean;
   memoryEnabled: boolean;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
@@ -174,6 +181,7 @@ interface SessionStartupPreferences {
   customSystemSegments?: CustomSystemSegments;
   /** 回复语言（docs/spec/response-language.md）；undefined = 跟随用户消息。 */
   language?: string;
+  toolSearchMode: AppToolSearchMode;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
 }
 
@@ -1279,16 +1287,33 @@ async function createSessionWithProjection<T>(
   ) => Promise<{ value: T; phaseDurationsMs?: SnapshotPhaseDurationsMs; messageCount?: number }>,
 ): Promise<T> {
   const params = parseParams(zcodeSessionCreateParamsSchema, rawParams);
-  const startedAt = Date.now();
-  if (params.sessionId && !params.importedHistory) {
-    // 普通 session/create 若允许外部指定 id，会覆盖 context.sessions 里的 active record，
-    // 造成运行中会话被接管、runtime 泄漏或后续 setModel/sendPrompt 路由错位。
-    throw new ProtocolRequestError(
-      -32602,
-      "sessionId is only supported for imported history creates",
-    );
-  }
   const sessionId = (params.sessionId ?? createSessionId()) as SessionId;
+  const claims = (context.sessionCreationIds ??= new Set<string>());
+  // Host 预留只决定身份与归属，不能覆盖 CLI 已有/软删/正在创建的会话。
+  // 在任何 await 前占用 ID，防止 native 与 V4 并发 materialize 同一 runtime。
+  if (context.sessions.has(sessionId) || claims.has(sessionId))
+    throw new ProtocolRequestError(-32602, "sessionId already exists");
+  claims.add(sessionId);
+  try {
+    if (await context.deps.sessionStore?.getSession(sessionId))
+      throw new ProtocolRequestError(-32602, "sessionId already exists");
+    return await materializeCreatedSession(context, { ...params, sessionId }, trace, project);
+  } finally {
+    claims.delete(sessionId);
+  }
+}
+
+async function materializeCreatedSession<T>(
+  context: ZCodeProtocolAgentServerContext,
+  rawParams: unknown,
+  trace: ZCodeProtocolTrace | undefined,
+  project: (
+    record: ZCodeProtocolSessionRecord,
+  ) => Promise<{ value: T; phaseDurationsMs?: SnapshotPhaseDurationsMs; messageCount?: number }>,
+): Promise<T> {
+  const params = parseParams(zcodeSessionCreateParamsSchema, rawParams);
+  const startedAt = Date.now();
+  const sessionId = params.sessionId! as SessionId;
   const workspace = params.workspace;
   context.logger?.info("ZCode Protocol session/create started", {
     event: "zcode_protocol.session_create.started",
@@ -1414,7 +1439,7 @@ async function createSessionWithProjection<T>(
     // 后续 workspace 状态继续读到这个半初始化 app，造成模型/思考档位串台。
     record.unsubscribe?.();
     // v4 通道：创建期已 ingest 的事件会惰性建出 publisher，失败清理时一并回收。
-    // dispose 先于注册表删除，保证 session.removed 能带上 workspaceId 推送。
+    // 创建失败只释放运行态，不把它宣告为 CLI 已持久化的软删除。
     context.v4Gateway?.disposeSession(sessionId);
     context.sessions.delete(sessionId);
     try {
@@ -1435,6 +1460,23 @@ export interface ActivatedSessionForResume {
   persistedMessages?: MessageWithParts[];
 }
 
+/** 只拆掉本次失败的 record；不删除持久历史或 gateway publisher。 */
+export async function discardFailedSessionResume(
+  context: ZCodeProtocolAgentServerContext,
+  sessionId: string,
+  record: ZCodeProtocolSessionRecord,
+): Promise<void> {
+  if (context.sessions.get(sessionId) !== record) return;
+  record.unsubscribe?.();
+  context.sessions.delete(sessionId);
+  try {
+    await record.app.close?.();
+  } catch {
+    /* 保留原始恢复错误。 */
+  }
+  await record.eventStore.deleteSession(sessionId as SessionId).catch(() => undefined);
+}
+
 /**
  * 只恢复 session runtime 生命周期，不物化任何协议表示。
  *
@@ -1445,7 +1487,7 @@ export interface ActivatedSessionForResume {
 export async function activateSessionForResume(
   context: ZCodeProtocolAgentServerContext,
   params: ZCodeSessionResumeParams,
-  options: { reusePersistedMessages?: boolean } = {},
+  options: { reusePersistedMessages?: boolean; persistedMessages?: MessageWithParts[] } = {},
 ): Promise<ActivatedSessionForResume> {
   const resumeStartedAt = Date.now();
   const activeBeforeWait = context.sessions.has(params.sessionId);
@@ -1464,7 +1506,7 @@ export async function activateSessionForResume(
     return { record: existing };
   }
   let session = await getPersistedSession(context, params.sessionId);
-  if (!session) {
+  if (!session || session.time.deleted !== undefined) {
     // 诊断：冷恢复只有在持久化记录也不存在时才会走到这里；单凭错误文本无法和
     // readSession 的“runtime 尚未活跃”区分，因此把两层状态和等待耗时一起落盘。
     context.logger?.warn("ZCode Protocol session resume found no persisted record", {
@@ -1491,7 +1533,8 @@ export async function activateSessionForResume(
       workspaceIdentity: session.workspaceID,
       workspacePath: session.path ?? session.directory,
     });
-  let persistedMessages = await readPersistedSessionMessages(context, params.sessionId);
+  let persistedMessages =
+    options.persistedMessages ?? (await readPersistedSessionMessages(context, params.sessionId));
   const mode = derivePersistedSessionMode(persistedMessages);
   // shell 设置变更只对新 session 生效；冷恢复必须使用创建时落库的
   // Bash shell 快照。runtime.resumeFromStore 会读取快照；这里只负责不把
@@ -1522,33 +1565,40 @@ export async function activateSessionForResume(
   // 表现为原会话消失、冒出"新任务刚刚"）。恢复路径回填 store 的真实时间。
   if (session.time?.created) record.createdAt = session.time.created;
   if (session.time?.updated) record.updatedAt = session.time.updated;
+  record.lastOutcome = session.lastOutcome;
   context.assertServing?.();
   context.sessions.set(params.sessionId, record);
-  const resumeResult = await runSessionModelConfigMutation(record.app, async () => {
-    const result = options.reusePersistedMessages
-      ? await record.app.resume({ persistedMessages })
-      : await record.app.resume();
-    // 仅用于首次投影种子，包含有效模型+空档位；它不是第二份可执行 Runtime 选择。
-    record.restoredModelSelection = result.modelSelection;
-    return result;
-  });
-  if (options.reusePersistedMessages && resumeResult.persistedMessagesReloadRequired) {
-    persistedMessages = await readPersistedSessionMessages(context, params.sessionId);
+  try {
+    const resumeResult = await runSessionModelConfigMutation(record.app, async () => {
+      const result = options.reusePersistedMessages
+        ? await record.app.resume({ persistedMessages })
+        : await record.app.resume();
+      // 仅用于首次投影种子，包含有效模型+空档位；它不是第二份可执行 Runtime 选择。
+      record.restoredModelSelection = result.modelSelection;
+      return result;
+    });
+    if (options.reusePersistedMessages && resumeResult.persistedMessagesReloadRequired) {
+      persistedMessages = await readPersistedSessionMessages(context, params.sessionId);
+    }
+    context.logger?.info("ZCode Protocol session resume completed", {
+      activeSessionCount: context.sessions.size,
+      durationMs: Math.max(0, Date.now() - resumeStartedAt),
+      event: "zcode_protocol.session.resume_completed",
+      module: "bootstrap.zcode_protocol",
+      persistedMessageCount: persistedMessages.length,
+      sessionId: params.sessionId,
+      traceId: record.traceContext.traceId,
+    });
+    return {
+      knownSession: session,
+      record,
+      ...(options.reusePersistedMessages ? { persistedMessages } : {}),
+    };
+  } catch (error) {
+    // resume 入册后失败曾留下半初始化 app，重试误判已就绪；只回收本次 record，保留历史投影。
+    await discardFailedSessionResume(context, params.sessionId, record);
+    throw error;
   }
-  context.logger?.info("ZCode Protocol session resume completed", {
-    activeSessionCount: context.sessions.size,
-    durationMs: Math.max(0, Date.now() - resumeStartedAt),
-    event: "zcode_protocol.session.resume_completed",
-    module: "bootstrap.zcode_protocol",
-    persistedMessageCount: persistedMessages.length,
-    sessionId: params.sessionId,
-    traceId: record.traceContext.traceId,
-  });
-  return {
-    knownSession: session,
-    record,
-    ...(options.reusePersistedMessages ? { persistedMessages } : {}),
-  };
 }
 
 export async function resumeSession(context: ZCodeProtocolAgentServerContext, rawParams: unknown) {
@@ -1658,26 +1708,46 @@ export async function listSessions(context: ZCodeProtocolAgentServerContext, raw
   const params = parseParams(zcodeSessionListParamsSchema, rawParams ?? {});
   const store = context.deps.sessionStore;
   // 显式 ID 查询只读持久化身份，供 Host 修复旧索引；不能为了识别 child 激活 runtime。
-  const stored = (
-    params.sessionIds
-      ? await Promise.all(params.sessionIds.map((id) => store?.getSession(id as SessionId) ?? null))
-      : store
-        ? await store.listSessions({
-            directory: params.workspace?.workspacePath,
-            includeArchived: params.includeArchived,
-            limit: params.limit ?? 50,
-            taskTypes: [...TASK_LIST_SESSION_TYPES],
-          })
-        : []
-  ).filter((session): session is SessionInfo => {
-    if (!session) return false;
-    return (
-      (params.includeArchived || session.time.archived === undefined) &&
-      (!params.workspace ||
-        (session.workspaceID?.trim() || session.path || session.directory) ===
-          (params.workspace.workspaceIdentity?.trim() || params.workspace.workspacePath))
-    );
-  });
+  const candidates = params.sessionIds
+    ? await Promise.all(params.sessionIds.map((id) => store?.getSession(id as SessionId) ?? null))
+    : store
+      ? await store.listSessions({
+          directory: params.workspace?.workspacePath,
+          limit: params.limit ?? 50,
+          taskTypes: [...TASK_LIST_SESSION_TYPES],
+        })
+      : [];
+  const scoped = await Promise.all(
+    candidates.map(async (session) => {
+      if (!session) return null;
+      if (!params.workspace) return session.time.deleted === undefined ? session : null;
+      const expectedKey =
+        params.workspace.workspaceIdentity?.trim() || params.workspace.workspacePath;
+      const visited = new Set<string>();
+      let current: SessionInfo | null = session;
+      while (current && current.time.deleted === undefined && !visited.has(current.id)) {
+        visited.add(current.id);
+        const path = current.path || current.directory;
+        const key = current.workspaceID?.trim() || path;
+        if (key === expectedKey) return session;
+        // 子 runtime 的历史行可能只有 cwd，没有远端 workspace identity；仅精确 ID 查询
+        // 可凭持久化父链证明归属。目录或显式身份不同就拒绝，不回写身份、不激活 runtime。
+        if (
+          !params.sessionIds ||
+          !isAuxiliarySessionKind(current.taskType) ||
+          !current.parentID ||
+          path !== params.workspace.workspacePath ||
+          (current.workspaceID?.trim() && key !== path)
+        )
+          return null;
+        current = (await store?.getSession(current.parentID)) ?? null;
+        if (current && (current.path || current.directory) !== params.workspace.workspacePath)
+          return null;
+      }
+      return null;
+    }),
+  );
+  const stored = scoped.filter((session): session is SessionInfo => session !== null);
   const storedIds = new Set(stored.map((session) => String(session.id)));
   const sessions = stored.map((session) =>
     mapSessionInfo({
@@ -1957,7 +2027,7 @@ export async function sendPrompt(context: ZCodeProtocolAgentServerContext, rawPa
   const params = parseParams(zcodeSessionSendParamsSchema, rawParams);
   const record = requireSession(context, params.sessionId);
   // legacy 输入入口同样必须保持子代理只读，不能绕过 V4 用户输入准入。
-  if (record.taskType === "subagent_child") {
+  if (isReadonlyAgentSessionKind(record.taskType)) {
     throw new ProtocolRequestError(-32010, "Subagent sessions are read-only", {
       reasonCode: "guard.subagentReadOnly",
     });
@@ -2515,6 +2585,22 @@ async function runPromptTurnInBackground(
   await afterStateMutation(context, record, mutationReason);
 }
 
+function resolveSessionToolDenylist(
+  params: Pick<ZCodeSessionCreateParams, "toolDenylist">,
+  workspace: ZCodeWorkspaceRef,
+): readonly string[] | undefined {
+  const tools = new Set(params.toolDenylist ?? []);
+  if (workspace.workspaceIdentity && isRemoteWorkspaceIdentity(workspace.workspaceIdentity)) {
+    // Bug 原因：SSH/WSL/Docker/Server 等远程会话仍注入 automationPort，导致 Cron 工具在远端被注册；
+    // 远程 workspace 没有本地调度器的可靠触发边界，所以必须在 session 初始化时统一禁用，
+    // 不能只依赖 UI 或 prompt 文本约束。
+    for (const toolName of REMOTE_AUTOMATION_TOOL_NAMES) {
+      tools.add(toolName);
+    }
+  }
+  return tools.size > 0 ? [...tools] : undefined;
+}
+
 function buildPromptTurnToolDisallowlist(
   params: {
     automationId?: string;
@@ -2531,7 +2617,7 @@ function buildPromptTurnToolDisallowlist(
   // 注意 automation 轮不加 OffPeakCreate——cron 轮放行（定时派生闲时任务）。
   // SendMessage / Workflow 同样隐藏，与 V4 prompt-turn 及 core turn-loop-state 同值。
   if (activeOffPeakTaskId) {
-    for (const toolName of ["OffPeakCreate", "SendMessage", "Workflow"]) tools.add(toolName);
+    for (const toolName of OFF_PEAK_EXECUTION_TOOL_DENYLIST) tools.add(toolName);
   }
   return tools.size > 0 ? [...tools] : undefined;
 }
@@ -2767,9 +2853,8 @@ export async function closeSession(context: ZCodeProtocolAgentServerContext, raw
   // 清掉本会话全部资源订阅（refcount 归零的 uri 才真正向 server 退订）。
   await record.app.unsubscribeMcpResourcesForUi?.(`${params.sessionId}|`).catch(() => 0);
   await record.app.close?.();
-  // v4 通道：会话关闭同时清 publisher / 订阅调度；重开会话走 snapshot 冷启动。
-  // dispose 必须先于注册表删除——gateway 靠 getSessionWorkspaceId
-  // （读 context.sessions）定位 workspace 才能推 session.removed 给 sessions-index 订阅者。
+  // v4 通道（M3）：会话关闭同时清 publisher / 订阅调度；重开会话走 snapshot 冷启动。
+  // 关闭运行实例不删除持久化事实，因此必须保留 sessions-index 中的行。
   context.v4Gateway?.disposeSession(params.sessionId);
   context.sessions.delete(params.sessionId);
   // 内存 event store 随 record 释放。
@@ -2990,6 +3075,7 @@ export async function getTaskTokenUsage(
  * 这些事件不 bump record.updatedAt（= sessions-index lastActivityAt），
  * 避免配置操作驱动侧栏列表按活动时间重排。
  * - ModelSelected / SessionModeChanged：纯配置变更（切模型/切模式）。
+ * - FollowupModeChanged：打开会话会自动同步 queue/guide 偏好；这是配置，不应刷新历史活动时间。
  * - SessionTitleUpdated：标题是会话元数据；冷恢复会为了 v4 投影补发标题事件，
  *   不能因此把历史任务当成刚活动过并顶到列表最前。
  * - SessionResumed：打开/恢复会话是读取，不是活动。冷恢复路径刚把
@@ -3004,6 +3090,7 @@ function isNonActivitySessionEvent(event: SessionEvent): boolean {
   return (
     event.type === SessionEventType.ModelSelected ||
     event.type === SessionEventType.SessionModeChanged ||
+    event.type === SessionEventType.FollowupModeChanged ||
     event.type === SessionEventType.SessionTitleUpdated ||
     event.type === SessionEventType.SessionResumed ||
     event.type === SessionEventType.WorkspaceHookAdmissionUpdated ||
@@ -3080,6 +3167,16 @@ export function onSessionEvent(
   // record.updatedAt 是 sessions-index 的 lastActivityAt 事实源（v4-bridge
   // getSessionIndexMeta），UI 侧栏按它排序。纯配置/恢复/标题元数据事件不是用户会话活动，
   // 之前无差别 bump 会让"切一次模型/点开任务"把任务顶到列表最前并触发整表重排。
+  // core 已在发布终态前持久化结果；列表复用同一事实，不从裁剪正文窗口猜测结果。
+  if (event.type === SessionEventType.TurnComplete || event.type === SessionEventType.TurnError) {
+    const payload = event.payload as { resultType?: string };
+    record.lastOutcome =
+      event.type === SessionEventType.TurnError
+        ? "error"
+        : payload.resultType === "cancelled"
+          ? "interrupted"
+          : "completed";
+  }
   const nonActivityEvent = isNonActivitySessionEvent(event);
   if (event.type === SessionEventType.ModelSelected) {
     // 恢复候选只服务初始 UI；用户新选择生效后不能在后续清空时被旧候选复活。
@@ -3271,6 +3368,7 @@ async function requestSessionRuntimePreferences(
         nativeSearchEnhancementsEnabled: true,
         // 旧 Host 不携带删除保护：按默认值（开启 + 阈值 50）处理，fail-safe。
         deleteProtection: { deleteProtectionEnabled: true, batchDeleteApprovalThreshold: 50 },
+        toolSearchMode: "off",
       };
     }
     throw error;
@@ -3299,6 +3397,7 @@ async function resolveSessionStartupPreferences(
       customSystemSegments: source.parent.customSystemSegments,
       // 回复语言同样跟父会话走（创建时固化值 = 父会话实际生效值）。
       language: source.parent.language,
+      toolSearchMode: source.parent.toolSearchMode,
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3314,6 +3413,7 @@ async function resolveSessionStartupPreferences(
     runtimePreferences.askUserQuestionAutoResolutionEnabled,
   );
   return {
+    additionalDirectories: runtimePreferences.additionalDirectories,
     subagentRuntimeConfigEnabled: runtimePreferences.subagentRuntimeConfigEnabled,
     memoryEnabled: runtimePreferences.memoryEnabled,
     modelContextBudgetStrategy: DEFAULT_ZCODE_MODEL_CONTEXT_BUDGET_STRATEGY,
@@ -3329,6 +3429,7 @@ async function resolveSessionStartupPreferences(
     customSystemSegments: runtimePreferences.customSystemSegments,
     // 旧 Host 缺省 language 字段：zod optional 解析为 undefined，即跟随用户消息。
     language: runtimePreferences.language,
+    toolSearchMode: runtimePreferences.toolSearchMode,
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
         context,
@@ -3400,6 +3501,7 @@ async function createRecord(
     env: context.deps.env,
     eventStore,
     resume,
+    additionalDirectories: params.additionalDirectories ?? startupPreferences.additionalDirectories,
     runtimeConfig: {
       mode: "mode" in params ? params.mode : undefined,
       modelSelection: "model" in params ? toRuntimeModelSelection(initialModel) : undefined,
@@ -3422,6 +3524,7 @@ async function createRecord(
       toolAllowlist: "toolAllowlist" in params ? params.toolAllowlist : undefined,
       toolDisallowlist: resolveSessionToolDenylist(params, workspace),
       nativeSearchEnhancementsEnabled: startupPreferences.nativeSearchEnhancementsEnabled,
+      toolSearch: { mode: startupPreferences.toolSearchMode },
       modelContextBudgetStrategy: startupPreferences.modelContextBudgetStrategy,
       // 删除保护（移废纸篓 prelude + 批量删除审批）从 App 偏好落到 session runtime。
       deleteProtection: startupPreferences.deleteProtection,
@@ -3528,6 +3631,7 @@ async function createRecord(
     customSystemPrompt: startupPreferences.customSystemPrompt,
     customSystemSegments: startupPreferences.customSystemSegments,
     language: startupPreferences.language,
+    toolSearchMode: startupPreferences.toolSearchMode,
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),
@@ -3547,22 +3651,6 @@ async function createRecord(
   // 绑定归属会话，供 automation-port 读取本会话实时 model/mode/thought。
   ownSessionRecord = record;
   return record;
-}
-
-function resolveSessionToolDenylist(
-  params: Pick<ZCodeSessionCreateParams, "toolDenylist">,
-  workspace: ZCodeWorkspaceRef,
-): readonly string[] | undefined {
-  const tools = new Set(params.toolDenylist ?? []);
-  if (workspace.workspaceIdentity && isRemoteWorkspaceIdentity(workspace.workspaceIdentity)) {
-    // Bug 原因：SSH/WSL/Docker 等远程会话仍注入 automationPort，导致 Cron 工具在远端被注册；
-    // 远程 workspace 没有本地调度器的可靠触发边界，所以必须在 session 初始化时统一禁用，
-    // 不能只依赖 UI 或 prompt 文本约束。
-    for (const toolName of REMOTE_AUTOMATION_TOOL_NAMES) {
-      tools.add(toolName);
-    }
-  }
-  return tools.size > 0 ? [...tools] : undefined;
 }
 
 async function readPersistedSessionMessages(

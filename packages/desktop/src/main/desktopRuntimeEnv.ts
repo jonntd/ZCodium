@@ -23,6 +23,7 @@ import {
   resolveZaiOAuthOrigin,
   normalizeDynamicWorkflowMode,
   sanitizeZCodeRuntimeEnv,
+  type SourceServerArtifactPolicy,
   type ZCodeRuntimeEnv,
 } from "@zcode/shared";
 import { resolvePlatformKeyForPackagedApp } from "../../scripts/target-platform.mjs";
@@ -94,7 +95,9 @@ export function getCredentialsDir() {
 export type RemoteAssetDirs = Pick<
   ConnectOptions,
   "mockCdnDir" | "remoteCdnBaseUrl" | "remoteCdnBaseUrls" | "remoteCacheDir"
->;
+> & {
+  sourceServerArtifactPolicy?: SourceServerArtifactPolicy;
+};
 type LocalRuntimeEnv = Record<string, string | undefined>;
 
 export async function isDockerDaemonAvailable(): Promise<boolean> {
@@ -329,6 +332,9 @@ export function resolveRemoteAssetDirs(
   const developmentMockCdnDir = resolveAvailableDevelopmentMockCdnDir();
   return {
     ...(developmentMockCdnDir ? { mockCdnDir: developmentMockCdnDir } : {}),
+    // Bug 原因：ZCODE_ENV 表示测试/生产产品环境，dev:desktop 也可能取 production；
+    // 同版本开发制品刷新必须由未打包 Electron 这一运行形态显式授权。
+    sourceServerArtifactPolicy: "development-content-addressed",
     remoteCdnBaseUrl,
     remoteCdnBaseUrls,
     remoteCacheDir: resolveRemoteAssetCacheDir(localEnv),

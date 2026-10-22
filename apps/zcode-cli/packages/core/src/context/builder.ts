@@ -196,7 +196,14 @@ export class ContextBuilder {
           sections.push(memorySection);
         }
       }
-      sections.push(buildEnvInfoSection(this.config.envInfo, this.config.model, this.config.language));
+      sections.push(
+        buildEnvInfoSection(
+          this.config.envInfo,
+          this.config.model,
+          this.config.additionalDirectories,
+          this.config.language,
+        ),
+      );
 
       // Output Style
       const outputStyleSection = buildOutputStyleSection(activeOutputStyle);

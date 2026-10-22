@@ -137,6 +137,7 @@ function createWebPlatform(
   return {
     canSelectFilePath: false,
     // Web 端无法打开系统目录选择框
+    openDataRootImport: () => {},
     selectDirectory: () => Promise.resolve(null),
     // Web 端无法打开系统文件选择框
     selectFile: () => Promise.resolve(null),

@@ -207,15 +207,21 @@ export function connectViaWebSocket(
   });
 }
 
-export function connectViaProtocol(protocol: IMessagePassingProtocol): IServiceAccessor {
-  return createChannelClient(protocol).services;
+export function connectViaProtocol(
+  protocol: IMessagePassingProtocol,
+  options: { windowProjectDirectory?: boolean } = {},
+): IServiceAccessor {
+  return createChannelClient(protocol, options).services;
 }
 
 /** `connectViaProtocol` 的同源构造，额外交出 `ChannelClient` 以便观察 `Initialize`。 */
-function createChannelClient(protocol: IMessagePassingProtocol): {
+function createChannelClient(
+  protocol: IMessagePassingProtocol,
+  options: { windowProjectDirectory?: boolean } = {},
+): {
   client: ChannelClient;
   services: IServiceAccessor;
 } {
   const client = new ChannelClient(protocol);
-  return { client, services: new RemoteServiceAccess(client) };
+  return { client, services: new RemoteServiceAccess(client, options) };
 }

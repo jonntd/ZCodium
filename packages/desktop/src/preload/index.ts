@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld("__ZCODE_DEVICE_ID__", parseDeviceIdFromArgs());
 import type {
   AppSettings,
   ApplicationIconRequest,
+  BindRemoteWorkspaceSessionContextResult,
+  BindRemoteWorkspaceSessionContextIpcResult,
   BrowserViewOperationPayload,
   BrowserGuestAttachResult,
   BrowserViewScreenshotSurfacePreparePayload,
@@ -48,11 +50,13 @@ import type {
   EmbeddedBrowserSitePermissionsSnapshot,
   Locale,
   OAuthStateRegistration,
+  WebRemoteControlAuthStateChange,
   OpenInEditorOptions,
   RemoteTarget,
   TaskNotificationPayload,
   PostUpdateReleaseNotesPayload,
   RemoteSessionClosedEvent,
+  RemoteSessionReconnectedEvent,
   BotRemoteWorkspaceReconnectedEvent,
   UpdateCheckResultPayload,
   UpdateStatePayload,
@@ -68,8 +72,8 @@ import type {
   WebRemoteControlReconnectWorkspaceRequest,
   WebRemoteControlReconnectWorkspaceResult,
   WebRemoteControlStatus,
-  WebRemoteControlTaskTarget,
   WebRemoteControlWorkspaceTarget,
+  WebRemoteControlTaskTarget,
   RemoteConnectionRuntimeLog,
   WindowControlsOverlayMetrics,
   WindowControlsOverlayReadyPayload,
@@ -85,8 +89,15 @@ import type {
   RemoteRelayShareLinkRequest,
   RemoteRelayStatus,
 } from "@zcode/shared";
-import { InternalChannels, PlatformChannels, formatZCodeRendererProcessName } from "@zcode/shared";
+import { unwrapRemoteWorkspaceBindResult } from "./remoteWorkspaceBindBridge.js";
+import {
+  InternalChannels,
+  PlatformChannels,
+  formatZCodeRendererProcessName,
+  scopedServicePortPayloadSchema,
+} from "@zcode/shared";
 import { createOAuthCallbackHandler } from "./oauthCallbackBridge.js";
+
 const updateReadyCallbacks = new Set<(version: string) => void>();
 const updateStateCallbacks = new Set<(payload: UpdateStatePayload) => void>();
 const postUpdateReleaseNotesCallbacks = new Set<(payload: PostUpdateReleaseNotesPayload) => void>();
@@ -240,15 +251,20 @@ contextBridge.exposeInMainWorld("zcode", {
     options: RemoteTarget,
     requestId?: string,
     context?: {
-      workspacePath: string;
+      workspacePath?: string;
       workspaceIdentity?: string;
       connectTrigger?: import("@zcode/shared").RemoteWorkspaceConnectTrigger;
+      confirmSourceServerInstall?: boolean;
     },
   ) =>
     ipcRenderer.invoke(PlatformChannels.ConnectRemote, {
       target: options,
       requestId,
       ...(context ? context : {}),
+    }),
+  requestSourceSettingsAttachment: (sourceServerId: string) =>
+    ipcRenderer.invoke(PlatformChannels.RequestSourceSettingsAttachment, {
+      sourceServerId,
     }),
   cancelPendingRemoteConnection: (requestId?: string): Promise<void> =>
     ipcRenderer.invoke(PlatformChannels.CancelPendingRemoteConnection, {
@@ -258,8 +274,13 @@ contextBridge.exposeInMainWorld("zcode", {
     remoteSessionId: string;
     workspacePath: string;
     workspaceIdentity?: string;
-  }): Promise<void> =>
-    ipcRenderer.invoke(PlatformChannels.BindRemoteWorkspaceSessionContext, context),
+    workspacePurpose?: import("@zcode/shared").WorkspacePurpose;
+  }): Promise<BindRemoteWorkspaceSessionContextResult> =>
+    ipcRenderer
+      .invoke(PlatformChannels.BindRemoteWorkspaceSessionContext, context)
+      .then((result: BindRemoteWorkspaceSessionContextIpcResult) =>
+        unwrapRemoteWorkspaceBindResult(result),
+      ),
   startWebRemoteControl: (context: WebRemoteControlContext) =>
     ipcRenderer.invoke(PlatformChannels.StartWebRemoteControl, context),
   refreshWebRemoteControlPairing: (context: WebRemoteControlContext) =>
@@ -307,6 +328,9 @@ contextBridge.exposeInMainWorld("zcode", {
   /** 打开系统目录选择框，返回选中路径或 null */
   selectDirectory: (): Promise<string | null> =>
     ipcRenderer.invoke(PlatformChannels.SelectDirectory),
+  /** 打开系统多目录选择框；取消时返回空数组 */
+  selectDirectories: (): Promise<string[]> =>
+    ipcRenderer.invoke(PlatformChannels.SelectDirectories),
   /** 打开系统文件选择框，返回选中文件路径或 null */
   selectFile: (): Promise<string | null> => ipcRenderer.invoke(PlatformChannels.SelectFile),
   /** 打开系统多文件选择框，返回选中文件路径；取消时返回空数组 */
@@ -352,7 +376,14 @@ contextBridge.exposeInMainWorld("zcode", {
     ipcRenderer.on(PlatformChannels.RemoteSessionClosed, handler);
     return () => ipcRenderer.removeListener(PlatformChannels.RemoteSessionClosed, handler);
   },
-  /** 订阅 Bot 触发的远程 workspace 重连成功事件，返回 disposer */
+  /** 订阅 Source 自动重连后的 logical session 换代事件。 */
+  onRemoteSessionReconnected: (callback: (event: RemoteSessionReconnectedEvent) => void) => {
+    const handler = (_event: unknown, payload: unknown) =>
+      callback(payload as RemoteSessionReconnectedEvent);
+    ipcRenderer.on(PlatformChannels.RemoteSessionReconnected, handler);
+    return () => ipcRenderer.removeListener(PlatformChannels.RemoteSessionReconnected, handler);
+  },
+  /** 订阅 Bot 触发的远程 workspace 重连成功事件，返回 disposer（审计 UI 仍使用旧名） */
   onBotRemoteWorkspaceReconnected: (
     callback: (event: BotRemoteWorkspaceReconnectedEvent) => void,
   ) => {
@@ -692,6 +723,8 @@ contextBridge.exposeInMainWorld("zcode", {
   /** 从权限浮窗拖拽 Helper.app 到 macOS 权限列表。必须是 send —— invoke 的往返会错过手势。 */
   startCuaHelperPermissionDrag: () =>
     ipcRenderer.send(PlatformChannels.StartCuaHelperPermissionDrag),
+  notifyWebRemoteControlAuthStateChanged: (change: WebRemoteControlAuthStateChange) =>
+    ipcRenderer.send(PlatformChannels.WebRemoteControlAuthStateChanged, change),
   /** 上报 OAuth state 用于 deep link 路由 */
   registerOAuthState: (payload: OAuthStateRegistration) =>
     ipcRenderer.send(PlatformChannels.OAuthRegisterState, payload),
@@ -722,7 +755,7 @@ contextBridge.exposeInMainWorld("zcode", {
   /** 通过 main process 触发原生任务通知 */
   showTaskNotification: (payload: TaskNotificationPayload) =>
     ipcRenderer.send(PlatformChannels.ShowTaskNotification, payload),
-  /** 导出日志：打包 ~/.zcodium/v2 及外部 agent 日志为 zip 并在 Finder 中显示 */
+  /** 导出日志：打包 ~/.zcode/v2 及外部 agent 日志为 zip 并在 Finder 中显示 */
   exportLogs: (): Promise<{
     success: boolean;
     path?: string;
@@ -844,7 +877,8 @@ contextBridge.exposeInMainWorld("zcode", {
   /** 用户确认重启安装更新 */
   quitAndInstallUpdate: () => ipcRenderer.invoke(PlatformChannels.QuitAndInstallUpdate),
   /** 获取已安装的编辑器/终端列表（含图标） */
-  getInstalledEditors: () => ipcRenderer.invoke(PlatformChannels.GetInstalledEditors),
+  getInstalledEditors: (filePath?: string) =>
+    ipcRenderer.invoke(PlatformChannels.GetInstalledEditors, filePath),
   getApplicationIcon: (request: string | ApplicationIconRequest) =>
     ipcRenderer.invoke(PlatformChannels.GetApplicationIcon, request),
   /** 用指定编辑器打开路径 */
@@ -884,29 +918,42 @@ ipcRenderer.on(InternalChannels.ServicePort, (event, payload: unknown) => {
   else port?.close();
 });
 
+ipcRenderer.on(InternalChannels.ScopedServicePort, (event, payload: unknown) => {
+  const [port] = event.ports;
+  const parsed = scopedServicePortPayloadSchema.safeParse(payload);
+  if (!port || !parsed.success) return;
+  // Bug 根因：这里曾用手工字段白名单重建 payload；Main 新增 workspace scope 后
+  // Preload 未同步白名单，Renderer 因而把 project logical session 原地绑定成 conversation。
+  window.postMessage(
+    {
+      type: InternalChannels.ScopedServicePort,
+      ...parsed.data,
+    },
+    "*",
+    [port],
+  );
+});
+
 ipcRenderer.on(
-  InternalChannels.ScopedServicePort,
+  InternalChannels.SourceSettingsServicePort,
   (
     event,
     payload: {
       attachmentId?: string;
-      sessionId?: string;
-      target?: RemoteTarget;
+      sourceServerId?: string;
     },
   ) => {
     const [port] = event.ports;
-    if (port) {
-      window.postMessage(
-        {
-          type: InternalChannels.ScopedServicePort,
-          attachmentId: payload.attachmentId,
-          sessionId: payload.sessionId,
-          target: payload.target,
-        },
-        "*",
-        [port],
-      );
-    }
+    if (!port) return;
+    window.postMessage(
+      {
+        type: InternalChannels.SourceSettingsServicePort,
+        attachmentId: payload.attachmentId,
+        sourceServerId: payload.sourceServerId,
+      },
+      "*",
+      [port],
+    );
   },
 );
 
@@ -955,7 +1002,6 @@ ipcRenderer.on(
   },
 );
 
-// dom-ready autoInject 之后 Bridge 若被重置，再尝试一次包装
 // 启动控制面先于普通 RPC；reload 从 Main 的通知镜像补齐，不触发新迁移。
 ipcRenderer.on(InternalChannels.DatabaseStartupState, (_event, raw: unknown) => {
   const parsed = databaseStartupStateSchema.safeParse(raw);
