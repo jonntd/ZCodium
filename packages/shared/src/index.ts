@@ -48,7 +48,9 @@ export type {
   RemoteRelayShareLinkRequest,
 } from "./remote-relay.js";
 export {
+  DEFAULT_RELAY_CHANNEL_KEY,
   DEFAULT_RELAY_HOST_SECRET,
+  DEFAULT_RELAY_PAIRING_TOKEN,
   deriveRemoteRelayPublicUrl,
   extractRelayPort,
   isLocalRelayHost,

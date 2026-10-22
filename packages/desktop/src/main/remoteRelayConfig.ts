@@ -7,12 +7,13 @@
  * （控制模块 import 了 `ipcMain`，原生 ESM 的具名导出检查会在链接期直接拒绝，
  * 表现为 `The requested module 'electron' does not provide an export named 'ipcMain'`）。
  */
-import { randomBytes, randomInt } from "node:crypto";
+import { randomInt } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAppConfigDir } from "@zcode/services/node";
 import {
   DEFAULT_RELAY_HOST_SECRET,
+  DEFAULT_RELAY_PAIRING_TOKEN,
   generateRelayChannelKey,
   resolveRelayHostSecret,
   type RemoteRelayFileConfig,
@@ -88,12 +89,16 @@ export async function writeConfigFile(config: RemoteRelayFileConfig): Promise<vo
   await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }
 
-/** E2EE 生效开关（spec §16）：env `ZCODE_REMOTE_RELAY_E2EE`（`1`/`true`）或文件 `e2ee`。
+/** E2EE 生效开关（spec vps-relay-bridge.md §16）。
+ *  优先级：env `ZCODE_REMOTE_RELAY_E2EE`（`1`/`true` 开，`0`/`false` 显式关）>
+ *  文件 `e2ee`（显式 true/false）> **默认开启**（v4，2026-10-21：未显式设置过的设备
+ *  默认加密——手机端只用自带 web bundle，具备 E2EE 能力，见 §16.6 灰度结论）。
  *  resolveEffectiveConfig 与补齐链共用同一判定，避免两处漂移。 */
 export function isE2eeEnabled(file: RemoteRelayFileConfig | null): boolean {
-  return (
-    /^(1|true)$/i.test(process.env.ZCODE_REMOTE_RELAY_E2EE?.trim() ?? "") || file?.e2ee === true
-  );
+  const env = process.env.ZCODE_REMOTE_RELAY_E2EE?.trim();
+  if (env) return /^(1|true)$/i.test(env);
+  if (file?.e2ee !== undefined) return file.e2ee === true;
+  return true;
 }
 
 /** env 逐字段优先于文件；没有 url 即视为未配置。 */
@@ -148,9 +153,29 @@ export function resolveEffectiveConfig(
   };
 }
 
-/** 配对码：24 字节随机（base64url），与官方 `createPassword` 同量级，禁止出现 `devtoken` 这类共享弱口令。 */
-function generatePairingToken(): string {
-  return randomBytes(24).toString("base64url");
+/**
+ * 配对码缺失时回填**统一默认值**并落盘（spec §15.4 v4，2026-10-22）。
+ *
+ * v4 起不再逐设备随机：缺省固定为 `DEFAULT_RELAY_PAIRING_TOKEN`（= 当前部署 relay 的
+ * `RELAY_TOKEN`），新设备**开箱即与本部署配对**，不需要再手工把生成值抄回 relay。
+ * 轮换语义随之变化：清空保存只会回填同一个默认值——**真正的轮换 = 在 UI 里手动填入
+ * 新值保存**，并同步改 relay `.env` 的 `RELAY_TOKEN`（两侧一致才能配对）。
+ */
+async function ensurePairingToken(
+  file: RemoteRelayFileConfig | null,
+  logger?: RelayConfigLogger,
+): Promise<RemoteRelayFileConfig> {
+  if (file?.pairingToken?.trim()) return file;
+  const pairingToken = DEFAULT_RELAY_PAIRING_TOKEN;
+  const nextFile: RemoteRelayFileConfig = { ...file, pairingToken };
+  try {
+    await writeConfigFile(nextFile);
+    logger?.info(`[remote-relay] 已回填统一默认配对码并写入 ${getConfigFilePath()}`);
+  } catch (error) {
+    // 落盘失败（只读目录等）时仍让本次会话可用：内存里保留新配对码。
+    logger?.warn("[remote-relay] 配对码写入失败，仅在本次会话内有效", error);
+  }
+  return nextFile;
 }
 
 /**
@@ -172,31 +197,6 @@ export async function ensureRelaySecrets(
   const withHostSecret = await ensureHostSecret(withToken, logger);
   const withChannelKey = await ensureE2eeChannelKey(withHostSecret, logger);
   return ensureSlotBase(withChannelKey, logger);
-}
-
-/**
- * 配对码缺失时自动生成并落盘（spec §15.4）。
- *
- * 为什么放在这里而不是让用户手填：配对码是中继与手机之间的共享密钥，
- * 手填很容易退化成 `devtoken` 这种全局弱口令（且会被拼进分享链接）。
- * 只需把生成值同步到**中继侧**的 `RELAY_TOKEN`——UI 里能看到/复制它。
- * 想要轮换时清空该字段并保存即可（下一次补齐会重新生成）。
- */
-async function ensurePairingToken(
-  file: RemoteRelayFileConfig | null,
-  logger?: RelayConfigLogger,
-): Promise<RemoteRelayFileConfig> {
-  if (file?.pairingToken?.trim()) return file;
-  const pairingToken = generatePairingToken();
-  const nextFile: RemoteRelayFileConfig = { ...file, pairingToken };
-  try {
-    await writeConfigFile(nextFile);
-    logger?.info(`[remote-relay] 已自动生成配对码并写入 ${getConfigFilePath()}`);
-  } catch (error) {
-    // 落盘失败（只读目录等）时仍让本次会话可用：内存里保留新配对码。
-    logger?.warn("[remote-relay] 配对码写入失败，仅在本次会话内有效", error);
-  }
-  return nextFile;
 }
 
 /**
@@ -224,11 +224,19 @@ async function ensureHostSecret(
 }
 
 /**
- * 启用 E2EE 且 channelKey 缺失时自动生成并落盘（spec §16.5）。
+ * 启用 E2EE 且 channelKey 缺失时**随机生成**并落盘（spec §16.5 v5，2026-10-22）。
  *
- * 与配对码同一套补齐惯例；生成只发生一次，清空该字段保存即可轮换（旧链接全部失效）。
- * 判定用 `isE2eeEnabled`（文件 e2ee 或 env `ZCODE_REMOTE_RELAY_E2EE`，与
- * resolveEffectiveConfig 同源）。
+ * v5 从 v4 的「回填统一默认值」回退到随机生成：channelKey 不与任何服务端共享
+ * （中继永远看不到分享链接的 `#k=`，它只约束桌面↔手机两端），固定成仓库常量的唯一
+ * 收益是「换设备后旧链接仍能解密」，代价却是 E2EE 的保密前提从「每部署独立随机」
+ * 退化为「全局公开常量」——读过仓库或拉过公开中继镜像的人即可解密全部流量。
+ * 跨设备迁移改用「导入旧分享链接」（链接自带 `#k=`），不需要共享常量。
+ *
+ * ⚠ 已有值（含 v4 期间落盘的 `DEFAULT_RELAY_CHANNEL_KEY`）**不回改**：改了会让既有
+ * 链接立刻全部失效。只有缺失 / 用户清空保存时才随机生成——这正是「清空保存 = 轮换」
+ * 语义（UI 文案 `settings.remoteRelay.channelKeyDescription` 依赖它）。
+ * 判定用 `isE2eeEnabled`（env 显式值 > 文件显式值 > 默认开启，与 resolveEffectiveConfig
+ * 同源）。
  */
 async function ensureE2eeChannelKey(
   file: RemoteRelayFileConfig,
@@ -241,7 +249,7 @@ async function ensureE2eeChannelKey(
     await writeConfigFile(nextFile);
     logger?.info(`[remote-relay] 已生成 E2EE channelKey 并写入 ${getConfigFilePath()}`);
   } catch (error) {
-    // 落盘失败时仅本次会话内有效：重启后会重新生成（旧链接将失效），warn 提示。
+    // 落盘失败时仅本次会话内有效：重启后会重新生成（换新值 ⇒ 旧链接失效），warn 提示。
     logger?.warn("[remote-relay] E2EE channelKey 写入失败，仅在本次会话内有效", error);
   }
   return nextFile;

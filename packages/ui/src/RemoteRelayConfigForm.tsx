@@ -5,18 +5,19 @@ import { deriveRemoteRelayPublicUrl } from "@zcode/shared";
 import {
   buildRelayUrl,
   composeLanSuggestion,
+  DEFAULT_LOCAL_RELAY_HOST,
+  DEFAULT_PUBLIC_URL,
   extractRelayPort,
   isLoopbackRelayHost,
   resolveRelayScenario,
   stripRelayScheme,
 } from "@/remoteRelayScenario.js";
 import { Button } from "@/components/ui/button.js";
-import { Input } from "@/components/ui/input.js";
-import { Label } from "@/components/ui/label.js";
 import { Switch } from "@/components/ui/switch.js";
 import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { ConfigField } from "./RemoteRelayConfigField.js";
 
 /**
  * 中继配置表单（spec vps-relay-bridge.md §15 / §18.6）。
@@ -35,7 +36,9 @@ const EMPTY_FORM: RemoteRelayFileConfig = {
   hostSecret: "",
   publicUrl: "",
   pairingToken: "",
-  e2ee: false,
+  // e2ee 默认 true（v4，2026-10-21）：全新设备默认加密，与 Main 侧 isE2eeEnabled 的
+  // 「未显式设置 → 开」判定同源（spec §16.5）。
+  e2ee: true,
   channelKey: "",
   slots: 1,
   slotBase: undefined,
@@ -44,14 +47,25 @@ const EMPTY_FORM: RemoteRelayFileConfig = {
 };
 
 function toForm(config: RemoteRelayFileConfig | null): RemoteRelayFileConfig {
+  // 中继地址空着时预填本机 relay 默认值（spec §15.4 零配置路径，v4）：
+  // 只是草稿，不点「保存」不落盘；中继在别处的用户改成实际地址即可。
+  const url = config?.url?.trim() ? config.url : buildRelayUrl("lan", DEFAULT_LOCAL_RELAY_HOST);
+  // 公开地址同样按当前部署预填（本机 relay 的外网入口 = VPS 隧道，无法推导，v4）：
+  // 仅 loopback 场景预填；VPS relay 场景由 url 推导，保持空（「未配置」如实显示）。
+  const publicUrl = config?.publicUrl?.trim()
+    ? config.publicUrl
+    : isLoopbackRelayHost(stripRelayScheme(url))
+      ? DEFAULT_PUBLIC_URL
+      : "";
   return {
-    url: config?.url ?? "",
+    url,
     hostSecret: config?.hostSecret ?? "",
-    publicUrl: config?.publicUrl ?? "",
+    publicUrl,
     pairingToken: config?.pairingToken ?? "",
     // E2EE 字段必须随表单 round-trip：漏掉的话下一次保存会把已生成的
-    // channelKey 抹掉（下次启动重新生成 → 旧链接全部失效）且 e2ee 被静默关闭。
-    e2ee: config?.e2ee ?? false,
+    // channelKey 抹掉（下次启动重新生成 → 旧链接全部失效）。
+    // 缺省 true 与 Main 侧「未显式设置 → 默认开启」同源（spec §16.5 v4）。
+    e2ee: config?.e2ee ?? true,
     channelKey: config?.channelKey ?? "",
     slots: config?.slots ?? 1,
     // slotBase 必须随表单 round-trip：漏掉的话下一次保存会把自动生成的基址抹掉，
@@ -61,44 +75,6 @@ function toForm(config: RemoteRelayFileConfig | null): RemoteRelayFileConfig {
     windowId: config?.windowId,
     autoStart: config?.autoStart ?? true,
   };
-}
-
-function ConfigField({
-  id,
-  label,
-  description,
-  placeholder,
-  type = "text",
-  value,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  description?: string;
-  placeholder?: string;
-  type?: "text" | "password";
-  value: string;
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="grid gap-1.5">
-      <Label htmlFor={id} className="text-ui-base font-medium text-foreground">
-        {label}
-      </Label>
-      {description ? (
-        <div className="text-ui-sm leading-5 text-foreground-subtle">{description}</div>
-      ) : null}
-      <Input
-        id={id}
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        autoComplete="off"
-        spellCheck={false}
-        onChange={(event) => onChange(event.target.value)}
-      />
-    </div>
-  );
 }
 
 function ConfigToggle({
@@ -281,7 +257,8 @@ export function RemoteRelayConfigForm({
             label={t("settings.remoteRelay.hostSecret")}
             description={t("settings.remoteRelay.hostSecretDescription")}
             placeholder="••••••••"
-            type="password"
+            secret
+            copyable
             value={form.hostSecret ?? ""}
             onChange={updateField("hostSecret")}
           />
@@ -297,6 +274,13 @@ export function RemoteRelayConfigForm({
               updateField("publicUrl")(checked ? derivedPublicUrl : "")
             }
           />
+          {isLoopbackRelayHost(relayHost) ? (
+            // 中继在本机时推导值是 loopback（手机连不上），外网入口必须用户自行架设，
+            // 这里把「该填什么、为什么不能自动」讲清楚——否则没人知道这一项是干什么的。
+            <p className="text-ui-sm leading-5 text-foreground-subtle">
+              {t("settings.remoteRelay.publicUrlLocalRelayHint")}
+            </p>
+          ) : null}
           {publicUrlOverridden ? (
             <ConfigField
               id="remote-relay-public-url"
@@ -313,16 +297,18 @@ export function RemoteRelayConfigForm({
             label={t("settings.remoteRelay.pairingToken")}
             description={t("settings.remoteRelay.pairingTokenDescription")}
             placeholder=""
+            copyable
             value={form.pairingToken ?? ""}
             onChange={updateField("pairingToken")}
           />
 
-          {/* E2EE（spec §16）：默认关。开启后 Main 自动生成 channelKey 并落盘，
-              链接自动追加 #k=（fragment 不会发给中继）。清空保存即轮换。 */}
+          {/* E2EE（spec §16）：默认开（未显式设置过的设备）。开启后 Main 自动生成
+              channelKey 并落盘，链接自动追加 #k=（fragment 不会发给中继）。
+              显式关掉才停用；清空保存即轮换。 */}
           <ConfigToggle
             label={t("settings.remoteRelay.e2ee")}
             description={t("settings.remoteRelay.e2eeDescription")}
-            checked={form.e2ee ?? false}
+            checked={form.e2ee ?? true}
             onCheckedChange={(checked) =>
               setForm((previous) => ({ ...previous, e2ee: checked }))
             }
@@ -333,6 +319,7 @@ export function RemoteRelayConfigForm({
               label={t("settings.remoteRelay.channelKey")}
               description={t("settings.remoteRelay.channelKeyDescription")}
               placeholder=""
+              copyable
               value={form.channelKey ?? ""}
               onChange={updateField("channelKey")}
             />

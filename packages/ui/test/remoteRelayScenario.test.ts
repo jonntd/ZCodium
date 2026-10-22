@@ -8,6 +8,8 @@ import test from "node:test";
 import {
   buildRelayUrl,
   composeLanSuggestion,
+  DEFAULT_LOCAL_RELAY_HOST,
+  DEFAULT_PUBLIC_URL,
   extractRelayPort,
   isLoopbackRelayHost,
   resolveRelayScenario,
@@ -74,4 +76,22 @@ test("也接受完整 URL（手机访问地址就是这种形状）", () => {
   assert.equal(isLoopbackRelayHost("ws://localhost:3180"), true);
   assert.equal(isLoopbackRelayHost("http://192.168.8.105:3180"), false);
   assert.equal(isLoopbackRelayHost("https://relay.example.com"), false);
+});
+
+test("v4 表单默认值：DEFAULT_LOCAL_RELAY_HOST 是本机 loopback + 缺省端口，明文 ws 可直接用", () => {
+  // 预填的是「relay 跑在本机」的零配置路径：桌面拨 loopback 最稳（不受 DHCP 影响），
+  // 内网链接由 Main 自动换成局域网 IP（spec §15.4 v4）。
+  assert.equal(DEFAULT_LOCAL_RELAY_HOST, "127.0.0.1:3180");
+  assert.equal(isLoopbackRelayHost(DEFAULT_LOCAL_RELAY_HOST), true);
+  // 组合出的完整 url 形状正确，且 strip 后能无损还原（表单 round-trip 不漂移）。
+  const url = buildRelayUrl("lan", DEFAULT_LOCAL_RELAY_HOST);
+  assert.equal(url, "ws://127.0.0.1:3180");
+  assert.equal(stripRelayScheme(url), DEFAULT_LOCAL_RELAY_HOST);
+  assert.equal(resolveRelayScenario(url), "lan");
+});
+
+test("v4 公开地址默认值：DEFAULT_PUBLIC_URL 是当前部署的 VPS 隧道入口（非 loopback）", () => {
+  // 本机 relay 的外网入口无法由中继地址推导（loopback 推导 = 127.0.0.1），按当前部署预填。
+  assert.equal(DEFAULT_PUBLIC_URL, "http://104.223.21.20:3181");
+  assert.equal(isLoopbackRelayHost(stripRelayScheme(DEFAULT_PUBLIC_URL)), false);
 });

@@ -1385,8 +1385,8 @@ E2EE 的 `#k=` 仍在 fragment 里，不进任何请求。
 | 内置端点 | 自建 relay 地址 → **配置文件** `~/.zcodium/v2/remote-relay.json`（或 UI 输入一次） | 小 |
 | createQrUrl（sid/hash/t 签名链接） | 简化版：`https://<vps>/?token=RELAY_TOKEN&autoReconnect=1`（relay 已实现 cookie 配对，并保留非 token 参数）；后续可升级为签名链接 | 小 |
 | resetPairing | 清空设置页的「配对码」并保存 → 下一次读取（`autoStart`/`GetStatus`/`start` 的补齐链）自动重新生成（`ensurePairingToken`），再把新值填到 relay 的 `RELAY_TOKEN` | — |
-| **配对码来源** | **App 启动即自动生成**：`autoStart()` 在 App 启动时**无条件**补齐（`ensureRelaySecrets` 链，**不要求先填中继地址**），缺失即生成 24 字节 base64url 并落盘（避免出现 `devtoken` 这类全局弱口令）。UI 里可直接看到/复制；新设备把旧设备的配对码抄过来即可（须与 relay `RELAY_TOKEN` 一致）。清空保存即轮换 | 小 |
-| **主机密钥来源** | **统一默认值**：`DEFAULT_RELAY_HOST_SECRET`（`packages/shared/src/remote-relay.ts`，relay.mjs 同值回退）。文件/env 未设时桌面用默认值并落盘，可自行修改（两侧改成同一个值）。默认值取当前部署真实 `HOST_SECRET`（新设备开箱即用）。⚠ 这是真实部署密钥：仓库若公开即等于公开它，任何能访问 relay `/host` 的人都等于拿到桌面 Host 的服务面；公开前应先轮换（relay `.env` 与桌面两边同步改新值） | 小 |
+| **配对码来源** | **App 启动即自动回填统一默认值**（v4，2026-10-22）：`autoStart()` 在 App 启动时**无条件**补齐（`ensureRelaySecrets` 链，**不要求先填中继地址**），缺失即回填 `DEFAULT_RELAY_PAIRING_TOKEN`（= 当前部署 relay 的 `RELAY_TOKEN`，新设备**开箱即配对**，无需手工抄 token）。UI 里可直接看到/复制；清空保存回填同一默认值——**轮换 = 手动填新值**并同步 relay `RELAY_TOKEN`。跨设备迁移把旧设备的配对码抄过来即可（须与 relay `RELAY_TOKEN` 一致） | 小 |
+| **主机密钥来源** | **统一默认值**：`DEFAULT_RELAY_HOST_SECRET`（`packages/shared/src/remote-relay.ts`，relay.mjs 同值回退）。文件/env 未设时桌面用默认值并落盘，可自行修改（两侧改成同一个值）。默认值取当前部署真实 `HOST_SECRET`（新设备开箱即用）。⚠ 这是真实部署密钥：仓库若公开即等于公开它，任何能访问 relay `/host` 的人都等于拿到桌面 Host 的服务面；公开前应先轮换（relay `.env` 与桌面两边同步改新值）。**同级敏感值**：`DEFAULT_RELAY_PAIRING_TOKEN`（配对码）同样固定为当前部署真实值（v4 起，未变）；`DEFAULT_RELAY_CHANNEL_KEY`（E2EE `#k=`）**自 v5 起不再用于回填**——channelKey 缺失时随机生成，常量仅作历史链接兼容值，见 §16.5 | 小 |
 | **公开地址** | 与中继地址**通常是同一主机的不同协议**（桌面 WS 拨出 / 手机 HTTP 访问），因此缺省由中继地址推导：`deriveRemoteRelayPublicUrl`（`@zcode/shared`，`ws→http` / `wss→https`，主进程与 UI 共用同一实现）。配置表单默认只显示「中继地址」，仅当同源推导不成立（反向代理、端口映射、内网拨入）时才打开「公开地址与中继地址不同」覆盖项 | 小 |
 | **UI 入口** | 「移动端远程控制」弹层（工作区头部，`WebRemoteControlDialog`）里的「浏览器直连」卡片（`RemoteRelayAccessPanel`）：状态 + 启停 + **内网/外网两条链接**（各自复制 + 二维码）+ 折叠的「高级设置」（`RemoteRelayConfigForm`：连接协议/中继地址/主机密钥/公开地址/配对码/E2EE/并发槽位/工作区覆盖/随应用启动，保存即热应用）。**设置页不再有「远程访问」分区** | 中 |
 
@@ -1396,6 +1396,22 @@ E2EE 的 `#k=` 仍在 fragment 里，不进任何请求。
 （`RemoteRelayConfigForm`）也一并搬进弹层，设置页的 `remoteRelay` 分区整体删除。
 中继本身是**应用级**配置（全局一份，`~/.zcodium/v2/remote-relay.json`），与弹层所属的
 工作区无关：面板读写的是同一份全局配置，只是入口挪了位置。
+
+**v4（2026-10-21）表单零配置默认值**：中继地址空着时预填 `DEFAULT_LOCAL_RELAY_HOST`
+（`127.0.0.1:3180`，`remoteRelayScenario.ts`）——fork 的标准部署是「relay 跑在本机」
+（deploy README §7），桌面拨 loopback 最稳，内网链接自动换局域网 IP。预填只是**草稿**
+（不保存不落盘），不伪装成已配置。中继在本机时「公开地址」处显示固定指引
+（`publicUrlLocalRelayHint` 三语）：外网入口无法推导，需自行架设隧道/映射/DDNS。
+**公开地址同样按当前部署预填 `DEFAULT_PUBLIC_URL`**（`http://104.223.21.20:3181`，VPS
+反向隧道入口）——仅 loopback 草稿场景；VPS relay 场景由 url 推导，保持空。⚠ 两个默认值
+都是**真实部署信息**（地址 + 隧道），仓库公开前须改占位值。
+
+**v4（2026-10-21）运行中文件缺失自愈**：补齐语义补一条不变式——**运行中（clients 非空）
+`lastFileConfig` 永不允许为 null**。GetStatus / GetShareLink 读到配置文件缺失或损坏时，
+用内存 `lastFileConfig` 走一遍幂等补齐把文件自愈落盘（UI 表单回填靠它，打成 null 就出现
+「日志说自动生成了、UI 全空」的不一致）；时效链接凭据运行中一律取 `currentConfig`
+（正在运行的连接），绝不对着缺失文件重新补齐生成新 token——那会与 relay `RELAY_TOKEN`、
+桌面连接两端同时失配，手机必配对失败。
 
 **内网 / 外网两条链接**（§18.6）：都由 Main 算好放进 `RemoteRelayStatus`
 （`lanShareUrl` / `publicShareUrl`），渲染层不拼链接：
@@ -1509,8 +1525,26 @@ E2EE 适配器的**收包侧**必须是「单一 FIFO 队列 + 泵守卫」，�
 ## 16.5 配置与开关
 
 - `~/.zcodium/v2/remote-relay.json` 增 `e2ee?: boolean`、`channelKey?: string`（32B base64url，
-  与 `hostSecret` 同等敏感）；env `ZCODE_REMOTE_RELAY_E2EE`（`1`/`true`）。
-- **默认 false = 现行为逐字节不变**。开启是显式动作：设置页开关或写配置。
+  与 `hostSecret` 同等敏感）；env `ZCODE_REMOTE_RELAY_E2EE`（`1`/`true` 开、`0`/`false` 显式关）。
+- **v4（2026-10-21）默认 true = 未显式设置过的设备默认加密**。判定源收口在 Main 的
+  `isE2eeEnabled`：env（显式开/关）> 文件显式值（true/false，用户主动关闭必须保留）>
+  默认开。语义依据：手机端只用自带 web bundle（§16.6 灰度结论——两端能力恒具备，
+  不存在「旧 bundle 官方页面」路径），灰度前提已永久成立。
+- **v5（2026-10-22）channelKey 恢复随机生成**：缺失时由 `generateRelayChannelKey()`
+  随机生成 32B base64url 并落盘，语义回到 v3。理由是与 hostSecret / 配对码**性质不同**：
+  channelKey 不与任何服务端共享（中继永远看不到 `#k=`，它只约束桌面↔手机两端），
+  固定成仓库常量的唯一收益是「换设备后旧链接仍能解密」，代价却是 E2EE 的保密前提从
+  「每部署独立随机」退化为「全局公开常量」——读过仓库或拉过公开中继镜像的人即可解密
+  全部流量，与 §16 的威胁模型直接矛盾。跨设备迁移改为**手工带入旧密钥**：把旧分享
+  链接 `#k=` 的值粘进设置页「E2EE 密钥」（或直接沿用旧配置文件），不需要共享常量。
+  - **已存在的配置不回改**：v4 期间落盘的就是 `DEFAULT_RELAY_CHANNEL_KEY`，原值保留
+    （否则既有链接立刻全部失效）；只有缺失 / 用户清空时才随机生成。
+  - `DEFAULT_RELAY_CHANNEL_KEY` 常量**保留但不再用于回填**，仅作历史链接的兼容值
+    （删掉它会让 v4 期间生成的链接无法在文档里解释）。
+- **v4（2026-10-22，已被 v5 取代）channelKey 缺省回填统一默认值
+  `DEFAULT_RELAY_CHANNEL_KEY`**（= 当前部署既有链接的 `#k=`），新设备生成的链接与既有
+  链接互通；轮换 = UI 手动改成新值保存（旧链接全部失效），清空保存只会回填同一默认值。
+  回退原因见上：它把「换设备互通」做成了全局常量，收益小于代价。
 - 启用 e2ee 且 `channelKey` 缺失时自动生成并落盘（补齐时机同样是 App 启动与读配置，
   §15.4 的 `ensureRelaySecrets` 链）；分享链接追加 `#k=<channelKey>`。
 - 轮换：清空 `channelKey` 保存 → 自动重生成，旧链接全部失效。
@@ -1519,7 +1553,7 @@ E2EE 适配器的**收包侧**必须是「单一 FIFO 队列 + 泵守卫」，�
 
 1. relay 零改动，无需重新部署。
 2. **重新构建并部署 `packages/web/dist`**（E2EE 能力进 bundle）。
-3. 设置页开启端到端加密（或 `e2ee: true`）→ 自动生成 channelKey → 分享新链接（带 `#k=`）。
+3. 设置页开启端到端加密（v4 起新设备默认已开，见 §16.5）→ 自动生成 channelKey → 分享新链接（带 `#k=`）。
 4. 旧链接（无 `#k`）的手机：握手立刻失败并显示错误页（非白屏、非静默），重新复制新链接即可。
 
 ## 16.7 验收

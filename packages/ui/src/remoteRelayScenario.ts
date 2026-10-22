@@ -21,6 +21,24 @@
  */
 export type RelayScenario = "lan" | "public";
 
+/**
+ * 中继地址的表单默认值（spec §15.4 零配置路径，v4 2026-10-21）：
+ * fork 的标准部署是「relay 跑在本机」（deploy/vps-relay/README.md §7 本机跑 + 反向隧道），
+ * 桌面拨 loopback 最稳（不受 DHCP 影响）；「内网链接」由 Main 自动换成检测到的局域网 IP，
+ * 手机同 WiFi 照样连得上。中继在别处的用户把它改成实际地址即可——预填的只是**草稿**，
+ * 不点「保存」不会落盘，不会伪装成已配置。
+ */
+export const DEFAULT_LOCAL_RELAY_HOST = "127.0.0.1:3180";
+
+/**
+ * 公开地址的表单默认值（v4 2026-10-21，按当前部署）：本机 relay 的外网入口 =
+ * VPS 反向隧道（deploy README §7）。该值**无法由中继地址推导**（loopback 推导出来
+ * 是 127.0.0.1，手机连不上），不预填的话没人知道外网入口长什么样。
+ * 仅在「中继在本机（loopback）」的草稿里预填——VPS relay 场景由 url 推导即可，不预填。
+ * ⚠ 这是真实部署地址：仓库公开即暴露，公开前须改成占位值。
+ */
+export const DEFAULT_PUBLIC_URL = "http://104.223.21.20:3181";
+
 // 中继 URL 的语义解析（端口 / loopback 判定）唯一实现在 shared：主进程拼「内网链接」
 // 也要用同一套判定，这里只做转出，避免两处实现漂移。
 export { extractRelayPort, isLoopbackRelayHost } from "@zcode/shared";

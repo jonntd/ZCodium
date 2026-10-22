@@ -169,9 +169,18 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
   function register(): void {
     ipcMain.handle(PlatformChannels.RemoteRelayGetStatus, async (): Promise<RemoteRelayStatus> => {
       const file = await readConfigFile(logger);
-      lastFileConfig = file;
       if (clients.length) {
-        if (currentConfig) lastFileConfig = file;
+        // 运行中读到「文件不存在/损坏」**不能**把 lastFileConfig 打成 null（2026-10-21 实测：
+        // 删掉 remote-relay.json 后 UI 表单全空，配对码/E2EE 不显示——与「运行 App 即自动
+        // 生成」直接矛盾）。内存里的 lastFileConfig 持有补齐过的密钥且与运行中连接一致，
+        // 用它走一遍幂等补齐把文件**自愈落盘**；外部对文件的有效编辑仍原样生效。
+        lastFileConfig = file ?? (await ensureRelaySecrets(lastFileConfig, logger));
+        if (!file) {
+          logger?.warn(
+            "[remote-relay] 配置文件缺失/损坏，已用运行中配置自愈落盘",
+            getConfigFilePath(),
+          );
+        }
         return buildStatus(true);
       }
       // 未运行时也先补齐密钥（spec §15.4）：全新设备**首次打开设置页**就生成配对码
@@ -218,10 +227,19 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       async (_event, payload: unknown): Promise<RemoteRelayShareLink> => {
         const request = parseRemoteRelayShareLinkRequest(payload);
         const file = await readConfigFile(logger);
-        // 与「读状态」同一套补齐链：配对码 / E2EE channelKey 缺失时自动生成并落盘，
-        // 否则 E2EE 开着但链接缺 #k=，手机端会卡在 confirm 校验失败。
-        lastFileConfig = await ensureRelaySecrets(file, logger);
-        const config = resolveEffectiveConfig(lastFileConfig);
+        // 运行中：链接凭据必须取自**正在运行的连接**（currentConfig）。若对着被删/损坏的
+        // 文件重新补齐，会生成全新 token——与 relay RELAY_TOKEN、桌面连接两端同时失配，
+        // 手机必配对失败（2026-10-21）。文件缺失时同样用内存值自愈落盘。
+        let config: EffectiveRelayConfig | null;
+        if (clients.length) {
+          lastFileConfig = file ?? (await ensureRelaySecrets(lastFileConfig, logger));
+          config = currentConfig;
+        } else {
+          // 与「读状态」同一套补齐链：配对码 / E2EE channelKey 缺失时自动生成并落盘，
+          // 否则 E2EE 开着但链接缺 #k=，手机端会卡在 confirm 校验失败。
+          lastFileConfig = await ensureRelaySecrets(file, logger);
+          config = resolveEffectiveConfig(lastFileConfig);
+        }
         if (!config) return { shareUrl: null, expiresAt: null };
         const link = buildRelayShareLink({
           url: config.url,

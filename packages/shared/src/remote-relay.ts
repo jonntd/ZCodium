@@ -42,9 +42,10 @@ export interface RemoteRelayFileConfig {
    *  自动生成并落盘（spec §15.4）；须与中继服务端的 `RELAY_TOKEN` 一致，清空保存即轮换。 */
   pairingToken?: string;
   /**
-   * 端到端加密开关（spec vps-relay-bridge.md §16）。默认 false = 现行为逐字节不变。
-   * 开启是显式动作：两端必须同时具备能力（先重新部署含 E2EE 的 web dist，再开此开关），
-   * 不做探测降级——旧 bundle 的手机会握手失败并显示错误页（fail-closed，不白屏）。
+   * 端到端加密开关（spec vps-relay-bridge.md §16）。**未设置（undefined）= 默认开启**
+   * （v4，2026-10-21：手机端只用自带 web bundle，两端能力恒具备，无需灰度探测）；
+   * 显式 `false` 才停用（用户主动关闭必须保留）。两端必须同时具备能力——旧 bundle
+   * 的手机会握手失败并显示错误页（fail-closed，不白屏）。
    */
   e2ee?: boolean;
   /**
@@ -67,6 +68,30 @@ export interface RemoteRelayFileConfig {
  * 公开前应先轮换（relay `.env` 与桌面两边同步改成新值）。
  */
 export const DEFAULT_RELAY_HOST_SECRET = "EnJg3T1jRQ7ZCQFFjRC7xx7o+ep/U9exWd4tzijiu8c=";
+
+/**
+ * 配对码的统一默认值（spec §15.4 v4，2026-10-22）：按当前部署固定——与本机 relay 的
+ * `RELAY_TOKEN` 一致，新设备**开箱即与本部署配对**，无需手工抄 token（此前是逐设备
+ * 随机生成，还得再把生成值同步回 relay 才能配对）。
+ *
+ * ⚠ 与 `DEFAULT_RELAY_HOST_SECRET` 同级敏感：仓库公开 = 公开配对码（能访问 relay 的
+ * 人都能配对）。公开前先轮换：relay `.env` 的 `RELAY_TOKEN` 与桌面配置两边同步改新值
+ * （或在 UI 里把配对码改成新值保存）。
+ */
+export const DEFAULT_RELAY_PAIRING_TOKEN = "aREK4lut5qkmoZ2l9/JhpHnkUuFlslmFayem0LeCrhg=";
+
+/**
+ * E2EE channelKey 的历史默认值（v4，2026-10-22；**v5 起不再用于回填**）。
+ *
+ * v5 把 channelKey 改回随机生成（`generateRelayChannelKey()`，spec §16.5）：它不与任何
+ * 服务端共享（中继永远看不到 `#k=`），固定成仓库常量的唯一收益是「换设备后旧链接仍能
+ * 解密」，代价却是 E2EE 的保密前提从「每部署独立随机」退化为「全局公开常量」。
+ * 本常量仅为**历史链接兼容**保留——v4 期间落盘/分享的 `#k=` 就是它；新设备不会再取到它。
+ *
+ * ⚠ 仍与 `DEFAULT_RELAY_HOST_SECRET` 同级敏感（链接即能力）。用过 v4 默认值的部署
+ * 应当轮换：UI 里清空 E2EE 密钥保存 → 生成新值，旧链接同时全部失效（这本来就是轮换语义）。
+ */
+export const DEFAULT_RELAY_CHANNEL_KEY = "QtVnR7BdjYLCwHzqkyymQpZUmPUC0cthc-_USNmBnxs";
 
 /**
  * 解析生效的主机密钥（spec §15.4）：env（`ZCODE_REMOTE_RELAY_HOST_SECRET`）>
