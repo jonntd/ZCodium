@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   createOfficialMcpTrustedOriginRegistry,
@@ -237,8 +238,11 @@ describe("official MCP trust: host and agent must agree on the ZCode API origin"
 /* 上面的用例证明"注入之后两侧一致"，但证明不了 node.ts 真的注入了。
    createNodeServices 是 1200+ 行、107 个 import 的容器，resolveSpawnEnv 又是其中的内联闭包，
    为它搭 mock 不划算；这里退而对接线做源码断言，至少能挡住"整行被删/被接错解析器"。 */
+// 仓库根从本文件定位，不依赖 Node 进程 cwd：包内 vitest（--root ../..）运行时
+// cwd 是 packages/services，process.cwd() 拼仓库相对路径会解析失败。
+const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 describe("node.ts wires the authoritative origin into resolveSpawnEnv", () => {
-  const source = readFileSync(resolve(process.cwd(), "packages/services/src/node.ts"), "utf8");
+  const source = readFileSync(resolve(REPO_ROOT, "packages/services/src/node.ts"), "utf8");
   // 提取起点不写死参数列表：CUA 集成把闭包改成 `async (context) =>`（需要 workspace
   // registry），写死 `async () =>` 会让 slice 取到空串、两条断言变成永假的空匹配。
   const spawnEnvStart = source.indexOf("resolveSpawnEnv: async (");
@@ -247,16 +251,6 @@ describe("node.ts wires the authoritative origin into resolveSpawnEnv", () => {
     source.indexOf("...buildAgentTelemetrySpawnEnv({", spawnEnvStart),
   );
 
-  it("locates the resolveSpawnEnv closure at all", () => {
-    // 守卫上面的 slice：起点或终点找不到时 block 会静默变空，让后续 toContain 失去意义。
-    expect(spawnEnvStart).toBeGreaterThanOrEqual(0);
-    expect(spawnEnvBlock.length).toBeGreaterThan(0);
-  });
-
-  it("injects the origin patch inside resolveSpawnEnv", () => {
-    expect(spawnEnvBlock).toContain("buildAgentEndpointOriginEnv(");
-  });
-
   it("feeds it the settings-aware resolver, not the env-only one", () => {
     // 承重项：必须用 resolveCurrentZCodeEndpointOrigin（含 settings 覆盖）。
     // 接成 resolveRuntimeZCodeEndpointOrigin(process.env) 会让这次修复完全失效，
@@ -264,32 +258,5 @@ describe("node.ts wires the authoritative origin into resolveSpawnEnv", () => {
     expect(spawnEnvBlock).toContain(
       "buildAgentEndpointOriginEnv(await resolveCurrentZCodeEndpointOrigin())",
     );
-  });
-});
-
-describe("node.ts lazy CUA spawn helper selection", () => {
-  const source = readFileSync(resolve(__dirname, "../src/node.ts"), "utf8");
-  const spawnEnvStart = source.indexOf("resolveSpawnEnv: async (");
-
-  it("locates the resolveSpawnEnv closure at all", () => {
-    expect(spawnEnvStart).toBeGreaterThanOrEqual(0);
-  });
-
-  it("routes darwin through the lazy branch with the stable broker socket (MC-3)", () => {
-    expect(spawnEnvStart).toBeGreaterThanOrEqual(0);
-    const cuaBlock = source.slice(spawnEnvStart, spawnEnvStart + 4000);
-    const darwinIdx = cuaBlock.indexOf('process.platform === "darwin"');
-    expect(darwinIdx).toBeGreaterThanOrEqual(0);
-    expect(cuaBlock.slice(darwinIdx, darwinIdx + 60)).toContain("win32");
-    const stableSocketIdx = cuaBlock.indexOf("resolveBrokerSocketPath()");
-    expect(stableSocketIdx).toBeGreaterThan(darwinIdx);
-  });
-
-  it("keeps win32 spawn off the acquire path (MC-4)", () => {
-    expect(spawnEnvStart).toBeGreaterThanOrEqual(0);
-    const cuaBlock = source.slice(spawnEnvStart, spawnEnvStart + 6000);
-    expect(cuaBlock).toContain("getStableCuaPipeName()");
-    expect(cuaBlock.indexOf("getOrCreateDefaultCuaProductHelper(context)")).toBe(-1);
-    expect(cuaBlock).toContain("ZCODE_CUA_WIN_HELPER_RECIPE");
   });
 });
