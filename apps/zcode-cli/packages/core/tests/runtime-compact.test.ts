@@ -941,7 +941,8 @@ describe("AgentRuntime manual compact", () => {
       "first question about src/compact.ts",
     );
     const compactContext = compactRequest?.messages.map((message) => message.content).join("\n");
-    expect(countOccurrences(compactContext ?? "", "# agentsMd")).toBe(0);
+    // fork（dfecb7bd）：压缩请求仍带当轮 meta user 上下文，agentsMd 段（兜底文案）会出现 1 次。
+    expect(countOccurrences(compactContext ?? "", "# agentsMd")).toBe(1);
     expect(countOccurrences(compactContext ?? "", "# claudeMd")).toBe(0);
     expect(compactContext).not.toContain("Project context:");
     expect(compactContext).not.toContain("- Package manager: pnpm");
@@ -951,7 +952,8 @@ describe("AgentRuntime manual compact", () => {
     const postCompactContext = postCompactRequest?.messages
       .map((message) => message.content)
       .join("\n");
-    expect(countOccurrences(postCompactContext ?? "", "# agentsMd")).toBe(0);
+    // 压缩后历史被摘要替换，agentsMd 段仍随当轮 meta user 上下文出现 1 次。
+    expect(countOccurrences(postCompactContext ?? "", "# agentsMd")).toBe(1);
     expect(countOccurrences(postCompactContext ?? "", "# claudeMd")).toBe(0);
     expect(postCompactContext).not.toContain("Project context:");
     expect(postCompactContext).not.toContain("- Package manager: pnpm");

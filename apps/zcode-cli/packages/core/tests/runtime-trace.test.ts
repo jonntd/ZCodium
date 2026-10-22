@@ -846,7 +846,12 @@ describe("AgentRuntime trace propagation", () => {
     expect(requests[0]?.[0]?.content).toBe("You are ZCode, an interactive coding agent");
     expect(requests[0]?.[1]?.content).toBe("\nYou are terse for this session.");
     expect(requests[0]?.[2]?.role).toBe("user");
-    expect(requests[0]?.[2]?.content).not.toContain("# agentsMd");
+    // fork（dfecb7bd）：agentsMd 属于 meta user 上下文，不在自定义 systemPrompt 的替换范围内；
+    // 无指令时正文是「自行探测」兜底。
+    expect(requests[0]?.[2]?.content).toContain("# agentsMd");
+    expect(requests[0]?.[2]?.content).toContain(
+      "No workspace instruction file (such as AGENTS.md) was found",
+    );
     expect(requests[0]?.[2]?.content).not.toContain("# claudeMd");
     expect(requests[0]?.[2]?.content).not.toContain("Project context:");
     expect(requests[0]?.[2]?.content).not.toContain("- Package manager: pnpm");
@@ -1017,10 +1022,12 @@ describe("AgentRuntime trace propagation", () => {
     await runtime.executeTurn("second question");
 
     const second = requests[1];
+    // fork（dfecb7bd）：首轮多出一条 meta user（agentsMd 兜底）并固化进历史，后续索引整体顺延 1。
     expect(second?.messages.map((message) => message.role)).toEqual([
       "system",
       "system",
       "system",
+      "user",
       "user",
       "user",
       "assistant",
@@ -1072,11 +1079,11 @@ describe("AgentRuntime trace propagation", () => {
     expect(dynamicSystem.indexOf("# Output Style: Learning")).toBeLessThan(
       dynamicSystem.indexOf("# Context management"),
     );
-    expect(second?.messages[4]?.content).toContain("first question");
-    expect(second?.messages[4]?.content).not.toContain("Learning output style is active");
-    expect(second?.messages[7]?.content).toContain("second question");
-    const firstOutputStyleReminder = second?.messages[3]?.content ?? "";
-    const secondOutputStyleReminder = second?.messages[6]?.content ?? "";
+    expect(second?.messages[5]?.content).toContain("first question");
+    expect(second?.messages[5]?.content).not.toContain("Learning output style is active");
+    expect(second?.messages[8]?.content).toContain("second question");
+    const firstOutputStyleReminder = second?.messages[4]?.content ?? "";
+    const secondOutputStyleReminder = second?.messages[7]?.content ?? "";
     expect(firstOutputStyleReminder).toContain("Learning output style is active");
     expect(secondOutputStyleReminder).toContain("Learning output style is active");
     expect(firstOutputStyleReminder).toContain("<system-reminder>");
@@ -1180,10 +1187,13 @@ describe("AgentRuntime trace propagation", () => {
     await runtime.executeTurn("first question");
     await runtime.executeTurn("second question");
 
+    // fork（dfecb7bd）：agentsMd 段恒在，首轮会多出一条 meta user 上下文（<system-reminder> 包装），
+    // 真实用户输入顺延到 [4]。
     expect(requests[0]?.map((message) => message.role)).toEqual([
       "system",
       "system",
       "system",
+      "user",
       "user",
     ]);
     expect(requests[0]?.[0]?.content).toBe("You are ZCode, an interactive coding agent");
@@ -1253,7 +1263,8 @@ describe("AgentRuntime trace propagation", () => {
     ).toBe(true);
     expect(requests[0]?.[2]?.content).not.toContain("not a git repository");
     expect(requests[0]?.[2]?.content).not.toContain("- **Git**:");
-    expect(requests[0]?.[3]).toEqual({
+    expect(requests[0]?.[3]?.content).toContain("As you answer the user's questions");
+    expect(requests[0]?.[4]).toEqual({
       role: "user",
       content: "first question",
       cacheControl: { type: "ephemeral" },
@@ -1263,13 +1274,14 @@ describe("AgentRuntime trace propagation", () => {
       "system",
       "system",
       "user",
+      "user",
       "assistant",
       "user",
     ]);
-    expect(requests[1]?.[3]?.content).toBe("first question");
-    expect(requests[1]?.[3]?.cacheControl).toBeUndefined();
-    expect(requests[1]?.[4]?.content).toBe("first response");
-    expect(requests[1]?.[5]).toEqual({
+    expect(requests[1]?.[4]?.content).toBe("first question");
+    expect(requests[1]?.[4]?.cacheControl).toBeUndefined();
+    expect(requests[1]?.[5]?.content).toBe("first response");
+    expect(requests[1]?.[6]).toEqual({
       role: "user",
       content: "second question",
       cacheControl: { type: "ephemeral" },
@@ -1333,30 +1345,35 @@ describe("AgentRuntime trace propagation", () => {
     await runtime.executeTurn("first question");
     await runtime.executeTurn("second question");
 
+    // fork（dfecb7bd）：agentsMd 段恒在，首轮会多出一条 meta user 上下文（<system-reminder> 包装），
+    // 真实用户输入顺延到 [4]。
     expect(requests[0]?.map((message) => message.role)).toEqual([
       "system",
       "system",
       "system",
+      "user",
       "user",
     ]);
     // CLI 前缀不占 cache marker；稳定正文、动态正文和最新真实用户输入保留标记。
     expect(requests[0]?.[0]?.cacheControl).toBeUndefined();
     expect(requests[0]?.[1]?.cacheControl).toEqual({ type: "ephemeral" });
     expect(requests[0]?.[2]?.cacheControl).toEqual({ type: "ephemeral" });
-    expect(requests[0]?.[3]?.content).toContain("first question");
-    expect(requests[0]?.[3]?.cacheControl).toEqual({ type: "ephemeral" });
+    expect(requests[0]?.[3]?.content).toContain("As you answer the user's questions");
+    expect(requests[0]?.[4]?.content).toContain("first question");
+    expect(requests[0]?.[4]?.cacheControl).toEqual({ type: "ephemeral" });
     expect(requests[1]?.map((message) => message.role)).toEqual([
       "system",
       "system",
       "system",
       "user",
+      "user",
       "assistant",
       "user",
     ]);
-    expect(requests[1]?.[3]?.content).toContain("first question");
-    expect(requests[1]?.[3]?.cacheControl).toBeUndefined();
-    expect(requests[1]?.[5]?.content).toContain("second question");
-    expect(requests[1]?.[5]?.cacheControl).toEqual({ type: "ephemeral" });
+    expect(requests[1]?.[4]?.content).toContain("first question");
+    expect(requests[1]?.[4]?.cacheControl).toBeUndefined();
+    expect(requests[1]?.[6]?.content).toContain("second question");
+    expect(requests[1]?.[6]?.cacheControl).toEqual({ type: "ephemeral" });
   });
 
   it("emits date change reminder once without refreshing request prefix date", async () => {

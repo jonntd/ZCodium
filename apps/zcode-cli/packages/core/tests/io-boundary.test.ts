@@ -92,5 +92,6 @@ describe("core I/O boundaries", () => {
     }
 
     expect(violations).toEqual([]);
-  });
+    // 全量扫描 ~6 个源码根（数千文件）；外置卷冷缓存下默认 5s 会超时，这里放宽到 60s。
+  }, 60_000);
 });

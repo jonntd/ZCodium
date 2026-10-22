@@ -77,12 +77,15 @@ const subagentCommonNotes = `Notes:
 - In your final response, share file paths (always absolute, never relative) that are relevant to the task. Include code snippets only when the exact text is load-bearing (e.g., a bug you found, a function signature the caller asked for) — do not recap code you merely read.
 - For clear communication with the user the assistant MUST avoid using emojis.
 - Do not use a colon before tool calls. Text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.
-- Do NOT Write report/summary/findings/analysis .md files. Return findings directly as your final assistant message — the parent agent reads your text output, not files you create.`;
+- Do NOT Write report/summary/findings/analysis .md files. Return findings directly as your final assistant message — the parent agent reads your text output, not files you create.
+- Lead with the outcome. Your final message should answer the task directly — findings, conclusions, and deliverables first; supporting detail after.
+- Report outcomes faithfully: if a step failed, was skipped, or remains unverified, say so plainly instead of smoothing it over.`;
 
 const subagentEnvironmentContext = `Here is useful information about the environment you are running in:
 <env>
 Working directory: /Users/dev/Desktop/Z/z-code/apps/zcode-cli
 Is directory a git repo: Yes
+Git status: unknown
 Platform: darwin
 Shell: Git Bash
 OS Version: Darwin 24.3.0
@@ -551,7 +554,12 @@ describe("Explore subagent", () => {
     );
 
     expect(result.response).toBe("parent used explore result");
-    expect(parentFirstRequestText).not.toContain("# agentsMd");
+    // fork（dfecb7bd）：该 fixture 工作区没有 AGENTS.md，agentsMd 段退化为「自行探测」兜底，
+    // 因此断言的是「没有真实指令正文」，而不是整段缺席。
+    expect(parentFirstRequestText).toContain("# agentsMd");
+    expect(parentFirstRequestText).toContain(
+      "No workspace instruction file (such as AGENTS.md) was found",
+    );
     expect(parentFirstRequestText).not.toContain("# claudeMd");
     expect(parentFirstRequestText).not.toContain("Project context:");
     expect(parentFirstRequestText).not.toContain("- Package manager: pnpm");
@@ -563,7 +571,10 @@ describe("Explore subagent", () => {
     expect(parentFirstToolNames).not.toContain("Grep");
     expect(parentFirstToolNames).not.toContain("GoalRead");
     expect(childRequests).toHaveLength(1);
-    expect(childRequestText).not.toContain("# agentsMd");
+    expect(childRequestText).toContain("# agentsMd");
+    expect(childRequestText).toContain(
+      "No workspace instruction file (such as AGENTS.md) was found",
+    );
     expect(childRequestText).not.toContain("# claudeMd");
     expect(childRequestText).not.toContain("# user_instructions");
     expect(childRequestText).not.toContain("Project context:");

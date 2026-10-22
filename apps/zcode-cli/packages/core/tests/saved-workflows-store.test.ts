@@ -290,7 +290,8 @@ describe("saved workflow global scope", () => {
     });
 
     expect(written.scope).toBe("global");
-    expect(written.path).toBe(join(home, ".zcode/workflows/research.dwf.ts"));
+    // 全局档落在数据根 ~/.zcodium/workflows/（项目档才是 <cwd>/.zcode/workflows/）。
+    expect(written.path).toBe(join(home, ".zcodium/workflows/research.dwf.ts"));
 
     const resolved = resolveSavedWorkflow({ cwd, name: "research", homeDir: home });
     expect(resolved.ok).toBe(true);

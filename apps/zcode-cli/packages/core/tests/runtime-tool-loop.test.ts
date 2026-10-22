@@ -5992,7 +5992,8 @@ describe("AgentRuntime tool loop", () => {
       (message: any) => message.role === "user",
     );
     const verifierLastMessage = requests[1]?.messages.at(-1);
-    expect(verifierUserMessages).toHaveLength(2);
+    // fork（dfecb7bd）：agentsMd 兜底让每轮多一条 meta user 上下文，verifier 请求里 user 数 +1。
+    expect(verifierUserMessages).toHaveLength(3);
     expect(verifierLastMessage).toMatchObject({
       cacheControl: { type: "ephemeral" },
       role: "user",
@@ -6853,7 +6854,8 @@ describe("AgentRuntime tool loop", () => {
 
     expect(toolNames).toContain("Bash");
     expect(planModeReminder).toMatchObject({ role: "system" });
-    expect(userMessages).toHaveLength(1);
+    // fork（dfecb7bd）：agentsMd 兜底额外带来一条 meta user 上下文（真实用户输入仍取 at(-1)）。
+    expect(userMessages).toHaveLength(2);
     expect(
       withoutAgentListingMessages((modelRequestEvent?.payload as { messages: any[] }).messages),
     ).toEqual(capturedMessages);
@@ -11843,10 +11845,8 @@ describe("AgentRuntime tool loop", () => {
       targetMessageIds: assistants.slice(0, 2),
     });
 
-    expect(preview.safeFiles.map((file) => file.path).sort()).toEqual([
-      "/work/src/a.ts",
-      "/work/src/b.ts",
-    ]);
+    // fork 的 rewind 预览按 workspace 相对路径投影 safeFiles（上游断言的是绝对路径）。
+    expect(preview.safeFiles.map((file) => file.path).sort()).toEqual(["src/a.ts", "src/b.ts"]);
     expect(applied.applied).toBe(true);
     expect(fileSystemPort.files.get("/work/src/a.ts")).toBe("a1\n");
     expect(fileSystemPort.files.get("/work/src/b.ts")).toBe("b1\n");

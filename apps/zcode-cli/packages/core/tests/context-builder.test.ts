@@ -931,7 +931,7 @@ describe("ContextBuilder meta user context", () => {
     );
   });
 
-  it("renders only currentDate when request user context has no content", () => {
+  it("renders the workspace-instruction fallback plus currentDate when request user context has no content", () => {
     const result = createContextBuilder({
       workingDirectory: "/workspace",
       currentDate: "2026-05-04",
@@ -961,7 +961,9 @@ describe("ContextBuilder meta user context", () => {
     expect(meta).not.toContain(
       "\n\nIMPORTANT: this context may or may not be relevant to your tasks.",
     );
-    expect(meta).not.toContain("# agentsMd");
+    // fork（dfecb7bd）：缺失 workspace 指令时，# agentsMd 段仍然存在，正文换成「自行探测」兜底。
+    expect(meta).toContain("# agentsMd");
+    expect(meta).toContain("No workspace instruction file (such as AGENTS.md) was found");
     expect(meta).not.toContain("# claudeMd");
     expect(meta).not.toContain("# user_instructions");
     expect(meta).not.toContain("Project context:");
@@ -988,7 +990,8 @@ describe("ContextBuilder meta user context", () => {
     }).build();
 
     const meta = metaAttachment(result, "context_prefix");
-    expect(meta).not.toContain("# agentsMd");
+    // fork（dfecb7bd）：agentsMd 段恒在（无指令时是兜底文案）；这里只关心 projectContext 不被投影。
+    expect(meta).toContain("# agentsMd");
     expect(meta).not.toContain("# claudeMd");
     expect(meta).not.toContain("Project context:");
     expect(meta).not.toContain("Project type: Node.js");
@@ -1033,7 +1036,7 @@ describe("ContextBuilder meta user context", () => {
     );
   });
 
-  it("does not emit an empty meta user message", () => {
+  it("emits only the workspace-instruction fallback when there is no request user context", () => {
     const result = createContextBuilder({
       workingDirectory: "/workspace",
       envInfo: {
@@ -1050,7 +1053,15 @@ describe("ContextBuilder meta user context", () => {
       "system",
       "system",
     ]);
-    expect(result.metaUserAttachments).toEqual([]);
+    // fork（dfecb7bd）：即使没有任何 user context，agentsMd 兜底也保证 meta 消息非空——
+    // 这条用例的原始意图（不产出空 meta 消息）依然成立，只是形态从「缺席」变成「兜底文案」。
+    expect(result.metaUserAttachments.map((attachment) => attachment.source)).toEqual([
+      "context_prefix",
+    ]);
+    const meta = metaAttachment(result, "context_prefix");
+    expect(meta).toContain("# agentsMd");
+    expect(meta).toContain("No workspace instruction file (such as AGENTS.md) was found");
+    expect(meta).not.toContain("Contents of ");
     expect(result.systemMessages[0]?.content).toBe("You are ZCode, an interactive coding agent");
     expect(result.systemMessages[1]?.content).not.toContain("# Agent Identity");
     expect(result.systemMessages[1]?.content).toMatch(/^\n?You are an interactive ZCode agent/);

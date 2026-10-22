@@ -155,7 +155,10 @@ function expectInjectedAgentsMd(request: any, childTask: string): void {
 
 function expectNoInjectedAgentsMd(request: any): void {
   const text = allMessageText(request);
-  expect(text).not.toContain("# agentsMd");
+  // fork（dfecb7bd）：agentsMd 段恒在；这里「不注入」指不出现真实指令正文，
+  // 段落本身退化为「自行探测」兜底文案。
+  expect(text).toContain("# agentsMd");
+  expect(text).toContain("No workspace instruction file (such as AGENTS.md) was found");
   expect(text).not.toContain("# claudeMd");
   expect(text).not.toContain(USER_AGENTS_INSTRUCTION);
   expect(text).not.toContain(WORKSPACE_AGENTS_INSTRUCTION);

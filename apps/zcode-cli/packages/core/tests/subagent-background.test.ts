@@ -852,7 +852,10 @@ describe("subagent background notifications", () => {
     expect(persisted.every((message) => message.visibility === "model-only")).toBe(true);
     const runtimeText = runtime.messageHistory
       .toRuntimeEntries()
-      .map((entry) => modelMessageContentToText(entry.message.content))
+      // entry 可能是 message 也可能是 attachment（模型可见附件正文直接挂在 entry 上）。
+      .map((entry) =>
+        modelMessageContentToText(entry.kind === "attachment" ? entry.content : entry.message.content),
+      )
       .join("\n");
     expect(runtimeText).toContain("<task-id>active-drain-1</task-id>");
     expect(runtimeText).toContain("<task-id>active-drain-2</task-id>");
@@ -1054,7 +1057,10 @@ describe("subagent background notifications", () => {
     expect(command.reject).not.toHaveBeenCalled();
     const runtimeText = runtime.messageHistory
       .toRuntimeEntries()
-      .map((entry) => modelMessageContentToText(entry.message.content))
+      // entry 可能是 message 也可能是 attachment（模型可见附件正文直接挂在 entry 上）。
+      .map((entry) =>
+        modelMessageContentToText(entry.kind === "attachment" ? entry.content : entry.message.content),
+      )
       .join("\n");
     expect(runtimeText).not.toContain("queued prompt stays in outer queue");
   });
