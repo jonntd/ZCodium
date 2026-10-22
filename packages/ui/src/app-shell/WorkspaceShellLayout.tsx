@@ -76,6 +76,7 @@ import {
   shouldRenderWebRemoteNavigationPanel,
 } from "@/app-shell/webRemoteNavigationLayout.js";
 import type { WebRemoteNavigationState } from "@/app-shell/webRemoteNavigationLayout.js";
+import { shouldRenderWorkspaceHeaderForMainView } from "@/app-shell/workspaceHeaderVisibility.js";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import { ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable.js";
@@ -1828,12 +1829,13 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     updateState?.kind === "download-progress" ||
     updateState?.kind === "update-downloaded";
   // 修复原因：Draft 之前维护一套独立轻量 header，导致 side pane、caption 安全区和拖拽入口
-  // 与 Task Header 分叉。桌面端统一复用 WorkspaceHeader，只由 variant 裁剪 task 专属内容；
-  // 手机远控无 active task 时仍不渲染桌面 chrome，继续遵守 replayable overlay 边界。
-  const shouldRenderMainViewHeader =
-    workspaceMainView !== "automations" && workspaceMainView !== "plugin-store";
-  const shouldRenderWorkspaceHeader =
-    shouldRenderMainViewHeader && (activeTaskId !== null || isDesktop);
+  // 与 Task Header 分叉。桌面端统一复用 WorkspaceHeader，只由 variant 裁剪 task 专属内容。
+  // 2026-10-17（spec web-remote-ui-parity.md §2.1-A1）：手机远控无 active task 时也渲染
+  // header——"遵守 replayable overlay 边界"的正确解读是**不渲染桌面 chrome**（由
+  // WorkspaceHeader 内部按 isDesktop 裁剪，task 态的手机页早就这么渲染），不是整个 header
+  // 消失；壳层不再以「有无 active task」或平台标志决定头部存亡，纯函数见
+  // app-shell/workspaceHeaderVisibility.ts（含完整决策留档）。
+  const shouldRenderWorkspaceHeader = shouldRenderWorkspaceHeaderForMainView(workspaceMainView);
   // 修复原因：ErrorBoundary resetKeys 的数组如果每次 render 都重新创建，
   // 即使 workspace/task 没变化也会在 React DevTools Components 轨道里持续表现为子树 props 变化。
   const workspaceOnlyResetKeys = useMemo(() => [workspaceKey], [workspaceKey]);
@@ -1873,7 +1875,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
           onStartDraftInWorkspace={handleCreateProjectDraft}
           switcher={webRemoteControlWorkspaceSwitcher}
           renderChatHeader={() =>
-            shouldRenderWorkspaceHeader ? (
+            // 移动壳（路线 B）chat 页自带「返回 / 标题 / 主题」chrome：只在**已选中任务**时
+            // 注入 workspace header 提供项目上下文；草稿态不注入（草稿入口是 home 页）——
+            // `workspaceShellRemoteMobileLayout` 测试锁死该契约，勿与主壳的
+            // `shouldRenderWorkspaceHeader`（spec §2.1-A1，Web 草稿态也渲染）混为一谈。
+            activeTaskId !== null ? (
               <ScopedErrorBoundary
                 scope="workspace-header"
                 resetKeys={workspaceOnlyResetKeys}

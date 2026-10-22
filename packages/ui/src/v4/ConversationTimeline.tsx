@@ -19,8 +19,8 @@ import {
 } from "react";
 import { flushSync } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { ArrowDownIcon } from "lucide-react";
-import { TID_V4_TIMELINE, TID_V4_TIMELINE_BOTTOM } from "@zcode/shared";
+import { ArrowDownIcon, LoaderIcon } from "lucide-react";
+import { TID_V4_TIMELINE, TID_V4_TIMELINE_BOTTOM, TID_V4_TIMELINE_WORKING } from "@zcode/shared";
 import type {
   ApiRetryState,
   AttachmentRef,
@@ -99,6 +99,7 @@ import {
   type PrependVirtualAnchor,
   type TimelineUserScrollIntent,
 } from "@/v4/timelineScrollAnchor.js";
+import { shouldShowTimelineWorkingPillChip } from "@/v4/chatLoadingVisibility.js";
 import { useConversationTimelineFind } from "@/v4/useConversationTimelineFind.js";
 import { ConversationSelectionTooltip } from "@/v4/ConversationSelectionTooltip.js";
 import type { ConversationSelectionReference } from "@/lib/conversationSelectionReference.js";
@@ -159,6 +160,38 @@ function ConversationBackToBottomButton({
       onClick={() => onClick()}
     >
       <ArrowDownIcon className="size-4" />
+    </Button>
+  );
+}
+
+/**
+ * 胶囊离屏兜底：运行中胶囊行已 sticky 吸顶，本轮内任意滚动位置都可见；只有用户上滚到
+ * 更早的历史轮、本轮整体离开视口时，才在 composer dock 上方补这一枚「工作中」入口。
+ * 点击回到贴底（吸顶胶囊随即落回视口顶部），与「回到底部」同一动作，不新增第三种滚动
+ * 跳转语义。形状与「回到底部」同款，避免旁边多出一个圆角方钮
+ * （docs/spec/assistant-working-status-pill.md「离屏兜底」）。
+ */
+function ConversationWorkingPillChip({
+  className,
+  label,
+  onClick,
+}: {
+  className: string;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <Button
+      aria-label={label}
+      title={label}
+      type="button"
+      size="icon"
+      variant="outline"
+      className={cn("rounded-full bg-card hover:bg-card-selected", className)}
+      data-testid={TID_V4_TIMELINE_WORKING}
+      onClick={() => onClick()}
+    >
+      <LoaderIcon aria-hidden className="size-4 text-foreground-subtle" />
     </Button>
   );
 }
@@ -1828,6 +1861,39 @@ function ConversationTimelineImpl({
     };
   }, []);
 
+  // 运行中胶囊行已 sticky 吸顶（本轮内恒可见）。只有当本轮整体滚出视口时，才需要在
+  // dock 上方补兜底入口——观察胶囊本体即可，不读滚动几何、不参与 following 判定，
+  // web-remote 恢复链路同样成立。初始 false 是「宁可多给一个入口」：贴底时另有
+  // backToBottomVisible 抑制，不会误显示。
+  const [workingPillInViewport, setWorkingPillInViewport] = useState(false);
+  useLayoutEffect(() => {
+    const scrollElement = scrollRef.current;
+    const pill =
+      hasRunningUnit && scrollElement
+        ? scrollElement.querySelector<HTMLElement>('[data-zcode-working-pill="true"]')
+        : null;
+    if (!pill || !scrollElement || typeof IntersectionObserver === "undefined") {
+      setWorkingPillInViewport(false);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries.at(-1);
+        if (entry) setWorkingPillInViewport(entry.isIntersecting);
+      },
+      { root: scrollElement, threshold: 0 },
+    );
+    observer.observe(pill);
+    return () => observer.disconnect();
+    // rows.length 覆盖本轮追加工作行（胶囊可能随 flowItems 重建）；本轮切换由
+    // hasRunningUnit 兜住。时长文案每秒变化不会重建胶囊 DOM，无需进依赖。
+  }, [hasRunningUnit, rows.length]);
+
+  const renderWorkingPill = shouldShowTimelineWorkingPillChip({
+    showLoading: hasRunningUnit,
+    backToBottomVisible,
+    workingPillInViewport,
+  });
   // raw projection row 与按 turn 合并后的 render unit 不是同一计量单位；
   // 分开暴露才能让恢复/分页验证不再把可见 unit 误当成持久 row。
   return (
@@ -2081,17 +2147,31 @@ function ConversationTimelineImpl({
                 )}
               >
                 <div data-v4-back-to-bottom-anchor="composer-dock" className="relative">
-                  {backToBottomVisible ? (
-                    <ConversationBackToBottomButton
-                      // 分屏下 composer 属于滚动视口内的 sticky dock；按钮若挂在
-                      // timeline 外层 absolute bottom，会相对整个 pane 落到 input 下方。
-                      //
-                      // 圆钮采用自己的居中定位；`pointer-events-auto` 保留：
-                      // 它是"按钮点得动"唯一可断言的契约。
-                      className="pointer-events-auto absolute bottom-full start-1/2 z-30 mb-2 -translate-x-1/2 rtl:translate-x-1/2 shadow-sm"
-                      label={intl.formatMessage({ id: "chat.scrollToBottom" })}
-                      onClick={handleBackToBottom}
-                    />
+                  {backToBottomVisible || renderWorkingPill ? (
+                    // 贴底浮层锚点（分屏下 composer 属于滚动视口内的 sticky dock；按钮若挂在
+                    // timeline 外层 absolute bottom，会相对整个 pane 落到 input 下方）：
+                    // 两枚圆钮共用一条居中的横向布局，都出现时按 8px 间距并排，只出现一枚时
+                    // 仍居中——各自绝对居中会完全重叠，而同元素叠加两个 translate-x 工具类
+                    // 谁生效取决于生成顺序，不能拿来做定位。
+                    <div className="pointer-events-none absolute bottom-full start-1/2 z-30 mb-2 flex -translate-x-1/2 items-center gap-2 rtl:translate-x-1/2">
+                      {backToBottomVisible ? (
+                        <ConversationBackToBottomButton
+                          className="pointer-events-auto shadow-sm"
+                          label={intl.formatMessage({ id: "chat.scrollToBottom" })}
+                          onClick={handleBackToBottom}
+                        />
+                      ) : null}
+                      {renderWorkingPill ? (
+                        <ConversationWorkingPillChip
+                          // 状态兜底：本轮整体滚出视口后留在底部的一枚「工作中」入口
+                          // （docs/spec/assistant-working-status-pill.md「离屏兜底」）。
+                          // 点击与旁边那枚同义：都是回到底部，吸顶胶囊随之回到视口顶部。
+                          className="pointer-events-auto shadow-sm"
+                          label={intl.formatMessage({ id: "chat.history.workingPill.offscreen" })}
+                          onClick={handleBackToBottom}
+                        />
+                      ) : null}
+                    </div>
                   ) : null}
                   {bottomDock}
                 </div>

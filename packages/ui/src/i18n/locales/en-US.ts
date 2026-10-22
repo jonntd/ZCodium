@@ -284,6 +284,7 @@ const enUS: Record<string, string> = {
   "manualClaimPlan.claim.share.twitterTextLabel": "Twitter/X post text",
   // Common
   "common.loading": "Loading...",
+  "common.desktopOnly": "Desktop only",
   "common.listSeparator": ", ",
   "common.generating": "Generating...",
   "common.connecting": "Connecting...",
@@ -1711,6 +1712,8 @@ const enUS: Record<string, string> = {
   "appHeader.openProviderConfigWithEditorSuffix": "config file",
   "appHeader.openProviderConfigInEditorFailed": "Could not open provider config in {editor}",
   "workspaceHeader.help.menu": "Help",
+  "workspaceHeader.help.desktopOnly":
+    "Export logs, resource manager, updates and About are available on desktop only",
   "workspaceHeader.help.issueReport": "Report an issue",
   "workspaceHeader.help.reportVulnerability": "Report a vulnerability",
   "workspaceHeader.help.productRequest": "Request a feature",
@@ -5183,6 +5186,7 @@ const enUS: Record<string, string> = {
   "chat.history.stopped": "Stopped",
   "chat.history.workingPill.status": "Working",
   "chat.history.workingPill.elapsed": "{duration} elapsed",
+  "chat.history.workingPill.offscreen": "Working (back to this turn's status)",
   "chat.history.duration.day": "d",
   "chat.history.duration.hour": "h",
   "chat.history.duration.minute": "m",

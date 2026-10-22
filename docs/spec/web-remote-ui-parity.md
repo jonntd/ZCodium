@@ -1,6 +1,8 @@
 # 分析：远程中继页与本地桌面 App 的 UI 一致性
 
 > 状态：**P0 已落地（2026-10-09）；P1 / P2 与 4 个决策点待确认**
+> **2026-10-17 复核**：P0 与版本护栏仍在；P1 三项布局对齐**均未落地**；另发现
+> 「手机远控壳」已存在于 `@zcode/ui` 但**两个入口都没接线**（见 §8）。
 > 对比对象：**路线 A** —— `deploy/vps-relay/relay.mjs` 托管的手机页面（产物 = `packages/web/dist`，
 > 入口 `packages/web/src/main.tsx`） **vs** 本地桌面 App（`packages/desktop/src/renderer/src/main.tsx`）。
 > 两者渲染的是**同一个** `@zcode/ui` 的 `Root`，所以"长得不一样"从来不是组件库的问题。
@@ -20,14 +22,18 @@
 
 **最需要修的 4 处"真·不一致"**（同一功能出现两套实现/两种布局）：
 
-1. ⏸ 工作区头部在 Web 草稿态**整体消失**（桌面始终有）—— `WorkspaceShellLayout.tsx:1497`
-   → 需先确认 spec 边界（§5 决策点 1）
+1. ✅ 工作区头部在 Web 草稿态**整体消失**（桌面始终有）—— **2026-10-17 已落地（按 (ii) 解读）**：
+   壳层不再以「有 active task 或是桌面」决定头部存亡，改为主视图排除（automations /
+   plugin-store 自带布局）；桌面 chrome 由 `WorkspaceHeader` 内部按 `isDesktop` 裁剪。
+   纯函数 `app-shell/workspaceHeaderVisibility.ts` + 测试 `packages/ui/test/workspaceHeaderVisibility.test.ts`；
+   存量 `automationsMainDragRegion.test.ts` 的表达式断言已随提取改指新模块。
 2. 🟡 首屏启动画面**两份 SVG 真相源**（`index.html` 内联 vs `RootStartupLoading.tsx`）
    → 动画参数已对齐（§6 P0-1），手抄副本本身仍在
 3. ✅ Web 的启动失败页 / 断线提示原为**裸 HTML + 硬编码中英文**，绕过 `@zcode/ui` 组件与 i18n
    → 已改走 `Button` + `intl`（§6 P0-2）
-4. ⏸ `isMobileViewport` 在 3 处**硬编码 `false`**，移动端两条已写好的交互分支永不生效
-   → 方向未定（§5 决策点 2）
+4. ✅ `isMobileViewport` 硬编码 `false` 已清除（2026-10-20，§5-5 / §8.3）
+   → composer 自动聚焦不再弹软键盘、手机不再出现「分题」命令；另复活模型工具条
+   submenu 宽度与状态面板浮层方向两处同源死默认
 
 ---
 
@@ -108,11 +114,11 @@ host-report 时已经拿到 `report.appVersion`，但只用于显示 serverId/ve
 
 | #   | 界面元素                  | 桌面                                                                                                     | Web                                                                                                  | 位置                                           |
 | --- | ------------------------- | -------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
-| A1  | **工作区头部**            | 任何状态都渲染（`variant="draft"` / `"task"`）                                                           | **无 active task 时整个 header 不渲染** → 没有项目名、分支/变更摘要、帮助菜单、终端与 side pane 开关 | `app-shell/WorkspaceShellLayout.tsx:1497-1499` |
+| A1  | **工作区头部**            | 任何状态都渲染（`variant="draft"` / `"task"`）                                                           | ✅ 2026-10-17 已一致：草稿态也渲染 header，桌面 chrome 由 `WorkspaceHeader` 内部按 `isDesktop` 裁剪（task 态手机页本就如此）。⚠ 例外：路线 B 移动壳（`WebRemoteControlMobileShell`）chat 页仍按 `activeTaskId !== null` 注入——它自带返回/标题/主题 chrome，草稿入口是 home 页，`workspaceShellRemoteMobileLayout` 测试锁死                                  | `app-shell/workspaceHeaderVisibility.ts`、`WorkspaceShellLayout.tsx:1835` |
 | A2  | **首屏启动画面**          | `RootStartupLoading`（React，整枚呼吸 1.8s）                                                             | `index.html` 内联壳（**动画已对齐**，见 §6）+ 自诊断提示                                             | 见 §1.3                                        |
 | A3  | **启动失败页 / 断线提示** | 走 `ScopedErrorBoundary` / `toast` / `Card` + `intl`                                                     | ~~自绘裸 HTML + 硬编码中英文~~ → **已改走 `Button` + `intl`**（见 §6）                               | `web/src/main.tsx:421-526`                     |
-| A4  | **设置页顶部布局**        | 面板 `p-1 ps-0 pt-0` + `data-settings-top-inset` + 顶部 `h-1 [app-region:drag]` 拖拽条 + 内联窗控/帮助组 | `p-0`、无拖拽条、帮助菜单绝对定位                                                                    | `SettingsPage.tsx:1275-1305`                   |
-| A5  | **窗口根底色**            | mac：`bg-background-alt` + vibrancy                                                                      | 走 `bg-background-win-alt`（**Windows 的 token**）                                                   | `DesktopWindowFrame.tsx:28,40-42`              |
+| A4  | **设置页顶部布局**            | ✅ 2026-10-17 复核关闭：两侧渲染**同一棵 JSX 树**（`DesktopWindowFrame` + `data-settings-content-frame` + `data-settings-top-inset`），仅由 `isDesktop` 切条件类。剩余差异（桌面 `p-1 ps-0 pt-0` + `h-1` 拖拽条 + 内联窗控件 vs Web `p-0`）是**刻意的平台适配**：Web 无窗口可拖、无自绘窗控，官方式设计而非两套实现                                       | `SettingsPage.tsx:1271-1306`             |
+| A5  | **窗口根底色**            | ✅ 2026-10-17 落地：新增 `--color-background-web-alt`（`@theme` + `.dark` + zai-light/dark 四段，取值与 win-alt 逐主题一致 ⇒ **零视觉变化**）；`DesktopWindowFrame` 三分支：Web→`bg-background-web-alt`、Windows/Linux→`bg-background-win-alt`、mac→`bg-background-alt`（vibrancy 兜底不变）。回归测试 `packages/ui/test/webRootSurfaceToken.test.ts`（2 项）                                                                    | `styles.css`、`DesktopWindowFrame.tsx:27-51` |
 | A6  | **语言初值**              | 系统 locale                                                                                              | `navigator.language`                                                                                 | §1.3                                           |
 
 ### 2.2 B 类：平台能力缺失 —— **不应"统一功能"，但应统一"交代方式"**
@@ -128,15 +134,32 @@ Computer Use 设置分区、项目记忆查看器、Claude 会话迁移、在文
 `WorkspaceSidebarFooter.tsx:300-333` 隐藏缩放子菜单、`:339-345` 隐藏「移动端远程控制」入口；
 `GitPane.tsx:84` 关闭"在文件管理器中打开"）。
 
-**缺的是统一的降级说明组件**：现在只有 `settings.browser.desktopOnly` 一条先例，
-其余地方是"静默消失"。
+**统一降级组件（2026-10-20 落地）**：`packages/ui/src/DesktopOnlyNotice.tsx`，两形态——
+`block`（面板/设置页提示块，视觉沿用 `settings.browser.desktopOnly` 先例）与
+`menu`（下拉菜单内非交互说明行，对齐 DropdownMenuItem 内边距但不聚焦/不响应点击，
+避免"看起来能点"的假入口）。默认文案 `common.desktopOnly`（三语），具体能力由调用方
+传 `messageId`。回归测试 `packages/ui/test/desktopOnlyNotice.test.ts`。
+
+处置清单（"哪些给提示、哪些继续隐藏"）：
+
+| 能力 | 处置 | 落点 / 理由 |
+|---|---|---|
+| 导出日志、资源管理器、检查更新、关于 | ✅ 菜单内一条说明行 | `WorkspaceHelpMenuButton.tsx`：四项同为「桌面窗口/安装目录/更新器」依赖，Web 一次说清；此前整块静默隐藏 |
+| 浏览器数据管理（设置页） | ✅ 收敛进统一组件 | `settings/BrowserSettingsSection.tsx`：原内联提示块删除，先例与统一组件合流 |
+| 内嵌浏览器 / browser-use | 暂保持隐藏 | 入口由平台方法探测（`browserView*` 在 Web 不存在）⇒ 不出现"能点没反应"；补禁用入口需先定「新 tab 菜单是否列不可用类型」，属产品决策 |
+| 在编辑器打开、在文件管理器中打开 | 暂保持隐藏 | Web 的 `getInstalledEditors()` 返回 `[]`、`canOpenLocalFileManager=false` ⇒ 入口自然消失；渲染点有 7 处（PreviewPane / message / file-tree / task-list / artifact / OpenSplitButton / GitPane），逐点加提示成本高、收益低 |
+| Computer Use 设置分区 | 暂保持隐藏 | 导航级过滤（`settingsPageConfig.ts:194`），提示需导航级形态，超出组件语义 |
+| 缩放子菜单、Docker/WSL 候选、桌面通知、CUA 引导等 | 暂保持隐藏 | 均为"上下文强相关"能力，静默消失不产生误解；待有用户反馈再逐一评估 |
+
+**原则**：只在「用户会主动找、找不到会以为产品坏了」的位置给提示；低频/上下文能力
+继续隐藏，避免把手机页变成"桌面功能残缺清单"。
 
 ### 2.3 C 类：行为/链路差异 —— **需先定方向再改**
 
 | #   | 行为                              | 现状                                                                                                                                                                                                                                                                                               | 位置                                                                              |
 | --- | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| C1  | **composer 自动聚焦**             | 纯函数已写"移动端不自动聚焦（避免弹软键盘）"，但调用点把 `isMobileViewport` **写死 `false`** → 手机上也自动聚焦                                                                                                                                                                                    | `v4/composer/composerAutoFocus.ts:26-28` vs `v4/ConversationComposer.tsx:797-805` |
-| C2  | **"分题"斜杠命令**                | 纯函数已写"移动端不提供"，同样被写死 `false` → 手机上照常提供                                                                                                                                                                                                                                      | `slashCommandHelpers.ts:70-79` vs `v4/SessionPane.tsx:1870-1880`                  |
+| C1  | **composer 自动聚焦**             | ✅ 2026-10-20 已修：调用点改接 strict 视口钩子 `useIsMobileTextInputViewport`（`lib/mobileTextInput.ts`，767px + hover:none + pointer:coarse ⇒ 桌面窄窗不误判）⇒ 手机不再自动聚焦（不弹软键盘），桌面不变 | `v4/ConversationComposer.tsx` focusOptsRef、`test/v4MobileViewportWiring.test.ts` |
+| C2  | **"分题"斜杠命令**                | ✅ 2026-10-20 已修：同一钩子接入 `shouldOfferSideSlashCommand` 门禁 ⇒ 手机不再提供 `/side`、`/btw` | `v4/SessionPane.tsx`、`test/v4MobileViewportWiring.test.ts`                 |
 | C3  | **首屏 loading 阻塞**             | `shouldShowRootStartupLoading` 含 `Boolean(state.isDesktop)` → Web **永不**显示 `RootStartupLoading`                                                                                                                                                                                               | `lib/rootStartupGate.ts:37-41`、`Root.tsx:579,916`                                |
 | C4  | **Web 首屏 fallback 是死代码** ✅ | 分支要求 `initialWorkspaceLoadingFallback`，**两个入口此前都没传**（prop 只在 `root/types.ts:38` 定义）→ Web 在"已给 `initialWorkspaceAbsPath`、workspace tab 未注入"的首帧落不到该分支，渲染空 `RootShell` 露白底。**2026-10-09 已修**：Web 入口传 `<WebInitialWorkspaceLoading />`（见 §6 P0-4） | `Root.tsx:932-947`                                                                |
 | C5  | **流式链路**                      | 桌面 `desktop-continuous`（实时）vs 手机 `web-remote-replayable`（快照恢复）                                                                                                                                                                                                                       | 协议层差异，不在本方案范围，但会影响"状态面板/流式呈现"的观感                     |
@@ -175,19 +198,21 @@ Computer Use 设置分区、项目记忆查看器、Claude 会话迁移、在文
    `initialWorkspaceLoadingFallback={<WebInitialWorkspaceLoading />}`（内部走
    `intl` + `common.loading`）。该分支不再是死代码，Web 首帧不再渲染空 `RootShell` 露白底。
 
-5. ⏸ **`isMobileViewport` 接真实视口**（C1/C2）—— **未做，等决策**
-   理由：本任务的目标是"让中继页与本地 App **保持一致**"，而接上真实视口会让手机
-   _变得与桌面不同_（不自动聚焦、不出现"分题"命令）。方向未定，不动比乱动好。
-   见 §5 决策点 2。
+5. ✅ **`isMobileViewport` 接真实视口**（C1/C2）—— **2026-10-20 落地**
+   原顾虑是"接上真实视口会让手机_变得与桌面不同_"；复核后该顾虑不成立：这是**输入设施
+   适配**而非 UI 骨架差异——同一套 `Root`/header/composer 不变，变的只是"手机软键盘
+   不自动弹出""手机不出现桌面交互的 `/side` 命令"，纯函数契约（`composerAutoFocus.ts`、
+   `slashCommandHelpers.ts`）本来就要求如此，写死 false 属于漏接线。另复活两处同源
+   死默认（模型工具条 submenu 宽度、状态面板浮层方向）。详见 §8.3。
+   移动壳（路线 B）决策 (c) 不受影响：没有启用 `webRemoteControlWorkspaceSwitcher`。
 
 ### P1 —— 布局对齐
 
-6. **工作区头部：Web 草稿态也渲染 header**（A1）
-   把 `shouldRenderWorkspaceHeader` 的 `(activeTaskId !== null || isDesktop)` 改为恒真，
-   由 `WorkspaceHeader` 内部继续按 `isDesktop` 裁剪桌面 chrome（窗控、拖拽区、更新按钮）。
-   ⚠ **与现有 spec 冲突**：`WorkspaceShellLayout.tsx:1492-1496` 的注释写明"手机远控无 active task
-   时仍不渲染桌面 chrome，继续遵守 replayable overlay 边界"。**需要你确认**这条边界指的是
-   "不渲染桌面 chrome"还是"不渲染整个 header"——本方案按前者理解。
+6. ✅ **工作区头部：Web 草稿态也渲染 header**（A1）—— **2026-10-17 落地**
+   `shouldRenderWorkspaceHeader` 提取为纯函数 `shouldRenderWorkspaceHeaderForMainView`
+   （仅排除 automations / plugin-store），删掉 `(activeTaskId !== null || isDesktop)` 门禁；
+   桌面 chrome 继续由 `WorkspaceHeader` 内部按 `isDesktop` 裁剪。原「与现有 spec 注释冲突」
+   已按 (ii) 解读消除（见 §5 决策点 1）。
 
 7. **设置页顶部装饰层收敛**（A4）
    抽出"面板顶部 inset / 拖拽条"为一个可选装饰组件，两侧共用同一容器，仅由 `isDesktop`
@@ -235,12 +260,23 @@ Computer Use 设置分区、项目记忆查看器、Claude 会话迁移、在文
 
 ## 5. 需要你决策的点
 
-1. **A1 工作区头部**：Web 草稿态到底要不要 header？（现有 spec 注释倾向"不要"，
-   本方案倾向"要，但裁掉桌面 chrome"）
-2. **C1/C2 移动端交互**：手机远控是**故意**对齐桌面（不区分视口），还是漏接线？
-   这决定 `isMobileViewport` 是"改成真实值"还是"删掉这两条分支"。
-3. **B 类降级说明**：哪些"桌面专属"功能需要在 Web 上给出可见提示（而不是静默隐藏）？
-   建议至少：内嵌浏览器、在编辑器打开、导出日志、更新。
+1. **A1 工作区头部**：✅ **2026-10-17 已按 (ii) 落地并留档**（原决策：Web 草稿态要不要
+   header；结论「要，但桌面 chrome 由 WorkspaceHeader 内部裁剪」）。`replayable overlay
+   边界`经 task 态手机页一直在渲染 header 反证，指的是「不渲染桌面 chrome」而非「不渲染
+   整个 header」。验收以真机截图为准（中继页草稿态应出现项目名 / 分支摘要 / 帮助菜单 /
+   侧栏开关，且**不出现**窗控与拖拽条）。
+2. **C1/C2 移动端交互 + §8.4 手机远控壳**：2026-10-17 复核确认壳属于**路线 B（官方中继）**、
+   路线 B 数据面未实现、路线 A 的 server-info 只有单工作区无 task 列表 ⇒ 接线无数据源。
+   建议按 **(c) 维持现状 + 文件头标注「未接线」**（已实施，见 §8.5 末），删除 (b) 因上游
+   merge 成本不推荐；若路线 B 数据面落地再回到 (a)。**待你确认。**
+   （注：C1/C2 本身已于 2026-10-20 独立修复——它是输入设施适配、与是否启用移动壳无关，
+   见 §5-5；本决策点只管辖移动壳的去留。）
+3. **B 类降级说明** —— 2026-10-20 已落地统一组件与首批处置（见 §2.2 清单）：
+   `DesktopOnlyNotice` 两形态 + `common.desktopOnly` 三语；帮助菜单四项合并为一条
+   说明行、浏览器设置页先例收敛进组件。**剩余 4 项待产品确认**：内嵌浏览器（是否在
+   新 tab 菜单列禁用类型）、在编辑器打开/文件管理器（7 个渲染点，逐点加提示成本高）、
+   Computer Use 设置分区（需导航级形态）。判断标准：只对「用户会主动找、找不到会
+   以为产品坏了」的能力给提示。
 4. **是否保留 `docs/spec` 之外的独立 spec**：本文件是否升格为
    `vps-relay-bridge.md` 的一个章节（§19 UI 一致性），还是独立维护。
 
@@ -392,3 +428,149 @@ scp -r packages/web/dist/* <user>@<relay-host>:<web-root>/
 
 **验收**：`packages/web/tests/relayBundleFreshness.test.mjs` **10 项**（commit 优先、
 短/全 SHA 前缀等价、前缀下界、退到 version、fail-open、占位值、去重键）。
+
+---
+
+## 8. 复核：2026-10-17 当前代码状态
+
+> 方法：按符号名逐项 `git grep` / 读码复核，不依赖本文档旧行号。
+
+### 8.1 已落地且仍在
+
+- **P0 四项**：启动壳动画参数对齐（`index.html` 内联壳 ↔ `RootStartupLoading.tsx`）；
+  启动失败页 / 断线提示走 `Button` + `intl`；`initialWorkspaceLoadingFallback`
+  （`web/src/main.tsx` 传 `<WebInitialWorkspaceLoading />`，`Root.tsx:932-947` 不再是死分支）；
+  `RootStartupLoading` 已从 `@zcode/ui` 导出。
+- **P2-11 版本漂移护栏**：`relayBundleFreshness.ts` + `WebBundleStaleNotice` +
+  host-report `buildCommitId` 全链路在（§7 所述未变）。
+
+### 8.2 P1 三项「布局对齐」——**均未落地**（逐项复核）
+
+| #   | 现状（2026-10-17）                                                                                                                                 |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A1  | `shouldRenderWorkspaceHeader` 已按 (ii) 落地：改为 `shouldRenderWorkspaceHeaderForMainView(workspaceMainView)`（仅排除 automations / plugin-store），`WorkspaceShellLayout.tsx:1835`。**回归**：`packages/ui/test/workspaceHeaderVisibility.test.ts`（纯函数 + 「不得再以 activeTaskId/isDesktop 门禁」源码锁）；`automationsMainDragRegion.test.ts` 的表达式断言随提取改指新模块 |
+| A4  | `data-settings-top-inset={isDesktop ? "true" : undefined}`（`SettingsPage.tsx:1280`）⇒ Web 仍无拖拽条 / 顶部 inset                                |
+| A5  | `usesOpaqueRootSurface = !isDesktop \|\| isWindowsDesktop \|\| isLinuxDesktop`（`DesktopWindowFrame.tsx:28`）⇒ 中继页仍复用 Windows token `bg-background-win-alt` |
+
+### 8.3 C1/C2/C3 行为差异
+
+- **C1/C2**：✅ 2026-10-20 已修。`isMobileViewport: false` 写死已清除：composer 的
+  `focusOptsRef` 与 SessionPane 的 `shouldOfferSideSlashCommand` 都改接
+  `useIsMobileTextInputViewport()`（`lib/mobileTextInput.ts` 的 strict 查询，composer
+  早在 enterSubmits / iOS 防放大 / 短 placeholder 三处自用，本次只是把同一信号补到
+  剩下两个写死调用点）。顺带复活了两处同源死默认：`V4ComposerModelControls` 的
+  providerSubmenuClassName（手机 submenu 宽度适配）与 `ConversationStatusPanel` 的
+  `useVerticalFloatingPanels`（分支/Todo 浮层改纵向）——两者的 `isMobileViewport`
+  prop 一直存在但无传参方，本次由父组件补传。回归锁
+  `packages/ui/test/v4MobileViewportWiring.test.ts`（3 项源码断言）。
+- **C3**：`shouldShowRootStartupLoading` 仍含 `Boolean(state.isDesktop)`
+  （`lib/rootStartupGate.ts:45`）⇒ Web 的 in-Root 启动 loading 永不显示；但已被
+  `index.html` 首屏壳 + `initialWorkspaceLoadingFallback` 双重缓解，用户不可见。
+
+### 8.4 新事实：「手机远控壳」属于**路线 B（官方中继）**，且整条路线在 fork 未闭环
+
+`@zcode/ui` 内已有一整套为「手机 Web 远控」准备的专用壳（上游同步带入，fork 保留了代码）：
+
+- `WebRemoteControlMobileShell.tsx`（home/chat 双页 + `history.state` 刷新恢复 + 拖拽导航 +
+  主题菜单）、`WebRemoteControlMobileTaskHome.tsx`、`WebRemoteControlTaskIndex.tsx`；
+- 真实视口探测 `getIsWebRemoteControlMobileViewport()` + `WebRemoteControlThemeMenu`；
+- 启动门禁 `isWebRemoteControlRoot`（`lib/rootStartupGate.ts:48-61`）：**跳过 provider 启动
+  登录守卫、不阻断 workspace 注入**——注释写明「手机 Web 远控只 attachment 到桌面已有 host」。
+
+**激活条件**：入口给 `Root` 传 `webRemoteControlWorkspaceSwitcher`
+（`root/types.ts:75` 的 `WebRemoteControlWorkspaceSwitcherApi`：listWorkspaces /
+switchWorkspace / markTaskRead / updateMobileViewState / reconnectWorkspace / startDraft）。
+实测 **desktop 与 web 两个入口都没传**；`updateMobileViewState` 无实现方（只有 ui 包内部
+调用点与测试 mock）；`isWebRemoteControlShell = Boolean(webRemoteControlWorkspaceSwitcher)`
+（`WorkspaceShellLayout.tsx:420`）恒 false ⇒ 移动壳、窄屏 header 简化、导航折叠全是死分支。
+
+**关键归因（2026-10-17 补查）**：这套壳的数据上游不是 relay.mjs，而是**桌面侧
+`webRemoteControlManager`（`packages/desktop/src/main/index.ts:758` 实例化，活的）**——
+它对接**官方中继**（`relayWsUrl` 来自 `ZCODE_ENDPOINT_ORIGIN`，env 可覆盖），
+`platform.syncWebRemoteControlWorkspaces/Tasks`（`desktopMainIpcPlatform.ts:99-103`）
+把 workspace/task 列表喂给 manager 的**路线 B 会话**；`WebRemoteControlStatus.mobileViewState`
+等类型也只服务于该会话。而 fork 实际交付的是**路线 A（relay.mjs 字节转发 + 标准 host 协议）**：
+
+- 路线 B 的官方中继**数据面未实现**（spec vps-relay-bridge.md / MEMORY：`remoteOfficialDeviceClient`
+  没传 `onLink`，配对链接被丢弃）⇒ manager 活着但手机永远接不进来；
+- 路线 A 的 `server-info` 只有 `workspaces: [workspace]` **单工作区、无 task 列表**
+  （`relay.mjs:344`）⇒ 即便接线，`listWorkspaces()`/任务首页也没有数据源。
+
+**⇒ 三选一成本（建议 c）**：
+
+| 选项 | 成本 | 风险 |
+| --- | --- | --- |
+| a. 接线到路线 A | 需扩展 host-report（多 workspace + task 聚合）+ 新增 view-state 协议方法（`zcode-protocol` 同步改）+ 桌面侧消费者（现 manager 只服务路线 B）⇒ **完整功能项目** | 与路线 B manager 形成**第二套真相源**，违背 AGENTS.md「避免重复状态和多条写入路径」 |
+| b. 整段删除 | ui 闭环 8 文件 + web 11 模块 + 登录页 2 文件 ≈ 2600 行 | 均为上游同步带入，删除 = 后续每次合上游 main 都冲突；仓库惯例是隔离而非删除 |
+| **c. 维持 + 标注（建议）** | 文件头加「未接线」横幅 + 本文档留档 | 近零；路线 B 数据面落地时再按 (a) 接线 |
+
+§5 决策点 2 按 (c) 落档，待确认；若路线 B 数据面未来实现，直接回到 (a)。
+
+### 8.5 休眠资产清单（2026-10-17 实测：入口零引用）
+
+> 判定方法：按模块名 grep importers（排除自身与 test）。这些文件只受 typecheck/lint 约束
+> （knip 长期失败属存量），**改动/推理时勿当作活代码**。归属与决策见 §8.4。
+
+**`packages/ui/src`（自成闭环，桌面活代码不引用）**：
+
+| 文件                                    | 行数级 | 说明                                     |
+| --------------------------------------- | ------ | ---------------------------------------- |
+| `WebRemoteControlMobileShell.tsx`       | ~600   | 壳根组件（home/chat 双页）               |
+| `WebRemoteControlMobileTaskHome.tsx`    | —      | 任务首页                                 |
+| `WebRemoteControlTaskIndex.tsx` / `Row` | —      | 任务索引                                 |
+| `WebRemoteControlThemeMenu.tsx`         | —      | 壳内主题菜单                             |
+| `hooks/useWebRemoteControlStatus.ts`    | —      | 路线 B 状态 hook（活对话框不用它）        |
+| `hooks/useWebRemoteControlTaskOpen.ts`  | —      | 跨 workspace 打开任务                    |
+| `lib/webRemoteControlTaskIndex.ts` / `lib/webRemoteControlMobileTaskHome.ts` | — | 纯函数 |
+
+**`packages/web/src`（fork 的 `main.tsx` 零引用，来自上游同步 `de5923d1`）**：
+
+| 文件                                                     | 说明                                   |
+| -------------------------------------------------------- | -------------------------------------- |
+| `webRemoteControlTransport.ts`（1107 行）                | 路线 B 手机侧设备传输                  |
+| `webRemoteControlFailureScreen.tsx`（386 行）            | 路线 B 失败页（唯一 importers 是同样休眠的 VersionNotice） |
+| `webRemoteControlRoute.ts` / `Lifecycle.ts` / `Version.ts` / `VersionNotice.tsx` | 路由 / 生命周期 / 版本提示 |
+| `webRemoteControlDeviceInfo.ts` / `TaskRead.ts` / `ThemeSeed.ts` | 设备信息 / 任务已读 / 主题初值 |
+| `webRemoteControlRelayAuthProvider.ts` / `WorkspaceBridgeSession.ts` | 路线 B 鉴权 / bridge 会话 |
+| `auth/WebLoginPage.tsx` / `auth/WebLoggedInWaitingPage.tsx` | 路线 B 登录态页（`auth/WebCallbackPage.tsx` 是活的，勿混） |
+
+对应测试已按仓库约定隔离为 `.test.pending.ts`（例：`webRemoteControlRoute.test.pending.ts`
+断言 `main.tsx` 含 `resolveWebRemoteControlRoutePath(import.meta.env)`——与 fork 入口刻意分道；
+`externalRelayFrameGapRecovery.test.pending.ts` 同理）。
+
+**已按 (c) 加「未接线」横幅的文件**（2026-10-17）：`WebRemoteControlMobileShell.tsx`、
+`webRemoteControlTransport.ts`、`webRemoteControlRoute.ts`、`auth/WebLoginPage.tsx`。
+
+## 9. 实施记录（2026-10-20）：C1/C2 接线 + B 类降级组件
+
+### 9.1 C1/C2 —— 手机视口信号接线（补回漏掉的接线）
+
+- **根因**：不是缺信号，是漏接线。`lib/mobileTextInput.ts` 早有 strict 钩子
+  `useIsMobileTextInputViewport()`（`767px + hover:none + pointer:coarse`），composer 自己
+  已在 Enter 换行 / iOS 防放大 / 短 placeholder 三处使用；但 `focusOptsRef`
+  （`ConversationComposer.tsx`）与 `shouldOfferSideSlashCommand` 门禁（`SessionPane.tsx`）
+  把 `isMobileViewport` 写死 `false`（composer 原注释自证「M5 只恢复了桌面端的 false
+  硬编码，已登记的手机远控接线没有补回」）。
+- **改动**：composer `focusOptsRef` 两处接真值；`<V4ComposerModelControls>` 补传
+  `isWebRemoteControl` + `isMobileViewport`；SessionPane 调同源钩子，`/side` 门禁接真值，
+  `<ConversationStatusPanel>` 补传两 prop。顺带复活两处同源死默认（模型工具条 submenu
+  宽度、状态面板浮层纵向）。
+- **为何用 strict 查询**：壳层的裸 `(max-width:767px)` 会把桌面窄窗误判成手机 ⇒ 桌面丢
+  自动聚焦；strict 查询要求 `hover:none + pointer:coarse`，桌面零回归。
+- **与移动壳解耦**：未触碰 `webRemoteControlWorkspaceSwitcher`，路线 B 决策 (c) 不变。
+- 回归：`packages/ui/test/v4MobileViewportWiring.test.ts`（3 项源码锁）。
+
+### 9.2 B 类 —— 统一降级组件（§2.2 清单）
+
+- 新增 `packages/ui/src/DesktopOnlyNotice.tsx`（`block` / `menu` 两形态，默认
+  `common.desktopOnly`，可传 messageId）+ 三语 key；回归
+  `packages/ui/test/desktopOnlyNotice.test.ts`（渲染 + 源码锁）。
+- 应用：帮助菜单 Web 分支（导出日志/资源管理器/检查更新/关于）由整块静默隐藏改为一条
+  菜单内说明行；浏览器设置页的内联提示块收敛进组件（先例合流）。
+- 其余能力按 §2.2 清单继续隐藏，待产品确认（内嵌浏览器、在编辑器打开、Computer Use 分区）。
+
+### 9.3 验证
+
+`pnpm typecheck` exit 0；`pnpm lint` 0 error / 30 存量 warning；`architecture:check --changed`
+0 violations；相关测试 9 文件 112/112 + `desktopOnlyNotice` 3/3 + `hardcodedCopyI18n` 3/3。
+真机待验：中继页进会话不弹软键盘、`/` 面板无 side/btw、帮助菜单出现桌面端说明行。

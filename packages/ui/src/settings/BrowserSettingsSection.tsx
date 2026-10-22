@@ -16,6 +16,7 @@ import {
 import { Switch } from "@/components/ui/switch.js";
 import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
+import { DesktopOnlyNotice } from "@/DesktopOnlyNotice.js";
 import { useServices } from "@/hooks/useServices.js";
 import { useZCodeSessionService } from "@/hooks/useZCodeSessionService.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -304,9 +305,7 @@ export function BrowserSettingsSection({
           {intl.formatMessage({ id: "settings.browser.data.section" })}
         </div>
         {!nativeActionsAvailable ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-3 text-ui-base text-foreground-subtle">
-            {intl.formatMessage({ id: "settings.browser.desktopOnly" })}
-          </div>
+          <DesktopOnlyNotice messageId="settings.browser.desktopOnly" />
         ) : null}
         <SettingsGroupCard>
           <SettingsRow

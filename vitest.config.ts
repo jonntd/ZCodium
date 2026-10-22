@@ -26,6 +26,7 @@ const nodeRunTestFiles = [
   "packages/ui/test/fileRewindSelection.test.ts",
   "packages/ui/test/hoverPreview.test.ts",
   "packages/ui/test/patcherParity.test.ts",
+  "packages/ui/test/v4ComposerContinueAction.test.ts",
   "packages/ui/test/remoteRelayScenario.test.ts",
   "packages/ui/test/sidePaneFilesTab.test.ts",
   "packages/ui/test/sidePanePreviewTab.test.ts",

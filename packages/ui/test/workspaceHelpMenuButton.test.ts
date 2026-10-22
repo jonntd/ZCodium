@@ -250,7 +250,7 @@ describe("WorkspaceHelpMenuButton", () => {
     }
   });
 
-  it("桌面两组一条分隔线，导出日志位于桌面组首项，Web 仅帮助组", async () => {
+  it("桌面两组一条分隔线，导出日志位于桌面组首项；Web 用一条非交互说明交代桌面专属项", async () => {
     for (const desktop of [true, false]) {
       const html = await render(desktop);
       expect(captured.menuItems.map((item) => item.label)).toEqual([
@@ -267,7 +267,13 @@ describe("WorkspaceHelpMenuButton", () => {
             ]
           : []),
       ]);
-      expect((html.match(/<hr/g) ?? []).length).toBe(desktop ? 1 : 0);
+      // 桌面：帮助组 + 桌面专属组（一条分隔线）。
+      // Web（2026-10-20 起，spec §2.2-B）：帮助组 + 桌面专属说明组——同样一条分隔线，
+      // 但第二组不是菜单项，而是一行 role=note 的非交互说明（DesktopOnlyNotice），
+      // 避免四个"能看不能点"的假入口。旧契约是 Web 0 条分隔线（整块静默隐藏）。
+      expect((html.match(/<hr/g) ?? []).length).toBe(1);
+      expect(html.includes("workspaceHeader.help.desktopOnly")).toBe(!desktop);
+      expect(html.includes('role="note"')).toBe(!desktop);
     }
   });
 

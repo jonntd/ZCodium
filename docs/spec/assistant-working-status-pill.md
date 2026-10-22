@@ -52,27 +52,93 @@
 - 分享只读时间线（`ConversationShareReadonlyTimeline`）维持纯文本，不在本次范围；
 - `ChatLoading` 组件本身保留（其他兜底 surface 继续使用）。
 
+**胶囊吸顶（状态必须留在视口内）**：胶囊挂在运行轮的 work history 头部，本轮工作行随
+工具调用持续追加，会把「工作中 + 用时」不断向上顶出视口；而贴底跟随（`following = true`）
+恰恰是用户最常停留的位置。规则：
+
+- 运行中（`workStatus.state === "running"`）时 `AssistantHistoryStatus` 行吸顶
+  （`sticky top-0 z-10 bg-background`），收口为
+  `resolveAssistantHistoryStatusStickyClass`（`conversationWorkingStatusPillModel.ts`）；
+- 不透明底色是必需的：工作行会从吸附行下方滚过，透明会让两段文字叠在一起；
+- 吸附范围天然被限制在本轮内容内（运行轮是 `liveUnit`，滚动容器里的普通块），本轮结束
+  回归纯文本时自动释放，历史轮次不参与吸附；
+- 完成 / 中断态不吸顶：那时状态只是历史事实，不该抢占视口顶部。
+
+**离屏兜底（本轮整体滚出视口时仍能回到运行态）**：吸顶只覆盖「本轮还在视口内」，
+用户上滚到更早的历史轮时胶囊仍会离开视口。规则：
+
+- 触发源 = `backToBottomVisible`（`!followingRef.current && 有渲染单元`，与「回到底部」
+  按钮同源）**且** `showLoading`（最后一轮 running / 未建轮）**且** 胶囊本体不在视口内；
+- 「胶囊是否在视口内」由 `IntersectionObserver` 观察 `[data-zcode-working-pill="true"]`
+  得到（root = 滚动容器），**不读滚动几何、不参与跟随判定**，web-remote 恢复链路同样成立；
+  吸顶胶囊在本轮内恒可见，因此用户在本轮内部上滚时不会多出第二个同义控件；
+- 收口为 `shouldShowTimelineWorkingPillChip({ showLoading, backToBottomVisible,
+  workingPillInViewport })`（`chatLoadingVisibility.ts`）；
+- 呈现 = composer dock 上方正中一枚圆形按钮（与「回到底部」同壳同款），位置为 dock 的
+  `bottom-full` 相邻上方，避开离开挂的贴底 mask 遮罩区；点击 = `handleBackToBottom`
+  （回到贴底，吸顶胶囊此时落在视口顶部），**不**新增第三种滚动跳转语义；
+- 与「回到底部」按钮按 8px 间距左右并排共存于同一贴底锚点容器内，两个控件都保留；
+- `readOnly` / `shareActive` 等没有 composer dock 的 surface 不渲染（timeline 内不再出现
+  独立于 dock 的悬浮兜底）。
+
+> 修正记录（2026-10-17）：旧版本把「贴底时胶囊或尾部落盘槽本来就在内容末端」当作前提，
+> 据此让兜底按钮只在离底时出现。该前提不成立——胶囊在**头部**，尾部是持续追加的工作行；
+> 本轮高度超过视口后，贴底跟随看到的只是尾部，胶囊反而在视口上方，此时既无胶囊也无兜底
+> 按钮（尾部 `ChatLoading` 也被「胶囊已可见」的规则抑制）。现改为「胶囊吸顶 + 按可见性
+> 兜底」。
+
 ## 3. 事件顺序
 
 ```text
 行事实（turn header / rows）+ liveNowMs(每秒)
   └─ buildConversationTurnWorkSegments → workStatus(state=running, durationMs)
       ├─ AssistantHistoryStatus → ConversationWorkingStatusPill（胶囊触发行）
+      │    ├─ resolveAssistantHistoryStatusStickyClass(state) → running 时 sticky top-0
+      │    │    ⇒ 本轮工作行继续追加也把胶囊钉在视口顶部
       │    └─ 点击 = 折叠/展开本轮工作历史（既有 Collapsible 语义）
       └─ ConversationTurnFlow
            └─ hasRunningWorkSegment = true → shouldShowTurnChatLoadingWithRunningPill=false
                 → 尾部不再渲染裸 ChatLoading（apiRetry 状态照旧）
-运行结束 → workStatus.state = completed → 胶囊消失，回到纯文本「已工作 {duration}」
+IntersectionObserver(root=滚动容器, target=[data-zcode-working-pill])
+  └─ workingPillInViewport = entry.isIntersecting
+用户上滚离底 → commitFollowing(false) → backToBottomVisible=true
+  ├─ 本轮仍在视口内（吸顶胶囊可见）→ workingPillInViewport=true
+  │    └─ shouldShowTimelineWorkingPillChip=false → 不重复状态控件
+  └─ 已滚到更早的历史轮（胶囊离开视口）→ workingPillInViewport=false
+       └─ shouldShowTimelineWorkingPillChip=true → dock 上方出现兜底按钮（与「回到底部」并排）
+            └─ 点击 → handleBackToBottom（恢复跟随 + 贴底）→ 吸顶胶囊回到视口顶部 → 按钮消失
+运行结束 → workStatus.state = completed → 吸顶释放，胶囊消失，回到纯文本「已工作 {duration}」
 ```
 
 ## 4. 验收场景
 
-| 场景                                          | 期望                                    | 测试                                             |
-| --------------------------------------------- | --------------------------------------- | ------------------------------------------------ |
-| 运行中且任一 segment running                  | 尾部 ChatLoading 被抑制，不出现双状态   | `packages/ui/test/chatLoadingVisibility.test.ts` |
-| 运行中但无 segment running（timelineOnly 等） | ChatLoading 兜底照旧                    | 同上                                             |
-| 胶囊模型：duration 存在                       | 状态词 + 用时段 + 动态省略号都渲染      | 同上（pill 纯模型）                              |
-| 胶囊模型：duration 缺失                       | 只渲染状态词 + 动态省略号               | 同上                                             |
-| 运行结束                                      | 胶囊消失，回纯文本「已工作 {duration}」 | 既有行为，人工验证                               |
+| 场景                                    | 期望                                       | 测试                                               |
+| --------------------------------------- | ------------------------------------------ | -------------------------------------------------- |
+| 运行中且任一 segment running            | 尾部 ChatLoading 被抑制，不出现双状态      | `packages/ui/test/chatLoadingVisibility.test.ts`   |
+| 运行中但无 segment running（timelineOnly 等） | ChatLoading 兜底照旧                  | 同上                                               |
+| 胶囊模型：duration 存在                 | 状态词 + 用时段 + 动态省略号都渲染         | 同上（pill 纯模型）                                |
+| 胶囊模型：duration 缺失                 | 只渲染状态词 + 动态省略号                  | 同上                                               |
+| 运行中（workStatus=running）            | 胶囊行吸顶，长轮任意滚动位置可见           | 同上（`resolveAssistantHistoryStatusStickyClass`） |
+| 完成 / 中断 / 无 workStatus             | 不吸顶，回归普通文档流                     | 同上                                               |
+| 离底 + 运行中 + 胶囊已滚出视口          | 贴底兜底按钮出现（点击回贴底）             | 同上（`shouldShowTimelineWorkingPillChip`）        |
+| 离底但吸顶胶囊仍在视口内                | 兜底按钮缺席，不重复状态表达               | 同上                                               |
+| 贴底 / 会话已终态                       | 兜底按钮缺席                               | 同上                                               |
+| 尾部落盘槽落盘（ChatLoading 分支 / apiRetry） | 标记随分支出现/缺席                  | `packages/ui/test/v4ConversationTurnGroup.test.ts` |
+| 运行结束                                | 吸顶释放，胶囊消失，回纯文本「已工作 {duration}」 | 既有行为，人工验证                          |
 
 运行：`pnpm --filter @zcode/ui test`（tsx --test，`TSX_TSCONFIG_PATH=tsconfig.json`）。
+注意 `chatLoadingVisibility.test.ts` 登记在 `vitest.config.ts` 的 `nodeRunTestFiles`，
+根 `vitest run` 不收它；单文件可跑：
+
+```bash
+cd packages/ui && TSX_TSCONFIG_PATH=tsconfig.json node --import tsx --test test/chatLoadingVisibility.test.ts
+```
+
+兜底按钮与吸顶的真机证据走 desktop E2E（`WPK01`）：
+`packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-working-pill-offscreen-chip.test.ts`
+—— 离底 wheel → 断言 `[data-testid="v4-timeline-working"]` 出现，点击后消失且 `data-following`
+恢复为 true（复用 `conversation-session-chat-loading-live-tail` 的
+`E2E_CHAT_LOADING_REAL_LINES` fixture；已落库，处于 manual-review/pending，须人工审核运行
+后按既有流程转正，本机未跑到该证据）。吸顶的几何断言需要在该用例里补一条：
+本轮高度大于视口时贴底，`[data-zcode-working-pill]` 的 `getBoundingClientRect().top`
+应等于滚动容器可视区顶部（允许 1px 误差）。

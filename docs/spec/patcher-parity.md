@@ -46,6 +46,18 @@
 - **所有权**：草稿事实源仍是 composer 的 `textRef`/Lexical 编辑器与 composerDraftStore；
   按钮不维护第二份草稿状态。生成中排队、权限锁定、CommandInbox admission 全部交给
   应用自身判断，按钮不做额外守卫。
+- **启用门禁（2026-10 用户 bugfix：界面残留「继续」）**：按钮启用条件 = 发送键
+  `canSend` 去掉「有草稿可发」一项（「继续」文案由按钮自身提供），其余必须与
+  `submit()` 的准入完全一致：`!disabled && !pending && routingAllowsSend &&
+  submissionReady && attachmentsReady`。曾只判 `disabled`，而 `submit()` 对
+  `pending`（ACK 未回就连点）、Submission 未就绪、附件未就绪、路由拒绝会早期
+  return——点击后「继续」已被填入编辑器和草稿 store 却被拒绝，合成文案从此残留，
+  下次进入会话还会被恢复。Cmd/Ctrl+Shift+J 与按钮共用同一门槛，键盘不得绕过。
+- **失败回滚**：`submit()` 返回非 `sent` 且非 `confirmationRequired`
+  （admission 拒绝 / 发送失败 / 附件预传取消）时，把编辑器与草稿 store 回滚到
+  点击前的正文——「继续」是按钮合成的动作文案，不是用户草稿，不得作为可重试
+  草稿残留。`confirmationRequired` 是唯一例外：队列确认框的两个按钮基于已填入的
+  正文重新 `submit()`，此时回滚会让确认动作提交空文本。
 - **快捷键**：Cmd/Ctrl+Shift+J，仅在焦点位于 composer 内时生效（事件冒泡天然限定
   作用域）；composer `disabled` 期间不生效——与按钮本体同一门槛，键盘不得绕过
   队列认领等禁用态（bugfix：曾只在按钮上设 disabled，快捷键路径未判）。

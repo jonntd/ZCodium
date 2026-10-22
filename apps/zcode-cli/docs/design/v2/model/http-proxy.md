@@ -50,6 +50,9 @@ No Proxy 对以上代理来源都生效，支持 `*`、精确 host、host:port�
   匹配；配置接口自身使用独立 `HttpClientPort`，不得进入 routing 形成递归。
 - 无代理配置或命中显式 No Proxy 时继续使用原生 `fetch`。
 - 启用代理时通过 adapter 层统一 fetch 转发，保留响应流，避免破坏 streaming。
+- 直连路径（命中自定义 CA、未命中代理）与代理路径都必须复用同一个 `Agent` 并开启 `keepAlive`：否则连接池只服务单个请求，每个请求都要重新 TCP/TLS 握手，`proxy-agent` 内部按 proxy URL 维护的 Agent LRU 也永远不会命中。`keepAliveTimeout` 应短于常见服务端/网关的 idle timeout，缩小「对端已关、客户端仍复用」的窗口。
+- 走 HTTP 代理的明文请求必须由 adapter 自己写 absolute-form 请求行（`GET http://host:port/path HTTP/1.1`），不能依赖 `HttpProxyAgent.addRequest` 的按连接改写：`ProxyAgent` 外层继承 `http.Agent` 的连接池，复用 socket 时不会再次进入内层改写，第二个请求会退化成 origin-form（`/path`），代理侧 `new URL(req.url)` 直接抛 `Invalid URL`。HTTPS 目标走 CONNECT 隧道，隧道内的请求行仍是 origin-form，不套用该规则。
+- 连接复用会引入 stale socket 竞态（写入时对端已关闭，返回 `EPIPE`）。adapter 必须在**尚未收到任何响应字节**时对该次请求重放一次：`fetchWithAgent` 只在拿到响应头之前 reject，拿到响应后的 socket 错误通过响应体传递，因此不会重放已经开始输出的响应。重放仅限 `EPIPE` / `ECONNRESET` / `ECONNABORTED` / `ERR_STREAM_DESTROYED`，且依赖 `normalizeFetchRequest` 已把请求体全量 buffer 成可重放的 `Buffer`；用户取消（`AbortError`）与其他错误一律不重放。代理路径即使不复用连接也会遇到对端提前关闭（网关早退、隧道中断），同样适用。
 - 当命中了自定义 CA 配置时，adapter 必须确保直连 HTTPS、HTTPS proxy 和 HTTP CONNECT 路径都使用同一份额外信任链。
 - Desktop main 必须在创建首个窗口前把 Electron 网络策略独立应用到 `defaultSession` 与 `persist:zcode-embedded-browser`：设置页存在 `httpProxy` 时两个 Session 都使用 `session.setProxy({ mode: "fixed_servers", proxyRules, proxyBypassRules })`，其中 `proxyBypassRules` 来自 `httpProxyNoProxy`；留空时 `defaultSession` 使用 `mode: "direct"`，`persist:zcode-embedded-browser` 使用 `mode: "system"`，并在更新策略后关闭旧连接池。留空时不下发 `proxyBypassRules`——bypass 规则只对 `fixed_servers` 有意义，`system` 模式的例外列表由 OS 自己维护。两个 Session 中任意一个应用失败都不得阻止另一个继续配置；配置变更只保证下次应用启动生效，设置页必须提示用户重启。
 - Desktop Window Host 必须把其托管的 proxy-aware transport 作为 `RemoteAssetNetworkPort` 注入 desktop-attached remote 部署。manifest、组件归档和进度 `HEAD` 不得在 transport 缺失或失败时回退裸 `fetch`；standalone server 未注入该 port 时保持原有直连合同。
@@ -83,4 +86,7 @@ No Proxy 对以上代理来源都生效，支持 `*`、精确 host、host:port�
 - 用户 shell 里的标准代理/证书变量不会直接进入模型请求、app runtime 或 `WebFetch`；`WebFetch` 只读取 `ZCODE_TOOL_ENV_PASSTHROUGH_JSON` 中封存的标准 proxy/no-proxy fallback。它们也会经该封存变量恢复到继承式 tool/MCP/Bash 子进程。命令级 env overlay 仍可显式覆盖或删除。
 - stdio MCP server 能继承统一网络环境，HTTP/SSE MCP transport 能获得 proxy-aware fetch。
 - 走代理时上游回 `999` / `204` / `304`：`HttpClientPort` 带回原状态码（204 / 304 正文为空）；proxy-aware fetch 对 204 / 304 返回空正文的 `Response`，对 `999` 以 `ZCODE_UNSUPPORTED_HTTP_STATUS` 失败；两者都不产生 uncaughtException（`packages/adapters/tests/http-response-status.test.ts`）。
+- 直连路径（自定义 CA）的连续请求复用同一条 keep-alive 连接：本地 server 只观察到 1 次 `connection` 事件，第二个请求不重新握手。
+- 代理路径的连续请求同样复用一条 keep-alive 连接，且第二个请求仍携带 absolute-form 请求行：复用 `ProxyAgent` 不得让代理收到 origin-form 的 `/path`（`packages/adapters/tests/http.test.ts`、`packages/adapters/tests/network-capture.test.ts`）。
+- 对端在返回响应头之前断开时，proxy-aware fetch 重放一次并成功；请求体相同的 POST 也只重放一次，不无限重试（`packages/adapters/tests/http.test.ts`）。
 - 架构测试扫描进程内源码，防止新增直接 HTTP 出口绕过统一网络边界。

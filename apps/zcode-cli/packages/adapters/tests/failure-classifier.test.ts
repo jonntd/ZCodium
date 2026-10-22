@@ -951,27 +951,52 @@ describe("classifyModelFailure provider business codes", () => {
     });
   });
 
-  it("maps provider business transport codes to retryable network errors", () => {
-    const failure = classifyModelFailure(
-      new ProviderBusinessError({
-        providerCode: "ECONNRESET",
-        providerId: "account:zai-individual-coding-plan",
-        providerKind: "openai-compatible",
-        providerMessage: "Cannot connect to API: socket hang up",
-        responseBodySummary: {
-          error: {
-            cause: { code: "ECONNRESET" },
-            message: "Cannot connect to API: socket hang up",
-            name: "AI_APICallError",
+  // 传输层断连码必须和 ECONNRESET 同组：SSE error chunk 会把底层 socket 错误透传成
+  // providerCode，若白名单漏掉就会落到 unknown + retryable=false，普通主请求首次失败即终止 turn。
+  it.each(["ECONNRESET", "EPIPE", "ECONNABORTED", "ERR_STREAM_DESTROYED", "ConnectionClosed"])(
+    "maps provider business transport code %s to a retryable network error",
+    (providerCode) => {
+      const providerMessage = `Cannot connect to API: ${providerCode.toLowerCase()}`;
+      const failure = classifyModelFailure(
+        new ProviderBusinessError({
+          providerCode,
+          providerId: "account:zai-individual-coding-plan",
+          providerKind: "openai-compatible",
+          providerMessage,
+          responseBodySummary: {
+            error: {
+              cause: { code: providerCode },
+              message: providerMessage,
+              name: "AI_APICallError",
+            },
+            type: "error",
           },
-          type: "error",
-        },
+        }),
+      );
+
+      expect(failure).toMatchObject({
+        code: "model_request_failed",
+        message: providerMessage,
+        reason: "network_error",
+        retryReason: "network_error",
+        retryable: true,
+      });
+    },
+  );
+
+  it("maps a raw socket EPIPE without a provider wrapper to a retryable network error", () => {
+    // fetch 层直接抛出的 socket 错误没有 ProviderBusinessError 包装，只有 Error.code；
+    // 分类器必须沿 cause/自身 code 识别为网络失败，而不是 unknown。
+    const failure = classifyModelFailure(
+      Object.assign(new Error("write EPIPE"), {
+        code: "EPIPE",
+        errno: -32,
+        syscall: "write",
       }),
     );
 
     expect(failure).toMatchObject({
       code: "model_request_failed",
-      message: "Cannot connect to API: socket hang up",
       reason: "network_error",
       retryReason: "network_error",
       retryable: true,

@@ -360,6 +360,142 @@ describe("NodeHttpClientAdapter", () => {
     }
   });
 
+  it("replays a request once when the peer closes before sending response headers", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zcode-http-replay-epipe-"));
+    const certPath = join(directory, "ca.pem");
+    let connections = 0;
+    const server = http.createServer((_request, response) => {
+      response.end("ok");
+    });
+    // 首次连接在返回响应头之前被销毁：客户端 write 得到 EPIPE/ECONNRESET。
+    // 请求体已全量 buffer，adapter 必须在未收到响应时重放一次。
+    server.on("connection", (socket) => {
+      connections += 1;
+      if (connections === 1) {
+        socket.destroy();
+      }
+    });
+
+    try {
+      await writeFile(certPath, "-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----\n", "utf8");
+      const baseUrl = await listenServer(server);
+      const fetch = createNetworkProxyFetch({ caCertFile: certPath });
+
+      const response = await fetch(`${baseUrl}/replay`, {
+        body: JSON.stringify({ prompt: "hello" }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      });
+
+      expect(await response.text()).toBe("ok");
+      expect(connections).toBe(2);
+    } finally {
+      server.closeAllConnections();
+      await closeServer(server);
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("reuses one keep-alive connection for sequential direct requests", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "zcode-http-keep-alive-"));
+    const certPath = join(directory, "ca.pem");
+    let connections = 0;
+    const server = http.createServer((_request, response) => {
+      response.end("ok");
+    });
+    server.on("connection", () => {
+      connections += 1;
+    });
+
+    try {
+      await writeFile(certPath, "-----BEGIN CERTIFICATE-----\nTEST\n-----END CERTIFICATE-----\n", "utf8");
+      const baseUrl = await listenServer(server);
+      const fetch = createNetworkProxyFetch({ caCertFile: certPath });
+
+      expect(await (await fetch(`${baseUrl}/first`)).text()).toBe("ok");
+      expect(await (await fetch(`${baseUrl}/second`)).text()).toBe("ok");
+
+      // 同一个 {proxyUrl, caCertFile, protocol} 复用同一个 Agent，第二个请求不重新握手。
+      expect(connections).toBe(1);
+    } finally {
+      server.closeAllConnections();
+      await closeServer(server);
+      await rm(directory, { force: true, recursive: true });
+    }
+  });
+
+  it("reuses one keep-alive connection through an http proxy and keeps absolute-form request lines", async () => {
+    const upstream = http.createServer((_request, response) => response.end("ok"));
+    const target = await listenServer(upstream);
+    const seenPaths: string[] = [];
+    let connections = 0;
+    const proxy = http.createServer((request, response) => {
+      seenPaths.push(request.url ?? "");
+      const outgoing = http.request(
+        request.url ?? "",
+        { method: request.method },
+        (upstreamResponse) => upstreamResponse.pipe(response),
+      );
+      outgoing.on("error", () => response.destroy());
+      request.pipe(outgoing);
+    });
+    proxy.on("connection", () => {
+      connections += 1;
+    });
+    const proxyUrl = await listenServer(proxy);
+
+    try {
+      const fetch = createNetworkProxyFetch({ env: {}, httpProxy: proxyUrl });
+
+      expect(await (await fetch(`${target}/first`)).text()).toBe("ok");
+      expect(await (await fetch(`${target}/second`)).text()).toBe("ok");
+
+      // 复用连接时请求行仍必须是 absolute-form，否则代理侧 new URL(req.url) 会抛 Invalid URL。
+      expect(seenPaths).toEqual([`${target}/first`, `${target}/second`]);
+      expect(connections).toBe(1);
+    } finally {
+      proxy.closeAllConnections();
+      upstream.closeAllConnections();
+      await closeServer(proxy);
+      await closeServer(upstream);
+    }
+  });
+
+  it("replays a request once when the proxy closes before sending response headers", async () => {
+    const upstream = http.createServer((_request, response) => response.end("ok"));
+    const target = await listenServer(upstream);
+    let connections = 0;
+    const proxy = http.createServer((request, response) => {
+      const outgoing = http.request(
+        request.url ?? "",
+        { method: request.method },
+        (upstreamResponse) => upstreamResponse.pipe(response),
+      );
+      outgoing.on("error", () => response.destroy());
+      request.pipe(outgoing);
+    });
+    // 代理在转发前掐断首次连接：客户端 write 得到 EPIPE，正是线上常见的「隧道被中断」。
+    proxy.on("connection", (socket) => {
+      connections += 1;
+      if (connections === 1) {
+        socket.destroy();
+      }
+    });
+    const proxyUrl = await listenServer(proxy);
+
+    try {
+      const fetch = createNetworkProxyFetch({ env: {}, httpProxy: proxyUrl });
+
+      expect(await (await fetch(`${target}/replay`)).text()).toBe("ok");
+      expect(connections).toBe(2);
+    } finally {
+      proxy.closeAllConnections();
+      upstream.closeAllConnections();
+      await closeServer(proxy);
+      await closeServer(upstream);
+    }
+  });
+
   it("fails before reading responses that exceed the declared content length budget", async () => {
     vi.stubGlobal(
       "fetch",

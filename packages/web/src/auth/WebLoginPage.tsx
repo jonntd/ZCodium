@@ -1,3 +1,10 @@
+/**
+ * ⚠ 未接线（休眠代码，勿当活代码推理）——2026-10-17 复核，依据
+ * `docs/spec/web-remote-ui-parity.md` §8.4/§8.5。
+ *
+ * 「路线 B（官方中继）」手机页的登录态页，上游同步带入；fork 的 main.tsx 不渲染它
+ * （同目录 `WebCallbackPage.tsx` 是活的，勿混）。路线 B 数据面未实现 ⇒ 无使用方。
+ */
 import { useState } from "react";
 import { Button } from "@zcode/ui";
 import { getWebAuthCopy } from "./webAuthLocale.js";

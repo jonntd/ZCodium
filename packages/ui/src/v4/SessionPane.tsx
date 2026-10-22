@@ -60,6 +60,7 @@ import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
 import { WORKSPACE_FILE_DRAG_MIME } from "@/lib/workspaceFileDrag.js";
 import { buildChatSessionScrollMemoryKey } from "@/lib/chatSessionScrollMemory.js";
+import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
 import type { MessageFileLinkTarget } from "@/components/ai-elements/message.js";
 import { useServices } from "@/hooks/useServices.js";
 import { useDynamicWorkflowAvailability } from "@/hooks/useDynamicWorkflowAvailability.js";
@@ -534,6 +535,10 @@ export function SessionPane({
     useServices();
   const { intl, locale } = useZCodeIntl();
   const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
+  // 手机 Web 远控视口判定（spec web-remote-ui-parity.md §2.1-C2）：strict 查询
+  // （767px + hover:none + pointer:coarse）与 ConversationComposer 同源，桌面窄窗不误判。
+  // 用于 /side 斜杠命令门禁与 ConversationStatusPanel 的浮层方向。
+  const isMobileTextInputViewport = useIsMobileTextInputViewport();
   const baseWorkspaceServices = useBaseWorkspaceServices();
   const workspaceHomePath = useWorkspaceHomePath({
     workspacePath,
@@ -1911,7 +1916,7 @@ export function SessionPane({
         isDraft: sessionId === null,
         selectionSideChat,
         readOnly,
-        isMobileViewport: false,
+        isMobileViewport: isMobileTextInputViewport,
       })
     ) {
       return undefined;
@@ -4436,6 +4441,8 @@ export function SessionPane({
             endedSubagentCount={subagents.endedTotal}
             rootSessionId={rootSessionId ?? sessionId ?? undefined}
             parentSessionId={sessionId ?? undefined}
+            isWebRemoteControl={compactForRemoteControl}
+            isMobileViewport={isMobileTextInputViewport}
             layoutMode={statusPanelLayout}
             summaryPanelVariantOverride={effectiveSummaryPanelVariantOverride}
             onVariantChange={handleSummaryPanelVariantChange}

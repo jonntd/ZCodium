@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
+import { DesktopOnlyNotice } from "@/DesktopOnlyNotice.js";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import { useDesktopUpdateMenu } from "@/hooks/useDesktopUpdateMenu.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -168,7 +169,15 @@ export function WorkspaceHelpMenuButton({
               {intl.formatMessage({ id: "titleBar.menu.help.about" })}
             </DropdownMenuItem>
           </>
-        ) : null}
+        ) : (
+          <>
+            {/* B 类降级说明（spec web-remote-ui-parity.md §2.2）：Web 端没有窗口/安装目录/
+                更新器，四个菜单项整体不可用。此前是静默消失，用户无从知道这些能力存在；
+                这里用统一组件给一条说明行，而不是塞四个 disabled 假入口。 */}
+            <DropdownMenuSeparator />
+            <DesktopOnlyNotice variant="menu" messageId="workspaceHeader.help.desktopOnly" />
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

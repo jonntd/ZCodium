@@ -60,3 +60,10 @@ watch root 显式覆盖 `packages/desktop/src` 以及 `services`、`server`、`s
 - `tsup --watch` 日志显示每个黑名单路径在 `Ignoring changes` 中出现。
 - 在包含大体积生成目录的 checkout 中，watcher 不再因这些目录的扫描阻塞 ready marker。
 - `pnpm typecheck`、`pnpm lint` 和受影响单测通过。
+
+## 相关
+
+本文解决的是 `dev:runtime` 之后 watcher 的扫描成本。启动阶段**之前**还有一次
+Agent CLI 全量重建（外置卷上 3-9 分钟满载），见
+[`dev-agent-cli-incremental-build.md`](./dev-agent-cli-incremental-build.md)。
+

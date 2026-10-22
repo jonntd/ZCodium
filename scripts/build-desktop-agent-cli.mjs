@@ -11,6 +11,10 @@ import {
   stageVendoredOfficialPlugins,
 } from "../packages/desktop/scripts/stage-vendored-official-plugins.mjs";
 import { runCommand } from "./spawn-command.mjs";
+import {
+  inspectAgentCliBundleFreshness,
+  resolveAgentCliSourceRoots,
+} from "./agent-cli-build-freshness.mjs";
 
 // adapters tsc 在内存受限机器上会 OOM（exit 134），给整条构建链路提高堆上限。
 process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ? process.env.NODE_OPTIONS + " " : ""}--max-old-space-size=8192`;
@@ -191,6 +195,42 @@ if (useBootstrapWithRemoteBuild) {
   await stageDevAgentBundle();
   stageDevCuaPluginRuntime({ env: cuaPluginRuntimeStagingEnv });
   process.exit(0);
+}
+
+// dev 快速启动（opt-in）：ZCODE_SKIP_AGENT_CLI_BUILD=1 且 bundle 比全部源文件新时，
+// 跳过 9 个 workspace 包 + 2 个插件 runtime 的全量重建（外置卷上约 3-9 分钟满载），
+// 只重做 staging——staging 依赖环境与目标目录，不能省。
+// 默认不设置该变量 ⇒ 行为与之前完全一致（CI / prebuild / server CLI 均不受影响）。
+// 注意：不要用 ZCODE_BOOTSTRAP_WITH_REMOTE 代替本开关，那个变量还会改变
+// prepare-agent-node-bundle 与 prepare-prebuilds 的分支语义。
+if (process.env.ZCODE_SKIP_AGENT_CLI_BUILD === "1") {
+  const agentCliBundlePath = resolve(repoRoot, "apps/zcode-cli/packages/cli/dist/zcode.cjs");
+  const freshness = await inspectAgentCliBundleFreshness({
+    bundlePath: agentCliBundlePath,
+    // 独立 MCP runtime 不在 @zcode/cli 的依赖闭包里，必须显式补进来；否则改了它们
+    // 会被误判成「可跳过」，dev 里静默跑旧 runtime。
+    sourceRoots: await resolveAgentCliSourceRoots(repoRoot, {
+      additionalPackageNames: requiredDevPluginRuntimeBuilds.map(({ packageName }) => packageName),
+    }),
+  });
+  if (freshness.fresh) {
+    await stageBuiltinProviderConfig({
+      root: repoRoot,
+      env: pnpmRunEnv,
+      directory: resolve(repoRoot, "apps/zcode-cli/packages/cli/dist/provider"),
+    });
+    console.log(
+      "[build-desktop-agent-cli] skip rebuild: bundle is newer than all CLI sources (ZCODE_SKIP_AGENT_CLI_BUILD=1)",
+    );
+    await stageDevAgentBundle();
+    stageDevCuaPluginRuntime({ env: cuaPluginRuntimeStagingEnv });
+    process.exit(0);
+  }
+  // 打日志而不是静默退回：跳过是 opt-in 的「加速」，一旦判定为陈旧就必须让人看见原因，
+  // 否则会重现「CLI 改动在 dev 里不生效」的历史事故。
+  console.log(
+    `[build-desktop-agent-cli] full build required (reason=${freshness.reason}); ZCODE_SKIP_AGENT_CLI_BUILD=1 was ignored`,
+  );
 }
 
 if (!useTurboBuild) {

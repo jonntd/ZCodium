@@ -264,6 +264,7 @@ const zhCN: Record<string, string> = {
   "manualClaimPlan.claim.share.twitterTextLabel": "Twitter/X 分享文案",
   // 通用
   "common.loading": "加载中...",
+  "common.desktopOnly": "仅桌面端可用",
   "common.listSeparator": "、",
   "common.generating": "生成中...",
   "common.connecting": "连接中...",
@@ -1584,6 +1585,7 @@ const zhCN: Record<string, string> = {
   "appHeader.openProviderConfigWithEditorSuffix": "配置文件",
   "appHeader.openProviderConfigInEditorFailed": "无法在 {editor} 中打开 Provider 配置文件",
   "workspaceHeader.help.menu": "帮助",
+  "workspaceHeader.help.desktopOnly": "导出日志、资源管理器、检查更新与「关于」仅在桌面端可用",
   "workspaceHeader.help.issueReport": "问题上报",
   "workspaceHeader.help.reportVulnerability": "提交漏洞",
   "workspaceHeader.help.productRequest": "给产品提需求",
@@ -4858,6 +4860,7 @@ const zhCN: Record<string, string> = {
   "chat.history.stopped": "已停止",
   "chat.history.workingPill.status": "工作中",
   "chat.history.workingPill.elapsed": "用时 {duration}",
+  "chat.history.workingPill.offscreen": "工作中（回到此轮状态）",
   "chat.history.duration.day": "天",
   "chat.history.duration.hour": "时",
   "chat.history.duration.minute": "分",

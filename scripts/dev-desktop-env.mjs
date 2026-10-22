@@ -9,8 +9,13 @@ import { quoteArgsForWindowsShell } from "./spawn-command.mjs";
 
 const requestedEnv = process.argv[2]?.trim().toLowerCase();
 const agentBytecode = process.argv.slice(3).includes("--agent-bytecode");
+// 复用上一次的 Agent CLI 产物，跳过启动前的全量重建（外置卷上 3-9 分钟满载）。
+// 判定规则见 docs/desktop/dev-agent-cli-incremental-build.md；产物陈旧时仍会全量构建。
+const skipAgentCliBuild = process.argv.slice(3).includes("--skip-agent-cli-build");
 if (requestedEnv !== "test" && requestedEnv !== "production") {
-  console.error("Usage: node scripts/dev-desktop-env.mjs <test|production> [--agent-bytecode]");
+  console.error(
+    "Usage: node scripts/dev-desktop-env.mjs <test|production> [--agent-bytecode] [--skip-agent-cli-build]",
+  );
   process.exit(1);
 }
 
@@ -59,7 +64,7 @@ async function resolveComputerUseDevEnv() {
   };
 }
 
-function run(command, args) {
+function run(command, args, extraEnv = {}) {
   return new Promise((resolveRun, rejectRun) => {
     // Windows 下 shell:true 只按空格拼接参数；仓库路径含空格（如 E:\Z Code\...）时
     // node <script> 的脚本路径会被 cmd 截断成 E:\Z 并报 Cannot find module，因此先补引号。
@@ -72,6 +77,7 @@ function run(command, args) {
           ZCODE_ENV: requestedEnv,
           ZCODE_DESKTOP_AGENT_BYTECODE: agentBytecode ? "1" : "0",
           ...computerUseDevEnv,
+          ...extraEnv,
         },
         process.execPath,
       ),
@@ -110,9 +116,12 @@ try {
   // before rebuilding bundles or starting Electron.
   await run(pnpmCommand, ["--filter", "@zcode/desktop", "pre-dev"]);
   // On Windows, use "node" (resolved via PATHEXT) to avoid "C:\Program Files\..." space issues
-  await run(process.platform === "win32" ? "node" : process.execPath, [
-    resolve(repoRoot, "scripts/build-desktop-agent-cli.mjs"),
-  ]);
+  await run(
+    process.platform === "win32" ? "node" : process.execPath,
+    [resolve(repoRoot, "scripts/build-desktop-agent-cli.mjs")],
+    // 只作用于这一次构建：不把跳过开关带进 Electron / Agent 子进程环境。
+    skipAgentCliBuild ? { ZCODE_SKIP_AGENT_CLI_BUILD: "1" } : {},
+  );
   if (agentBytecode) {
     await run(process.platform === "win32" ? "node" : process.execPath, [
       resolve(repoRoot, "scripts/build-desktop-agent-bytecode.mjs"),

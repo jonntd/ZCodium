@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { request } from "node:http";
 import { createRequire } from "node:module";
@@ -129,21 +129,49 @@ if (process.platform === "darwin" && existsSync(electronBinary)) {
   console.log(`[dev] Prepared macOS ZCode Dev bundle: ${devBundle.appPath}`);
 }
 
-const electron = spawn(electronCommand, ["."], {
-  cwd: root,
-  stdio: "inherit",
-  env: { ...process.env, ELECTRON_RENDERER_URL: rendererUrl },
-  windowsHide: true,
-  detached: process.platform !== "win32",
-});
-
-let electronClosed = false;
+let electron = null;
 let shuttingDown = false;
+let restarting = false;
+let pendingRestart = false;
 let forceKillTimer;
 let hardExitTimer;
 
+function spawnElectron() {
+  const child = spawn(electronCommand, ["."], {
+    cwd: root,
+    stdio: "inherit",
+    env: { ...process.env, ELECTRON_RENDERER_URL: rendererUrl },
+    windowsHide: true,
+    detached: process.platform !== "win32",
+  });
+  electron = child;
+
+  child.on("error", (error) => {
+    console.error("[dev] Failed to start Electron:", error);
+    process.exit(1);
+  });
+
+  child.on("close", (code, signal) => {
+    if (child !== electron) {
+      // 已被重启流程替换的旧实例，生命周期由 restartElectron 接管。
+      return;
+    }
+    clearTimeout(forceKillTimer);
+    clearTimeout(hardExitTimer);
+    if (shuttingDown) {
+      process.exit(0);
+    }
+    if (restarting) {
+      // 重启流程在 waitForElectronExit 里等这个 close，这里不退出进程。
+      return;
+    }
+    process.exit(code ?? (signal ? 1 : 0));
+  });
+  return child;
+}
+
 function signalElectronTree(signal) {
-  if (electronClosed || !electron.pid) {
+  if (!electron || !electron.pid) {
     return;
   }
 
@@ -159,25 +187,9 @@ function signalElectronTree(signal) {
   }
 }
 
-function forceKillElectronTree() {
-  if (electronClosed || !electron.pid) {
-    return;
-  }
-
-  if (process.platform === "win32") {
-    spawn("taskkill", ["/PID", String(electron.pid), "/T", "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
-
-  signalElectronTree("SIGKILL");
-}
-
 function shutdownFromSignal(signal) {
   if (shuttingDown) {
-    forceKillElectronTree();
+    signalElectronTree("SIGKILL");
     return;
   }
 
@@ -187,7 +199,7 @@ function shutdownFromSignal(signal) {
   // Electron 在 macOS 上不会可靠响应 SIGINT/SIGTERM，之前会被 orphan 到 ppid=1 继续占用端口和日志。
   // 这里把 Electron 放进独立进程组并由 dev 脚本统一回收，超时后强制清掉整棵开发进程树。
   signalElectronTree("SIGTERM");
-  forceKillTimer = setTimeout(forceKillElectronTree, 1_500);
+  forceKillTimer = setTimeout(() => signalElectronTree("SIGKILL"), 1_500);
   hardExitTimer = setTimeout(() => process.exit(0), 5_000);
 }
 
@@ -195,17 +207,82 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.once(signal, () => shutdownFromSignal(signal));
 }
 
-electron.on("error", (error) => {
-  console.error("[dev] Failed to start Electron:", error);
-  process.exit(1);
-});
+// 产物重建 ⇒ 干净重启 Electron（2026-10-22 实锤：tsup watch 在 App 运行中重建 out/main
+// 时，运行中的主进程可能被烧死——事件循环 100%、定时器/日志全饿死，只能重启电脑恢复）。
+// 现在只要任何一个产物成功重建（main bundle 或 4 个 .build-ready 标记 mtime 变化），
+// 静默 1.5s（等 tsup 这一轮多目标构建全部写完）后就 SIGTERM→SIGKILL 旧实例并重新拉起，
+// 保证「运行中的 App」和「磁盘上的产物」永远不同框。ZCODE_DEV_MAIN_RESTART=0 可关闭。
+const bundleWatchTargets = [
+  mainBundle,
+  ...buildReadyMarkers.map((marker) => marker.path),
+  resolve(root, "out/.scheduler-build-ready"),
+];
+const RESTART_QUIET_MS = 1_500;
+const RESTART_POLL_MS = 700;
 
-electron.on("close", (code, signal) => {
-  electronClosed = true;
-  clearTimeout(forceKillTimer);
-  clearTimeout(hardExitTimer);
-  if (shuttingDown) {
-    process.exit(0);
+function statMtimeMs(path) {
+  try {
+    return statSync(path).mtimeMs;
+  } catch {
+    return 0;
   }
-  process.exit(code ?? (signal ? 1 : 0));
-});
+}
+
+async function restartElectron(reason) {
+  if (restarting) {
+    pendingRestart = true;
+    return;
+  }
+  restarting = true;
+  console.log(`[dev] ${reason}, restarting Electron...`);
+  const oldChild = electron;
+  signalElectronTree("SIGTERM");
+  await new Promise((resolveExit) => {
+    const killTimer = setTimeout(() => {
+      try {
+        if (oldChild?.pid && process.platform !== "win32") {
+          process.kill(-oldChild.pid, "SIGKILL");
+        } else {
+          oldChild?.kill("SIGKILL");
+        }
+      } catch {
+        // 已退出
+      }
+      setTimeout(resolveExit, 300);
+    }, 1_500);
+    oldChild?.once("close", () => {
+      clearTimeout(killTimer);
+      resolveExit();
+    });
+  });
+  spawnElectron();
+  restarting = false;
+  if (pendingRestart) {
+    pendingRestart = false;
+    await restartElectron("bundle changed again during restart");
+  }
+}
+
+function startBundleRestartWatcher() {
+  if (process.env.ZCODE_DEV_MAIN_RESTART === "0") {
+    console.log("[dev] Bundle-restart watcher disabled (ZCODE_DEV_MAIN_RESTART=0)");
+    return;
+  }
+  let baseline = Math.max(...bundleWatchTargets.map(statMtimeMs));
+  let changeSeenAt = 0;
+  const timer = setInterval(() => {
+    const current = Math.max(...bundleWatchTargets.map(statMtimeMs));
+    if (current > baseline) {
+      baseline = current;
+      changeSeenAt = Date.now();
+    }
+    if (changeSeenAt && Date.now() - changeSeenAt >= RESTART_QUIET_MS) {
+      changeSeenAt = 0;
+      void restartElectron("detected bundle rebuild");
+    }
+  }, RESTART_POLL_MS);
+  timer.unref();
+}
+
+spawnElectron();
+startBundleRestartWatcher();

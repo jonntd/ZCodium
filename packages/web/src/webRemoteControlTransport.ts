@@ -1,4 +1,13 @@
 /* eslint-disable max-lines -- 外部 relay terminal transport 需要集中维护握手、配对、请求等待和重连状态机。 */
+/**
+ * ⚠ 未接线（休眠代码，勿当活代码推理）——2026-10-17 复核，依据
+ * `docs/spec/web-remote-ui-parity.md` §8.4/§8.5。
+ *
+ * 本文件是「路线 B（官方中继）」手机侧设备传输，由上游同步 `de5923d1` 带入；
+ * fork 的 `packages/web/src/main.tsx`（relay.mjs 入口，778 行）零引用它，
+ * 对接的是标准 host 协议。路线 B 数据面未实现 ⇒ 本 transport 无对端。
+ * 对应测试已隔离为 `*.test.pending.ts`；路线 B 落地前不要按活代码推理或改动。
+ */
 import {
   WebRemoteControlRelayPayloadSerializer,
   type WebRemoteControlPayloadSendResult,

@@ -264,6 +264,14 @@ export function isNetworkFailure(code?: string): boolean {
   const normalized = code?.toUpperCase();
   return (
     normalized === "ECONNRESET" ||
+    // EPIPE 是写方向断管：连接已建立，但写入时对端已关闭（代理/中继隧道被中断、
+    // 网关提前返回错误并关闭连接、复用了服务端已关闭的 keep-alive socket）。
+    // 它和 ECONNRESET 一样是瞬时传输失败；漏掉会让分类器落到 unknown + retryable=false，
+    // 使一次断管直接终止 turn（SSE error chunk 还会把它透传成 providerCode）。
+    normalized === "EPIPE" ||
+    normalized === "ECONNABORTED" ||
+    normalized === "ERR_STREAM_DESTROYED" ||
+    normalized === "CONNECTIONCLOSED" ||
     normalized === "ECONNREFUSED" ||
     normalized === "EAI_AGAIN" ||
     normalized === "ENOTFOUND" ||

@@ -51,6 +51,7 @@ app-server 模式默认开启模型流式输出。Vercel AI SDK 的 `streamText(
 - adapter 内部 retry 是新的物理 provider 请求，每次新的 `model_request_started` 都必须带新的 `requestId` 和 `x-request-id`，通过相同 `traceId` 与递增 `attempt` 串联；`model_retry_scheduled` 仍归属于刚失败的旧 request。
 - 每个因 provider、网络或流读取错误而结束的物理 stream attempt，都必须在进入下一次 retry 或抛出最终错误前 abort 自己的请求信号，并在同一个有界屏障内等待 iterator 的异步关闭和 AI SDK `fullStream` tee 保留分支的消费清理完成；该清理不依赖 `preserveProviderStreamBoundaries`。关闭异常或超时仅记录低频 warn，不得覆盖原始 provider 错误或无限阻塞重试。自然 EOF 不额外 abort；普通 consumer 主动提前结束和 caller stop 继续异步 best-effort 关闭，不能被内部清理超时拖慢。
 - HTTP 200 SSE 中的 provider business error 必须优先在 provider fetch 边界识别，例如 `event: error` + `data` JSON 的 `error.code/error.message`。如果该业务错误可映射为 `HTTP 5xx`，或其结构化 provider code 明确表示上游网络失败，例如 `1234`、`network_error` 或 `network_error_retryable`，并且请求尚未向 core 产出任何已提交模型事件，则应复用 adapter 的统一 retry budget；否则 stream body 应失败并由 Model Runner 发布最终的 `model_request_failed`。
+- 传输层错误码 `ECONNRESET`、`EPIPE`、`ECONNABORTED`、`ERR_STREAM_DESTROYED`、`CONNECTIONCLOSED`、`UND_ERR_SOCKET`、`UND_ERR_CONNECT_TIMEOUT` 与 `network_error` / `network_error_retryable` 同等对待：无论它们以 `ProviderBusinessError.providerCode`（SSE error chunk 会把底层 socket 错误透传成业务码）还是普通 `Error.code` 的形式到达，都必须分类为 `network_error` 且 `retryable=true`。`EPIPE` 表示写方向断管（对端已关闭 socket），属于瞬时传输失败而非请求无效，不得落成 `unknown` + `retryable=false`，否则一次断管会直接终止 turn。分类结果只是重试前提，是否真正重试仍受 compact commit boundary、`modelRetryBudget` 与 adapter 重试边界约束。
 - fetch 边界通过 `Response.clone()` 检查 JSON business error 后，若决定抛出 `ProviderBusinessError`，必须有界消费原始 response body；禁止只消费 clone 而遗留不可达的原始 tee 分支占用连接槽，也禁止底层 stream 永久 pending 而阻塞已解析业务错误的抛出。这里优先完整消费而不是只调用 `cancel()`，因为 `cancel()` 完成不等价于 Undici 连接已可复用。
 
 ## 已收到 SSE Event 后的恢复语义
@@ -137,6 +138,7 @@ core recovery 的可观测性要求：
 - `model_retry_scheduled` 事件应保留 `reason=rate_limited`、`statusCode=429`、`nextAttempt` 和 `delayMs`，供 ZCode app-server 转换为 `_meta.zcode.apiRetry`。
 - 普通 adapter retry 的 `model_request_started attempt>1` 不应清空 `apiRetry`；下一次模型进展或成功完成才清空，避免重试状态闪烁。
 - provider SSE `event: error` 中携带非零业务 code 时，应归一为 `ProviderBusinessError`，最终用户看到 provider message，而不是空输出或 `finishReason: other`。
+- provider SSE error chunk 或未包装的 socket 错误携带 `EPIPE` / `ECONNABORTED` / `ERR_STREAM_DESTROYED` / `ConnectionClosed` 时，必须与 `ECONNRESET` 同组归一为 `reason=network_error`、`retryable=true`；不得落成 `unknown` + `retryable=false`。普通主请求（有界 `modelRetryBudget`）应据此进入统一退避重试，而不是首次失败即抛 `Turn execution failed`。
 - provider business error 可映射为 `HTTP 5xx` 或明确表示 provider 网络失败时，在首个已提交输出前应走统一 retry budget；达到上限后再发布最终失败。
 - iterator 在仅收到 `reasoning_delta` 后发生 `ECONNRESET` 或 idle timeout 时，adapter 应保留实时可见 reasoning 并把失败上抛；core 必须丢弃该 attempt 的未完成 reasoning tail，从前一个 provider-safe anchor 发起新 SSE 请求。恢复请求不得携带失败 reasoning，也不得把新输出追加到旧 assistant message id。
 - 没有任何 provider event，或只有尚未释放的 retry-safe prelude 时发生可重试失败，仍由 adapter 在同一个逻辑请求内重试，不额外消耗 core recovery budget。

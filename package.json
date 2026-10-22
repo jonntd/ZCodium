@@ -11,6 +11,7 @@
     "dev:desktop:test": "node scripts/dev-desktop-env.mjs test",
     "dev:desktop:prod": "node scripts/dev-desktop-env.mjs production",
     "dev:desktop:bytecode": "node scripts/dev-desktop-env.mjs production --agent-bytecode",
+    "dev:desktop:fast": "node scripts/dev-desktop-env.mjs production --skip-agent-cli-build",
     "dev:e2e-report": "pnpm --filter @zcode/e2e-report dev",
     "dev:desktop:remote-prod": "node scripts/dev-desktop-remote-prod.mjs",
     "dev:web-remote-control": "node scripts/build-desktop-agent-cli.mjs && concurrently -k -n web,desktop -c green,magenta \"pnpm --filter @zcode/web exec vite dev --strictPort\" \"node scripts/dev-web-remote-control-desktop.mjs\"",

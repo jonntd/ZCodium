@@ -1,3 +1,11 @@
+/**
+ * ⚠ 未接线（休眠代码，勿当活代码推理）——2026-10-17 复核，依据
+ * `docs/spec/web-remote-ui-parity.md` §8.4/§8.5。
+ *
+ * 「路线 B（官方中继）」手机页的 `/remote/v4` 路由解析；fork 的 main.tsx 是
+ * relay.mjs 入口（单页 SPA，无版本化 base），不调用本函数。
+ * `test/webRemoteControlRoute.test.pending.ts` 断言 main.tsx 应含该调用——与 fork 刻意分道。
+ */
 import { resolveWebRemoteControlRoutePathFromBaseUrl } from "@zcode/shared";
 
 interface WebRemoteControlRouteEnv {

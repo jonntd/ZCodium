@@ -1,3 +1,14 @@
+/**
+ * ⚠ 未接线（休眠代码，勿当活代码推理）——2026-10-17 复核，依据
+ * `docs/spec/web-remote-ui-parity.md` §8.4/§8.5。
+ *
+ * 本组件属于「路线 B（官方中继）」的手机页 UI：只有入口给 `Root` 传
+ * `webRemoteControlWorkspaceSwitcher`（`root/types.ts`）后，才会经
+ * `WorkspaceShellLayout` 的 `isWebRemoteControlShell` 分支渲染。fork 的两个入口
+ * （`packages/web/src/main.tsx` 与 desktop renderer）都没传；且路线 B 数据面未实现、
+ * 路线 A（relay.mjs）的 server-info 只有单工作区、无 task 列表 ⇒ 没有数据源。
+ * 当前决策：维持现状 + 本横幅（spec §5 决策点 2）；路线 B 数据面落地后再接线。
+ */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, LoaderIcon } from "lucide-react";
 import {

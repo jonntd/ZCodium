@@ -12,7 +12,9 @@ describe("workspace main view drag region", () => {
     const frameSource = readSource("packages/ui/src/settings/AutomationsMainBreadcrumbFrame.tsx");
 
     // 断言语义不绑定排版：条件可被格式化换行。
-    expect(layoutSource).toMatch(
+    // 2026-10-17：表达式提取到 app-shell/workspaceHeaderVisibility.ts（spec §2.1-A1，
+    // Web 草稿态也渲染 header），布局改为调用该纯函数，故断言指向新模块。
+    expect(readSource("packages/ui/src/app-shell/workspaceHeaderVisibility.ts")).toMatch(
       /workspaceMainView !== "automations"\s*&&\s*workspaceMainView !== "plugin-store"/,
     );
     expect(frameSource).toContain('data-testid="automations-main-drag-region"');
