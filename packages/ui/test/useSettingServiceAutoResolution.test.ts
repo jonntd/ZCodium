@@ -82,20 +82,22 @@ describe("useSettings AskUserQuestion runtime preference", () => {
     expect(settingService.update).toHaveBeenCalledWith({
       askUserQuestionAutoResolutionEnabled: false,
     });
-    expect(zcodeAgentService.syncAppRuntimePreferences).toHaveBeenCalledWith({
+    // fork 在快照里额外下发删除保护两项、自定义系统提示词/分段与回复语言（空串/{} 表示
+    // 「已恢复默认」，必须原样下发），上游断言只列了两个字段。
+    const expectedPreferences = {
       askUserQuestionAutoResolutionEnabled: false,
       modelIoFullRetentionEnabled: false,
-    });
-    expect(botsService.syncAppRuntimePreferences).toHaveBeenCalledWith({
-      askUserQuestionAutoResolutionEnabled: false,
-      modelIoFullRetentionEnabled: false,
-    });
+      deleteProtectionEnabled: true,
+      batchDeleteApprovalThreshold: 50,
+      customSystemPrompt: "",
+      customSystemSegments: {},
+      language: "",
+    };
+    expect(zcodeAgentService.syncAppRuntimePreferences).toHaveBeenCalledWith(expectedPreferences);
+    expect(botsService.syncAppRuntimePreferences).toHaveBeenCalledWith(expectedPreferences);
     expect(broadcastService.send).toHaveBeenCalledWith({
       channel: APP_RUNTIME_PREFERENCES_CHANGED_BROADCAST_CHANNEL,
-      payload: {
-        askUserQuestionAutoResolutionEnabled: false,
-        modelIoFullRetentionEnabled: false,
-      },
+      payload: expectedPreferences,
     });
     expect(zcodeAgentService.syncAppRuntimePreferences.mock.invocationCallOrder[0]).toBeLessThan(
       broadcastService.send.mock.invocationCallOrder[0] ?? 0,
@@ -119,9 +121,15 @@ describe("useSettings AskUserQuestion runtime preference", () => {
     expect(settingService.update).toHaveBeenCalledWith({
       modelIoFullRetentionEnabled: true,
     });
+    // 同上：fork 的完整快照还包含删除保护、系统提示词与回复语言字段。
     const preferences = {
       askUserQuestionAutoResolutionEnabled: true,
       modelIoFullRetentionEnabled: true,
+      deleteProtectionEnabled: true,
+      batchDeleteApprovalThreshold: 50,
+      customSystemPrompt: "",
+      customSystemSegments: {},
+      language: "",
     };
     expect(zcodeAgentService.syncAppRuntimePreferences).toHaveBeenCalledWith(preferences);
     expect(botsService.syncAppRuntimePreferences).toHaveBeenCalledWith(preferences);
