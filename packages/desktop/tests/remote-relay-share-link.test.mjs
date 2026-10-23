@@ -18,7 +18,7 @@ const URL_BASE = "https://relay.example.com";
 test("永久链接 = legacy token 形状，无签名四元组、expiresAt 为 null", () => {
   const link = buildRelayShareLink({
     url: "wss://relay.example.com",
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     ttlSeconds: null,
   });
   assert.ok(link);
@@ -32,11 +32,11 @@ test("永久链接 = legacy token 形状，无签名四元组、expiresAt 为 nu
   assert.equal(parsed.hash, "");
 });
 
-test("时效链接：s/t/e/h 齐全、不含 token、签名可用同密钥重算验证", () => {
+test("时效链接（v6 自验）：s/t/e/h + token 齐全、签名可用同密钥重算验证", () => {
   const issuedAtMs = 1_700_000_000_000;
   const link = buildRelayShareLink({
     url: "wss://relay.example.com",
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     ttlSeconds: 86_400,
     issuedAtMs,
   });
@@ -47,7 +47,9 @@ test("时效链接：s/t/e/h 齐全、不含 token、签名可用同密钥重算
   const t = Number(parsed.searchParams.get("t"));
   const e = Number(parsed.searchParams.get("e"));
   const h = parsed.searchParams.get("h");
-  assert.equal(parsed.searchParams.get("token"), null);
+  // v6 key-room 自验链接（spec §19.2）：自带 token（中继用它自验签名并建房），
+  // 302 摘 token 后地址栏只剩 s/t/e/h。
+  assert.equal(parsed.searchParams.get("token"), TOKEN);
   assert.equal(parsed.searchParams.get("autoReconnect"), "1");
   assert.ok(sid && sid.length >= 20, "sid 应为 16 字节 base64url");
   assert.equal(t, Math.floor(issuedAtMs / 1000));
@@ -63,7 +65,7 @@ test("时效链接：s/t/e/h 齐全、不含 token、签名可用同密钥重算
 test("时效链接篡改任意参数后签名不再匹配（fail-closed 的前提）", () => {
   const link = buildRelayShareLink({
     url: "wss://relay.example.com",
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     ttlSeconds: 3600,
     issuedAtMs: 1_700_000_000_000,
   });
@@ -75,13 +77,13 @@ test("时效链接篡改任意参数后签名不再匹配（fail-closed 的前�
 test("ttl 越界被 clamp 到 1h..30d", () => {
   const small = buildRelayShareLink({
     url: "wss://relay.example.com",
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     ttlSeconds: 1,
     issuedAtMs: 1_700_000_000_000,
   });
   const large = buildRelayShareLink({
     url: "wss://relay.example.com",
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     ttlSeconds: Number.MAX_SAFE_INTEGER,
     issuedAtMs: 1_700_000_000_000,
   });
@@ -93,22 +95,22 @@ test("ttl 越界被 clamp 到 1h..30d", () => {
   assert.equal(spanOf(large), SHARE_LINK_MAX_TTL_SECONDS);
 });
 
-test("E2EE channelKey 进 #k= fragment（两种链接一致）；缺 pairingToken 返回 null", () => {
+test("E2EE channelKey 进 #k= fragment（两种链接一致）；缺 roomKey 返回 null", () => {
   const withKey = buildRelayShareLink({
     url: "wss://relay.example.com",
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     channelKey: "k".repeat(43),
     ttlSeconds: 3600,
   });
   assert.equal(new URL(withKey?.shareUrl ?? "").hash, "#k=" + "k".repeat(43));
   const withoutKey = buildRelayShareLink({
     url: "wss://relay.example.com",
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     ttlSeconds: null,
   });
   assert.equal(new URL(withoutKey?.shareUrl ?? "").hash, "");
   assert.equal(
-    buildRelayShareLink({ url: "wss://relay.example.com", pairingToken: "", ttlSeconds: null }),
+    buildRelayShareLink({ url: "wss://relay.example.com", roomKey: "", ttlSeconds: null }),
     null,
   );
 });
@@ -117,7 +119,7 @@ test("publicUrl 覆盖 url 推导；结尾斜杠被去掉", () => {
   const link = buildRelayShareLink({
     url: "wss://relay.example.com",
     publicUrl: "https://phone.example.com/",
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     ttlSeconds: null,
   });
   assert.ok((link?.shareUrl ?? "").startsWith("https://phone.example.com/?token="));
@@ -129,7 +131,7 @@ test("中继在本机局域网：内网链接把主机换成检测到的局域�
   const link = buildRelayLanShareLink({
     relayUrl: "ws://127.0.0.1:3180",
     lanAddresses: ["192.168.1.10", "10.0.0.5"],
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
   });
   assert.ok(link);
   assert.ok(link.startsWith("http://192.168.1.10:3180/?token="), link);
@@ -142,7 +144,7 @@ test("中继在本机（loopback）：内网链接换成检测到的局域网 IP
   const link = buildRelayLanShareLink({
     relayUrl: "ws://127.0.0.1:8443",
     lanAddresses: ["192.168.8.105"],
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
   });
   assert.ok((link ?? "").startsWith("http://192.168.8.105:8443/?token="), link);
 });
@@ -151,7 +153,7 @@ test("中继在局域网内另一台机器：内网链接原样用它的主机�
   const link = buildRelayLanShareLink({
     relayUrl: "ws://10.0.0.5:8443",
     lanAddresses: ["192.168.8.105"],
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
   });
   assert.ok((link ?? "").startsWith("http://10.0.0.5:8443/?token="), link);
 });
@@ -160,7 +162,7 @@ test("E2EE 时内网链接同样带 #k= fragment", () => {
   const link = buildRelayLanShareLink({
     relayUrl: "ws://192.168.1.10:3180",
     lanAddresses: ["192.168.1.10"],
-    pairingToken: TOKEN,
+    roomKey: TOKEN,
     channelKey: "k".repeat(43),
   });
   assert.equal(new URL(link ?? "").hash, `#k=${"k".repeat(43)}`);
@@ -171,7 +173,7 @@ test("中继不在本机局域网 / 未检测到局域网地址：不给内网�
     buildRelayLanShareLink({
       relayUrl: "wss://relay.example.com",
       lanAddresses: ["192.168.1.10"],
-      pairingToken: TOKEN,
+      roomKey: TOKEN,
     }),
     null,
     "中继在 VPS：局域网里没有它，硬拼只会指向用户自己的机器",
@@ -180,7 +182,7 @@ test("中继不在本机局域网 / 未检测到局域网地址：不给内网�
     buildRelayLanShareLink({
       relayUrl: "ws://127.0.0.1:3180",
       lanAddresses: [],
-      pairingToken: TOKEN,
+      roomKey: TOKEN,
     }),
     null,
     "没有检测到局域网地址",

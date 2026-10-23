@@ -20,8 +20,8 @@ import { spawn } from "node:child_process";
 import { test } from "node:test";
 import { WebSocket } from "ws";
 
-const RELAY_TOKEN = "test-pairing-token";
-const HOST_SECRET = "test-host-secret";
+// v6 key-room（spec §19）：一把房间密钥同时承担桌面 Bearer 与手机 cookie/?token=。
+const ROOM_KEY = "test-room-key-0123456789";
 const HOST_WAIT_GRACE_MS = 400;
 const RELAY_PATH = fileURLToPath(
   new URL("../../../deploy/vps-relay/relay.mjs", import.meta.url),
@@ -38,8 +38,6 @@ async function startRelayServer(t, options = {}) {
   const proc = spawn(process.execPath, [RELAY_PATH], {
     env: {
       ...process.env,
-      RELAY_TOKEN,
-      HOST_SECRET,
       HOST_WAIT_GRACE_MS: String(options.graceMs ?? HOST_WAIT_GRACE_MS),
       ...(options.heartbeatMs ? { HEARTBEAT_INTERVAL_MS: String(options.heartbeatMs) } : {}),
       ...(options.idleMs ? { IDLE_TIMEOUT_MS: String(options.idleMs) } : {}),
@@ -118,14 +116,14 @@ async function openHost(relay, slot) {
   return openWebSocket(
     `ws://127.0.0.1:${relay.port}/host${slot === undefined ? "" : `?slot=${slot}`}`,
     {
-      headers: { authorization: `Bearer ${HOST_SECRET}` },
+      headers: { authorization: `Bearer ${ROOM_KEY}` },
     },
   );
 }
 
 async function openClient(relay) {
   return openWebSocket(`ws://127.0.0.1:${relay.port}/ws`, {
-    headers: { cookie: `zcode_lite_token=${RELAY_TOKEN}` },
+    headers: { cookie: `zcode_lite_token=${ROOM_KEY}` },
   });
 }
 
@@ -147,7 +145,7 @@ async function openRawHost(relay) {
           "Connection: Upgrade",
           `Sec-WebSocket-Key: ${randomBytes(16).toString("base64")}`,
           "Sec-WebSocket-Version: 13",
-          `Authorization: Bearer ${HOST_SECRET}`,
+          `Authorization: Bearer ${ROOM_KEY}`,
           "",
           "",
         ].join("\r\n"),
@@ -319,7 +317,7 @@ test("配对重定向只摘 token，保留其它参数（autoReconnect 开关不
   const relay = await startRelayServer(t);
   const base = `http://127.0.0.1:${relay.port}`;
 
-  const withFlag = await fetch(`${base}/?token=${RELAY_TOKEN}&autoReconnect=1`, {
+  const withFlag = await fetch(`${base}/?token=${ROOM_KEY}&autoReconnect=1`, {
     redirect: "manual",
   });
   assert.equal(withFlag.status, 302);
@@ -327,12 +325,16 @@ test("配对重定向只摘 token，保留其它参数（autoReconnect 开关不
   assert.match(withFlag.headers.get("set-cookie") ?? "", /zcode_lite_token=/);
 
   // 没有其它参数时保持原来的干净路径（token 不留在历史里）。
-  const clean = await fetch(`${base}/?token=${RELAY_TOKEN}`, { redirect: "manual" });
+  const clean = await fetch(`${base}/?token=${ROOM_KEY}`, { redirect: "manual" });
   assert.equal(clean.status, 302);
   assert.equal(clean.headers.get("location"), "/");
+
+  // v6 key-room：页面入口只验 key 形状（≥8 字符），过短一律 401（fail-closed）。
+  const tooShort = await fetch(`${base}/?token=short`, { redirect: "manual" });
+  assert.equal(tooShort.status, 401);
 });
 
-test("/api/server-info 鉴权：无/错 cookie 一律 401（fail-closed），配对后才放行", async (t) => {
+test("/api/server-info 鉴权：无/错 cookie 一律 401（fail-closed），房间就绪后才放行", async (t) => {
   const relay = await startRelayServer(t);
   const base = `http://127.0.0.1:${relay.port}`;
 
@@ -342,22 +344,25 @@ test("/api/server-info 鉴权：无/错 cookie 一律 401（fail-closed），配
 
   // 错误 cookie 同样拒绝（不是只认「有 cookie」）。
   const wrong = await fetch(`${base}/api/server-info`, {
-    headers: { cookie: `zcode_lite_token=wrong-token` },
+    headers: { cookie: `zcode_lite_token=wrong-token-012345` },
   });
   assert.equal(wrong.status, 401);
 
-  // 正常配对流程：?token= → Set-Cookie → 带 cookie 读取 → 200（host 未上报时工作区为空）。
-  const paired = await fetch(`${base}/?token=${RELAY_TOKEN}`, { redirect: "manual" });
+  // 页面配对（?token= → Set-Cookie）只验 key 形状，不建房：host 从未连上时
+  // 房间不存在 → server-info 仍 401（web 端对非 200 优雅降级，不影响后续 /ws）。
+  const paired = await fetch(`${base}/?token=${ROOM_KEY}`, { redirect: "manual" });
   const cookie = (paired.headers.get("set-cookie") ?? "").split(";")[0];
   assert.ok(cookie.startsWith("zcode_lite_token="));
-  const empty = await fetch(`${base}/api/server-info`, { headers: { cookie } });
-  assert.equal(empty.status, 200);
-  assert.deepEqual(await empty.json().then((b) => b.workspaces), []);
+  const beforeHost = await fetch(`${base}/api/server-info`, { headers: { cookie } });
+  assert.equal(beforeHost.status, 401);
 
-  // 桌面上报工作区后，同一 cookie 能读到完整 server-info。
+  // 桌面连上（Bearer roomKey 建房）并上报工作区后，同一 cookie 能读到完整 server-info。
+  const host = await openHost(relay);
+  t.after(() => host.close());
+  await relay.waitForLog("host connected");
   await fetch(`${base}/api/host-report`, {
     method: "POST",
-    headers: { authorization: `Bearer ${HOST_SECRET}`, "content-type": "application/json" },
+    headers: { authorization: `Bearer ${ROOM_KEY}`, "content-type": "application/json" },
     body: JSON.stringify({ workspacePath: "/tmp/demo-workspace", hostLabel: "test-host" }),
   });
   const reported = await fetch(`${base}/api/server-info`, { headers: { cookie } });
@@ -372,18 +377,18 @@ test("token 双通道：/ws 与 /api/server-info 接受 ?token= 查询参数（S
   const relay = await startRelayServer(t);
   const base = `http://127.0.0.1:${relay.port}`;
 
-  // server-info：?token= 等价于 cookie；错 token 仍拒绝。
-  const viaQuery = await fetch(`${base}/api/server-info?token=${encodeURIComponent(RELAY_TOKEN)}`);
-  assert.equal(viaQuery.status, 200);
-  const wrongQuery = await fetch(`${base}/api/server-info?token=wrong-token`);
-  assert.equal(wrongQuery.status, 401);
-
-  // WS：无 cookie、仅 ?token= → 升级成功并正常配对转发。
+  // server-info：?token= 等价于 cookie（host 先连、房间已建）；错 token（未知房间）仍拒绝。
   const host = await openHost(relay);
   t.after(() => host.close());
   await relay.waitForLog("host connected");
+  const viaQuery = await fetch(`${base}/api/server-info?token=${encodeURIComponent(ROOM_KEY)}`);
+  assert.equal(viaQuery.status, 200);
+  const wrongQuery = await fetch(`${base}/api/server-info?token=wrong-token-012345`);
+  assert.equal(wrongQuery.status, 401);
+
+  // WS：无 cookie、仅 ?token= → 升级成功并正常配对转发。
   const client = await openWebSocket(
-    `ws://127.0.0.1:${relay.port}/ws?token=${encodeURIComponent(RELAY_TOKEN)}`,
+    `ws://127.0.0.1:${relay.port}/ws?token=${encodeURIComponent(ROOM_KEY)}`,
   );
   t.after(() => client.close());
   host.send(Buffer.from("via-query-token"));
@@ -395,12 +400,12 @@ test("SPA fallback：无扩展名路径回 index.html，缺失资产 404（不�
   const base = `http://127.0.0.1:${relay.port}`;
 
   // 无扩展名路径（SPA 路由/中继子路径）→ 兜底 index.html。
-  const spa = await fetch(`${base}/r9/?token=${encodeURIComponent(RELAY_TOKEN)}`, {
+  const spa = await fetch(`${base}/r9/?token=${encodeURIComponent(ROOM_KEY)}`, {
     redirect: "manual",
   });
   assert.equal(spa.status, 302);
   const page = await fetch(`${base}/r9/?autoReconnect=1`, {
-    headers: { cookie: `zcode_lite_token=${RELAY_TOKEN}` },
+    headers: { cookie: `zcode_lite_token=${ROOM_KEY}` },
   });
   assert.equal(page.status, 200);
   assert.match(page.headers.get("content-type") ?? "", /text\/html/);

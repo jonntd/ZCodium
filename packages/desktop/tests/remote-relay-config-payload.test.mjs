@@ -12,9 +12,8 @@ import {
 
 const VALID_CONFIG = {
   url: "ws://127.0.0.1:3180",
-  hostSecret: "devsecret",
+  roomKey: "devsecret-room-key",
   publicUrl: "http://127.0.0.1:3180",
-  pairingToken: "token-123",
   workspace: "/Volumes/date/ZCodium",
   autoStart: true,
 };
@@ -40,17 +39,17 @@ test("回归守卫：任意未知字段一律拒绝", () => {
   );
 });
 
-test("可选字段清空（空串）必须能保存：公开地址/工作区/主机密钥/url", () => {
-  // 清空公开地址 = 按中继地址推导；清空工作区 = 跟随窗口。历史上这些保存会被拒。
+test("可选字段清空（空串）必须能保存：公开地址/工作区/密钥/url", () => {
+  // 清空公开地址 = 按中继地址推导；清空工作区 = 跟随窗口；清空 roomKey = 轮换。
+  // 历史上这些保存会被拒。
   const parsed = parseRemoteRelaySetConfigRequest({
-    config: { url: "", hostSecret: "", publicUrl: "", workspace: "", pairingToken: "" },
+    config: { url: "", roomKey: "", publicUrl: "", workspace: "" },
   });
   assert.deepEqual(parsed.config, {
     url: "",
-    hostSecret: "",
+    roomKey: "",
     publicUrl: "",
     workspace: "",
-    pairingToken: "",
   });
 });
 
@@ -73,19 +72,23 @@ test("E2EE 字段（e2ee/channelKey）可保存：布尔 + 32B base64url", () =>
   assert.equal(parsed.config.channelKey, channelKey);
 });
 
-test("多槽位字段（slots/slotBase）可保存且校验边界", () => {
+test("多槽位字段（slots）可保存且校验边界；v6 起槽位号是房间内编号（无 slotBase）", () => {
   const parsed = parseRemoteRelaySetConfigRequest({
-    config: { ...VALID_CONFIG, slots: 3, slotBase: 42 },
+    config: { ...VALID_CONFIG, slots: 3 },
   });
   assert.equal(parsed.config.slots, 3);
-  assert.equal(parsed.config.slotBase, 42);
   assert.throws(
     () => parseRemoteRelaySetConfigRequest({ config: { slots: 9 } }),
     /slots 必须是 1..8/,
   );
+  // v6 key-room（spec §19）：slotBase 从白名单移除，出现即拒绝（含未知字段语义）。
   assert.throws(
-    () => parseRemoteRelaySetConfigRequest({ config: { slotBase: 92 } }),
-    /slotBase 必须是 0..91/,
+    () => parseRemoteRelaySetConfigRequest({ config: { ...VALID_CONFIG, slotBase: 42 } }),
+    /未知字段：slotBase/,
+  );
+  assert.throws(
+    () => parseRemoteRelaySetConfigRequest({ config: { ...VALID_CONFIG, pairingToken: "legacy" } }),
+    /未知字段：pairingToken/,
   );
 });
 

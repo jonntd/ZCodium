@@ -140,7 +140,7 @@ test("remoteRelayClient E2EE：线上只有握手与密文，握手后帧内容�
   let hostPort = null;
   const client = createRemoteRelayClient({
     url: relay.url,
-    hostSecret: HOST_SECRET,
+    roomKey: HOST_SECRET,
     e2eeChannelKey: E2EE_KEY,
     logger: { info: () => {}, warn: () => {} },
     resolveTargetWindow: () => ({ windowId: 1, hostProcess: { postMessage: () => {} } }),
@@ -194,7 +194,7 @@ test("remoteRelayClient E2EE：channelKey 不一致 → fail-closed 断开，不
 
   const client = createRemoteRelayClient({
     url: relay.url,
-    hostSecret: HOST_SECRET,
+    roomKey: HOST_SECRET,
     e2eeChannelKey: E2EE_KEY,
     logger: { info: () => {}, warn: () => {} },
     resolveTargetWindow: () => ({ windowId: 1, hostProcess: { postMessage: () => {} } }),

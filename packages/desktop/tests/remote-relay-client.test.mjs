@@ -147,7 +147,7 @@ test("remoteRelayClient：上报工作区 + 挂载 Host + 帧格式转码 + 重�
 
   const client = createRemoteRelayClient({
     url: relay.url,
-    hostSecret: HOST_SECRET,
+    roomKey: HOST_SECRET,
     hostLabel: "test-host",
     appVersion: "0.0.0-test",
     logger: { info: (m) => logs.push(["info", m]), warn: (m) => logs.push(["warn", m]) },
@@ -214,7 +214,7 @@ test("remoteRelayClient：没有窗口时进入退避重试，且日志带原因
 
   const client = createRemoteRelayClient({
     url: relay.url,
-    hostSecret: HOST_SECRET,
+    roomKey: HOST_SECRET,
     logger: { info: () => {}, warn: (m) => warns.push(m) },
     resolveTargetWindow: () =>
       windowAvailable ? { windowId: 1, hostProcess: { postMessage: () => {} } } : null,
@@ -246,7 +246,7 @@ test("remoteRelayClient：工作区晚于 WS 连接就绪时会补报", async (t
 
   const client = createRemoteRelayClient({
     url: relay.url,
-    hostSecret: HOST_SECRET,
+    roomKey: HOST_SECRET,
     logger: { info: () => {}, warn: () => {} },
     resolveTargetWindow: () => ({ windowId: 1, hostProcess: { postMessage: () => {} } }),
     resolveWorkspace: () => (workspaceReady ? { workspacePath: WORKSPACE_PATH } : null),
@@ -278,7 +278,7 @@ test("remoteRelayClient：手机离线连坐（close 4003）走快速补位，�
   const warns = [];
   const client = createRemoteRelayClient({
     url: relay.url,
-    hostSecret: HOST_SECRET,
+    roomKey: HOST_SECRET,
     logger: { info: () => {}, warn: (m) => warns.push(m) },
     resolveTargetWindow: () => ({ windowId: 1, hostProcess: { postMessage: () => {} } }),
     resolveWorkspace: () => ({ workspacePath: WORKSPACE_PATH }),
@@ -311,7 +311,7 @@ test("remoteRelayClient：slot 参数 → 拨出 /host?slot=<k>（多槽位 spec
 
   const client = createRemoteRelayClient({
     url: relay.url,
-    hostSecret: HOST_SECRET,
+    roomKey: HOST_SECRET,
     slot: 1,
     logger: { info: () => {}, warn: () => {} },
     resolveTargetWindow: () => ({ windowId: 1, hostProcess: { postMessage: () => {} } }),
