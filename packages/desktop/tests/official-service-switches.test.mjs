@@ -165,7 +165,8 @@ test("agent default marketplaces only seed the official source when the switch i
   const home = mkdtempSync(join(tmpdir(), "zcode-official-seed-"));
   const seed = runProbe(home, "marketplace-seed");
 
-  assert.equal(seed.closedRecords, 0, "关闭时不得 seed 官方市场记录");
+  // 默认集合里还有 Claude catalog（非官方 ZCode 来源），这里只守「官方市场不得被 seed」。
+  assert.equal(seed.closedOfficialRecords, 0, "关闭时不得 seed 官方市场记录");
   assert.equal(seed.closedHasOfficial, false, "关闭时官方市场不得出现");
   assert.equal(seed.openedHasOfficial, true, "env 投影打开后应 seed 官方市场记录");
   assert.equal(

@@ -309,7 +309,12 @@ if (mode === "baseline") {
   const closedPatch = policy.buildOfficialServiceEnvPatch(undefined);
   result.closedEnvKeys = Object.keys(closedPatch).length;
   result.closedEnvValues = [...new Set(Object.values(closedPatch))].sort();
-  result.closedDefaults = resolveDefaultPluginMarketplaces().length;
+  // 只数官方 ZCode 市场：默认集合里还有 Claude catalog，用总长度会被它带偏。
+  const countOfficialDefaults = () =>
+    resolveDefaultPluginMarketplaces().filter(
+      (marketplace) => marketplace.id === "zcode-plugins-official",
+    ).length;
+  result.closedDefaults = countOfficialDefaults();
 
   await service.update({ officialServices: { ...ALL_OFF, marketplace: true } });
   const openedPatch = policy.buildOfficialServiceEnvPatch({ ...ALL_OFF, marketplace: true });
@@ -320,8 +325,9 @@ if (mode === "baseline") {
     /ACCOUNT|FEEDBACK|CODING_PLAN|_MCP|OFFPEAK/.test(key),
   );
   const defaults = resolveDefaultPluginMarketplaces();
-  result.openedDefaults = defaults.length;
-  result.openedDefaultSource = defaults[0]?.source ?? null;
+  result.openedDefaults = countOfficialDefaults();
+  result.openedDefaultSource =
+    defaults.find((marketplace) => marketplace.id === "zcode-plugins-official")?.source ?? null;
 } else if (mode === "overview-filter") {
   // Host 的公开市场投影：关闭时官方市场的 CDN 候选条目被过滤且注入标记；
   // bundled（本地内置）条目与官方市场身份保留，已安装列表保留。
@@ -410,6 +416,9 @@ if (mode === "baseline") {
   ensureDefaultPluginMarketplaces(storageRoot);
   const closedRecords = loadKnownMarketplacesSync(storageRoot);
   result.closedRecords = closedRecords.length;
+  result.closedOfficialRecords = closedRecords.filter(
+    (record) => record.id === "zcode-plugins-official",
+  ).length;
   result.closedHasOfficial = closedRecords.some((record) => record.id === "zcode-plugins-official");
 
   process.env.ZCODIUM_ENABLE_OFFICIAL_MARKETPLACE = "1";
