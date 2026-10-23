@@ -780,6 +780,10 @@ exceptions:
     rule: unmanaged-new-file
     paths: [packages/shared/src/shortcutCommands.ts]
     reason: 已准入的快捷键命令表只追加一条 toggleSidePaneFullView 命令（Side Pane 完整视图，docs/ui/side-pane-full-view.md）；命令表仍是唯一数据源，签名与模块边界不变，接管整个 shared 包不在本次范围内。
+  - id: client-config-official-service-guard-restore
+    rule: unmanaged-new-file
+    paths: [packages/services/src/client-config/clientConfigService.ts]
+    reason: 上游 v3.16.2 新增文件，fork 仅补回 getSnapshot 的官方服务开关短路（开关关闭时零网络返回本地兜底，由 packages/desktop/tests/official-service-switches.test.mjs 守护 fail-closed）与兜底快照字段；其余实现与上游一致，不接管 client-config 目录。
   - id: opensource-cua-test-project-config
     rule: unmanaged-new-file
     paths: [packages/zcode-cua/vitest.config.ts]
