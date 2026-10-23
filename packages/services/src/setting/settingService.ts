@@ -11,6 +11,7 @@ import {
   appSettingsSchema,
   formatLogPrefix,
   formatZodError,
+  setOfficialServiceSwitches,
 } from "@zcode/shared";
 import type { ISettingService, WorkspaceSettingsProjection } from "./setting.js";
 import { normalizeSettingsPatch } from "#src/setting/normalizeSettingsPatch.js";
@@ -287,6 +288,10 @@ export function createSettingServiceWithMigrations(): {
       // runtime 会固定旧开关值。先等待现有写队列，保证启动偏好读取到已提交的选择。
       await updateQueue;
       const result = await readSettingsWithMeta();
+      // 官方服务开关是进程级策略，磁盘设置是唯一事实源：Host/Server/main 没有各自的初始化路径，
+      // 任何进程首次读取设置后都在这里恢复用户选择。读取失败或字段缺失时 normalize 为全关，
+      // 保持审计版 fail-closed。（fork 语义，合并上游时随 settingService 重写丢失，此处补回）
+      setOfficialServiceSwitches(result.settings.officialServices);
       const projected = await projectSettings(result.settings);
       if (
         !result.needsMigrationPersist &&
@@ -310,12 +315,18 @@ export function createSettingServiceWithMigrations(): {
         await writeSettings(projected, shouldCommit, enterCommitPhase);
       });
 
-      return readSettings();
+      const settings = await readSettings();
+      setOfficialServiceSwitches(settings.officialServices);
+      return settings;
     },
 
     async update(patch: Partial<AppSettings>, expectedAccountSettings): Promise<void> {
       const runUpdate = async (shouldCommit: () => boolean, enterCommitPhase: () => void) => {
         const validatedPatch = appSettingsPatchSchema.parse(normalizeSettingsPatch(patch));
+        // 官方服务开关变更后立即生效：刷新进程级策略，供各服务短路点与网络拦截读取。
+        if (Object.hasOwn(validatedPatch, "officialServices")) {
+          setOfficialServiceSwitches(validatedPatch.officialServices);
+        }
         const current = await readSettings();
         // 原因：完整连接映射来自读改写快照；任一无版本写入者都能绕过其它窗口的 CAS。
         const writesConnections = Object.hasOwn(patch, "providerFamilyConnectionSelections");
