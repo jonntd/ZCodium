@@ -10,7 +10,13 @@
 > 「刷新/手机 attachment 复用同一 Host，等待现有准备，不启动第二个执行者」）。
 > 本 spec 补的是**传输**这一段，不是会话运行时。
 
-> **v3（2026-10-16）密钥补齐语义**：
+> **v6（2026-10-24）key-room 收敛（§19）**：三把密钥收敛成一把。
+> 桌面配置只剩「中继地址 + 密钥」，relay `.env` 只剩 `PORT`（房间按密钥按需创建，
+> 不再要求任何部署期密钥）；`hostSecret` / `pairingToken` / `slotBase` 全部删除。
+> E2EE channelKey 保持独立随机（roomKey 对中继可见，不能兼作 PSK），但继续由链接
+> `#k=` 自动携带，用户无感。迁移与删除清单见 §19.5/§19.6。
+
+> **v3（2026-10-16）密钥补齐语义**（v6 已被 §19 取代，留档）：
 > - **配对码「App 启动即生成」**：`autoStart()` 在 App 启动时**无条件**补齐配对码并落盘，
 >   **不再要求先填中继地址**（此前全新设备不填 url 时 `GetStatus`/`start` 会在
 >   `resolveEffectiveConfig` 返回 null 时早退，什么都不生成；见 §15.4）。
@@ -1847,3 +1853,130 @@ wsUrl / server-info（等价于 token 通道）；过期前留在浏览器历史
 | 3 | 篡改 h / s / e 任一参数 | 401 |
 | 4 | legacy `?token=` 链接 | 行为与现状完全一致（302 + RELAY_TOKEN cookie） |
 | 5 | QR 扫码 | 手机浏览器打开即进入桌面会话；E2EE 开启时含 #k= 仍可解密 |
+
+# 19. v6 key-room：三把密钥收敛成一把（2026-10-24）
+
+官方云中继把「零配置」建立在账号体系上（§13）；自建 relay 没有账号体系，
+但也不需要 v3~v5 那套「主机密钥 + 配对码 + 槽位基址」三把密钥的同步矩阵——
+**一把密钥就能同时承担准入、配对与房间路由**。本节把配置面收敛到
+「中继地址 + 密钥」两个字段，relay 侧不再要求任何密钥环境变量。
+
+## 19.1 语义：密钥即房间（key-room）
+
+一把 32B base64url 随机密钥 `roomKey`（`generateRelayRoomKey()`）同时承担原三个角色：
+
+| 原角色（v3~v5） | 原 Secret | v6 承担方式 |
+| --- | --- | --- |
+| 桌面拨入鉴权（`/host`、`/api/host-report`） | `HOST_SECRET`（Bearer） | `Bearer <roomKey>`，key 即房间 id |
+| 手机配对凭据（`?token=` / cookie） | `RELAY_TOKEN` | `?token=<roomKey>`，key 即房间 id |
+| 多桌面共用一台 relay 的槽位错开 | `slotBase`（0..91 随机错开） | **房间即隔离**：room = key，槽位 0..slots-1 挂在房间内，不同桌面的 key 不同，天然不冲突 |
+
+relay 的房间**按密钥按需创建**（首次见到某 key 即建），不再有部署期密钥：
+`.env` 只剩 `PORT`（`WEB_ROOT` 等运维变量保留）。中继对密钥的职责从「持有根密钥做校验」
+降级为「按 key 字符串分组转发」——单用户自部署下，密钥持有者本来就有房间全权
+（能当 host 也能当 client，等同原 `HOST_SECRET` 权限），角色分离没有实际增益。
+
+**E2EE channelKey 不合并**：roomKey 出现在 Bearer 头与查询参数里（中继可见），
+拿它派生 E2EE 子密钥等于放弃「中继不可读」（§16.1）。channelKey 保持独立随机生成、
+只在链接 `#k=` fragment 分发——但用户依旧无感：自动生成、自动进链接、高级设置可见。
+v5 的「缺失即随机生成」语义不变。
+
+## 19.2 协议端点（relay v6）
+
+| 端点 | v6 鉴权 | 说明 |
+| --- | --- | --- |
+| `GET /host` (upgrade) | `Authorization: Bearer <roomKey>` | `?slot=<i>`（0..99，缺省 0）为**房间内**槽位；同槽位重连顶替（4001）不变 |
+| `GET /ws` (upgrade) | 凭据通道解析出 roomKey | 加入该房间，FIFO 认领该房间空闲槽位（§17 逻辑原样，作用域从全局改为房间） |
+| `POST /api/host-report` | `Bearer <roomKey>` | 上报存到**该房间**（原全局单份 → 房间级） |
+| `GET /api/server-info` | 凭据通道 → 房间 | 返回该房间的上报（E2EE 信封原样回，§16.9 不变） |
+| `GET /?token=<roomKey>` | key 形状校验 | 配对入口：下发**原始 key cookie** `zcode_lite_token=<roomKey>` → 302（与 legacy 行为一致，只是值从全局 RELAY_TOKEN 变为房间 key） |
+| `GET /?s=&t=&e=&h=` | HMAC(roomKey) 验证 | 时效签名链接（§18.2 算法不变，HMAC 密钥 = roomKey）；派生 cookie 升级为带房间指纹（§19.3） |
+
+房间凭据解析（`resolveRoom(req, url)`，取代 §18.4 四通道——语义相同，都锚定到房间）：
+
+1. query `?token=<key>` → 房间 = key（按需创建）；
+2. cookie `zcode_lite_token = <key>`（原始 key，永久链接流程）→ 房间 = key；
+3. cookie `v1.<f>.<e>.<sig>`（时效链接派生，§19.3）→ 按指纹 `f` 找房间，验证 HMAC + 过期；
+4. signed query `?s=&t=&e=&h=` → 逐房间重算 HMAC(roomKey, `s|t|e`)，命中即该房间。
+
+房间回收：心跳扫描（§12.3.1 复用）删除「无 host、无 client、无上报」的空房间，
+防未知 key 刷房间撑爆内存；房间总数上限 100，超限时拒绝新房间（503 语义，401 拒绝升级）。
+
+## 19.3 派生会话 cookie 升级（多房间支持）
+
+原 §18.3 的 `v1.<e>.<sig>` 无法回答「这个 cookie 属于哪个房间」（多桌面共用一台 relay 时
+server-info 会拿错房间）。升级为带**房间指纹**：
+
+```text
+zcode_lite_token = v1.<f>.<e>.<base64url(HMAC_SHA256(roomKey, `cookie|${f}|${e}`))>
+f = base64url(SHA-256(roomKey)).slice(0, 8)      // 房间指纹，不含密钥本体
+```
+
+- 按指纹索引房间：O(1) 定位 + 常量时间验签；指纹泄露不了 roomKey。
+- v5 的旧格式 `v1.<e>.<sig>`（无指纹）**不再支持**：key-room 模式下旧 cookie 属于
+  已被替换的全局 RELAY_TOKEN 体系，迁移本身就会轮换密钥并重发链接（§19.5），旧 cookie
+  随之作废——保留解析只会制造「看似兼容、实际失效」的中间态。
+
+## 19.4 桌面配置面（v6）
+
+`remote-relay.json`：
+
+- **新增 `roomKey`**（32B base64url，`generateRelayRoomKey()` 生成）。
+- **删除 `hostSecret` / `pairingToken` / `slotBase`**（读取时按 §19.5 迁移；写回只写新形状）。
+- 保留：`url` / `publicUrl` / `channelKey` / `e2ee` / `slots` / `workspace` / `windowId` / `autoStart`。
+
+`EffectiveRelayConfig` 对应改为 `{ url, roomKey, channelKey, e2ee, slots,
+pinnedWindowId, pinnedWorkspacePath, publicUrlOverride, source }`；补齐链（§15.4）
+从 `ensurePairingToken → ensureHostSecret → ensureE2eeChannelKey → ensureSlotBase`
+收敛为 `ensureRoomKey → ensureE2eeChannelKey`（channelKey 语义不变）。
+
+客户端拨出（`remoteRelayClient.ts`）：`hostSecret` 选项改名 `roomKey`，
+Bearer 值即 roomKey；`slot` 选项变为房间内 0..slots-1（去掉 slotBase 加算）。
+分享链接（`remoteRelayShareLink.ts`）：输入字段 `pairingToken` → `roomKey`；
+链接形状不变（`?token=<roomKey>&autoReconnect=1#k=<channelKey>`，永久）与
+`?s&t&e&h`（时效，HMAC 密钥 = roomKey）——web 端（`packages/web/src/main.tsx` 读
+`?token=` 与 `#k=`）**零改动**。
+
+## 19.5 迁移规则（读文件时执行，幂等）
+
+```text
+roomKey 已存在           → 用它
+否则旧 pairingToken/hostSecret 存在且 ≠ 两个公开常量 → 沿用该值（旧手机链接继续可用）
+否则（缺失或等于公开常量）→ generateRelayRoomKey() 随机生成
+```
+
+- **沿用自定义值**：v3 起用户自填过密钥的部署，升级后旧手机链接 / PWA / 书签继续工作
+  （key-room relay 首次见到该 key 即建房）。
+- **轮换公开常量值**：`DEFAULT_RELAY_HOST_SECRET` / `DEFAULT_RELAY_PAIRING_TOKEN` 是
+  仓库内的真实部署值（v3/v4 常量），视为已泄露——等于它的部署在迁移时**必须**换新随机值，
+  旧链接失效、手机重新扫一次码。这两个常量 v6 起**停止回填**（仅保留导出做迁移判定），
+  与 `DEFAULT_RELAY_CHANNEL_KEY` 的「历史兼容值」待遇一致（§16.5）。
+- 迁移结果落盘为**扁平新形状**（旧字段一并移除），下次读取走 roomKey 快路径。
+- 升级顺序：更新桌面 → 用新 `deploy/vps-relay/relay.mjs` 替换 VPS 上的旧文件并重启
+  （`.env` 里 `RELAY_TOKEN` / `HOST_SECRET` 直接删掉，不删也仅是未用变量）。
+  两步之间手机不可用的窗口 = 手动部署耗时；旧 relay 不认识新 Bearer，新桌面在旧 relay
+  上 401 重连退避，均为 fail-closed，无静默错配。
+
+## 19.6 删除清单（v6）
+
+| 位置 | 删除 | 说明 |
+| --- | --- | --- |
+| `packages/shared/src/remote-relay.ts` | `RemoteRelayFileConfig.hostSecret/pairingToken/slotBase` 字段；`resolveRelayHostSecret()`；两个默认常量停止回填 | 新增 `roomKey` 字段与 `generateRelayRoomKey()`、`DEFAULT_ROOM_KEY_MAX_LENGTH` |
+| `packages/desktop/src/main/remoteRelayConfig.ts` | `ensurePairingToken` / `ensureHostSecret` / `ensureSlotBase`；`EffectiveRelayConfig.hostSecret/pairingToken/slotBase` | 新增 `ensureRoomKey`（含 §19.5 迁移） |
+| `packages/desktop/src/main/remoteRelayClient.ts` | `hostSecret` 选项 | 改名 `roomKey` |
+| `packages/desktop/src/main/remoteRelayShareLink.ts` | `pairingToken` 输入字段 | 改名 `roomKey` |
+| `deploy/vps-relay/relay.mjs` | `RELAY_TOKEN` / `HOST_SECRET` env 与全局单份 `hostReport`；全局 `waitingClients`/`hostSlots` | 房间化：`rooms: Map<key, Room>`（含槽位表 + 上报 + 指纹索引），等待客户端按房间分组 |
+| `packages/ui` `RemoteRelayConfigForm` | 「主机密钥」字段 | 「配对码」改名「密钥」（roomKey），i18n 三语同步 |
+
+## 19.7 验收（v6）
+
+| # | 场景 | 期望 |
+| --- | --- | --- |
+| 1 | 全新设备：填中继地址保存 | roomKey / channelKey 自动生成落盘；设置页只出现「中继地址 + 密钥」两个必填感知项 |
+| 2 | v5 配置文件（自定义密钥）升级 | roomKey = 旧 pairingToken，旧手机链接继续可用；文件被改写为新形状（无 hostSecret/pairingToken/slotBase） |
+| 3 | v5 配置文件（默认常量密钥）升级 | roomKey 为新随机值；旧链接失效，新链接可配对 |
+| 4 | 一台 relay 两个桌面（不同 key） | 互不串房：各自的 server-info / 槽位 / 配对独立 |
+| 5 | 同房间多手机（slots>1） | 每机认领独立槽位，行为与 §17 一致 |
+| 6 | 时效签名链接 | HMAC(roomKey) 验证；派生 cookie `v1.<f>.<e>.<sig>` 过期后 401 fail-closed |
+| 7 | 未知 key 刷 `/?token=` | 建房受上限约束（100），空房间被心跳回收；`/ws` 无 host 走宽限等待（§12.3.1） |
+| 8 | E2EE 开启 | `#k=` 照旧；relay 日志与 server-info 均无明文（§16.9 回归） |
