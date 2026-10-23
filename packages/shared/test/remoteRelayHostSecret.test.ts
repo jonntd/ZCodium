@@ -1,33 +1,64 @@
-// resolveRelayHostSecret 与统一默认值的单元测试（spec vps-relay-bridge.md §15.4）。
+// resolveRelayRoomKey 与 roomKey 生成的单元测试（spec vps-relay-bridge.md §19.5）。
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { DEFAULT_RELAY_HOST_SECRET, resolveRelayHostSecret } from "../src/remote-relay.ts";
+import {
+  DEFAULT_RELAY_HOST_SECRET,
+  DEFAULT_RELAY_PAIRING_TOKEN,
+  RELAY_ROOM_KEY_MAX_LENGTH,
+  generateRelayRoomKey,
+  resolveRelayRoomKey,
+} from "../src/remote-relay.ts";
 
-test("env 值优先于配置文件", () => {
-  assert.equal(resolveRelayHostSecret("env-secret", "file-secret"), "env-secret");
+test("已有 roomKey 原样沿用（幂等）", () => {
+  assert.deepEqual(resolveRelayRoomKey({ roomKey: "my-room-key-1234" }), {
+    roomKey: "my-room-key-1234",
+    source: "kept",
+  });
+  // 纯空白也视为缺省，走迁移决策
+  assert.notEqual(resolveRelayRoomKey({ roomKey: "   " }).roomKey.trim(), "");
 });
 
-test("配置文件值优先于统一默认值", () => {
-  assert.equal(resolveRelayHostSecret(undefined, "file-secret"), "file-secret");
-  assert.equal(resolveRelayHostSecret("", "file-secret"), "file-secret");
-});
-
-test("两者都缺省（空串 / 纯空白也算缺省）时回退统一默认值", () => {
-  assert.equal(resolveRelayHostSecret(undefined, undefined), DEFAULT_RELAY_HOST_SECRET);
-  assert.equal(resolveRelayHostSecret("", ""), DEFAULT_RELAY_HOST_SECRET);
-  assert.equal(resolveRelayHostSecret("   ", "  "), DEFAULT_RELAY_HOST_SECRET);
-});
-
-test("跨文件同步守卫：relay.mjs 的 DEFAULT_HOST_SECRET 与 shared 常量一致", async () => {
-  // relay.mjs 是独立部署的单文件脚本，不能 import shared；两端默认值必须手工同步，
-  // 这条断言把「改了 shared 忘了改 relay」变成测试失败而不是线上 401。
-  const relaySource = await readFile(
-    new URL("../../../deploy/vps-relay/relay.mjs", import.meta.url),
-    "utf8",
+test("v5 自定义旧值沿用为 roomKey（旧手机链接继续可用）", () => {
+  assert.deepEqual(
+    resolveRelayRoomKey({ pairingToken: "custom-pairing-token-1234" }),
+    { roomKey: "custom-pairing-token-1234", source: "kept" },
   );
-  assert.ok(
-    relaySource.includes(`DEFAULT_HOST_SECRET = "${DEFAULT_RELAY_HOST_SECRET}"`),
-    "relay.mjs 的 DEFAULT_HOST_SECRET 与 shared 的 DEFAULT_RELAY_HOST_SECRET 不一致",
+  // pairingToken 与 hostSecret 同时存在时优先 pairingToken（它就是链接里的凭据）
+  assert.deepEqual(
+    resolveRelayRoomKey({ pairingToken: "token-12345678", hostSecret: "secret-12345678" }),
+    { roomKey: "token-12345678", source: "kept" },
   );
+  // 只有 hostSecret 时也沿用
+  assert.deepEqual(resolveRelayRoomKey({ hostSecret: "secret-12345678" }), {
+    roomKey: "secret-12345678",
+    source: "kept",
+  });
+});
+
+test("公开常量视为已泄露：等于默认常量的旧值必须轮换", () => {
+  for (const leaked of [DEFAULT_RELAY_HOST_SECRET, DEFAULT_RELAY_PAIRING_TOKEN]) {
+    const result = resolveRelayRoomKey({ pairingToken: leaked });
+    assert.equal(result.source, "generated");
+    assert.notEqual(result.roomKey, leaked);
+  }
+});
+
+test("缺省时随机生成（不回填任何默认常量，spec §19.5）", () => {
+  const result = resolveRelayRoomKey({});
+  assert.equal(result.source, "generated");
+  assert.ok(result.roomKey.length > 0);
+  assert.ok(!result.roomKey.includes(DEFAULT_RELAY_HOST_SECRET));
+});
+
+test("超长旧值不沿用（防把任意垃圾当房间密钥）", () => {
+  const tooLong = "k".repeat(RELAY_ROOM_KEY_MAX_LENGTH + 1);
+  assert.equal(resolveRelayRoomKey({ pairingToken: tooLong }).source, "generated");
+});
+
+test("generateRelayRoomKey：43 字符 base64url，两次生成不同", () => {
+  const a = generateRelayRoomKey();
+  const b = generateRelayRoomKey();
+  assert.equal(a.length, 43);
+  assert.match(a, /^[A-Za-z0-9_-]+$/);
+  assert.notEqual(a, b);
 });

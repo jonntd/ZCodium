@@ -51,13 +51,16 @@ export {
   DEFAULT_RELAY_CHANNEL_KEY,
   DEFAULT_RELAY_HOST_SECRET,
   DEFAULT_RELAY_PAIRING_TOKEN,
+  DEPRECATED_RELAY_DEFAULT_SECRETS,
+  RELAY_ROOM_KEY_MAX_LENGTH,
   deriveRemoteRelayPublicUrl,
   extractRelayPort,
+  generateRelayRoomKey,
   isLocalRelayHost,
   isLoopbackRelayHost,
   isPrivateIpv4Host,
-  resolveRelayHostSecret,
   resolveRelayLanHost,
+  resolveRelayRoomKey,
 } from "./remote-relay.js";
 export {
   RELAY_E2EE_CHANNEL_KEY_BYTES,

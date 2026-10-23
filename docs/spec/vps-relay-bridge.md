@@ -1889,8 +1889,16 @@ v5 的「缺失即随机生成」语义不变。
 | `GET /ws` (upgrade) | 凭据通道解析出 roomKey | 加入该房间，FIFO 认领该房间空闲槽位（§17 逻辑原样，作用域从全局改为房间） |
 | `POST /api/host-report` | `Bearer <roomKey>` | 上报存到**该房间**（原全局单份 → 房间级） |
 | `GET /api/server-info` | 凭据通道 → 房间 | 返回该房间的上报（E2EE 信封原样回，§16.9 不变） |
-| `GET /?token=<roomKey>` | key 形状校验 | 配对入口：下发**原始 key cookie** `zcode_lite_token=<roomKey>` → 302（与 legacy 行为一致，只是值从全局 RELAY_TOKEN 变为房间 key） |
-| `GET /?s=&t=&e=&h=` | HMAC(roomKey) 验证 | 时效签名链接（§18.2 算法不变，HMAC 密钥 = roomKey）；派生 cookie 升级为带房间指纹（§19.3） |
+| `GET /?token=<roomKey>` | key 形状校验 | 配对入口：下发**原始 key cookie** `zcode_lite_token=<roomKey>` → 302（与 legacy 行为一致，只是值从全局 RELAY_TOKEN 变为房间 key）。带 `s/t/e/h` 时为**自验时效链接**（见下） |
+| `GET /?token=<roomKey>&s=&t=&e=&h=` | HMAC(roomKey) 自验 | **v6 时效链接自带 token**：签名用链接里的 key 自证，中继无需预知密钥即可验证——桌面离线（房间未建立）也能配对。验证通过 → 下发派生 cookie（§19.3）→ **按需建房** → 302 摘 token、保留 s/t/e/h。无 token 的纯 `s/t/e/h`（302 后的请求）按逐房间重算验签 |
+
+**为什么时效链接要自带 token**：§18 的旧设计「签名即凭据、不含 token」依赖中继持有
+HMAC 根密钥（RELAY_TOKEN）来验证；key-room 下中继不持有任何密钥，链接若不含 token，
+中继只能对**已存在的房间**逐个重算——桌面离线（房间被回收）或中继重启后，旧时效链接
+会 401。自带 token 后签名自证（持有 key 的人才签得出），安全性与旧设计等价
+（token 本来就要经 `?token=` 到达中继一次，无新增暴露面），离线配对恢复成立。
+web 端零改动：302 后地址栏只剩 s/t/e/h，`credentialQuery = tokenQuery || signedQuery`
+的优先级不变。
 
 房间凭据解析（`resolveRoom(req, url)`，取代 §18.4 四通道——语义相同，都锚定到房间）：
 

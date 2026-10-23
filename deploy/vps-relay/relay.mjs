@@ -367,27 +367,47 @@ function resolveSessionCookie(value) {
   return room;
 }
 
-/** §18.2 签名四元组校验：h 常量时间比对；t 不得在未来（±300s 容差）；e 必须在未来。
- *  签名不编房间，逐房间重算——房间数有上限（MAX_ROOMS），遍历代价可控；
- *  命中哪个房间就归属哪个房间（不同 key 不可能算出同一签名）。 */
-function resolveSignedShareQuery(url) {
+/**
+ * §18.2 签名四元组的参数解析与时间窗校验：t 不得在未来（±300s 容差）；e 必须在未来。
+ * 注意**不能**拒绝「t 在过去」：t 是签发时刻，正常流程就是「生成链接 → 过一会儿
+ * 才扫码/打开」，有效期完全由 e 把关 —— 曾把校验写成 |now-t|≤300 导致链接
+ * 签发 5 分钟后就永远 401（真浏览器实测踩过）。
+ * v6 key-room（§19.2）：链接**自带 token**，签名由链接里的 key 自证——
+ * 中继无需预知密钥即可验证（isSelfSignedShareValid），离线场景（房间尚未建立）也能配对。
+ */
+function parseShareQueryParams(url) {
   const sid = (url.searchParams.get("s") || "").trim();
   const t = Number.parseInt(url.searchParams.get("t") || "", 10);
   const e = Number.parseInt(url.searchParams.get("e") || "", 10);
   const h = (url.searchParams.get("h") || "").trim();
-  if (!sid || !Number.isInteger(t) || !Number.isInteger(e)) return null;
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (t > nowSec + CLOCK_SKEW_SECONDS) return null;
+  if (!sid || !Number.isInteger(t) || !Number.isInteger(e) || !h) return null;
+  if (t > Math.floor(Date.now() / 1000) + CLOCK_SKEW_SECONDS) return null;
   if (e * 1000 <= Date.now()) return null;
-  const message = `${sid}|${t}|${e}`;
+  return { sid, t, e, h };
+}
+
+/** 自验通道（页面配对入口）：HMAC 密钥 = 链接里自带的 token（roomKey）。 */
+function isSelfSignedShareValid(key, url) {
+  const params = parseShareQueryParams(url);
+  if (!params) return false;
+  return safeEqual(params.h, hmacRoomKey(key, `${params.sid}|${params.t}|${params.e}`));
+}
+
+/** 房间通道（/ws、/api：302 后地址栏只剩 s/t/e/h，没有 token）：逐房间重算。
+ *  房间数有上限（MAX_ROOMS），遍历代价可控；命中哪个房间就归属哪个房间
+ *  （不同 key 不可能算出同一签名）。 */
+function resolveSignedShareQuery(url) {
+  const params = parseShareQueryParams(url);
+  if (!params) return null;
+  const message = `${params.sid}|${params.t}|${params.e}`;
   for (const room of rooms.values()) {
-    if (safeEqual(h, hmacRoomKey(room.key, message))) return room;
+    if (safeEqual(params.h, hmacRoomKey(room.key, message))) return room;
   }
   return null;
 }
 
 /** 页面配对入口的 key 形状校验（`/?token=`）：只验形状不建房——真正建房发生在
- *  /ws 与 /host，页面入口无谓占房间名额（未知 key 刷页面不应撑房间表）。 */
+ *  /ws 与 /host（自验时效链接除外：签名通过即证明持有 key，见 token 入口分支）。 */
 function isPagePairingTokenValid(token) {
   return isPlausibleKey(token);
 }
@@ -494,14 +514,41 @@ const server = createServer(async (req, res) => {
   // 仅对页面路径生效：/api/* 的 ?token= 是「token 双通道」鉴权（spec §12.4），
   // 不能被重定向劫持（否则 server-info 的查询参数通道永远 401）。
   // v6 key-room：值 = 房间密钥本体；只验形状不建房（建房收口在 /ws 与 /host）。
+  // 带 s/t/e/h 时是**自验时效链接**（spec §19.2）：签名用链接里的 key 自证，
+  // 验证通过才下发派生 cookie 并按需建房（桌面离线、房间未建立时也能配对）。
   if (url.searchParams.get("token") && !url.pathname.startsWith("/api/")) {
-    if (!isPagePairingTokenValid(url.searchParams.get("token"))) {
+    const key = (url.searchParams.get("token") || "").trim();
+    if (!isPagePairingTokenValid(key)) {
       sendJson(res, 401, { error: "Unauthorized" });
+      return;
+    }
+    if (url.searchParams.get("s") && url.searchParams.get("h")) {
+      if (!isSelfSignedShareValid(key, url)) {
+        sendJson(res, 401, { error: "Unauthorized" });
+        return;
+      }
+      const expiresAtSec = Number.parseInt(url.searchParams.get("e"), 10);
+      const maxAge = Math.max(0, expiresAtSec - Math.floor(Date.now() / 1000));
+      const fingerprint = roomFingerprint(key);
+      res.setHeader(
+        "set-cookie",
+        `${COOKIE_NAME}=v1.${fingerprint}.${expiresAtSec}.${hmacRoomKey(key, `cookie|${fingerprint}|${expiresAtSec}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`,
+      );
+      // 签名通过即证明持有 key：按需建房，后续 /ws（只带 s/t/e/h）才能定位到房间。
+      getOrCreateRoom(key);
+      // 与普通 token 入口一样 302 摘掉 token（永久凭据不能留在地址栏/历史/Referer），
+      // **保留 s/t/e/h**——重定向后的请求走「signed 无 token」分支（逐房间验签），
+      // web bundle 也靠它们把凭据附到 /ws 与 /api。不会循环：第二次请求已无 token。
+      const remaining = new URLSearchParams(url.searchParams);
+      remaining.delete("token");
+      const query = remaining.toString();
+      res.writeHead(302, { location: query ? `${url.pathname}?${query}` : url.pathname });
+      res.end();
       return;
     }
     res.setHeader(
       "set-cookie",
-      `${COOKIE_NAME}=${url.searchParams.get("token")}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
+      `${COOKIE_NAME}=${key}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
     );
     const remaining = new URLSearchParams(url.searchParams);
     remaining.delete("token");

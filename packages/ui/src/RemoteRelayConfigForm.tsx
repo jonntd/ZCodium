@@ -20,12 +20,15 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ConfigField } from "./RemoteRelayConfigField.js";
 
 /**
- * 中继配置表单（spec vps-relay-bridge.md §15 / §18.6）。
+ * 中继配置表单（spec vps-relay-bridge.md §15 / §18.6 / §19）。
  *
- * 原「设置 → 远程访问」分区里的**全部配置项**（连接协议 / 中继地址 / 主机密钥 / 公开地址 /
- * 配对码 / E2EE / 并发槽位 / 工作区覆盖 / 随应用启动 / 保存）整体搬到这里，作为
+ * 原「设置 → 远程访问」分区里的**全部配置项**（连接协议 / 中继地址 / 密钥 / 公开地址 /
+ * E2EE / 并发槽位 / 工作区覆盖 / 随应用启动 / 保存）整体搬到这里，作为
  * 「移动端远程控制」弹层内「浏览器直连」面板的「高级设置」折叠块——设置页不再保留
  * 任何远程访问入口，避免两处各有一半配置（迁移前就是这个问题）。
+ *
+ * v6 key-room（§19）：原「主机密钥 + 配对码」两把密钥收敛成一把「密钥」（roomKey），
+ * 由 Main 自动生成落盘，这里只展示/允许手工轮换。
  *
  * 状态由父面板（`RemoteRelayAccessPanel`）轮询并传入；本组件只负责编辑与保存，
  * 保存成功后通过 `onSaved` 把新状态交回，让链接/二维码立即刷新。
@@ -33,15 +36,13 @@ import { ConfigField } from "./RemoteRelayConfigField.js";
 
 const EMPTY_FORM: RemoteRelayFileConfig = {
   url: "",
-  hostSecret: "",
+  roomKey: "",
   publicUrl: "",
-  pairingToken: "",
   // e2ee 默认 true（v4，2026-10-21）：全新设备默认加密，与 Main 侧 isE2eeEnabled 的
   // 「未显式设置 → 开」判定同源（spec §16.5）。
   e2ee: true,
   channelKey: "",
   slots: 1,
-  slotBase: undefined,
   workspace: "",
   autoStart: true,
 };
@@ -59,18 +60,16 @@ function toForm(config: RemoteRelayFileConfig | null): RemoteRelayFileConfig {
       : "";
   return {
     url,
-    hostSecret: config?.hostSecret ?? "",
+    // roomKey 随表单 round-trip：漏掉的话下一次保存会把它抹掉（下次启动重新生成
+    // → 旧手机链接全部失效）。Main 侧 ensureRoomKey 保证它存在后才回填。
+    roomKey: config?.roomKey ?? "",
     publicUrl,
-    pairingToken: config?.pairingToken ?? "",
     // E2EE 字段必须随表单 round-trip：漏掉的话下一次保存会把已生成的
     // channelKey 抹掉（下次启动重新生成 → 旧链接全部失效）。
     // 缺省 true 与 Main 侧「未显式设置 → 默认开启」同源（spec §16.5 v4）。
     e2ee: config?.e2ee ?? true,
     channelKey: config?.channelKey ?? "",
     slots: config?.slots ?? 1,
-    // slotBase 必须随表单 round-trip：漏掉的话下一次保存会把自动生成的基址抹掉，
-    // 重启后重新生成 → 槽位号漂移（多桌面场景会互相顶替）。
-    slotBase: config?.slotBase,
     workspace: config?.workspace ?? "",
     windowId: config?.windowId,
     autoStart: config?.autoStart ?? true,
@@ -253,14 +252,14 @@ export function RemoteRelayConfigForm({
           ) : null}
 
           <ConfigField
-            id="remote-relay-host-secret"
-            label={t("settings.remoteRelay.hostSecret")}
-            description={t("settings.remoteRelay.hostSecretDescription")}
+            id="remote-relay-room-key"
+            label={t("settings.remoteRelay.roomKey")}
+            description={t("settings.remoteRelay.roomKeyDescription")}
             placeholder="••••••••"
             secret
             copyable
-            value={form.hostSecret ?? ""}
-            onChange={updateField("hostSecret")}
+            value={form.roomKey ?? ""}
+            onChange={updateField("roomKey")}
           />
 
           {/* 公开地址默认与中继地址同源（只差协议），因此收进开关；不同源才展开输入框。 */}
@@ -292,15 +291,8 @@ export function RemoteRelayConfigForm({
             />
           ) : null}
 
-          <ConfigField
-            id="remote-relay-pairing-token"
-            label={t("settings.remoteRelay.pairingToken")}
-            description={t("settings.remoteRelay.pairingTokenDescription")}
-            placeholder=""
-            copyable
-            value={form.pairingToken ?? ""}
-            onChange={updateField("pairingToken")}
-          />
+          {/* v6 key-room：原「配对码」字段与主机密钥合并为上面的「密钥」（roomKey，
+              spec §19）——分享链接的 ?token= 就用它，清空保存即轮换。 */}
 
           {/* E2EE（spec §16）：默认开（未显式设置过的设备）。开启后 Main 自动生成
               channelKey 并落盘，链接自动追加 #k=（fragment 不会发给中继）。

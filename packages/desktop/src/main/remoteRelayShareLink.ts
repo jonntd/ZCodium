@@ -79,9 +79,11 @@ export function buildRelayShareLink(input: RelayShareLinkInput): RelayShareLink 
     const expiresAtSec = issuedAtSec + ttl;
     const sid = createShareSid();
     const sig = signRelayShareParams(input.roomKey, sid, issuedAtSec, expiresAtSec);
-    // 时效链接**不携带 token**：凭据 = 签名四元组。302 保留这些参数（§18.4），
-    // web bundle 会把它们附到 wsUrl/server-info（等价于 token 通道）。
-    url = `${base}/?s=${encodeURIComponent(sid)}&t=${issuedAtSec}&e=${expiresAtSec}&h=${encodeURIComponent(
+    // 时效链接**自带 token**（v6 key-room 自验，spec §19.2）：签名用链接里的 key
+    // 自证，中继无需预知密钥即可验证——桌面离线（房间未建立）也能配对。
+    // 302 摘掉 token、保留 s/t/e/h：地址栏只留时效凭据，web bundle 把它们附到
+    // wsUrl/server-info（等价于 token 通道）。
+    url = `${base}/?token=${encodeURIComponent(input.roomKey)}&s=${encodeURIComponent(sid)}&t=${issuedAtSec}&e=${expiresAtSec}&h=${encodeURIComponent(
       sig,
     )}&autoReconnect=1`;
     expiresAt = expiresAtSec * 1000;

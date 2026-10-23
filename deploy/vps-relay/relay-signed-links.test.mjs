@@ -5,7 +5,7 @@
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { createServer } from "node:net";
 import { get as httpGet } from "node:http";
 import { gunzipSync } from "node:zlib";
@@ -15,20 +15,52 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { WebSocket } from "ws";
 
-const RELAY_TOKEN = `tk-${randomBytes(12).toString("base64url")}`;
-const HOST_SECRET = `hs-${randomBytes(12).toString("base64url")}`;
+// v6 key-room（spec §19）：一把房间密钥同时承担桌面 Bearer 与手机 cookie/?token=。
+const ROOM_KEY = `rk-${randomBytes(12).toString("base64url")}`;
+/** 房间指纹：与 relay.mjs 一致（SHA-256 前 8 字符 base64url），派生 cookie 按它定位房间。 */
+function roomFingerprint(key) {
+  return createHash("sha256").update(key).digest("base64url").slice(0, 8);
+}
 const LARGE_ASSET = `export const testPayload = "${"relay-static-payload-".repeat(2048)}";\n`;
 
 /** 与 relay.mjs / remoteRelayShareLink.ts 一致的签名算法（三方一致性本身就是测试点）。 */
 function signShare(sid, t, e) {
-  return createHmac("sha256", RELAY_TOKEN).update(`${sid}|${t}|${e}`).digest("base64url");
+  return createHmac("sha256", ROOM_KEY).update(`${sid}|${t}|${e}`).digest("base64url");
+}
+
+/** §19.3 派生会话 cookie：v1.<f>.<e>.<HMAC(roomKey, "cookie|f|e")>。 */
+function deriveSessionCookie(expiresAtSec) {
+  const f = roomFingerprint(ROOM_KEY);
+  return `v1.${f}.${expiresAtSec}.${createHmac("sha256", ROOM_KEY).update(`cookie|${f}|${expiresAtSec}`).digest("base64url")}`;
+}
+
+/** 起一条 host 连接（Bearer roomKey）让房间存在——server-info 不凭未知 key 建房。 */
+async function ensureRoomExists() {
+  const { WebSocket: WsClient } = await import("ws");
+  const port = new URL(baseUrl).port;
+  const ws = new WsClient(`ws://127.0.0.1:${port}/host`, {
+    headers: { authorization: `Bearer ${ROOM_KEY}` },
+  });
+  await new Promise((resolvePromise, rejectPromise) => {
+    const timer = setTimeout(() => rejectPromise(new Error("host open timeout")), 5_000);
+    ws.on("open", () => {
+      clearTimeout(timer);
+      resolvePromise();
+    });
+    ws.on("error", (error) => {
+      clearTimeout(timer);
+      rejectPromise(error);
+    });
+  });
+  return ws;
 }
 
 function buildSignedQuery({ t = Math.floor(Date.now() / 1000), ttl = 3600, sid, sigOverride }) {
   const s = sid ?? randomBytes(16).toString("base64url");
   const e = t + ttl;
   const h = sigOverride ?? signShare(s, t, e);
-  return `s=${encodeURIComponent(s)}&t=${t}&e=${e}&h=${encodeURIComponent(h)}`;
+  // v6 自验时效链接（spec §19.2）：自带 token，签名用链接里的 key 自证。
+  return `token=${encodeURIComponent(ROOM_KEY)}&s=${encodeURIComponent(s)}&t=${t}&e=${e}&h=${encodeURIComponent(h)}`;
 }
 
 let child;
@@ -71,8 +103,6 @@ before(async () => {
     env: {
       ...process.env,
       PORT: String(port),
-      RELAY_TOKEN,
-      HOST_SECRET,
       WEB_ROOT: webRoot,
     },
     stdio: ["ignore", "inherit", "inherit"],
@@ -116,53 +146,83 @@ test("静态文本资源：按 Accept-Encoding gzip 压缩；q=0 / identity 不�
   assert.equal(head.body.length, 0);
 });
 
-test("legacy ?token= 入口：302 摘 token、下发 RELAY_TOKEN cookie；错 token 401", async () => {
-  const good = await fetch(`${baseUrl}/?token=${encodeURIComponent(RELAY_TOKEN)}&autoReconnect=1`, {
+test("legacy ?token= 入口：302 摘 token、下发 roomKey cookie；形状过短 401", async () => {
+  const good = await fetch(`${baseUrl}/?token=${encodeURIComponent(ROOM_KEY)}&autoReconnect=1`, {
     redirect: "manual",
   });
   assert.equal(good.status, 302);
   assert.match(good.headers.get("location"), /autoReconnect=1$/);
   assert.ok(!good.headers.get("location").includes("token="));
-  assert.equal(readSetCookieValue(good, "zcode_lite_token"), RELAY_TOKEN);
+  assert.equal(readSetCookieValue(good, "zcode_lite_token"), ROOM_KEY);
 
+  // v6 key-room：页面入口只验 key 形状（≥8 字符），过短一律 401。
   const bad = await fetch(`${baseUrl}/?token=wrong`);
   assert.equal(bad.status, 401);
 });
 
-test("signed 入口：直接 200 回页面（不 302）并下发 v1 派生 cookie", async () => {
-  const res = await fetch(`${baseUrl}/?${buildSignedQuery({})}&autoReconnect=1`);
-  assert.equal(res.status, 200);
-  assert.match(await res.text(), /relay-test/);
+test("自验时效链接入口：302 摘 token 保留 s/t/e/h，下发 v1 派生 cookie 并建房（§19.2/§19.3）", async () => {
+  const res = await fetch(`${baseUrl}/?${buildSignedQuery({})}&autoReconnect=1`, {
+    redirect: "manual",
+  });
+  assert.equal(res.status, 302);
+  // token 被摘掉（永久凭据不进地址栏/历史），s/t/e/h 保留（web bundle 靠它们带凭据）。
+  const location = res.headers.get("location") ?? "";
+  assert.ok(!location.includes("token="), location);
+  assert.match(location, /s=&|s=[^&]/);
+  assert.match(location, /autoReconnect=1$/);
   const cookie = readSetCookieValue(res, "zcode_lite_token");
-  assert.match(cookie, /^v1\.\d+\./);
-  // cookie 里的 sig 必须能用 RELAY_TOKEN 重算（格式 §18.3）。
-  const [, e, sig] = cookie.split(".");
-  assert.equal(sig, createHmac("sha256", RELAY_TOKEN).update(`cookie|${e}`).digest("base64url"));
+  assert.match(cookie, /^v1\.[A-Za-z0-9_-]{8}\.\d+\./);
+  // cookie 里的 sig 必须能用 roomKey 重算（格式 §19.3：HMAC 键 = roomKey，载荷含指纹）。
+  const [, f, e, sig] = cookie.split(".");
+  assert.equal(f, roomFingerprint(ROOM_KEY));
+  assert.equal(
+    sig,
+    createHmac("sha256", ROOM_KEY).update(`cookie|${f}|${e}`).digest("base64url"),
+  );
+
+  // 自验建房：桌面离线（房间未建立）时签名通过的 key 也能建出房间——
+  // 302 后的请求（纯 s/t/e/h，无 token）必须能被逐房间验签放行。
+  const redirected = await fetch(`${baseUrl}${location}`, { redirect: "manual" });
+  assert.equal(redirected.status, 200);
+  assert.match(readSetCookieValue(redirected, "zcode_lite_token"), /^v1\./);
 });
 
-test("signed 入口 fail-closed：篡改 h / 过期 e / 未来 t / 缺参数 都 401；过去的 t 合法", async () => {
+test("自验时效链接 fail-closed：篡改 h / 过期 e / 未来 t 都 401，且不建房", async () => {
   const now = Math.floor(Date.now() / 1000);
-  const cases = [
-    buildSignedQuery({ sigOverride: "forged".repeat(7) }),
-    buildSignedQuery({ t: now - 7200, ttl: 3600 }), // e = 已过期
-    buildSignedQuery({ t: now + 3600 }), // t 在未来超过 ±300s 容差（伪造/时钟错误）
-  ];
-  for (const query of cases) {
-    const res = await fetch(`${baseUrl}/?${query}`);
-    assert.equal(res.status, 401, query);
-  }
+  const forged = await fetch(
+    `${baseUrl}/?${buildSignedQuery({ sigOverride: "forged".repeat(7) })}`,
+    { redirect: "manual" },
+  );
+  assert.equal(forged.status, 401);
+  const expired = await fetch(
+    `${baseUrl}/?${buildSignedQuery({ t: now - 7200, ttl: 3600 })}`,
+    { redirect: "manual" },
+  );
+  assert.equal(expired.status, 401);
+  const futureT = await fetch(`${baseUrl}/?${buildSignedQuery({ t: now + 3600 })}`, {
+    redirect: "manual",
+  });
+  assert.equal(futureT.status, 401);
+});
+
+test("自验时效链接：过去的 t 合法（t 是签发时刻，有效期由 e 把关）", async () => {
+  const now = Math.floor(Date.now() / 1000);
   // t 是**签发时刻**：正常流程「生成 → 过一会儿才打开」，过去一小时必须仍然放行
   // （有效期由 e 把关，spec §18.2 —— 曾误拒过去 t 导致链接 5 分钟后失效）。
   const oldIssuance = await fetch(
     `${baseUrl}/?${buildSignedQuery({ t: now - 3600, ttl: 7200 })}`,
+    { redirect: "manual" },
   );
-  assert.equal(oldIssuance.status, 200);
+  assert.equal(oldIssuance.status, 302);
   // s 与 h 必须成对出现：只有 s 不走签名入口（无凭据打开页面本身是允许的）。
   const partial = await fetch(`${baseUrl}/?s=abc&autoReconnect=1`);
   assert.equal(partial.status, 200);
 });
 
-test("/api/server-info 四通道：signed query、v1 cookie、legacy token 均放行；无凭据/过期 v1 均 401", async () => {
+test("/api/server-info 四通道：signed query、v1 cookie、roomKey token 均放行；无凭据/过期 v1 均 401", async () => {
+  // 房间必须先存在（桌面连上才建房，spec §19.2）：server-info 不凭未知 key 建房。
+  const host = await ensureRoomExists();
+
   const query = buildSignedQuery({});
   const byQuery = await fetch(`${baseUrl}/api/server-info?${query}`);
   assert.equal(byQuery.status, 200);
@@ -174,7 +234,7 @@ test("/api/server-info 四通道：signed query、v1 cookie、legacy token 均�
   });
   assert.equal(byV1.status, 200);
 
-  const byToken = await fetch(`${baseUrl}/api/server-info?token=${encodeURIComponent(RELAY_TOKEN)}`);
+  const byToken = await fetch(`${baseUrl}/api/server-info?token=${encodeURIComponent(ROOM_KEY)}`);
   assert.equal(byToken.status, 200);
 
   const anonymous = await fetch(`${baseUrl}/api/server-info`);
@@ -182,11 +242,13 @@ test("/api/server-info 四通道：signed query、v1 cookie、legacy token 均�
 
   // 手造一个已过期的 v1 cookie：签名合法但 e 在过去 → 服务端必须拒绝（Max-Age 只是提示）。
   const pastE = Math.floor(Date.now() / 1000) - 10;
-  const expired = `v1.${pastE}.${createHmac("sha256", RELAY_TOKEN).update(`cookie|${pastE}`).digest("base64url")}`;
+  const expired = deriveSessionCookie(pastE);
   const byExpired = await fetch(`${baseUrl}/api/server-info`, {
     headers: { cookie: `zcode_lite_token=${expired}` },
   });
   assert.equal(byExpired.status, 401);
+
+  host.close();
 });
 
 test("/ws 升级：v1 cookie 放行；无凭据 401 拒绝", async () => {
