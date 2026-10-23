@@ -7,15 +7,12 @@
  * （控制模块 import 了 `ipcMain`，原生 ESM 的具名导出检查会在链接期直接拒绝，
  * 表现为 `The requested module 'electron' does not provide an export named 'ipcMain'`）。
  */
-import { randomInt } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAppConfigDir } from "@zcode/services/node";
 import {
-  DEFAULT_RELAY_HOST_SECRET,
-  DEFAULT_RELAY_PAIRING_TOKEN,
   generateRelayChannelKey,
-  resolveRelayHostSecret,
+  resolveRelayRoomKey,
   type RemoteRelayFileConfig,
 } from "@zcode/shared";
 import { unwrapLegacyRemoteRelayConfigFile } from "./remoteRelayConfigPayload.js";
@@ -29,7 +26,8 @@ export interface RelayConfigLogger {
 /** env 逐字段优先于文件后的生效配置；没有 url 即视为未配置（resolve 返回 null）。 */
 export interface EffectiveRelayConfig {
   url: string;
-  hostSecret: string;
+  /** 房间密钥（v6 key-room，spec §19）：拨入 Bearer 凭据 + 手机配对凭据 + 房间路由键。 */
+  roomKey: string;
   pinnedWindowId: number | null;
   pinnedWorkspacePath: string | null;
   /**
@@ -42,13 +40,10 @@ export interface EffectiveRelayConfig {
    * 对「中继在本机」则正确地不生效。
    */
   publicUrlOverride: string | null;
-  pairingToken: string | null;
   /** 端到端加密开关（spec vps-relay-bridge.md §16）。 */
   e2ee: boolean;
   /** 并发客户端槽位数（spec §17）。 */
   slots: number;
-  /** 槽位基址（spec §17）：实际槽位号 = slotBase + k。null = 尚未生成。 */
-  slotBase: number | null;
   channelKey: string | null;
   source: "env" | "file";
 }
@@ -111,31 +106,24 @@ export function resolveEffectiveConfig(
   if (!url) return null;
   if (!/^wss?:\/\//i.test(url)) return null;
 
-  const envSecret = process.env.ZCODE_REMOTE_RELAY_HOST_SECRET?.trim();
   const envWindow = Number(process.env.ZCODE_REMOTE_RELAY_WINDOW ?? "");
   const envWorkspace = process.env.ZCODE_REMOTE_RELAY_WORKSPACE?.trim();
   // E2EE 判定收口到 isE2eeEnabled（与补齐链同源）。
   // 并发客户端槽位数（spec §17）：每槽位一条独立连接 + 独立 Host attachment。
+  // 槽位号是房间内 0..slots-1（v6 key-room：房间即隔离，原 slotBase 删除）。
   const envSlots = Number.parseInt(process.env.ZCODE_REMOTE_RELAY_SLOTS?.trim() ?? "", 10);
   const rawSlots = Number.isInteger(envSlots) ? envSlots : file?.slots;
   const slots = Math.min(8, Math.max(1, Number.isInteger(rawSlots) ? (rawSlots as number) : 1));
-  const envSlotBase = Number.parseInt(process.env.ZCODE_REMOTE_RELAY_SLOT_BASE?.trim() ?? "", 10);
-  const cfgSlotBase = Number.isInteger(file?.slotBase) ? (file?.slotBase as number) : null;
-  const slotBase =
-    envSlotBase !== null && Number.isInteger(envSlotBase) && envSlotBase >= 0 && envSlotBase <= 91
-      ? envSlotBase
-      : cfgSlotBase !== null && cfgSlotBase >= 0 && cfgSlotBase <= 91
-        ? cfgSlotBase
-        : null;
 
   // 公开地址只认用户显式填的值；缺省推导（ws→http / wss→https）交给 buildRelayShareLink
   // 在生成链接时做——见 `publicUrlOverride` 的注释。
   const publicUrlOverride = file?.publicUrl?.trim() || null;
-  const pairingToken = file?.pairingToken?.trim() || null;
 
   return {
     url,
-    hostSecret: resolveRelayHostSecret(envSecret, file?.hostSecret),
+    // roomKey 由补齐链（ensureRoomKey）先行保证存在；resolve 只读不生成，
+    // 生成时机收口在补齐链，避免「读状态」与「拨出」两次生成漂移。
+    roomKey: file?.roomKey?.trim() || "",
     pinnedWindowId:
       Number.isInteger(envWindow) && envWindow > 0
         ? envWindow
@@ -144,48 +132,70 @@ export function resolveEffectiveConfig(
           : null,
     pinnedWorkspacePath: envWorkspace || file?.workspace?.trim() || null,
     publicUrlOverride,
-    pairingToken,
     e2ee: isE2eeEnabled(file),
     slots,
-    slotBase,
     channelKey: file?.channelKey?.trim() || null,
     source: envUrl ? "env" : "file",
   };
 }
 
+/** v5 旧配置的遗留字段（已从 `RemoteRelayFileConfig` 删除，磁盘上仍可能存在；只读迁移用）。 */
+interface LegacyRelayConfigFields {
+  hostSecret?: string;
+  pairingToken?: string;
+  slotBase?: number;
+}
+
 /**
- * 配对码缺失时回填**统一默认值**并落盘（spec §15.4 v4，2026-10-22）。
+ * 房间密钥补齐 + v5→v6 迁移（spec §19.5）。
  *
- * v4 起不再逐设备随机：缺省固定为 `DEFAULT_RELAY_PAIRING_TOKEN`（= 当前部署 relay 的
- * `RELAY_TOKEN`），新设备**开箱即与本部署配对**，不需要再手工把生成值抄回 relay。
- * 轮换语义随之变化：清空保存只会回填同一个默认值——**真正的轮换 = 在 UI 里手动填入
- * 新值保存**，并同步改 relay `.env` 的 `RELAY_TOKEN`（两侧一致才能配对）。
+ * 决策在 shared 的 `resolveRelayRoomKey`（纯函数，可单测）：
+ * 已有 roomKey 沿用；旧 pairingToken/hostSecret 为自定义值时沿用（旧手机链接继续可用）；
+ * 缺失或等于已公开的默认常量时随机生成。落盘时**同时移除旧字段**，写回扁平新形状——
+ * 否则下次读取又会看到旧值（虽然 resolve 不再读它们，但残留只会制造误解）。
+ *
+ * 迁移落盘失败的降级与其它补齐一致：内存里保留结果，仅 warn。
  */
-async function ensurePairingToken(
+async function ensureRoomKey(
   file: RemoteRelayFileConfig | null,
   logger?: RelayConfigLogger,
 ): Promise<RemoteRelayFileConfig> {
-  if (file?.pairingToken?.trim()) return file;
-  const pairingToken = DEFAULT_RELAY_PAIRING_TOKEN;
-  const nextFile: RemoteRelayFileConfig = { ...file, pairingToken };
+  const legacy = (file ?? {}) as RemoteRelayFileConfig & LegacyRelayConfigFields;
+  const { roomKey, source } = resolveRelayRoomKey({
+    roomKey: file?.roomKey,
+    pairingToken: legacy.pairingToken,
+    hostSecret: legacy.hostSecret,
+  });
+  const hasLegacyFields =
+    legacy.hostSecret !== undefined ||
+    legacy.pairingToken !== undefined ||
+    legacy.slotBase !== undefined;
+  if (source === "kept" && !hasLegacyFields) return { ...file, roomKey };
+  // 需要写盘：生成/沿用迁移值，或剥掉旧字段。旧字段从对象上显式删除（spread 不会去 undefined 键）。
+  const nextFile: RemoteRelayFileConfig = { ...(file ?? {}), roomKey };
+  delete (nextFile as RemoteRelayFileConfig & LegacyRelayConfigFields).hostSecret;
+  delete (nextFile as RemoteRelayFileConfig & LegacyRelayConfigFields).pairingToken;
+  delete (nextFile as RemoteRelayFileConfig & LegacyRelayConfigFields).slotBase;
   try {
     await writeConfigFile(nextFile);
-    logger?.info(`[remote-relay] 已回填统一默认配对码并写入 ${getConfigFilePath()}`);
+    logger?.info(
+      source === "generated"
+        ? `[remote-relay] 已生成房间密钥并写入 ${getConfigFilePath()}`
+        : `[remote-relay] 已迁移为 key-room 配置（沿用原密钥）并写入 ${getConfigFilePath()}`,
+    );
   } catch (error) {
-    // 落盘失败（只读目录等）时仍让本次会话可用：内存里保留新配对码。
-    logger?.warn("[remote-relay] 配对码写入失败，仅在本次会话内有效", error);
+    logger?.warn("[remote-relay] 房间密钥写入失败，仅在本次会话内有效", error);
   }
   return nextFile;
 }
 
 /**
- * 密钥补齐链（spec §15.4 / §16 / §17）：配对码 / 主机密钥 / E2EE channelKey /
- * 槽位基址缺失时生成并落盘。
+ * 密钥补齐链（spec §19.4/§19.5）：房间密钥（含 v5 迁移）与 E2EE channelKey 缺失时
+ * 生成并落盘。v6 起不再有 hostSecret/pairingToken/slotBase 三条链。
  *
  * ⚠ 调用方在 `resolveEffectiveConfig` **之前无条件执行**：全新设备还没有中继地址时，
- * App 启动（`autoStart`）与读状态（`GetStatus`）也会把配对码生成出来并落盘——
- * 「运行 App 即自动生成」，UI 里直接可见/复制，省掉「先填一次地址再保存」才有码的
- * 步骤（此前无 url 时 resolve 返回 null，ensure 根本到不了）。
+ * App 启动（`autoStart`）与读状态（`GetStatus`）也会把 roomKey 生成出来并落盘——
+ * 「运行 App 即自动生成」，UI 里直接可见/复制。
  *
  * 幂等：已存在的值原样返回；写盘失败（只读目录等）只 warn，本次会话内存里仍用新值。
  */
@@ -193,34 +203,8 @@ export async function ensureRelaySecrets(
   file: RemoteRelayFileConfig | null,
   logger?: RelayConfigLogger,
 ): Promise<RemoteRelayFileConfig> {
-  const withToken = await ensurePairingToken(file, logger);
-  const withHostSecret = await ensureHostSecret(withToken, logger);
-  const withChannelKey = await ensureE2eeChannelKey(withHostSecret, logger);
-  return ensureSlotBase(withChannelKey, logger);
-}
-
-/**
- * 主机密钥缺失时回填**统一默认值**并落盘（spec §15.4）。
- *
- * 默认值是 `DEFAULT_RELAY_HOST_SECRET`（取当前部署真实 `HOST_SECRET`，新设备开箱即用）。
- * ⚠ 仓库若公开即等于公开该密钥：任何能访问 relay `/host` 的人都等于拿到桌面 Host 的
- * 服务面；公开前应先轮换（relay `.env` 与桌面两边同步改新值）。env
- * `ZCODE_REMOTE_RELAY_HOST_SECRET` 覆盖时不写文件（env 逐字段优先于文件）。
- */
-async function ensureHostSecret(
-  file: RemoteRelayFileConfig,
-  logger?: RelayConfigLogger,
-): Promise<RemoteRelayFileConfig> {
-  if (process.env.ZCODE_REMOTE_RELAY_HOST_SECRET?.trim()) return file;
-  if (file.hostSecret?.trim()) return file;
-  const nextFile: RemoteRelayFileConfig = { ...file, hostSecret: DEFAULT_RELAY_HOST_SECRET };
-  try {
-    await writeConfigFile(nextFile);
-    logger?.info(`[remote-relay] 已回填统一默认主机密钥并写入 ${getConfigFilePath()}`);
-  } catch (error) {
-    logger?.warn("[remote-relay] 默认主机密钥写入失败，仅在本次会话内有效", error);
-  }
-  return nextFile;
+  const withRoomKey = await ensureRoomKey(file, logger);
+  return ensureE2eeChannelKey(withRoomKey, logger);
 }
 
 /**
@@ -256,31 +240,9 @@ async function ensureE2eeChannelKey(
 }
 
 /**
- * 槽位基址缺失时自动生成并落盘（spec §17）：
- * 多桌面共用一台 relay 时各桌面的 slotBase 随机错开（0..91，碰撞 ≈1%），
- * 单桌面无感。与配对码同一套「首次自动生成」惯例；env
- * `ZCODE_REMOTE_RELAY_SLOT_BASE` 仍逐字段优先于文件。
- */
-async function ensureSlotBase(
-  file: RemoteRelayFileConfig,
-  logger?: RelayConfigLogger,
-): Promise<RemoteRelayFileConfig> {
-  if (file.slotBase !== undefined) return file;
-  const slotBase = randomInt(0, 92);
-  const nextFile: RemoteRelayFileConfig = { ...file, slotBase };
-  try {
-    await writeConfigFile(nextFile);
-    logger?.info(`[remote-relay] 已生成槽位基址 ${slotBase} 并写入 ${getConfigFilePath()}`);
-  } catch (error) {
-    logger?.warn("[remote-relay] 槽位基址写入失败，仅在本次会话内有效", error);
-  }
-  return nextFile;
-}
-
-/**
  * App 启动时是否自动连接（`autoStart` 用）：env URL 存在即连；文件配置要求有 url
  * 且 `autoStart` 未显式关。**与补齐无关**——补齐在调用方先执行（spec §15.4），
- * 即「有没有地址」只决定连不连，不影响「生不生成配对码」。
+ * 即「有没有地址」只决定连不连，不影响「生不生成房间密钥」。
  */
 export function shouldAutoStartRelay(
   file: RemoteRelayFileConfig,

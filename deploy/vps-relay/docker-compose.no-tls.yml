@@ -2,7 +2,7 @@
 #
 # 用法：
 #   mkdir -p web && cp -r <repo>/packages/web/dist/* web/
-#   printf 'RELAY_TOKEN=%s\nHOST_SECRET=%s\n' "$(openssl rand -base64 32)" "$(openssl rand -base64 32)" > .env
+#   （v6 key-room：无需任何 .env 密钥，房间按密钥按需创建）
 #   chmod 600 .env
 #   docker compose -f docker-compose.no-tls.yml up -d --build
 #
@@ -25,9 +25,7 @@ services:
       # 直接对外监听：没有反代，relay 自己就是入口。
       - "3180:3180"
     environment:
-      # :? 语法让 compose 在变量缺失时直接报错退出，避免用空密钥起服务。
-      RELAY_TOKEN: ${RELAY_TOKEN:?RELAY_TOKEN 未设置，请先填 .env}
-      HOST_SECRET: ${HOST_SECRET:?HOST_SECRET 未设置，请先填 .env}
+      # v6 key-room（spec §19）：房间按密钥按需创建，无任何密钥环境变量；roomKey 由桌面配置管理。
       PORT: "3180"
       WEB_ROOT: /app/web
     volumes:

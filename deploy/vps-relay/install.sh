@@ -5,8 +5,12 @@
 # 用法：
 #   bash install.sh                 # 首次部署（默认 VARIANT=no-tls，纯 IP / 无域名）
 #   bash install.sh update          # 拉取新镜像并重启
-#   bash install.sh remove          # 停止并删除容器（.env 保留，密钥不丢）
-#   bash install.sh remove --purge  # 连 .env 一起删（彻底清除）
+#   bash install.sh remove          # 停止并删除容器
+#   bash install.sh remove --purge  # 连生成物一起删（彻底清除）
+#
+# v6 key-room（spec vps-relay-bridge.md §19）：房间按密钥按需创建，
+# 本部署**不需要任何 .env / 密钥**——唯一的密钥（roomKey）在桌面 App 的
+# 「移动端远程控制」配置里自动生成，手机链接也从桌面生成。
 #
 # 可用环境变量（都有默认值，一般不用设）：
 #   ZCODE_RELAY_DIR=/opt/zcode-relay   安装目录（.env 与 compose 所在）
@@ -54,24 +58,12 @@ ensure_docker() {
   log "Docker $(docker --version | awk '{print $3}' | tr -d ,) / Compose $(docker compose version --short) 就绪"
 }
 
-# ---------- 2) .env（首次自动生成密钥）----------
-ensure_env() {
+# ---------- 2) 旧 .env 清理（v5 及更早版本会生成两个密钥；v6 key-room 不再需要）----------
+cleanup_legacy_env() {
   if [ -f "$INSTALL_DIR/.env" ]; then
-    log ".env 已存在，沿用现有密钥（不覆盖）"
-    return
+    $SUDO rm -f "$INSTALL_DIR/.env"
+    log "已删除旧版 .env（v6 key-room 不再需要任何服务端密钥）"
   fi
-  command -v openssl >/dev/null 2>&1 || die "缺 openssl（生成密钥用）"
-  local token="${RELAY_TOKEN:-}" secret="${HOST_SECRET:-}"
-  # 允许调用方直接传 RELAY_TOKEN / HOST_SECRET；否则现场生成
-  [ -n "$token" ]  || token=$(openssl rand -base64 32)
-  [ -n "$secret" ] || secret=$(openssl rand -base64 32)
-  cat > "$INSTALL_DIR/.env" <<ENV
-# 由 install.sh 生成于 $(date '+%F %T')。泄露任一密钥都等于交出桌面 Host 的完整服务面。
-RELAY_TOKEN=$token
-HOST_SECRET=$secret
-ENV
-  chmod 600 "$INSTALL_DIR/.env"
-  log "已生成 .env（权限 600）：RELAY_TOKEN / HOST_SECRET 均为 openssl rand -base64 32"
 }
 
 # ---------- 3) compose 文件 ----------
@@ -95,8 +87,7 @@ services:
     ports:
 $bind_line
     environment:
-      RELAY_TOKEN: \${RELAY_TOKEN:?RELAY_TOKEN 未设置，请检查 .env}
-      HOST_SECRET: \${HOST_SECRET:?HOST_SECRET 未设置，请检查 .env}
+      # v6 key-room（spec §19）：无密钥环境变量；房间按密钥按需创建。
       PORT: "3180"
       WEB_ROOT: /app/web
     security_opt:
@@ -117,7 +108,7 @@ EOF
 # ---------- 动作 ----------
 case "$ACTION" in
   install)
-    # DRY_RUN 只生成 .env 与 compose 文件，不碰 Docker（可在没有 daemon 的机器上预览配置）
+    # DRY_RUN 只生成 compose 文件，不碰 Docker（可在没有 daemon 的机器上预览配置）
     if [ "${DRY_RUN:-0}" != "1" ]; then
       ensure_docker
     fi
@@ -127,10 +118,10 @@ case "$ACTION" in
       $SUDO mkdir -p "$INSTALL_DIR"
     fi
     [ -w "$INSTALL_DIR" ] || warn "目录不可写，后续步骤将以 $SUDO 执行"
-    ensure_env
+    cleanup_legacy_env
     write_compose
     if [ "${DRY_RUN:-0}" = "1" ]; then
-      log "DRY_RUN=1：只生成了 $INSTALL_DIR/.env 与 docker-compose.yml，未启动"
+      log "DRY_RUN=1：只生成了 $INSTALL_DIR/docker-compose.yml，未启动"
       exit 0
     fi
     log "拉取镜像 $IMAGE:$RELAY_VERSION …"
@@ -149,9 +140,9 @@ case "$ACTION" in
     $SUDO sh -c "cd '$INSTALL_DIR' && docker compose down"
     if [ "${2:-}" = "--purge" ]; then
       $SUDO sh -c "rm -f '$INSTALL_DIR/.env'"
-      log "已删除 .env（密钥已清除）"
+      log "已删除遗留 .env（如存在）"
     else
-      log "容器已停止删除；.env 保留（彻底清除请用：bash install.sh remove --purge）"
+      log "容器已停止删除（彻底清除生成物请用：bash install.sh remove --purge）"
     fi
     log "镜像如需一并清理：docker rmi $IMAGE:$RELAY_VERSION"
     exit 0
@@ -174,21 +165,13 @@ log "健康检查通过：http://127.0.0.1:$PORT/healthz → {\"ok\":true}"
 
 # ---------- 5) 收尾提示 ----------
 pub_ip="$(curl -s -4 --max-time 5 https://ifconfig.me 2>/dev/null || true)"
-token=$(grep '^RELAY_TOKEN=' "$INSTALL_DIR/.env" | cut -d= -f2-)
-enc_token=$(printf '%s' "$token" | sed 's|/|%2F|g; s|+|%2B|g; s|=|%3D|g')
 {
   echo
   echo "──────────────────────────────────────────────────────────"
   echo "  部署完成"
   echo "  镜像   : $IMAGE:$RELAY_VERSION"
   echo "  目录   : $INSTALL_DIR"
-  if [ "$VARIANT" = "tls" ]; then
-    echo "  入口   : https://<你的域名>/?token=<RELAY_TOKEN>   （需自行配好反代 TLS）"
-  else
-    [ -n "$pub_ip" ] && echo "  手机链接: http://$pub_ip:$PORT/?token=$enc_token" \
-                     || echo "  手机链接: http://<公网IP>:$PORT/?token=$enc_token"
-  fi
-  echo "  密钥   : $INSTALL_DIR/.env（RELAY_TOKEN=手机配对码 / HOST_SECRET=桌面密钥）"
+  echo "  密钥   : 无（v6 key-room：房间按密钥按需创建，roomKey 在桌面配置里）"
   echo
   echo "  桌面侧接线（App「移动端远程控制 → 浏览器直连 → 高级设置」，或直接写"
   echo "  ~/.zcodium/v2/remote-relay.json）："
@@ -197,9 +180,9 @@ enc_token=$(printf '%s' "$token" | sed 's|/|%2F|g; s|+|%2B|g; s|=|%3D|g')
   else
     echo "    连接协议 明文 ws:// ；中继地址 ${pub_ip:-<公网IP>}:$PORT ；公开地址留空"
   fi
-  echo "    主机密钥 = .env 里的 HOST_SECRET ；配对码 = .env 里的 RELAY_TOKEN"
+  echo "    密钥 = 留空即可（App 自动生成 roomKey；手机分享链接也从 App 弹层复制/扫码）"
   echo
   echo "  更新：bash install.sh update （或 RELAY_VERSION=<新版本> bash install.sh update）"
-  echo "  验证：curl -i \"http://${pub_ip:-<公网IP>}:$PORT/?token=$enc_token\"  → 期望 302"
+  echo "  验证：curl -i http://${pub_ip:-<公网IP>}:$PORT/healthz  → 期望 {\"ok\":true}"
   echo "──────────────────────────────────────────────────────────"
 }

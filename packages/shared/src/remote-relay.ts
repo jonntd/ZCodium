@@ -3,22 +3,27 @@
  *
  * 桌面把本机窗口 Host「借」给自建 VPS 中继，手机浏览器经中继访问。
  * 配置来源有两个，**环境变量优先于配置文件**：
- * - 环境变量：`ZCODE_REMOTE_RELAY_URL` / `ZCODE_REMOTE_RELAY_HOST_SECRET` /
- *   `ZCODE_REMOTE_RELAY_WORKSPACE` / `ZCODE_REMOTE_RELAY_WINDOW`
+ * - 环境变量：`ZCODE_REMOTE_RELAY_URL` / `ZCODE_REMOTE_RELAY_WORKSPACE` /
+ *   `ZCODE_REMOTE_RELAY_WINDOW`
  * - 配置文件：`~/.zcodium/v2/remote-relay.json`（getAppConfigDir，跟随 ZCODE_DATA_BASE_DIR
  *   隔离；正常打开 App 即生效，无需终端 env）
+ *
+ * v6（spec vps-relay-bridge.md §19）起为 key-room 语义：一把 `roomKey` 同时承担
+ * 桌面拨入鉴权（Bearer）、手机配对凭据（`?token=`）与房间路由，relay 侧不再要求
+ * 任何密钥环境变量。
  */
+import { encodeBase64Url } from "./remote-relay-e2ee.js";
 
 /** `~/.zcodium/v2/remote-relay.json` 的形状。全部字段可省略。 */
 export interface RemoteRelayFileConfig {
   /** 中继主机端点，如 `wss://relay.example.com`（本机验证可用 `ws://127.0.0.1:3180`）。 */
   url?: string;
   /**
-   * 与中继 `HOST_SECRET` 一致的共享密钥。**留空 = 统一默认值**
-   * `DEFAULT_RELAY_HOST_SECRET`（App 启动补齐时落盘，可自行修改——两侧改成同一个值）；
-   * env `ZCODE_REMOTE_RELAY_HOST_SECRET` 逐字段优先于文件。
+   * 房间密钥（v6 key-room，spec §19）：唯一必配秘密，同时是桌面拨入 Bearer 凭据、
+   * 手机 `?token=` 配对凭据与房间路由键。**与中继可见**（进 Bearer 头/查询参数），
+   * 因此不能兼作 E2EE 子密钥。缺失时由 Main 自动生成并落盘（spec §19.5 迁移链）。
    */
-  hostSecret?: string;
+  roomKey?: string;
   /** 覆盖上报的工作区路径；不填则跟随窗口当前工作区。 */
   workspace?: string;
   /** 钉住借出 Host 的窗口 id；不填则跟随聚焦窗口。 */
@@ -27,20 +32,13 @@ export interface RemoteRelayFileConfig {
    * 并发客户端槽位数（1..8，缺省 1；spec vps-relay-bridge.md §17）。
    * 每个槽位 = 一条独立的中继连接 + 独立 Host attachment + 独立 E2EE 握手，
    * 允许 N 个客户端（手机/浏览器 tab）**同时**访问同一桌面。
+   * v6 起槽位号是**房间内** 0..slots-1（房间即隔离，原 slotBase 删除）。
    */
   slots?: number;
-  /**
-   * 槽位基址（0..91，缺省首次自动生成并持久化）：实际槽位号 = slotBase + k。
-   * 多桌面共用一台 relay 时各桌面 slotBase 随机错开（碰撞 ≈1%，冲突时手工覆盖）。
-   */
-  slotBase?: number;
   /** App 启动时自动连接（缺省 true —— 写了配置文件即视为要用）。 */
   autoStart?: boolean;
   /** 浏览器侧访问的公开源（用于拼分享链接）；缺省由 url 推导（wss→https / ws→http）。 */
   publicUrl?: string;
-  /** 中继的 `RELAY_TOKEN`（手机配对码，用于拼分享链接）。留空时由 Main 在 App 启动时
-   *  自动生成并落盘（spec §15.4）；须与中继服务端的 `RELAY_TOKEN` 一致，清空保存即轮换。 */
-  pairingToken?: string;
   /**
    * 端到端加密开关（spec vps-relay-bridge.md §16）。**未设置（undefined）= 默认开启**
    * （v4，2026-10-21：手机端只用自带 web bundle，两端能力恒具备，无需灰度探测）；
@@ -49,7 +47,7 @@ export interface RemoteRelayFileConfig {
    */
   e2ee?: boolean;
   /**
-   * E2EE 的 channelKey（32B base64url）。**与 hostSecret 同等敏感**：它经分享链接的
+   * E2EE 的 channelKey（32B base64url）。**与 roomKey 同等敏感**：它经分享链接的
    * `#k=` fragment 分发给手机（浏览器不把 fragment 发给服务器，中继拿不到它）。
    * 启用 e2ee 且缺失时由 Main 自动生成并落盘；清空保存即轮换（旧链接全部失效）。
    */
@@ -57,28 +55,69 @@ export interface RemoteRelayFileConfig {
 }
 
 /**
- * 主机密钥的统一默认值（spec vps-relay-bridge.md §15.4）：
- * 桌面与 relay 两端缺省都用它，用户可在任一侧改成同一个自定义值。
- *
- * 取当前实际部署（VPS `.env` 的 `HOST_SECRET`）正在用的值，使新设备开箱即用——
- * 自动回填的就是中继认的那个密钥，不需要手工同步。
- *
- * ⚠ 这是**真实部署密钥**：任何能访问 relay `/host` 的人都等于拿到桌面 Host 的完整
- * 服务面（终端、文件、Git，等价 RCE）。若本仓库推向公开远端，等于公开该密钥——
- * 公开前应先轮换（relay `.env` 与桌面两边同步改成新值）。
+ * 房间密钥的取值上限（字符）。中继按 key 建房，上限防未知 key 撑爆房间表；
+ * 生成值（43 字符 base64url）远小于上限，用户自填值在此范围内即可。
+ */
+export const RELAY_ROOM_KEY_MAX_LENGTH = 128;
+
+/**
+ * 生成一把房间密钥（v6 key-room，spec §19）：32B 随机 base64url（43 字符）。
+ * 与 E2EE channelKey（`generateRelayChannelKey`）同熵级，但**语义不同**：
+ * roomKey 对中继可见（Bearer/查询参数），channelKey 只在 `#k=` fragment。
+ */
+export function generateRelayRoomKey(): string {
+  const bytes = new Uint8Array(32);
+  // getRandomValues 在非 secure context 同样可用（内网 http 场景必须）。
+  globalThis.crypto.getRandomValues(bytes);
+  return encodeBase64Url(bytes);
+}
+
+/**
+ * ⚠ v3 部署的真实主机密钥（**v6 起废弃，不再回填**）：仅保留导出供 §19.5 迁移判定
+ * （等于它的旧值必须轮换为随机 roomKey）。历史语义见 §15.4。
  */
 export const DEFAULT_RELAY_HOST_SECRET = "EnJg3T1jRQ7ZCQFFjRC7xx7o+ep/U9exWd4tzijiu8c=";
 
 /**
- * 配对码的统一默认值（spec §15.4 v4，2026-10-22）：按当前部署固定——与本机 relay 的
- * `RELAY_TOKEN` 一致，新设备**开箱即与本部署配对**，无需手工抄 token（此前是逐设备
- * 随机生成，还得再把生成值同步回 relay 才能配对）。
- *
- * ⚠ 与 `DEFAULT_RELAY_HOST_SECRET` 同级敏感：仓库公开 = 公开配对码（能访问 relay 的
- * 人都能配对）。公开前先轮换：relay `.env` 的 `RELAY_TOKEN` 与桌面配置两边同步改新值
- * （或在 UI 里把配对码改成新值保存）。
+ * ⚠ v4 部署的真实配对码（**v6 起废弃，不再回填**）：仅保留导出供 §19.5 迁移判定。
+ * 历史语义见 §15.4 v4。
  */
 export const DEFAULT_RELAY_PAIRING_TOKEN = "aREK4lut5qkmoZ2l9/JhpHnkUuFlslmFayem0LeCrhg=";
+
+/** v6 迁移判定（spec §19.5）：旧配置里的这两个值视为已泄露，不得沿用为 roomKey。 */
+export const DEPRECATED_RELAY_DEFAULT_SECRETS: readonly string[] = [
+  DEFAULT_RELAY_HOST_SECRET,
+  DEFAULT_RELAY_PAIRING_TOKEN,
+];
+
+/**
+ * v6 迁移的纯决策（spec §19.5）：把 v5 配置（可能带 hostSecret/pairingToken）解析成
+ * roomKey。幂等：已有 roomKey 原样返回。
+ *
+ * - 已有 roomKey → 沿用；
+ * - 旧 pairingToken / hostSecret 存在且**不是**公开常量 → 沿用（旧手机链接继续可用）；
+ * - 其余（缺失或等于公开常量）→ 随机生成。
+ *
+ * `source` 供调用方记日志/决定是否需要落盘：`"kept"`（含生成前的沿用值与已有值）或
+ * `"generated"`。
+ */
+export function resolveRelayRoomKey(input: {
+  roomKey?: string | null;
+  pairingToken?: string | null;
+  hostSecret?: string | null;
+}): { roomKey: string; source: "kept" | "generated" } {
+  const roomKey = input.roomKey?.trim();
+  if (roomKey) return { roomKey, source: "kept" };
+  const legacy = input.pairingToken?.trim() || input.hostSecret?.trim() || "";
+  if (
+    legacy &&
+    legacy.length <= RELAY_ROOM_KEY_MAX_LENGTH &&
+    !DEPRECATED_RELAY_DEFAULT_SECRETS.includes(legacy)
+  ) {
+    return { roomKey: legacy, source: "kept" };
+  }
+  return { roomKey: generateRelayRoomKey(), source: "generated" };
+}
 
 /**
  * E2EE channelKey 的历史默认值（v4，2026-10-22；**v5 起不再用于回填**）。
@@ -92,17 +131,6 @@ export const DEFAULT_RELAY_PAIRING_TOKEN = "aREK4lut5qkmoZ2l9/JhpHnkUuFlslmFayem
  * 应当轮换：UI 里清空 E2EE 密钥保存 → 生成新值，旧链接同时全部失效（这本来就是轮换语义）。
  */
 export const DEFAULT_RELAY_CHANNEL_KEY = "QtVnR7BdjYLCwHzqkyymQpZUmPUC0cthc-_USNmBnxs";
-
-/**
- * 解析生效的主机密钥（spec §15.4）：env（`ZCODE_REMOTE_RELAY_HOST_SECRET`）>
- * 配置文件 > 统一默认值。纯函数，桌面 Main 与 relay 侧（各自实现同值回退）共用语义。
- */
-export function resolveRelayHostSecret(
-  envValue: string | undefined,
-  fileValue: string | undefined,
-): string {
-  return envValue?.trim() || fileValue?.trim() || DEFAULT_RELAY_HOST_SECRET;
-}
 
 /** `zcode:remote-relay-get-status` 的响应。 */
 export interface RemoteRelayStatus {

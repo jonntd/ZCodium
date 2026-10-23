@@ -4,7 +4,7 @@
 # 与 docker-compose.no-tls.yml 的差别：不 build、不 bind mount web/，直接用已发布镜像。
 #
 # 用法：
-#   cp .env.example .env && 填入两个密钥
+#   （v6 key-room：无需任何 .env 密钥，房间按密钥按需创建）
 #   RELAY_VERSION=3.14.11 docker compose -f docker-compose.image.no-tls.yml up -d
 #
 # 仓库是公开的 ⇒ 从 ghcr.io 拉取**不需要** docker login。
@@ -25,9 +25,7 @@ services:
       # 直接对外监听：没有反代，relay 自己就是入口。
       - "3180:3180"
     environment:
-      # :? 语法让 compose 在变量缺失时直接报错退出，避免用空密钥起服务。
-      RELAY_TOKEN: ${RELAY_TOKEN:?RELAY_TOKEN 未设置，请先填 .env}
-      HOST_SECRET: ${HOST_SECRET:?HOST_SECRET 未设置，请先填 .env}
+      # v6 key-room（spec §19）：房间按密钥按需创建，无任何密钥环境变量；roomKey 由桌面配置管理。
       PORT: "3180"
       WEB_ROOT: /app/web
     security_opt:

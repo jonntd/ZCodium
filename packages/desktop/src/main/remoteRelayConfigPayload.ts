@@ -17,19 +17,17 @@ import {
   type RemoteRelayShareLinkRequest,
 } from "@zcode/shared";
 
-/** 允许写入配置文件的字段（与 `RemoteRelayFileConfig` 对齐）。 */
+/** 允许写入配置文件的字段（与 `RemoteRelayFileConfig` 对齐；v6 起 hostSecret/pairingToken/slotBase 移除）。 */
 const ALLOWED_CONFIG_KEYS = new Set([
   "url",
-  "hostSecret",
+  "roomKey",
   "publicUrl",
-  "pairingToken",
   "workspace",
   "windowId",
   "autoStart",
   "e2ee",
   "channelKey",
   "slots",
-  "slotBase",
 ]);
 
 function isNonEmptyString(value: unknown): value is string {
@@ -63,8 +61,8 @@ export function parseRemoteRelaySetConfigRequest(payload: unknown): RemoteRelayS
   if (!isBlank(c.url) && !(typeof c.url === "string" && /^wss?:\/\//i.test(c.url.trim()))) {
     throw new Error("url 必须以 ws:// 或 wss:// 开头");
   }
-  if (!isBlank(c.hostSecret) && typeof c.hostSecret !== "string") {
-    throw new Error("hostSecret 必须是字符串");
+  if (!isBlank(c.roomKey) && typeof c.roomKey !== "string") {
+    throw new Error("roomKey 必须是字符串");
   }
   if (!isBlank(c.workspace) && typeof c.workspace !== "string") {
     throw new Error("workspace 必须是字符串");
@@ -81,22 +79,8 @@ export function parseRemoteRelaySetConfigRequest(payload: unknown): RemoteRelayS
   if (!isBlank(c.publicUrl) && !(typeof c.publicUrl === "string" && /^https?:\/\//i.test(c.publicUrl.trim()))) {
     throw new Error("publicUrl 必须以 http:// 或 https:// 开头");
   }
-  if (c.pairingToken !== undefined && typeof c.pairingToken !== "string") {
-    throw new Error("pairingToken 必须是字符串");
-  }
   if (c.e2ee !== undefined && typeof c.e2ee !== "boolean") {
     throw new Error("e2ee 必须是布尔值");
-  }
-  // 槽位基址（spec §17）：0..91，多桌面共用 relay 时错开槽位号。
-  if (c.slotBase !== undefined) {
-    if (
-      typeof c.slotBase !== "number" ||
-      !Number.isInteger(c.slotBase) ||
-      c.slotBase < 0 ||
-      c.slotBase > 91
-    ) {
-      throw new Error("slotBase 必须是 0..91 的整数");
-    }
   }
   // 并发客户端槽位数（spec §17）：1..8，上不封顶会打爆 Host attachment 与中继连接。
   if (c.slots !== undefined) {

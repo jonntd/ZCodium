@@ -36,8 +36,9 @@ import {
  *
  * 与官方 `[web-remote-control]` 的差异（有意简化）：
  * - 不做 authorizeStart 一次性令牌（那是防渲染进程被攻破后静默开启的加固，后续可补）；
- * - 配对沿用 relay 的 `?token=` cookie 通道，另提供官方形状的时效签名链接
- *   （spec §18，签名在 remoteRelayShareLink.ts）；不做官方的多设备房间路由。
+ * - 配对沿用 relay 的 `?token=` cookie 通道（v6 起值为房间密钥 roomKey），另提供官方形状
+ *   的时效签名链接（spec §18，签名在 remoteRelayShareLink.ts）；房间路由由 key 承担
+ *   （§19），不做官方的账号归属。
  *
  * ⚠ **公开地址（`publicUrl`）只认用户显式填的值，绝不自动写入**（2026-10-09 修）。
  * 此前会探测本机局域网 IP 自动填进去，那在「只有一条链接」的年代是必要的；§18.6 拆成
@@ -79,7 +80,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
 
   function buildStatus(running: boolean): RemoteRelayStatus {
     const lanAddresses = pickRemoteRelayLanAddresses(networkInterfaces());
-    const token = currentConfig?.pairingToken ?? "";
+    const roomKey = currentConfig?.roomKey ?? "";
     const channelKey = currentConfig?.e2ee ? (currentConfig.channelKey ?? null) : null;
     // 只认用户**显式填写**的覆盖值。中继在本机时「由 url 推导」会得到 http://127.0.0.1:3180，
     // 手机永远访问不到，若拿它当覆盖值就会让「外网」那一行显示一个 loopback 地址。
@@ -94,11 +95,11 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       // 内网链接：中继就在本机局域网时，把主机换成检测到的局域网地址——中继配成
       // 127.0.0.1 时手机同 WiFi 也连不上，这是唯一能让手机连上的地址（spec §18.6）。
       lanShareUrl:
-        currentConfig && token
+        currentConfig && roomKey
           ? buildRelayLanShareLink({
               relayUrl: currentConfig.url,
               lanAddresses,
-              pairingToken: token,
+              roomKey,
               channelKey,
             })
           : null,
@@ -107,12 +108,12 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       // 入口，硬拼一条只会和内网链接重复（或拼出一条连不上的 loopback 地址）。
       publicShareUrl:
         currentConfig &&
-        token &&
+        roomKey &&
         (!isLocalRelayHost(currentConfig.url) || publicUrlOverride !== null)
           ? (buildRelayShareLink({
               url: currentConfig.url,
               publicUrl: publicUrlOverride,
-              pairingToken: token,
+              roomKey,
               channelKey,
               ttlSeconds: null,
             })?.shareUrl ?? null)
@@ -138,16 +139,17 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     currentConfig = config;
     // 每个槽位一个独立客户端实例：独立连接、独立 attachmentId、独立 E2EE 握手与重连
     // 循环（spec §17）。同一窗口 Host 可并存多个 attachment（官方预留设计，已验证）。
+    // 槽位号是房间内 0..slots-1（v6 key-room：房间即隔离，原 slotBase 加算删除）。
     for (let slot = 0; slot < config.slots; slot += 1) {
       const client = createRemoteRelayClient({
         url: config.url,
-        hostSecret: config.hostSecret,
+        roomKey: config.roomKey,
         hostLabel: deps.hostLabel,
         appVersion: deps.appVersion,
         logger,
         createChannel: deps.createChannel,
         e2eeChannelKey: config.e2ee && config.channelKey ? config.channelKey : undefined,
-        slot: (config.slotBase ?? 0) + slot,
+        slot,
         resolveTargetWindow: () => deps.resolveTargetWindow(config.pinnedWindowId),
         resolveWorkspace: (windowId) => deps.resolveWorkspace(windowId, config.pinnedWorkspacePath),
       });
@@ -221,21 +223,21 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     );
 
     // 时效签名链接（spec §18）：按次生成，签名只发生在 Main。与「读状态」同样
-    // 惯例——配对码缺失时自动补齐，首次打开设置页就能直接生成链接。
+    // 惯例——房间密钥缺失时自动补齐，首次打开设置页就能直接生成链接。
     ipcMain.handle(
       PlatformChannels.RemoteRelayGetShareLink,
       async (_event, payload: unknown): Promise<RemoteRelayShareLink> => {
         const request = parseRemoteRelayShareLinkRequest(payload);
         const file = await readConfigFile(logger);
         // 运行中：链接凭据必须取自**正在运行的连接**（currentConfig）。若对着被删/损坏的
-        // 文件重新补齐，会生成全新 token——与 relay RELAY_TOKEN、桌面连接两端同时失配，
+        // 文件重新补齐，会生成全新 roomKey——与正在连接的中继房间、手机链接两端同时失配，
         // 手机必配对失败（2026-10-21）。文件缺失时同样用内存值自愈落盘。
         let config: EffectiveRelayConfig | null;
         if (clients.length) {
           lastFileConfig = file ?? (await ensureRelaySecrets(lastFileConfig, logger));
           config = currentConfig;
         } else {
-          // 与「读状态」同一套补齐链：配对码 / E2EE channelKey 缺失时自动生成并落盘，
+          // 与「读状态」同一套补齐链：房间密钥 / E2EE channelKey 缺失时自动生成并落盘，
           // 否则 E2EE 开着但链接缺 #k=，手机端会卡在 confirm 校验失败。
           lastFileConfig = await ensureRelaySecrets(file, logger);
           config = resolveEffectiveConfig(lastFileConfig);
@@ -244,7 +246,7 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
         const link = buildRelayShareLink({
           url: config.url,
           publicUrl: config.publicUrlOverride,
-          pairingToken: config.pairingToken ?? "",
+          roomKey: config.roomKey,
           channelKey: config.e2ee ? config.channelKey : null,
           ttlSeconds: request.ttlSeconds ?? null,
         });

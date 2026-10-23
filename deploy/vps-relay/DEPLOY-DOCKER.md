@@ -54,9 +54,9 @@ less install.sh
 sudo bash install.sh
 ```
 
-脚本会依次完成：安装 Docker（若缺）→ 生成 `/opt/zcode-relay/.env`（两个密钥现场用
-`openssl rand -base64 32` 生成，权限 600）→ 写入 `docker-compose.yml` → 拉取镜像 →
-启动容器 → 健康检查 → 打印手机配对链接与桌面侧接线参数。
+脚本会依次完成：安装 Docker（若缺）→ 清理旧版遗留 `.env`（v6 key-room 不再需要
+任何服务端密钥）→ 写入 `docker-compose.yml` → 拉取镜像 → 启动容器 → 健康检查 →
+打印桌面侧接线参数（唯一的密钥 `roomKey` 由桌面 App 自动生成，手机链接也从桌面复制）。
 
 **常用变体：**
 
@@ -91,9 +91,7 @@ services:
     ports:
       - "3180:3180"            # tls 变体这里改成 "127.0.0.1:3180:3180"
     environment:
-      # :? 语法让 compose 在变量缺失时直接报错退出，避免用空密钥起服务。
-      RELAY_TOKEN: ${RELAY_TOKEN:?RELAY_TOKEN 未设置，请检查 .env}
-      HOST_SECRET: ${HOST_SECRET:?HOST_SECRET 未设置，请检查 .env}
+      # v6 key-room（spec §19）：无密钥环境变量；房间按密钥按需创建。
       PORT: "3180"
       WEB_ROOT: /app/web
     security_opt:
@@ -105,15 +103,8 @@ services:
           memory: 256M
 ```
 
-同目录的 `.env`：
-
-```ini
-RELAY_TOKEN=<openssl rand -base64 32 生成的手机配对码>
-HOST_SECRET=<openssl rand -base64 32 生成的桌面密钥>
-```
-
-> 手动部署（不用脚本）时，把上面两个文件放到同一目录，然后：
-> `sudo docker compose pull && sudo docker compose up -d`
+> 手动部署（不用脚本）时，把上面的 compose 文件放到同一目录，然后：
+> `sudo docker compose pull && sudo docker compose up -d`（**不需要 `.env`**）。
 
 ---
 
@@ -121,12 +112,11 @@ HOST_SECRET=<openssl rand -base64 32 生成的桌面密钥>
 
 ### 3.1 必填
 
-| 变量 | 存放处 | 说明 |
-| --- | --- | --- |
-| `RELAY_TOKEN` | `.env` | **手机配对码**。手机打开 `http://<IP>:3180/?token=<它>` 完成配对；轮换它可让所有旧链接 / 旧 cookie 全部失效 |
-| `HOST_SECRET` | `.env` | **桌面共享密钥**。桌面 App 用它连中继的 `/host`。⚠ 它的强度 = 整台机器的安全边界——能连上 `/host` 的人等于拿到了你桌面 Host 的完整服务面（终端、文件、Git），**等价于 RCE** |
-
-两个密钥都必须足够长（`openssl rand -base64 32`），不要写进日志、不要提交进版本库。
+**没有必填的环境变量**（v6 key-room，spec vps-relay-bridge.md §19）：一把房间密钥
+（roomKey）同时承担桌面拨入鉴权、手机配对凭据与房间路由，房间按首次见到的密钥
+**按需创建**（上限 100，空房间被心跳回收）。roomKey 由桌面 App 自动生成并落盘
+（`~/.zcodium/v2/remote-relay.json`），手机分享链接也从桌面生成——服务端不知道、
+也不需要知道任何密钥。
 
 ### 3.2 可选（中继运行参数，默认值已合理）
 
@@ -182,19 +172,19 @@ curl -s http://$PUB_IP:3180/healthz     # → {"ok":true}；不通 = 安全组/�
 ### 4.3 配对鉴权（VPS 上）
 
 ```bash
-TOKEN=$(grep '^RELAY_TOKEN=' /opt/zcode-relay/.env | cut -d= -f2-)
+# 任意形状合法的 key → 期望 302，响应头有 set-cookie: zcode_lite_token=…
+#（v6 key-room：页面入口只验 key 形状，建房收口在 /ws 与 /host）
+curl -s -i --get --data-urlencode "token=0123456789abcdef" http://127.0.0.1:3180/ | head -5
 
-# 正确配对码 → 期望 302，响应头有 set-cookie: zcode_lite_token=…
-curl -s -i --get --data-urlencode "token=$TOKEN" http://127.0.0.1:3180/ | head -5
-
-# 错误配对码 → 期望 401（fail-closed）
-curl -s -o /dev/null -w "%{http_code}\n" "http://127.0.0.1:3180/?token=wrong"
+# 形状不合法（过短）→ 期望 401（fail-closed）
+curl -s -o /dev/null -w "%{http_code}\n" "http://127.0.0.1:3180/?token=short"
 ```
 
 ### 4.4 手机端到端
 
-手机浏览器打开脚本末尾打印的链接（或 `http://<公网IP>:3180/?token=<RELAY_TOKEN>`），
-出现配对页即成功。加 `&autoReconnect=1` 可在锁屏/切网后自动恢复（会丢弃未发送的输入）。
+手机浏览器打开**桌面 App「移动端远程控制」弹层里的分享链接**
+（`http://<公网IP>:3180/?token=<roomKey>`），出现配对页即成功。
+分享链接自带 `&autoReconnect=1`（锁屏/切网后自动恢复，会丢弃未发送的输入）。
 
 ### 4.5 桌面侧接线（关键一步，漏了会一直「桌面离线」）
 
@@ -205,16 +195,13 @@ ZCode 桌面 App → 工作区头部**「移动端远程控制」**弹层 →「
 | 连接协议 | **明文 ws://** |
 | 中继地址 | `<公网IP>:3180` |
 | 公开地址 | 留空（手机访问地址由中继地址推导） |
-| 主机密钥 | `.env` 里的 `HOST_SECRET` |
-| 配对码 | `.env` 里的 `RELAY_TOKEN` |
+| 密钥 | **留空即可**——App 自动生成 `roomKey` 并落盘，分享链接同步带上它 |
 
 填完点**「保存并应用」**。等价的手工方式——写 `~/.zcodium/v2/remote-relay.json`：
 
 ```json
 {
   "url": "ws://<公网IP>:3180",
-  "hostSecret": "<HOST_SECRET>",
-  "pairingToken": "<RELAY_TOKEN>",
   "publicUrl": "",
   "slots": 3,
   "autoStart": true
@@ -247,10 +234,10 @@ sudo RELAY_VERSION=3.14.11 bash install.sh update
 ### 5.2 卸载
 
 ```bash
-# 停止并删除容器（保留 .env 与 compose 文件，密钥不丢）
+# 停止并删除容器
 sudo bash install.sh remove
 
-# 彻底清除（连 .env 一起删）
+# 彻底清除（连生成物一起删）
 sudo bash install.sh remove --purge
 
 # 清理镜像与安装目录
@@ -259,8 +246,8 @@ sudo rm -rf /opt/zcode-relay
 ```
 
 > 卸载后桌面侧把 `~/.zcodium/v2/remote-relay.json` 删掉（或在高级设置里停用），
-> App 即完全回到无中继状态。**要吊销所有旧链接**，删除 `.env` 前先换一组新密钥重新部署，
-> 或确保旧链接所在的浏览器 cookie 已过期。
+> App 即完全回到无中继状态。**要吊销所有旧链接** = 轮换桌面 `roomKey`
+> （高级设置里清空密钥保存，App 自动生成新值）。
 
 ---
 
@@ -285,8 +272,8 @@ CADDY
 sudo systemctl reload caddy
 ```
 
-桌面侧此时填：连接协议 **TLS wss://**、中继地址 `relay.example.com:443`、公开地址留空。
-手机链接变成 `https://relay.example.com/?token=<RELAY_TOKEN>`。
+桌面侧此时填：连接协议 **TLS wss://**、中继地址 `relay.example.com:443`、公开地址留空、
+密钥留空（App 自动生成）。手机链接变成 `https://relay.example.com/?token=<roomKey>`。
 
 > nginx 用户的反代必须显式转发 `Upgrade` / `Connection` 头，并把 `proxy_read_timeout`
 > 调到 **300s 以上**（中继是长连接，默认 60s 会周期性掐断）。详见同目录 `README.md` §2.5。
@@ -301,21 +288,20 @@ sudo systemctl reload caddy
 
 | 现象 | 原因与处理 |
 | --- | --- |
-| `RELAY_TOKEN 未设置，请检查 .env` | compose 没读到 `.env`：确认它与 `docker-compose.yml` 同目录，且变量名/等号两侧无空格 |
 | `pull access denied` / `manifest unknown` | `RELAY_VERSION` 写错。**tag 不带 `v` 前缀**——`v3.14.12` 是错的，应为 `3.14.12`；可用 `latest` 先验证 |
 | `port is already allocated` | 3180 被占：`sudo ss -ltnp \| grep 3180` 找出占用者，改用 `PORT=其他端口`（并同步改 compose 的 ports 映射），或停掉占用进程 |
 | `permission denied … /var/run/docker.sock` | 当前用户不在 docker 组：`sudo usermod -aG docker $USER` 后重新登录，或继续用 `sudo` |
 | `Cannot connect to the Docker daemon` | daemon 没跑：`sudo systemctl enable --now docker` |
-| 健康检查一直不过 | `sudo docker logs` 看应用日志；常见是 `.env` 里密钥值带了引号或换行 |
+| 健康检查一直不过 | `sudo docker logs` 看应用日志 |
 
 ### 7.2 起来了但连不上
 
 | 现象 | 原因与处理 |
 | --- | --- |
 | 本机 `/healthz` 通，公网不通 | **安全组没放行**（云控制台）或宿主机防火墙（`ufw allow 3180/tcp` / `firewall-cmd --add-port=3180/tcp --permanent && firewall-cmd --reload`）。注意 `tls` 变体只绑 127.0.0.1，公网直连 3180 **本来就不通**，必须走反代 |
-| 打开 `/?token=…` 返回 401 | 配对码不匹配：`.env` 的 `RELAY_TOKEN` 与链接里的是否同一个值？URL 里的 `/ + =` 需转义（脚本生成的链接已处理）。轮换过 `RELAY_TOKEN` 的话旧链接全部失效，需重新生成链接 |
-| 手机 401 但桌面正常 | 链接里的 token 与 `.env` 不一致；或中继重启后你还在用旧 cookie（重新点一次链接即可） |
-| 桌面连不上 `/host` 返回 401 | `HOST_SECRET` 不匹配：桌面「高级设置」里的主机密钥 ≠ `.env` 的值 |
+| 打开分享链接返回 401 | 链接里的 key 与桌面 `roomKey` 不一致（旧链接 / 桌面轮换过密钥）。从桌面弹层重新复制**新链接** |
+| 手机 401 但桌面正常 | 链接是轮换密钥前生成的旧链接；从中继页面重新点一次新链接即可（旧 cookie 会过期） |
+| 桌面连不上 `/host` 返回 401 | 桌面 `roomKey` 未下发。打开一次「高级设置」让补齐链生成并「保存并应用」 |
 | 桌面连不上、地址栏明明对的 | 连接协议选错：纯 IP 必须「明文 ws://」，选了「TLS wss://」桌面会因裸 IP 无受信证书拒连 |
 | 手机页一直「桌面离线」（close code 4002） | 桌面侧没连上：看桌面日志有没有 `已连上中继`；确认 App 侧点了「启动」且 `autoStart`/配置正确 |
 | 曾正常，突然 `no-free-host`（4002） | 并发槽位满了：某台设备（常见是 Mac 上 Chrome 标签页）占着连接。在桌面「高级设置」把 `slots` 调大（1–8），**改完要「停止 → 启动」** |
@@ -341,7 +327,7 @@ sudo docker logs --tail 30 zcode-relay-relay-1 | grep -E "host connected|client 
 
 ```bash
 sudo docker load -i zcode-relay-<版本>.tar.gz   # 导入镜像
-sudo RELAY_VERSION=<版本> DRY_RUN=1 bash install.sh   # 只生成 .env + compose
+sudo RELAY_VERSION=<版本> DRY_RUN=1 bash install.sh   # 只生成 compose
 cd /opt/zcode-relay && sudo docker compose up -d      # 用本地镜像启动，不会去拉
 ```
 
@@ -349,10 +335,12 @@ cd /opt/zcode-relay && sudo docker compose up -d      # 用本地镜像启动，
 
 ## 8. 安全须知（务必读）
 
-- **`/host` 端点的鉴权强度 = 整台机器的安全边界。** `HOST_SECRET` 要足够长、不落日志；
-  一旦泄露，任何能连上 `/host` 的人都等于拿到了你桌面 Host 的完整服务面（终端、文件、Git）。
-- 配对码会出现在 URL 里一次（`?token=`）。中继设置 cookie 后立即 302 到干净 URL，
-  避免它留在浏览器历史和 Referer 里。**撤销所有访问 = 轮换 `RELAY_TOKEN`**（改 `.env` 后 `up -d`）。
+- **`/host` 端点的鉴权强度 = 整台机器的安全边界。** v6 key-room 下这把钥匙是
+  `roomKey`（桌面自动生成，43 字符 base64url = 128-bit 熵）：持有它的人既能当桌面
+  也能当手机（密钥即房间全权，spec §19.1）。服务端不留存任何密钥副本，不落日志。
+- roomKey 会出现在分享 URL 里一次（`?token=`）。中继设置 cookie 后立即 302 到干净 URL，
+  避免它留在浏览器历史和 Referer 里。**撤销所有访问 = 轮换桌面 `roomKey`**
+  （高级设置清空密钥保存）。
 - 开启 E2EE（桌面「高级设置」里的端到端加密开关）后**中继只见密文**——VPS 运营方、
   甚至拿到机器的人也看不到会话内容。密钥在分享链接的 `#k=` fragment 里，不经过中继。
   ⚠ E2EE 防「中继读流量」，**不防「链接本身被转发给第三者」——链接即能力**。

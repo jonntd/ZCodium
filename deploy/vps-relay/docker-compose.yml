@@ -2,7 +2,7 @@
 #
 # 用法：
 #   mkdir -p web && cp -r <repo>/packages/web/dist/* web/
-#   cp .env.example .env && 填入两个密钥
+#   （v6 key-room：无需任何 .env 密钥，房间按密钥按需创建）
 #   docker compose up -d
 #
 # 只把端口绑在 127.0.0.1，由宿主机的 Caddy 做 TLS 终结与反代（见 Caddyfile）。
@@ -17,9 +17,7 @@ services:
       # 只在回环上监听：公网流量必须经 Caddy 进来（TLS + 统一入口）。
       - "127.0.0.1:3180:3180"
     environment:
-      # :? 语法让 compose 在变量缺失时直接报错退出，避免用空密钥起服务。
-      RELAY_TOKEN: ${RELAY_TOKEN:?RELAY_TOKEN 未设置，请先填 .env}
-      HOST_SECRET: ${HOST_SECRET:?HOST_SECRET 未设置，请先填 .env}
+      # v6 key-room（spec §19）：房间按密钥按需创建，无任何密钥环境变量；roomKey 由桌面配置管理。
       PORT: "3180"
       WEB_ROOT: /app/web
     volumes:

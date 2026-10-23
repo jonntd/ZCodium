@@ -12,34 +12,40 @@
  * 端点：
  *   GET  /                   静态托管 web bundle（SPA fallback 仅限无扩展名路径；带扩展名的资产 404）
  *   GET  /api/server-info    手机端启动时读工作区；数据来自桌面的 /api/host-report。
- *                            cookie 或 ?token= 双通道门禁，未配对方拿不到（fail-closed）
- *   POST /api/host-report    桌面上报工作区（Bearer HOST_SECRET）
- *   GET  /ws    (upgrade)    手机接入；鉴权用 zcode_lite_token cookie 或 ?token= 查询参数；
- *                            从连接池认领空闲槽位（spec §17）
- *   GET  /host  (upgrade)    桌面拨入；鉴权用 Bearer HOST_SECRET；?slot=<k> 声明槽位，
- *                            同槽位重连顶替旧连接（4001 host-replaced），注册为该槽位唯一 host
+ *                            凭据双通道（cookie 或 ?token=）解析出房间，未配对方拿不到（fail-closed）
+ *   POST /api/host-report    桌面上报工作区（Bearer 房间密钥）
+ *   GET  /ws    (upgrade)    手机接入；凭据解析出房间（v6 key-room，spec §19.2）；
+ *                            FIFO 认领该房间的空闲槽位（spec §17）
+ *   GET  /host  (upgrade)    桌面拨入；鉴权用 `Authorization: Bearer <roomKey>`；?slot=<i> 声明
+ *                            房间内槽位，同槽位重连顶替旧连接（4001 host-replaced）
+ *
+ * v6 key-room（spec vps-relay-bridge.md §19）：一把房间密钥 `roomKey` 同时承担
+ * 桌面拨入鉴权、手机配对凭据与房间路由；房间**按密钥按需创建**，因此本进程
+ * 不再要求任何密钥环境变量——`.env` 只剩 `PORT` 等运维变量。
  *
  * 环境变量：
  *   PORT               监听端口，默认 3180
  *   WEB_ROOT           web bundle 目录，默认 ./web
- *   RELAY_TOKEN        手机配对码（必填；可由桌面 App 启动时自动生成后抄过来）
- *   HOST_SECRET        桌面共享密钥（未设时回退统一默认值 DEFAULT_HOST_SECRET 并打 warn，
- *                      与 packages/shared/src/remote-relay.ts 的 DEFAULT_RELAY_HOST_SECRET
- *                      保持一致；⚠ 默认值是当前部署真实密钥，仓库若公开即等于公开它）
  *   HOST_WAIT_GRACE_MS host 暂时缺位时手机等待的宽限毫秒数，默认 5000
  *   HEARTBEAT_INTERVAL_MS 两侧 ping 间隔，默认 30000（见下「心跳与空闲回收」）
  *   IDLE_TIMEOUT_MS    一侧多久无任何活动即视为僵尸连接并关闭，默认 60000
  *
- * 配对流程：用户打开 https://<vps>/?token=<RELAY_TOKEN> 一次，
- * 本进程下发 zcode_lite_token cookie，之后 /ws 升级靠该 cookie 放行。
- * 非 token 参数会被保留：`&autoReconnect=1` 是手机侧「断线自动重载」的显式开关。
- * 这与 `zcode --web --host 0.0.0.0` 的既有 token 机制完全一致，所以手机侧零改动。
+ * 配对流程：用户打开 https://<vps>/?token=<roomKey> 一次（桌面「移动端远程控制」
+ * 弹层的分享链接就是这个形状），本进程下发 zcode_lite_token cookie（值 = roomKey），
+ * 之后 /ws 升级靠该 cookie 放行。非 token 参数会被保留：`&autoReconnect=1` 是手机侧
+ * 「断线自动重载」的显式开关。这与 `zcode --web --host 0.0.0.0` 的既有 token 机制
+ * 完全一致，所以手机侧零改动。
  *
- * 时效签名链接（spec §18）：桌面可生成官方形状的签名凭据
- * `?s=<sid>&t=<签发秒>&e=<过期秒>&h=<HMAC(RELAY_TOKEN, "s|t|e")>`，
- * 验证全部无状态（常量时间比较），配对成功下发**派生会话 cookie**
- * `v1.<e>.<HMAC(RELAY_TOKEN, "cookie|e")>`（过期由服务端判定，非 Max-Age 提示）。
- * 客户端凭据共四通道：legacy cookie / legacy ?token= / v1 cookie / signed query。
+ * 时效签名链接（spec §18，v6 起 HMAC 密钥 = roomKey）：桌面可生成官方形状的签名凭据
+ * `?s=<sid>&t=<签发秒>&e=<过期秒>&h=<HMAC(roomKey, "s|t|e")>`，验证全部无状态
+ * （常量时间比较，逐房间重算），配对成功下发**派生会话 cookie**
+ * `v1.<f>.<e>.<HMAC(roomKey, "cookie|f|e")>`（f = 房间指纹，支持一台 relay 多房间；
+ * 过期由服务端判定，非 Max-Age 提示）。
+ * 客户端凭据共四通道：原始 key cookie / 原始 key ?token= / 派生 cookie / signed query。
+ *
+ * 房间治理（spec §19.2）：房间按首次见到的密钥创建，上限 MAX_ROOMS；心跳扫描回收
+ * 「无 host、无 client、无上报」的空房间，防未知 key 刷房撑爆内存。日志只出现
+ * 房间指纹（SHA-256 前 8 字符），永不出现密钥本体。
  *
  * 帧缓冲（spec §12.3.1）：host 在无手机配对期间发出的帧（含 ChannelServer 构造时
  * 立即发出的 Initialize 握手帧）进入有界缓冲，配对成功时先回放。否则手机侧
@@ -54,7 +60,7 @@
  * 超过 IDLE_TIMEOUT_MS 没有任何活动的一侧被关闭。host 用 4003（桌面侧按
  * 「快速补位」100ms 重连），client 用 4000。
  */
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize, resolve, sep } from "node:path";
@@ -66,15 +72,6 @@ const gzipAsync = promisify(gzipCallback);
 
 const PORT = Number(process.env.PORT) || 3180;
 const WEB_ROOT = resolve(process.env.WEB_ROOT || "./web");
-/**
- * 主机密钥统一默认值（spec vps-relay-bridge.md §15.4）：与桌面
- * `packages/shared/src/remote-relay.ts` 的 `DEFAULT_RELAY_HOST_SECRET` 保持一致——
- * 两端缺省都用它（当前部署的真实 HOST_SECRET，新设备开箱即用），任一侧改了另一边要同步。
- * ⚠ 这是真实部署密钥：仓库若公开等于公开它，公开前应先轮换。
- */
-const DEFAULT_HOST_SECRET = "EnJg3T1jRQ7ZCQFFjRC7xx7o+ep/U9exWd4tzijiu8c=";
-const RELAY_TOKEN = (process.env.RELAY_TOKEN || "").trim();
-const HOST_SECRET = (process.env.HOST_SECRET || "").trim() || DEFAULT_HOST_SECRET;
 /** host 暂时缺位时手机等待的宽限：桌面侧对「手机离线连坐」用 ~100ms 快速补位，
  *  正常刷新远小于上限；仅当桌面真的离线（App 已退出等）才会等满后 4002。 */
 const HOST_WAIT_GRACE_MS = Number(process.env.HOST_WAIT_GRACE_MS) || 5000;
@@ -91,16 +88,24 @@ const HEARTBEAT_INTERVAL_MS = Number(process.env.HEARTBEAT_INTERVAL_MS) || 30_00
 /** 超过该时长无任何活动（消息 / ping / pong）的一侧视为僵尸连接并关闭。 */
 const IDLE_TIMEOUT_MS = Number(process.env.IDLE_TIMEOUT_MS) || 60_000;
 
-if (!RELAY_TOKEN) {
-  console.error(
-    "[relay] RELAY_TOKEN 未设置：手机配对码，可在桌面 App 启动后从「移动端远程控制 → 高级设置」复制",
-  );
-  process.exit(1);
+/**
+ * 房间治理参数（spec §19.2）：key-room 模式下房间按首次见到的密钥创建，
+ * 必须有上限 + 回收，否则任何知道地址的人都能用随机 key 刷房撑内存。
+ */
+const MAX_ROOMS = 100;
+
+/**
+ * 房间密钥的形状：可打印 ASCII（含 base64/base64url 的 + / = - _），8..128 字符。
+ * 桌面生成值是 43 字符 base64url；v5 迁移沿用的自定义历史密钥也在该范围内。
+ * 形状校验只是第一道闸（挡空串/超长/控制字符），真正的准入 = 知道密钥本体。
+ */
+function isPlausibleKey(key) {
+  return typeof key === "string" && /^[!-~]{8,128}$/.test(key);
 }
-if (!(process.env.HOST_SECRET || "").trim()) {
-  console.warn(
-    "[relay] HOST_SECRET 未设置，回退统一默认值（仅适合自评/内网；生产请 openssl rand -base64 32 生成，并同步桌面「主机密钥」）",
-  );
+
+/** 房间指纹（日志与派生 cookie 索引用）：不泄露密钥本体，长度固定可索引。 */
+function roomFingerprint(key) {
+  return createHash("sha256").update(key).digest("base64url").slice(0, 8);
 }
 
 const MIME = {
@@ -145,24 +150,59 @@ const COMPRESSIBLE_EXT = new Set([
 /** 小于 1KB 压了也没意义。 */
 const GZIP_MIN_BYTES = 1024;
 
-/** 桌面上报的工作区信息，用于回答手机的 /api/server-info。 */
-let hostReport = null;
-/** E2EE 信封版上报（spec §16.9）：中继不解析、不落明文，server-info 原样回给手机解密。 */
-let hostReportEncrypted = null;
-
 /**
- * 连接池（spec §17）：slotId → 槽位状态。
- * slotId 来自桌面拨出时的 `/host?slot=<k>`（缺省 0 = 兼容单槽位旧行为）。
- * 每个槽位独立持有：host ws、认领的 client ws、配对句柄、配对前帧缓冲——
- * 多个槽位互不影响，协议/E2EE/手机端零改动。
+ * 房间表（v6 key-room，spec §19.2）：key → Room。
+ * Room = { key, fingerprint, slots, waiting, report, reportEncrypted }：
+ * - slots：房间内的槽位表（slotId → 槽位状态），原全局 hostSlots 下沉到房间；
+ * - waiting：等待配对的客户端（FIFO），原全局 waitingClients 按房间分组；
+ * - report / reportEncrypted：该房间桌面的 host-report（原全局单份 → 房间级）。
  */
-const hostSlots = new Map();
-/** 等待槽位的客户端（FIFO）：ws → { timer }（宽限计时器，spec §12.3.1）。 */
-const waitingClients = new Map();
+const rooms = new Map();
+/** 房间指纹 → 房间：派生 cookie（v1.<f>.<e>.<sig>）按指纹 O(1) 定位房间。 */
+const roomsByFingerprint = new Map();
 /** ws → 角色（"host" | "client"），空闲回收用（含已被顶替但尚未走完 close 的连接）。 */
 const socketRoles = new Map();
 /** socket → 最近一次活动时间。心跳用它区分「空闲但健康」与「僵尸连接」。 */
 const socketActivity = new Map();
+
+function getRoom(key) {
+  return rooms.get(key) ?? null;
+}
+
+/** 按需建房；房间数到上限时返回 null（调用方拒绝升级/请求）。 */
+function getOrCreateRoom(key) {
+  let room = rooms.get(key);
+  if (room) return room;
+  if (rooms.size >= MAX_ROOMS) return null;
+  const fingerprint = roomFingerprint(key);
+  room = {
+    key,
+    fingerprint,
+    slots: new Map(),
+    waiting: [],
+    report: null,
+    reportEncrypted: null,
+  };
+  rooms.set(key, room);
+  roomsByFingerprint.set(fingerprint, room);
+  return room;
+}
+
+/** 房间是否完全空闲（无 host、无 client、无等待者）。上报不算活动——保留它没有意义，
+ *  桌面重连后会重新上报；空房间必须回收，否则未知 key 刷房会顶到 MAX_ROOMS。 */
+function isRoomIdle(room) {
+  for (const slot of room.slots.values()) {
+    if (slot.ws || slot.client) return false;
+  }
+  return room.waiting.length === 0;
+}
+
+function dropRoom(room) {
+  rooms.delete(room.key);
+  if (roomsByFingerprint.get(room.fingerprint) === room) {
+    roomsByFingerprint.delete(room.fingerprint);
+  }
+}
 
 function trackSocketActivity(ws, role) {
   socketRoles.set(ws, role);
@@ -260,85 +300,113 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
-/**
- * 手机侧配对凭据的**多通道**校验：cookie 或查询参数，二者等价。
- *
- * 为什么需要查询参数通道：实测发现 Electron 内置浏览器（webview 分区）里 302 的
- * Set-Cookie 可能不落地（分区 cookie 为空），页面只能带着无 cookie 的 WS 撞 401，
- * 表现为空白/启动失败（spec §12.4「token 双通道」）。RELAY_TOKEN 本来就是 relay
- * 自己签发的凭据（经 `?token=` 明文到达 relay），放进查询参数没有新增暴露面；
- * E2EE 的 `#k=` 在 fragment 里，永远不会进请求。
- *
- * 通道清单（spec §18.4）：
- *   1. legacy cookie      `zcode_lite_token = RELAY_TOKEN`
- *   2. legacy query       `?token=<RELAY_TOKEN>`
- *   3. 派生 cookie        `v1.<e>.<sig>`（时效链接配对后下发，服务端判过期）
- *   4. signed query       `?s=&t=&e=&h=` 全参数签名验证
- */
-function isClientAuthorized(req, url) {
-  const cookie = readCookie(req, COOKIE_NAME);
-  if (safeEqual(cookie, RELAY_TOKEN)) return true;
-  if (isSessionCookieValid(cookie)) return true;
-  const queryToken = (url.searchParams.get("token") || "").trim();
-  if (queryToken.length > 0 && safeEqual(queryToken, RELAY_TOKEN)) return true;
-  return isSignedShareQueryValid(url);
-}
-
 /** 时钟偏移容差（秒）：仅用于拒绝「签发时刻在未来」的伪造参数（spec §18.2）。
  *  注意**不能**拒绝「t 在过去」：t 是签发时刻，正常流程就是「生成链接 → 过一会儿
  *  才扫码/打开」，有效期完全由 e 把关 —— 曾把校验写成 |now-t|≤300 导致链接
  *  签发 5 分钟后就永远 401（真浏览器实测踩过）。 */
 const CLOCK_SKEW_SECONDS = 300;
 
-function hmacRelayToken(message) {
-  return createHmac("sha256", RELAY_TOKEN).update(message).digest("base64url");
+/**
+ * 手机侧凭据 → 房间（v6 key-room，spec §19.2）。
+ *
+ * 为什么需要查询参数通道：实测发现 Electron 内置浏览器（webview 分区）里 302 的
+ * Set-Cookie 可能不落地（分区 cookie 为空），页面只能带着无 cookie 的 WS 撞 401，
+ * 表现为空白/启动失败（spec §12.4「token 双通道」）。roomKey 本来就是经 `?token=`
+ * 明文到达 relay 的凭据，放进查询参数没有新增暴露面；E2EE 的 `#k=` 在 fragment 里，
+ * 永远不会进请求。
+ *
+ * 通道清单（spec §19.2）：
+ *   1. 原始 key query    `?token=<roomKey>`
+ *   2. 原始 key cookie   `zcode_lite_token = <roomKey>`
+ *   3. 派生 cookie       `v1.<f>.<e>.<sig>`（时效链接配对后下发，按指纹定位房间）
+ *   4. signed query      `?s=&t=&e=&h=`（逐房间重算 HMAC(roomKey, "s|t|e")）
+ *
+ * 返回房间或 null；`create` 为 true 时对通道 1/2 按需建房（/ws 用），false 时只认
+ * 已存在房间（server-info 用——不应凭一个未知 key 凭空建房）。
+ */
+function resolveRoom(req, url, { create = false } = {}) {
+  const queryToken = (url.searchParams.get("token") || "").trim();
+  if (isPlausibleKey(queryToken)) {
+    return create ? getOrCreateRoom(queryToken) : getRoom(queryToken);
+  }
+  const cookie = readCookie(req, COOKIE_NAME);
+  if (cookie) {
+    // 派生 cookie（v1.<f>.<e>.<sig>）优先判定：原始 key 不会以 v1. 开头
+    //（isPlausibleKey 允许任意可打印 ASCII，但桌面生成的 key 与 v5 沿用值都不是 v1. 前缀）。
+    if (cookie.startsWith("v1.")) return resolveSessionCookie(cookie);
+    if (isPlausibleKey(cookie)) {
+      return create ? getOrCreateRoom(cookie) : getRoom(cookie);
+    }
+  }
+  return resolveSignedShareQuery(url);
+}
+
+function hmacRoomKey(roomKey, message) {
+  return createHmac("sha256", roomKey).update(message).digest("base64url");
 }
 
 /**
- * 派生会话 cookie（spec §18.3）：值里编入过期时刻 `e`，验证时服务端重算 HMAC 并判
- * `now < e` —— 过期是**服务端强制**的（Max-Age 只是浏览器提示）。无状态，重启不失效。
+ * 派生会话 cookie（spec §18.3 / §19.3）：值里编入**房间指纹 f** 与过期时刻 `e`，
+ * 验证时按指纹定位房间、重算 HMAC 并判 `now < e` —— 过期是**服务端强制**的
+ * （Max-Age 只是浏览器提示）。无状态，重启不失效。多房间部署下指纹保证
+ * 「cookie 只属于签发它的那个房间」，server-info 不会拿错桌面。
  */
-function deriveSessionCookie(expiresAtSec) {
-  return `v1.${expiresAtSec}.${hmacRelayToken(`cookie|${expiresAtSec}`)}`;
+function deriveSessionCookie(room, expiresAtSec) {
+  return `v1.${room.fingerprint}.${expiresAtSec}.${hmacRoomKey(room.key, `cookie|${room.fingerprint}|${expiresAtSec}`)}`;
 }
 
-function isSessionCookieValid(value) {
-  if (!value.startsWith("v1.")) return false;
+function resolveSessionCookie(value) {
   const parts = value.split(".");
-  if (parts.length !== 3) return false;
-  const expiresAtSec = Number.parseInt(parts[1], 10);
-  if (!Number.isInteger(expiresAtSec) || expiresAtSec * 1000 <= Date.now()) return false;
-  return safeEqual(parts[2], hmacRelayToken(`cookie|${expiresAtSec}`));
+  if (parts.length !== 4 || parts[0] !== "v1") return null;
+  const [, fingerprint, expiresAtRaw, sig] = parts;
+  const expiresAtSec = Number.parseInt(expiresAtRaw, 10);
+  if (!Number.isInteger(expiresAtSec) || expiresAtSec * 1000 <= Date.now()) return null;
+  const room = roomsByFingerprint.get(fingerprint);
+  if (!room) return null;
+  if (!safeEqual(sig, hmacRoomKey(room.key, `cookie|${fingerprint}|${expiresAtSec}`))) return null;
+  return room;
 }
 
-/** §18.2 签名四元组校验：h 常量时间比对；t 不得在未来（±300s 容差）；e 必须在未来。 */
-function isSignedShareQueryValid(url) {
+/** §18.2 签名四元组校验：h 常量时间比对；t 不得在未来（±300s 容差）；e 必须在未来。
+ *  签名不编房间，逐房间重算——房间数有上限（MAX_ROOMS），遍历代价可控；
+ *  命中哪个房间就归属哪个房间（不同 key 不可能算出同一签名）。 */
+function resolveSignedShareQuery(url) {
   const sid = (url.searchParams.get("s") || "").trim();
   const t = Number.parseInt(url.searchParams.get("t") || "", 10);
   const e = Number.parseInt(url.searchParams.get("e") || "", 10);
   const h = (url.searchParams.get("h") || "").trim();
-  if (!sid || !Number.isInteger(t) || !Number.isInteger(e)) return false;
+  if (!sid || !Number.isInteger(t) || !Number.isInteger(e)) return null;
   const nowSec = Math.floor(Date.now() / 1000);
-  if (t > nowSec + CLOCK_SKEW_SECONDS) return false;
-  if (e * 1000 <= Date.now()) return false;
-  return safeEqual(h, hmacRelayToken(`${sid}|${t}|${e}`));
+  if (t > nowSec + CLOCK_SKEW_SECONDS) return null;
+  if (e * 1000 <= Date.now()) return null;
+  const message = `${sid}|${t}|${e}`;
+  for (const room of rooms.values()) {
+    if (safeEqual(h, hmacRoomKey(room.key, message))) return room;
+  }
+  return null;
 }
 
-function buildServerInfo() {
+/** 页面配对入口的 key 形状校验（`/?token=`）：只验形状不建房——真正建房发生在
+ *  /ws 与 /host，页面入口无谓占房间名额（未知 key 刷页面不应撑房间表）。 */
+function isPagePairingTokenValid(token) {
+  return isPlausibleKey(token);
+}
+
+function buildServerInfo(room) {
   // E2EE 信封（spec §16.9）：原样回给手机解密，中继不组表明文。
-  if (hostReportEncrypted) {
-    return { ...hostReportEncrypted };
+  if (room.reportEncrypted) {
+    return { ...room.reportEncrypted };
   }
-  const workspace = hostReport?.workspacePath
+  const workspace = room.report?.workspacePath
     ? {
-        path: hostReport.workspacePath,
-        label: hostReport.workspacePath.split("/").filter(Boolean).pop() || hostReport.workspacePath,
-        ...(hostReport.workspaceIdentity ? { workspaceIdentity: hostReport.workspaceIdentity } : {}),
+        path: room.report.workspacePath,
+        label: room.report.workspacePath.split("/").filter(Boolean).pop() || room.report.workspacePath,
+        ...(room.report.workspaceIdentity ? { workspaceIdentity: room.report.workspaceIdentity } : {}),
       }
     : null;
   return {
-    serverId: hostReport?.hostLabel || "zcode-relay",
-    version: hostReport?.appVersion || "relay",
+    serverId: room.report?.hostLabel || "zcode-relay",
+    version: room.report?.appVersion || "relay",
     protocolVersion: 1,
     authRequired: true,
     workspaces: workspace ? [workspace] : [],
@@ -425,14 +493,15 @@ const server = createServer(async (req, res) => {
   // 手机把 `/?token=…&autoReconnect=1` 加进主屏后，重定向不能把开关吃掉。
   // 仅对页面路径生效：/api/* 的 ?token= 是「token 双通道」鉴权（spec §12.4），
   // 不能被重定向劫持（否则 server-info 的查询参数通道永远 401）。
+  // v6 key-room：值 = 房间密钥本体；只验形状不建房（建房收口在 /ws 与 /host）。
   if (url.searchParams.get("token") && !url.pathname.startsWith("/api/")) {
-    if (!safeEqual(url.searchParams.get("token"), RELAY_TOKEN)) {
+    if (!isPagePairingTokenValid(url.searchParams.get("token"))) {
       sendJson(res, 401, { error: "Unauthorized" });
       return;
     }
     res.setHeader(
       "set-cookie",
-      `${COOKIE_NAME}=${RELAY_TOKEN}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
+      `${COOKIE_NAME}=${url.searchParams.get("token")}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
     );
     const remaining = new URLSearchParams(url.searchParams);
     remaining.delete("token");
@@ -447,7 +516,8 @@ const server = createServer(async (req, res) => {
   // 就是本次会话凭据，web bundle 会附到 /ws 与 /api），原样保留参数的 302 会造成
   // 重定向循环。serveStatic 的 writeHead 会与 setHeader 合并，cookie 随页面下发。
   if (url.searchParams.get("s") && url.searchParams.get("h") && !url.pathname.startsWith("/api/")) {
-    if (!isSignedShareQueryValid(url)) {
+    const room = resolveSignedShareQuery(url);
+    if (!room) {
       sendJson(res, 401, { error: "Unauthorized" });
       return;
     }
@@ -455,7 +525,7 @@ const server = createServer(async (req, res) => {
     const maxAge = Math.max(0, expiresAtSec - Math.floor(Date.now() / 1000));
     res.setHeader(
       "set-cookie",
-      `${COOKIE_NAME}=${deriveSessionCookie(expiresAtSec)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`,
+      `${COOKIE_NAME}=${deriveSessionCookie(room, expiresAtSec)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`,
     );
     await serveStatic(req, res, url.pathname);
     return;
@@ -465,11 +535,13 @@ const server = createServer(async (req, res) => {
     // 与 /ws 同一门禁（fail-closed，双通道）：工作区路径/主机标签不向未配对方暴露。
     // 未带凭据的调用方收到 401 —— web 端 resolveWebBootstrap() 对非 200 优雅降级
     // （只少拿初始工作区提示，不会失败），正常配对流程不受影响。
-    if (!isClientAuthorized(req, url)) {
+    // 不建房（create:false）：server-info 不该凭一个未知 key 凭空创建房间。
+    const room = resolveRoom(req, url);
+    if (!room) {
       sendJson(res, 401, { error: "Unauthorized" });
       return;
     }
-    sendJson(res, 200, buildServerInfo());
+    sendJson(res, 200, buildServerInfo(room));
     return;
   }
 
@@ -485,7 +557,10 @@ const server = createServer(async (req, res) => {
       sendJson(res, 405, { error: "Method Not Allowed" });
       return;
     }
-    if (!safeEqual(readBearer(req), HOST_SECRET)) {
+    // Bearer 即房间密钥（v6 key-room）：房间按需创建（桌面先于手机到达是常态）。
+    const bearer = readBearer(req);
+    const room = isPlausibleKey(bearer) ? getOrCreateRoom(bearer) : null;
+    if (!room) {
       sendJson(res, 401, { error: "Unauthorized" });
       return;
     }
@@ -500,14 +575,14 @@ const server = createServer(async (req, res) => {
       ) {
         // E2EE 信封（spec §16.9）：原样存储。中继没有 channelKey，无从解析——
         // 日志只记密文规模，路径/标签永不出现。
-        hostReport = null;
-        hostReportEncrypted = { v: 1, e2ee: true, nonce: body.nonce, ciphertext: body.ciphertext };
-        log("host report updated", { e2ee: true, ciphertextBytes: body.ciphertext.length });
+        room.report = null;
+        room.reportEncrypted = { v: 1, e2ee: true, nonce: body.nonce, ciphertext: body.ciphertext };
+        log("host report updated", { room: room.fingerprint, e2ee: true, ciphertextBytes: body.ciphertext.length });
         sendJson(res, 200, { ok: true });
         return;
       }
-      hostReportEncrypted = null;
-      hostReport = {
+      room.reportEncrypted = null;
+      room.report = {
         workspacePath: typeof body.workspacePath === "string" ? body.workspacePath : null,
         workspaceIdentity:
           typeof body.workspaceIdentity === "string" ? body.workspaceIdentity : null,
@@ -516,7 +591,8 @@ const server = createServer(async (req, res) => {
       };
       // 日志一律不带工作区路径（spec §16.9：即使明文模式也不在日志落路径）。
       log("host report updated", {
-        hasWorkspacePath: typeof hostReport.workspacePath === "string",
+        room: room.fingerprint,
+        hasWorkspacePath: typeof room.report.workspacePath === "string",
       });
       sendJson(res, 200, { ok: true });
     } catch {
@@ -550,12 +626,15 @@ server.on("upgrade", (req, socket, head) => {
   }
 
   if (url.pathname === "/host") {
-    if (!safeEqual(readBearer(req), HOST_SECRET)) {
-      log("host upgrade rejected: bad secret");
+    // Bearer 即房间密钥（v6 key-room）：房间按需创建；到上限时拒绝（防刷房）。
+    const bearer = readBearer(req);
+    const room = isPlausibleKey(bearer) ? getOrCreateRoom(bearer) : null;
+    if (!room) {
+      log("host upgrade rejected: bad room key");
       rejectUpgrade(socket, 401, "Unauthorized");
       return;
     }
-    // 槽位号（spec §17）：缺省 0 = 兼容单槽位旧桌面；0..99。
+    // 槽位号（spec §17）：房间内 0..99，缺省 0 = 兼容单槽位旧桌面。
     const slotParam = (url.searchParams.get("slot") ?? "0").trim() || "0";
     const slotId = Number.parseInt(slotParam, 10);
     if (!Number.isInteger(slotId) || slotId < 0 || slotId > 99) {
@@ -563,17 +642,19 @@ server.on("upgrade", (req, socket, head) => {
       rejectUpgrade(socket, 400, "Bad Request");
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => onHostOpen(ws, String(slotId)));
+    wss.handleUpgrade(req, socket, head, (ws) => onHostOpen(room, ws, String(slotId)));
     return;
   }
 
   if (url.pathname === "/ws") {
-    if (!isClientAuthorized(req, url)) {
+    // 凭据 → 房间（按需建房）：手机可能先于桌面到达，房间必须能先建出来等 host。
+    const room = resolveRoom(req, url, { create: true });
+    if (!room) {
       log("client upgrade rejected: bad cookie/token");
       rejectUpgrade(socket, 401, "Unauthorized");
       return;
     }
-    wss.handleUpgrade(req, socket, head, onClientOpen);
+    wss.handleUpgrade(req, socket, head, (ws) => onClientOpen(room, ws));
     return;
   }
 
@@ -582,17 +663,17 @@ server.on("upgrade", (req, socket, head) => {
 
 /**
  * 配对后的连接治理（spec §17）：client→host 逐字节转发 + 任一侧关闭/出错时连坐另一侧
- * （close code 用于客户端区分「桌面离线」）。每个 pair 绑定一个槽位。
+ * （close code 用于客户端区分「桌面离线」）。每个 pair 绑定一个房间槽位。
  * host→client 方向不在这里挂：host 连上时就要开始接收帧（无人认领时进槽位缓冲，
  * 见 bufferSlotFrame），由 onHostOpen 的转发器负责。
  */
-function pipe(slotId, slot, a, b) {
+function pipe(slot, a, b) {
   let closed = false;
   // client→host 的活转发。命名保存是为了 dispose 时能精确摘掉（漏摘会让旧连接继续注入）。
   const forwardToHost = (data, isBinary) => {
     if (a.readyState !== a.OPEN) return;
     if (b.bufferedAmount > BACKPRESSURE_WARN_BYTES) {
-      log("backpressure on client→host", { bufferedAmount: b.bufferedAmount, slot: slotId });
+      log("backpressure on client→host", { bufferedAmount: b.bufferedAmount, slot: slot.id });
     }
     a.send(data, { binary: isBinary });
   };
@@ -609,11 +690,10 @@ function pipe(slotId, slot, a, b) {
       }
     }
     // 释放槽位与客户端登记（任一侧 close 都会走到这里，closed 保证幂等）。
-    if (hostSlots.get(slotId) === slot) {
+    if (slot.room.slots.get(slot.id) === slot) {
       slot.client = null;
       slot.pair = null;
     }
-    waitingClients.delete(b);
     socketActivity.delete(b);
   };
 
@@ -642,8 +722,8 @@ function pipe(slotId, slot, a, b) {
 }
 
 /** 供宽限日志用的 host 状态描述（措辞沿用单槽位版，集成测试断言依赖它）。 */
-function hostStateForLog() {
-  for (const slot of hostSlots.values()) {
+function hostStateForLog(room) {
+  for (const slot of room.slots.values()) {
     if (slot.ws && slot.ws.readyState !== slot.ws.OPEN) {
       return `not OPEN (readyState=${slot.ws.readyState})`;
     }
@@ -652,21 +732,23 @@ function hostStateForLog() {
 }
 
 /**
- * 客户端进入宽限等待：期间有空闲槽位即被配对，到期仍无槽位才 4002（reason no-free-host）。
+ * 客户端进入宽限等待：期间该房间有空闲槽位即被配对，到期仍无槽位才 4002（reason no-free-host）。
  * 立刻 4002 只会让 web 端（open 即 resolve）误判成功 → 空壳白屏。
  */
-function armClientGrace(ws) {
-  const entry = waitingClients.get(ws);
+function armClientGrace(room, ws) {
+  const entry = room.waiting.find((item) => item.ws === ws);
   if (!entry || entry.timer) return;
-  log(`host ${hostStateForLog()}; holding client for up to ${HOST_WAIT_GRACE_MS}ms`);
+  log(`host ${hostStateForLog(room)}; holding client for up to ${HOST_WAIT_GRACE_MS}ms`, {
+    room: room.fingerprint,
+  });
   entry.timer = setTimeout(() => {
-    if (!waitingClients.has(ws)) return; // 已配对或已断开
+    if (!room.waiting.some((item) => item.ws === ws)) return; // 已配对或已断开
     // 到期必须重判：宽限期内可能有槽位回来但没走到配对。直接结束会让客户端
     // 既不被服务也不被拒绝 —— 又一个静默白屏。
     syncPairingAll();
-    if (!waitingClients.has(ws)) return;
-    waitingClients.delete(ws);
-    log("grace elapsed without host; rejecting client (4002)");
+    if (!room.waiting.some((item) => item.ws === ws)) return;
+    room.waiting = room.waiting.filter((item) => item.ws !== ws);
+    log("grace elapsed without host; rejecting client (4002)", { room: room.fingerprint });
     try {
       ws.close(4002, "no-free-host");
     } catch {
@@ -676,73 +758,80 @@ function armClientGrace(ws) {
 }
 
 /**
- * 配对的**唯一决策点**（spec §17）：每个「OPEN 且空闲」的槽位按 FIFO 认领一个等待客户端，
- * 认领后先回放该槽位的缓冲帧（含 Initialize）。被顶替后仍持有 client 的槽位直接与新
- * host 重新建 pipe（dispose 语义，client 存活）。所有路径（host 连上 / 客户端连上 /
- * host 断开 / 宽限到期）都调用它 —— 单一决策点是刷新白屏修复的根基（spec §12.3.1）。
- * 只配 OPEN 的 host 与 OPEN 的 client：配给正在关闭的 socket 等于给新页面埋雷。
+ * 配对的**唯一决策点**（spec §17）：每个「OPEN 且空闲」的房间槽位按 FIFO 认领一个
+ * 等待客户端，认领后先回放该槽位的缓冲帧（含 Initialize）。被顶替后仍持有 client 的
+ * 槽位直接与新 host 重新建 pipe（dispose 语义，client 存活）。所有路径（host 连上 /
+ * 客户端连上 / host 断开 / 宽限到期）都调用它 —— 单一决策点是刷新白屏修复的根基
+ * （spec §12.3.1）。只配 OPEN 的 host 与 OPEN 的 client：配给正在关闭的 socket
+ * 等于给新页面埋雷。
  */
 function syncPairingAll() {
-  for (const [slotId, slot] of hostSlots) {
-    if (slot.pair || !slot.ws || slot.ws.readyState !== slot.ws.OPEN) continue;
-    let clientWs = slot.client;
-    if (!clientWs || clientWs.readyState !== clientWs.OPEN) {
-      clientWs = waitingClients.keys().next().value;
-      if (!clientWs) continue;
-      const entry = waitingClients.get(clientWs);
-      if (entry?.timer) clearTimeout(entry.timer);
-      waitingClients.delete(clientWs);
-      slot.client = clientWs;
+  for (const room of rooms.values()) {
+    for (const slot of room.slots.values()) {
+      if (slot.pair || !slot.ws || slot.ws.readyState !== slot.ws.OPEN) continue;
+      let clientWs = slot.client;
+      if (!clientWs || clientWs.readyState !== clientWs.OPEN) {
+        const next = room.waiting.shift();
+        if (!next) continue;
+        clientWs = next.ws;
+        if (next.timer) clearTimeout(next.timer);
+        slot.client = clientWs;
+      }
+      if (slot.buffer.length > 0) {
+        slot.buffer.forEach((frame) => clientWs.send(frame.data, { binary: frame.isBinary }));
+        log("replayed buffered host frames", {
+          room: room.fingerprint,
+          slot: slot.id,
+          count: slot.buffer.length,
+          bytes: slot.bufferBytes,
+        });
+      }
+      clearSlotBuffer(slot);
+      slot.pair = pipe(slot, slot.ws, clientWs);
+      log("paired host↔client", { room: room.fingerprint, slot: slot.id });
     }
-    if (slot.buffer.length > 0) {
-      slot.buffer.forEach((frame) => clientWs.send(frame.data, { binary: frame.isBinary }));
-      log("replayed buffered host frames", {
-        slot: slotId,
-        count: slot.buffer.length,
-        bytes: slot.bufferBytes,
-      });
-    }
-    clearSlotBuffer(slot);
-    slot.pair = pipe(slotId, slot, slot.ws, clientWs);
-    log("paired host↔client", { slot: slotId });
   }
 }
 
-function onHostOpen(ws, slotId) {
-  const existing = hostSlots.get(slotId);
-  if (existing && existing.ws && existing.ws !== ws) {
-    log("replacing existing host connection", { slot: slotId });
+function onHostOpen(room, ws, slotId) {
+  let slot = room.slots.get(slotId);
+  if (slot && slot.ws && slot.ws !== ws) {
+    log("replacing existing host connection", { room: room.fingerprint, slot: slotId });
     // 旧 pair 必须被摘掉监听而不能只置空：否则旧 host 稍后的 close 会用 4002
     // 连坐关掉正被服务的客户端。已认领的 client 保留，由新 host 接管。
-    existing.pair?.dispose();
+    slot.pair?.dispose();
     // dispose 只摘监听，不清槽位登记：这里必须显式置空，否则 syncPairingAll 会认为
     // 槽位仍在配对中而跳过重建，客户端的帧就发进了没有转发器的死管道。
-    existing.pair = null;
-    clearSlotBuffer(existing);
-    const previous = existing.ws;
+    slot.pair = null;
+    clearSlotBuffer(slot);
+    const previous = slot.ws;
     try {
       previous.close(4001, "host-replaced");
     } catch {
       previous.terminate();
     }
-    existing.ws = ws;
-  } else if (existing) {
-    existing.ws = ws;
+    slot.ws = ws;
+  } else if (slot) {
+    slot.ws = ws;
   } else {
-    hostSlots.set(slotId, { ws, client: null, pair: null, buffer: [], bufferBytes: 0 });
+    slot = { id: slotId, room, ws, client: null, pair: null, buffer: [], bufferBytes: 0 };
+    room.slots.set(slotId, slot);
   }
-  const slot = hostSlots.get(slotId);
   trackSocketActivity(ws, "host");
-  log("host connected", { slot: slotId });
+  log("host connected", { room: room.fingerprint, slot: slotId });
   // host→client 转发从 host 连上就开始（而不是配对时才挂）：
   // ChannelServer 构造即发 Initialize，此刻客户端多半还没认领，必须缓冲（spec §12.3.1）。
   ws.on("message", (data, isBinary) => {
     // 已被顶替的旧 host 仍在关闭过程中时，不得再往客户端注入帧。
-    if (hostSlots.get(slotId)?.ws !== ws) return;
+    if (room.slots.get(slotId)?.ws !== ws) return;
     const target = slot.client;
     if (target && target.readyState === target.OPEN) {
       if (target.bufferedAmount > BACKPRESSURE_WARN_BYTES) {
-        log("backpressure on host→client", { bufferedAmount: target.bufferedAmount, slot: slotId });
+        log("backpressure on host→client", {
+          bufferedAmount: target.bufferedAmount,
+          room: room.fingerprint,
+          slot: slotId,
+        });
       }
       target.send(data, { binary: isBinary });
     } else {
@@ -750,10 +839,10 @@ function onHostOpen(ws, slotId) {
     }
   });
   ws.on("close", () => {
-    if (hostSlots.get(slotId)?.ws !== ws) return;
-    hostSlots.delete(slotId);
+    if (room.slots.get(slotId)?.ws !== ws) return;
+    room.slots.delete(slotId);
     socketActivity.delete(ws);
-    log("host disconnected", { slot: slotId });
+    log("host disconnected", { room: room.fingerprint, slot: slotId });
     // 该槽位的 pair 会经 a-close 监听连坐关闭其客户端（4002）并自行释放登记；
     // 其它槽位不受影响。这里补一次配对决策，让等待中的客户端认领其它空闲槽位。
     syncPairingAll();
@@ -762,20 +851,21 @@ function onHostOpen(ws, slotId) {
   syncPairingAll();
 }
 
-function onClientOpen(ws) {
+function onClientOpen(room, ws) {
   trackSocketActivity(ws, "client");
-  log("client connected");
+  log("client connected", { room: room.fingerprint });
   ws.on("close", () => {
     // 配对中的断开由 pipe 的 b-close 监听连坐处理；这里只清等待登记。
-    waitingClients.delete(ws);
+    room.waiting = room.waiting.filter((item) => item.ws !== ws);
     socketActivity.delete(ws);
-    log("client disconnected");
+    log("client disconnected", { room: room.fingerprint });
   });
   ws.on("error", () => {});
   // 连接池下新客户端不再互相顶替：认领空闲槽位；无空闲则进宽限等待
   // （armClientGrace 布防计时器），而不是配给垂死 host、更不是立刻 4002（都会白屏）。
-  waitingClients.set(ws, { timer: null });
-  armClientGrace(ws);
+  const entry = { ws, timer: null };
+  room.waiting.push(entry);
+  armClientGrace(room, ws);
   syncPairingAll();
 }
 
@@ -787,6 +877,9 @@ function onClientOpen(ws) {
  * 网络半开）并关闭，腾出槽位。遍历 socketRoles（含已被顶替但尚未走完 close 的
  * 连接），保证僵尸无论是否还在槽位表里都会被回收。两端都按 RFC 自动回 pong，
  * 因此「空闲但健康」的连接不会被误关。
+ *
+ * 同一轮顺带回收空房间（spec §19.2）：无 host、无 client、无等待者且无上报的房间
+ * 直接删除——桌面重连/手机再访问都会按需重建。
  */
 setInterval(() => {
   const now = Date.now();
@@ -808,6 +901,12 @@ setInterval(() => {
       ws.close(role === "host" ? 4003 : 4000, "idle-timeout");
     } catch {
       ws.terminate();
+    }
+  }
+  for (const room of [...rooms.values()]) {
+    if (isRoomIdle(room)) {
+      dropRoom(room);
+      log("dropped idle room", { room: room.fingerprint });
     }
   }
 }, HEARTBEAT_INTERVAL_MS);

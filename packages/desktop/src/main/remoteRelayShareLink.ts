@@ -4,10 +4,13 @@ import { deriveRemoteRelayPublicUrl, isLocalRelayHost } from "@zcode/shared";
 import { composeLanPublicUrl } from "./remoteRelayLanAddresses.js";
 
 /**
- * 分享链接构造（spec vps-relay-bridge.md §18）：
- * - 永久链接 = 现状 legacy `?token=`（RELAY_TOKEN 本体，PWA/书签兼容）；
- * - 时效链接 = 官方形状的签名凭据 `?s=&t=&e=&h=`，HMAC 密钥即两端共享的
- *   pairingToken（= 中继 RELAY_TOKEN），泄露暴露窗口 = 有效期而非永久。
+ * 分享链接构造（spec vps-relay-bridge.md §18 / §19）：
+ * - 永久链接 = 现状 legacy `?token=`（房间密钥 roomKey 本体，PWA/书签兼容）；
+ * - 时效链接 = 官方形状的签名凭据 `?s=&t=&e=&h=`，HMAC 密钥即 roomKey，
+ *   泄露暴露窗口 = 有效期而非永久。
+ *
+ * v6 key-room 起「配对码」与「主机密钥」合并为一把 roomKey（§19）；
+ * 链接形状不变（web 端读 `?token=` 与 `#k=`，零改动）。
  *
  * 验证在 relay 侧（deploy/vps-relay/relay.mjs，无状态常量时间比较）；
  * 本模块只负责生成，签名不进渲染层。
@@ -25,8 +28,8 @@ export interface RelayShareLinkInput {
   url: string;
   /** 手机侧公开地址（缺省由 url 推导）。 */
   publicUrl?: string | null;
-  /** 配对码（= 中继 RELAY_TOKEN），时效链接的 HMAC 密钥。 */
-  pairingToken: string;
+  /** 房间密钥（v6 key-room，spec §19）：链接 `?token=` 的值与时效链接的 HMAC 密钥。 */
+  roomKey: string;
   /** E2EE channelKey：非空时追加 `#k=` fragment（不进任何请求，spec §16.2）。 */
   channelKey?: string | null;
   /** 有效期秒数；null = 永久 legacy token 链接。 */
@@ -48,23 +51,23 @@ function createShareSid(): string {
 
 /** §18.2 签名载荷：relay 侧按同一字符串重算，改动任何字段都会导致 401。 */
 export function signRelayShareParams(
-  pairingToken: string,
+  roomKey: string,
   sid: string,
   issuedAtSec: number,
   expiresAtSec: number,
 ): string {
-  return createHmac("sha256", pairingToken)
+  return createHmac("sha256", roomKey)
     .update(`${sid}|${issuedAtSec}|${expiresAtSec}`)
     .digest("base64url");
 }
 
 export function buildRelayShareLink(input: RelayShareLinkInput): RelayShareLink | null {
   const base = (input.publicUrl?.trim() || deriveRemoteRelayPublicUrl(input.url)).replace(/\/+$/, "");
-  if (!base || !input.pairingToken) return null;
+  if (!base || !input.roomKey) return null;
   // 链接自带 autoReconnect=1：手机锁屏/切网断线后自动整页重载恢复，不用手点「重连」。
   // 代价是重载会丢弃未发送输入（默认行为仍是「只提示」，见 web-bootstrap-delivery-point.md §2.4）。
   // E2EE 启用时追加 `#k=`：fragment 不会发给服务器，中继拿不到 channelKey（spec §16.2）。
-  let url = `${base}/?token=${encodeURIComponent(input.pairingToken)}&autoReconnect=1`;
+  let url = `${base}/?token=${encodeURIComponent(input.roomKey)}&autoReconnect=1`;
   let expiresAt: number | null = null;
   if (input.ttlSeconds != null) {
     const ttl = Math.min(
@@ -75,7 +78,7 @@ export function buildRelayShareLink(input: RelayShareLinkInput): RelayShareLink 
     const issuedAtSec = Math.floor(issuedAtMs / 1000);
     const expiresAtSec = issuedAtSec + ttl;
     const sid = createShareSid();
-    const sig = signRelayShareParams(input.pairingToken, sid, issuedAtSec, expiresAtSec);
+    const sig = signRelayShareParams(input.roomKey, sid, issuedAtSec, expiresAtSec);
     // 时效链接**不携带 token**：凭据 = 签名四元组。302 保留这些参数（§18.4），
     // web bundle 会把它们附到 wsUrl/server-info（等价于 token 通道）。
     url = `${base}/?s=${encodeURIComponent(sid)}&t=${issuedAtSec}&e=${expiresAtSec}&h=${encodeURIComponent(
@@ -86,7 +89,7 @@ export function buildRelayShareLink(input: RelayShareLinkInput): RelayShareLink 
   if (input.channelKey) {
     url += `#k=${encodeURIComponent(input.channelKey)}`;
   }
-  return { shareUrl: url, expiresAt };
+  return { shareUrl: url, expiresAt: expiresAt ?? null };
 }
 
 /**
@@ -102,7 +105,7 @@ export function buildRelayShareLink(input: RelayShareLinkInput): RelayShareLink 
 export function buildRelayLanShareLink(input: {
   relayUrl: string;
   lanAddresses: readonly string[];
-  pairingToken: string;
+  roomKey: string;
   channelKey?: string | null;
 }): string | null {
   if (!isLocalRelayHost(input.relayUrl)) return null;
@@ -112,7 +115,7 @@ export function buildRelayLanShareLink(input: {
     buildRelayShareLink({
       url: lanPublicUrl,
       publicUrl: lanPublicUrl,
-      pairingToken: input.pairingToken,
+      roomKey: input.roomKey,
       channelKey: input.channelKey,
       ttlSeconds: null,
     })?.shareUrl ?? null

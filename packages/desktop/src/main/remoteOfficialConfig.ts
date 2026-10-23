@@ -36,7 +36,7 @@ export function getOfficialRelayConfigFilePath(): string {
  * 解析路线 B 启动配置；不满足启用条件（文件缺失 / enabled 非 true / 无 url）时
  * 返回 null，调用方完全不实例化客户端。env `ZCODE_OFFICIAL_RELAY_WS_URL` 优先于
  * 文件 url，但**不回写**文件里的 url。`deviceMid` / `devicePassword` 首次自动生成
- * 并持久化（与路线 A 的 pairingToken/channelKey/slotBase 同模式）：这两个值没有
+ * 并持久化（与路线 A 的 roomKey/channelKey 同模式）：这两个值没有
  * 用户可读语义，手填只会退化成弱口令；轮换 = 清空字段重启。
  */
 export async function loadOfficialRelayStartConfig(

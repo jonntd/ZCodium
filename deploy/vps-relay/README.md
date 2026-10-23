@@ -72,17 +72,17 @@ proof 鉴权**：`GET /api/remote-control/link` 必须带
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `RELAY_TOKEN` | ✅ | **手机配对码**。手机打开 `https://<域名>/?token=<它>` 一次即可；它同时是**时效签名链接**（桌面设置页可生成，spec vps-relay-bridge.md §18）的 HMAC 密钥——轮换它即可让所有旧链接/旧 cookie 全部失效。桌面 App 启动时会自动生成一个（「高级设置 → 配对码」），把那个值填到这里即可 |
-| `HOST_SECRET` | | **桌面共享密钥**。桌面用它连 `/host`，也用它调 `/api/host-report`。留空 = 使用与桌面一致的**统一默认值**（默认值即当前部署正在用的真实密钥——仓库若公开即等于公开它，任何能访问 `/host` 的人都等于拿到桌面 Host 的服务面）；改了桌面端就要同步改这里 |
 | `PORT` | | 监听端口，默认 `3180` |
 | `WEB_ROOT` | | web bundle 目录，默认 `./web` |
 | `HOST_WAIT_GRACE_MS` | | host 暂时缺位时手机端的等待宽限，默认 `5000` |
 | `HEARTBEAT_INTERVAL_MS` | | 向 host/client 两侧 ping 的间隔，默认 `30000` |
 | `IDLE_TIMEOUT_MS` | | 一侧多久无任何活动即按僵尸连接关闭，默认 `60000` |
 
-`RELAY_TOKEN` 必须足够长（建议 `openssl rand -base64 32` 生成），**且不要写进日志**；
-`HOST_SECRET` 生产部署同样建议用 `openssl rand -base64 32`，并同步填到桌面
-「移动端远程控制 → 高级设置 → 主机密钥」。
+**v6 key-room（spec vps-relay-bridge.md §19）：没有任何密钥环境变量。**
+一把房间密钥（roomKey）同时承担桌面拨入鉴权（`Bearer`）、手机配对凭据（`?token=`）
+与房间路由；房间按首次见到的密钥**按需创建**（上限 100，空房间被心跳回收）。
+唯一的密钥由桌面 App 自动生成并落盘（`~/.zcodium/v2/remote-relay.json` 的 `roomKey`），
+手机分享链接也从桌面生成——服务端不需要知道、也存不下「正确答案」。
 
 ### 2.3 方式一：Docker Compose（推荐）
 
@@ -93,21 +93,16 @@ proof 鉴权**：`GET /api/remote-control/link` 必须带
 mkdir -p /opt/zcode-relay/web
 cd /opt/zcode-relay
 
-# 2) 拷入部署物（relay.mjs / Dockerfile / docker-compose.yml / Caddyfile / .env.example）
+# 2) 拷入部署物（relay.mjs / Dockerfile / docker-compose.yml / Caddyfile）
 scp <本机>:<repo>/deploy/vps-relay/* .
 
 # 3) 拷入 web bundle
 scp -r <本机>:<repo>/packages/web/dist/* web/
 
-# 4) 生成密钥
-cp .env.example .env
-sed -i "s/^RELAY_TOKEN=.*/RELAY_TOKEN=$(openssl rand -base64 32)/" .env
-sed -i "s/^HOST_SECRET=.*/HOST_SECRET=$(openssl rand -base64 32)/" .env
-
-# 5) 起服务（只监听 127.0.0.1，公网流量经 Caddy）
+# 4) 起服务（只监听 127.0.0.1，公网流量经 Caddy；v6 key-room 无需任何 .env）
 docker compose up -d
 
-# 6) 健康检查
+# 5) 健康检查
 curl -s http://127.0.0.1:3180/healthz
 ```
 
@@ -124,8 +119,8 @@ curl -s http://127.0.0.1:3180/healthz
 | `docker-compose.image.yml` | 同上，但直接用**已发布镜像**（无 bind mount） |
 | `docker-compose.image.no-tls.yml` | 纯 IP 变体，同样直接用已发布镜像 |
 | `Caddyfile` | 自动 HTTPS + 反代；**自动处理 WebSocket 升级**，无需手写 Upgrade 头 |
-| `.env.example` | 两个密钥的模板与安全提示 |
-| `.dockerignore` | 排除 `.env` 与 `web/`，避免 secrets 进镜像层 |
+| `install.sh` | 一键 Docker 部署脚本（拉 GHCR 镜像 + compose + 健康检查） |
+| `.dockerignore` | 排除 `web/` 等本地产物，避免进镜像层 |
 
 ### 2.4 方式二：裸 Node + systemd
 
@@ -138,7 +133,6 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/zcode-relay
-EnvironmentFile=/opt/zcode-relay/.env
 Environment=PORT=3180
 Environment=WEB_ROOT=/opt/zcode-relay/web
 ExecStart=/usr/bin/node /opt/zcode-relay/relay.mjs
@@ -222,8 +216,6 @@ curl -s http://127.0.0.1:3180/healthz   # → {"ok":true}
 发布时把 **web bundle 烘进镜像** 并推到 GHCR，于是「镜像 tag = 手机页版本」，升级只要 pull。
 
 ```bash
-cp .env.example .env   # 填入两个密钥
-
 # 有域名（配合 Caddy 终结 TLS）
 RELAY_VERSION=3.14.11 docker compose -f docker-compose.image.yml up -d
 
@@ -237,7 +229,7 @@ RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 
 > ⚠ tag **不带 `v` 前缀**（CI 推的是 `${TAG#v}`）：`RELAY_VERSION=v3.14.11` 会
 > `manifest unknown`。嫌麻烦可以直接用 [DEPLOY-DOCKER.md](./DEPLOY-DOCKER.md) 的一键脚本，
-> 它会自动生成 `.env` / compose 并完成健康检查。
+> 它会自动生成 compose 并完成健康检查（v6 key-room 无需 .env）。
 
 | 项 | 说明 |
 | --- | --- |
@@ -247,8 +239,8 @@ RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 | 离线 / 无 registry | 每次发布同时把 `zcode-relay-<版本>.tar.gz` 附到 Release，`docker load -i <它>` 即可 |
 | 体积 | 构建时剔除了 source map（约 86M，中继只服务手机页用不到）：约 59M 而非 145M |
 
-> 两个变体只差端口绑定与是否启 Caddy，其余（密钥、资源上限、`no-new-privileges`）与 §2.3 一致。
-> 中继仍只做逐字节转发，E2EE 语义不变。
+> 两个变体只差端口绑定与是否启 Caddy，其余（资源上限、`no-new-privileges`）与 §2.3 一致。
+> 中继仍只做逐字节转发，E2EE 语义不变；v6 key-room 无需任何 .env 密钥。
 >
 > 想把中继跑在**本机**（局域网直连 + 经 VPS 隧道的外网），见 §7。
 
@@ -264,9 +256,7 @@ RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 ```json
 {
   "url": "wss://relay.example.com",
-  "hostSecret": "<与 VPS 上 HOST_SECRET 相同>",
   "publicUrl": "https://relay.example.com",
-  "pairingToken": "<VPS 上 RELAY_TOKEN>",
   "slots": 2,
   "autoStart": true
 }
@@ -275,10 +265,9 @@ RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 | 字段 | 必填 | 作用 |
 |---|---|---|
 | `url` | ✅ | 中继主机端点（本机验证可用 `ws://127.0.0.1:3180`） |
-| `hostSecret` | ✅ | 与 VPS `HOST_SECRET` 一致 |
+| `roomKey` | — | **房间密钥**（v6 key-room，spec §19）。留空时 App 自动生成并落盘；它同时是桌面拨入凭据与手机 `?token=` 配对凭据。**轮换 = 清空保存**（生成新值，旧手机链接全部失效） |
 | `publicUrl` | — | 浏览器侧公开源（拼分享链接用）；缺省由 `url` 推导（wss→https） |
-| `pairingToken` | — | VPS 的 `RELAY_TOKEN`（拼分享链接用） |
-| `e2ee` | — | **端到端加密**开关（缺省 false，见下文「端到端加密」小节） |
+| `e2ee` | — | **端到端加密**开关（缺省开启，见下文「端到端加密」小节） |
 | `channelKey` | — | E2EE 的 32B base64url 密钥；开启 `e2ee` 后留空会自动生成并落盘 |
 | `workspace` | — | 覆盖上报的工作区路径；缺省跟随窗口当前工作区 |
 | `windowId` | — | 钉住借出 Host 的窗口 id；缺省跟随聚焦窗口 |
@@ -292,7 +281,6 @@ RELAY_VERSION=3.14.12 docker compose -f docker-compose.image.no-tls.yml up -d
 
 ```bash
 ZCODE_REMOTE_RELAY_URL=wss://relay.example.com \
-ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
   <启动 ZCode>
 ```
 
@@ -310,8 +298,8 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 开启后**中继只转发密文**：VPS 运营方看不到任何会话内容。要点：
 
 - **密钥不经中继**：channelKey 放在分享链接的 `#k=` fragment 里——浏览器不把 fragment
-  发给服务器，中继拿不到它。`RELAY_TOKEN` 经 `GET /?token=` 到达中继（TLS 终结点看得到），
-  因此不能当加密密钥用。
+  发给服务器，中继拿不到它。房间密钥 roomKey 经 `GET /?token=` 到达中继（TLS 终结点
+  看得到），因此不能当加密密钥用。
 - **中继零改动**：密文对 relay 完全不透明，缓冲/回放/心跳语义不变；旧 relay 无需升级。
 - **灰度顺序（两端能力必须同时具备）**：① 先把含 E2EE 的 `packages/web/dist` 重新部署到
   relay；② 再开 `e2ee`（设置页开关或写配置）→ 自动生成 `channelKey` → 从设置页复制**新链接**
@@ -327,20 +315,20 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 
 1. 桌面 ZCode：工作区头部的**「移动端远程控制」**弹层 →「浏览器直连」卡片。
    卡片上直接给状态 / 启停 / **内网·外网两条链接**（各自复制 + 二维码）；
-   中继地址 / 主机密钥 / 公开地址 / 配对码 / E2EE / 并发槽位等收在卡片的**「高级设置」**里，
+   中继地址 / 密钥 / 公开地址 / E2EE / 并发槽位等收在卡片的**「高级设置」**里，
    **「保存并应用」立即生效**（保存即刷新链接与二维码，无需重启）。
    （配置同样落在 `~/.zcodium/v2/remote-relay.json`，两种方式互通。）
-2. 手机浏览器打开 `https://relay.example.com/?token=<RELAY_TOKEN>`
+2. 手机浏览器打开卡片上的**分享链接**（`https://relay.example.com/?token=<roomKey>`）
 3. 中继下发 cookie 并跳转（**只摘掉 `token`，其它参数保留**），之后正常使用
 4. 手机上看到的就是**桌面那个 Host 的服务面**：任务列表、会话历史、终端、文件、Git
 
 > **时效签名链接（spec §18）当前没有 UI 入口**：relay 侧仍校验
 > `?s=&t=&e=&h=`，桌面端 IPC `RemoteRelayGetShareLink` 也仍在，但 2026-10-08 移除了
 > 设置页的二维码弹层后，界面上不再提供生成入口。当前 UI 的链接形态是**永久 token 链接**；
-> 撤销所有访问 = 轮换 `RELAY_TOKEN`。将来要给「临时授权给别人」做入口时再单独设计。
+> 撤销所有访问 = 轮换 `roomKey`（高级设置里清空密钥保存）。将来要给「临时授权给别人」做入口时再单独设计。
 
-> **可选：无人值守自动恢复**。配对链接再加 `&autoReconnect=1`（即
-> `https://relay.example.com/?token=<RELAY_TOKEN>&autoReconnect=1`）再加进主屏，
+> **可选：无人值守自动恢复**。分享链接自带 `&autoReconnect=1`
+> （`https://relay.example.com/?token=<roomKey>&autoReconnect=1`）再加进主屏，
 > 手机锁屏 / 切网导致连接断开时会**自动整页重载**恢复，不必点「重连」。
 > 代价是重载会丢弃未发送的输入与未决弹窗，因此**默认关闭**；同一标签 10s 内只自动重载一次，
 > 被其它页面顶替（多标签）时永不自动重载。契约见
@@ -352,9 +340,9 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 
 | 现象 | 原因与处理 |
 | --- | --- |
-| 打开 `/?token=…` 返回 401 | `RELAY_TOKEN` 不匹配。重新从 `.env` 取值 |
-| 页面能开，但一直「桌面离线」（close code 4002） | 桌面没连上 `/host`。检查桌面的 `ZCODE_REMOTE_RELAY_URL` / `HOST_SECRET`，以及 VPS 防火墙 |
-| 桌面连不上 `/host` 返回 401 | `HOST_SECRET` 不匹配 |
+| 打开分享链接返回 401 | 链接里的 key 与桌面 `roomKey` 不一致（旧链接 / 桌面轮换过密钥）。从桌面弹层重新复制**新链接** |
+| 页面能开，但一直「桌面离线」（close code 4002） | 桌面没连上 `/host`。检查桌面的 `ZCODE_REMOTE_RELAY_URL` / `roomKey`，以及 VPS 防火墙 |
+| 桌面连不上 `/host` 返回 401 | 桌面 `roomKey` 未下发或被清空。打开一次「高级设置」让补齐链生成并保存 |
 | 页面显示「Web 启动失败：端到端加密握手失败」 | 链接 `#k=` 与桌面 `channelKey` 不一致（旧链接 / 错配置 / 中间人）。从设置页重新复制**新链接**；并确认 relay 上部署的是含 E2EE 的新版 web dist |
 | 页面 HTML/静态资源都 200，但**整页空白、无任何报错** | 旧版 relay 把 host 在手机配对前发出的 `Initialize` 握手帧丢掉了，手机 RPC 客户端永远不初始化。升级到带帧缓冲的 `relay.mjs` 并重启（spec §12.3.1；relay 日志应出现 `replayed buffered host frames`） |
 | 手机上任务列表是空的 | 桌面还没调 `/api/host-report`（通常是窗口工作区还没就绪）。看中继日志有没有 `host report updated` |
@@ -370,14 +358,15 @@ ZCODE_REMOTE_RELAY_HOST_SECRET=<与 VPS 上 HOST_SECRET 相同> \
 
 - **`/host` 端点的鉴权强度 = 你整台机器的安全边界。** 一旦有人能连上 `/host`，
   就等于拿到了你桌面 Host 的完整服务面（终端、文件、Git），**等价于 RCE**。
-  所以：`HOST_SECRET` 要足够长、只走 TLS、不落日志。
-- `/ws`（手机侧）用 `RELAY_TOKEN`，它会在 URL 里出现一次（`?token=`）。
-  中继在设置 cookie 后**立即 302 跳转到干净 URL**，避免 token 留在浏览器历史和 Referer 里。
+  v6 key-room 下这把钥匙就是 `roomKey`：自动生成（43 字符 base64url，128-bit 熵）、
+  只走 TLS、不落日志；持有它的人既能当桌面也能当手机（密钥即房间全权，spec §19.1）。
+- `/ws`（手机侧）凭据 = `roomKey`，它会在 URL 里出现一次（`?token=`）。
+  中继在设置 cookie 后**立即 302 跳转到干净 URL**，避免 key 留在浏览器历史和 Referer 里。
 - ~~当前实现**不做端到端加密**：TLS 在 VPS 上终结，所以**中继能看到明文流量**。
   如果你不完全信任这台 VPS，需要加 E2EE（见 spec §12.5 阶段 2）。~~
   **已实现（spec §16）**：开启「端到端加密」后中继只见密文；不开则维持原状（TLS 终结、中继可读）。
   见上文「端到端加密」小节。
-- 建议再加：仅允许一个 host 连接（已实现：新 host 会顶掉旧的）、配对码轮换、失败限速。
+- 建议再加：仅允许一个 host 连接（已实现：新 host 会顶掉旧的）、密钥轮换（清空保存即轮换）、失败限速。
 
 ---
 
@@ -432,11 +421,9 @@ bash deploy/vps-relay/run-local.sh --tunnel
 >
 > 也可以换成 frp / cloudflared 等隧道工具，把出口指向本机 3180 即可，桌面侧配置不变。
 
-等价的裸命令（两个密钥需与 `~/.zcodium/v2/remote-relay.json` 里的
-`pairingToken` / `hostSecret` 一致，否则手机配对失败）：
+等价的裸命令（v6 key-room 无需任何密钥环境变量）：
 
 ```bash
-RELAY_TOKEN="<桌面配置里的 pairingToken>" HOST_SECRET="<桌面配置里的 hostSecret>" \
 WEB_ROOT=packages/web/dist PORT=3180 \
   node deploy/vps-relay/relay.mjs
 ```

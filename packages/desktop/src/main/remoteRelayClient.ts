@@ -114,8 +114,11 @@ export interface RelayTargetWindow {
 export interface RemoteRelayClientOptions {
   /** 中继地址，如 `wss://relay.example.com`（也接受 `ws://` 便于本机验证）。 */
   url: string;
-  /** 与中继 `HOST_SECRET` 一致的共享密钥。 */
-  hostSecret: string;
+  /**
+   * 房间密钥（v6 key-room，spec §19）：拨入鉴权 = `Authorization: Bearer <roomKey>`，
+   * 中继按 key 建房/配房（同一把 key 也是手机 `?token=` 的配对凭据）。
+   */
+  roomKey: string;
   /** 选出要借出 Host 的窗口；返回 null 表示当前没有可用窗口（稍后重试）。 */
   resolveTargetWindow: () => RelayTargetWindow | null;
   /** 读出该窗口当前的工作区，用于回答手机端的 /api/server-info。 */
@@ -149,8 +152,9 @@ export interface RemoteRelayClientOptions {
   e2eeChannelKey?: string;
   /**
    * 中继槽位号（spec §17）：拨出 URL 变为 `/host?slot=<k>`，同槽位重连在 relay 侧
-   * 顶替旧连接。多槽位时控制层为每个槽位创建独立的本客户端实例（各自的连接、
-   * attachment、E2EE 握手、重连循环）。
+   * 顶替旧连接。槽位号是**房间内**编号（v6 key-room：房间即隔离，跨桌面不冲突）；
+   * 多槽位时控制层为每个槽位创建独立的本客户端实例（各自的连接、attachment、
+   * E2EE 握手、重连循环）。
    */
   slot?: number;
   /**
@@ -331,7 +335,7 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
       const response = await fetch(`${httpOrigin}/api/host-report`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${options.hostSecret}`,
+          authorization: `Bearer ${options.roomKey}`,
           "content-type": "application/json",
         },
         body,
