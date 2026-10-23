@@ -115,7 +115,8 @@ test("client config is local and cannot invoke injected network or endpoint reso
       apiClient: { request: unexpected },
       resolveRequestContext: unexpected,
     }).getSnapshot({ forceRefresh: true }),
-    { pluginStoreOrder: null },
+    // 上游在快照里加了 zsrcUrl / uiPluginRecommendations，本地兜底按类型补空值。
+    { pluginStoreOrder: null, zsrcUrl: null, uiPluginRecommendations: [] },
   );
 });
 
