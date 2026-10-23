@@ -178,13 +178,18 @@ test("agent default marketplaces only seed the official source when the switch i
 test("agent spawn env and protocol entrypoint carry the official switches", async () => {
   // 防回归：这两处是 Desktop 下开关到达 agent 的唯一路径，任一被误删都会让
   // 插件市场在打开开关后仍然按“未开启”拒绝。
-  const servicesNode = await readFile(
-    new URL("../../../packages/services/src/node.ts", import.meta.url),
-    "utf8",
+  // agent spawn env 的装配点在上游重构后从 services/node.ts 移到了 desktop main，
+  // 断言跟随实际位置（两处都查，任一处存在即可）。
+  const spawnEnvOwners = await Promise.all(
+    [
+      "../../../packages/services/src/node.ts",
+      "../../../packages/desktop/src/main/index.ts",
+    ].map((path) => readFile(new URL(path, import.meta.url), "utf8")),
   );
-  assert.match(
-    servicesNode,
-    /\.\.\.buildOfficialServiceEnvPatch\(settings\.officialServices\)/,
+  assert.ok(
+    spawnEnvOwners.some((source) =>
+      /\.\.\.buildOfficialServiceEnvPatch\(settings\.officialServices\)/.test(source),
+    ),
     "agent spawn env 必须按当前设置注入官方开关",
   );
 

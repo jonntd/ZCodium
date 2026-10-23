@@ -252,6 +252,10 @@ test("all platform service boundaries guard before touching credentials, state o
     const helperNames = [
       "CONNECTION_UNAVAILABLE_ERRORS",
       "normalizeConversationShareConnectionError",
+      // 上游把「不可渲染的错误信息」收敛进 readCodingPlanApiJson 的 catch 分支后，
+      // 方法体引用了这两个模块级 helper；eval 只替换方法体，必须把声明一起注入。
+      "readRemoteErrorMessage",
+      "isUnrenderableRemoteErrorMessage",
     ];
     const helperDeclarations = [];
     function collectHelpers(node) {

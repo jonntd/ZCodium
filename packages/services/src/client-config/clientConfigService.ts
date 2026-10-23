@@ -1,6 +1,7 @@
 import {
   buildZCodeEndpointUrls,
   clientConfigReadOptionsSchema,
+  isOfficialServiceEnabled,
   parseClientConfigSnapshot,
   type ApiClient,
   type ClientConfigSnapshot,
@@ -64,6 +65,11 @@ export function createClientConfigService(dependencies: {
 
   return {
     async getSnapshot(options = {}) {
+      // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
+      // （fork 语义，合并上游时随 clientConfigService 重写丢失，此处补回）
+      if (!isOfficialServiceEnabled("clientConfig")) {
+        return { pluginStoreOrder: null, zsrcUrl: null, uiPluginRecommendations: [] };
+      }
       const { forceRefresh } = clientConfigReadOptionsSchema.parse(options);
       const context = await dependencies.resolveRequestContext();
       const url = new URL(

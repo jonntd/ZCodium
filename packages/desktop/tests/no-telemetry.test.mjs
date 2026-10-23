@@ -127,6 +127,8 @@ test("OAuth delivery and remote connection retain business behavior without tele
     "./desktopNotifications.js": {},
     "./desktopOAuthDeepLink.js": { deliverPendingDeepLink: () => delivered++ },
     "./desktopMainIpcHelpers.js": {},
+    // 上游把手机远控的 IPC 注册拆到独立模块；这里只关心 OAuth/远控连接的业务事件仍能流转。
+    "./desktopWebRemoteControlIpc.js": { registerWebRemoteControlIpcHandlers: () => {} },
   });
   let args;
   registerRemoteIpcHandlers({
