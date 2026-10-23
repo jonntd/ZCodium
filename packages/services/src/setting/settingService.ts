@@ -50,6 +50,15 @@ function defaultSettings(): AppSettings {
   return appSettingsSchema.parse({});
 }
 
+/**
+ * settings 文件的绝对路径。导出给测试探针等外部读取方，避免复制路径后随数据根迁移漂移。
+ * 合并上游后路径解析收敛到 paths.ts（getAppConfigDir 跟随 ZCODE_DESKTOP_HOME_DIR /
+ * ZCODE_DATA_BASE_DIR / 设置里的 dataBaseDir），这里只做唯一入口，不再本地拼 ".zcodium/v2"。
+ */
+export function getSettingsFile(): string {
+  return join(getAppConfigDir(), "setting.json");
+}
+
 function buildCorruptSettingsBackupPath(settingsFile: string): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `${settingsFile}.corrupt-${timestamp}`;
