@@ -79,13 +79,22 @@ test("github feed by default, custom feed overrides stay generic, manual check a
     isDestroyed: () => false,
     webContents: { id: 1, send: (...args) => sent.push(args) },
   };
+  // autoUpdater 用 fork 的 autoUpdateVersion 做版本比较（含 legacy 3.x → fork 1.x 迁移判定），
+  // 这里加载真实模块而不是打桩，保证比较语义与运行时一致。
+  const autoUpdateVersion = await load("autoUpdateVersion", {
+    semver: { __esModule: true, default: require("semver") },
+  });
   const module = await load("autoUpdater", {
+    "./autoUpdateVersion.js": autoUpdateVersion,
     electron: {
       app: {
         isPackaged: true,
         getVersion: () => "1.0.0",
         relaunch: (options) => relaunched.push(options),
         exit: () => exits++,
+        // 上游在 initAutoUpdater 里注册 before-quit 监听（安装前落盘状态），桩需要 on。
+        on: () => {},
+        removeListener: () => {},
       },
       BrowserWindow: { getAllWindows: () => [win], getFocusedWindow: () => win },
       Menu: { getApplicationMenu: () => null },
