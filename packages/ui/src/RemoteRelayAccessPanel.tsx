@@ -1,32 +1,51 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
-import { Check, Copy, LoaderCircle, Play, Square, TriangleAlert } from "lucide-react";
-import type { RemoteRelayStatus } from "@zcode/shared";
+import { Check, Copy, LoaderCircle, TriangleAlert } from "lucide-react";
+import type { RemoteRelayFileConfig, RemoteRelayStatus } from "@zcode/shared";
+import {
+  buildRelayUrl,
+  resolveRelayScenario,
+  stripRelayScheme,
+} from "@/remoteRelayScenario.js";
 import { RemoteRelayConfigForm } from "@/RemoteRelayConfigForm.js";
 import { Button } from "@/components/ui/button.js";
+import { Switch } from "@/components/ui/switch.js";
 import { toast } from "@/components/ui/toast.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 
 /**
- * 「浏览器直连」接入面板（spec vps-relay-bridge.md §15 / §18.6）。
+ * 「浏览器直连」接入面板（spec vps-relay-bridge.md §15 / §18.6 / §19）。
  *
- * 原「设置 → 远程访问」分区的**全部内容**都在这里：连接状态 + 启停 + 内网/外网链接
- * （各带复制与二维码）+ 中继配置表单（`RemoteRelayConfigForm`，折叠在「高级设置」里）。
- * 设置页不再保留远程访问分区——两处各有一半配置正是之前的迁移遗漏点。
+ * v6 key-room 之后的**主面 = 一个开关 + 一个中继地址**（对齐官方「一个开关」的体验）：
+ * - 开关 = 启停中继客户端（拨上去前若地址有改动会先保存再启动）；
+ * - 地址框只填主机[:端口]，协议用旁边的「明文 / TLS」小段选择；
+ * - 密钥（roomKey / channelKey）由 Main 自动生成、随分享链接分发，**不出现在界面上**
+ *   （轮换入口在「高级设置 → 重置密钥」）。
+ * 高级设置（`RemoteRelayConfigForm`）收部署细节，其余链接/二维码逻辑不变。
  *
  * 中继是**应用级**配置（全局一份，`~/.zcodium/v2/remote-relay.json`），与弹层所属的
  * 工作区无关：本面板读写的是同一份全局配置，只是入口挪到了工作区头部的远控弹层。
- *
- * 两条链接各给一个复制按钮 + 二维码（spec §18.6）：
- * - **内网**：手机与中继同一 WiFi 时用；中继配成 `127.0.0.1` 时这是唯一可达的地址。
- * - **公网**：手机在外网时用（端口映射 / DDNS / 反代，或中继本来就在 VPS）。
- * 不可用的一条**显示原因**，不硬拼一条连不上的地址出来。
  *
  * Web 环境没有中继 IPC——这里整块不渲染。
  */
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
+
+/** setConfig 是整体覆写：显式挑白名单字段，避免把轮询状态里的杂质写进配置文件。 */
+function pickPersistedConfig(file: RemoteRelayFileConfig | null): RemoteRelayFileConfig {
+  return {
+    url: file?.url,
+    roomKey: file?.roomKey,
+    publicUrl: file?.publicUrl,
+    workspace: file?.workspace,
+    windowId: file?.windowId,
+    autoStart: file?.autoStart,
+    e2ee: file?.e2ee,
+    channelKey: file?.channelKey,
+    slots: file?.slots,
+  };
+}
 
 type LinkKey = "lan" | "public";
 
@@ -167,23 +186,102 @@ export function RemoteRelayAccessPanel() {
     };
   }, [lanShareUrl, publicShareUrl]);
 
-  const handleToggleRun = useCallback(async () => {
-    const method = status?.running ? platform.remoteRelayStop : platform.remoteRelayStart;
-    if (!method) return;
-    setToggling(true);
-    try {
-      setStatus(await method.call(platform));
-    } catch (error) {
+  // ── v6 主卡：开关 + 中继地址（spec §19 对齐官方「一个开关」体验）──────────────
+  // 地址草稿只在用户编辑过（dirty）时独立于轮询；未 dirty 时跟随配置回显。
+  const configUrl = status?.fileConfig?.url ?? "";
+  const [addressDraft, setAddressDraft] = useState("");
+  const [scenarioDraft, setScenarioDraft] = useState<"lan" | "public">("lan");
+  const addressDirtyRef = useRef(false);
+  const [savingAddress, setSavingAddress] = useState(false);
+
+  useEffect(() => {
+    if (addressDirtyRef.current) return;
+    setAddressDraft(stripRelayScheme(configUrl));
+    setScenarioDraft(resolveRelayScenario(configUrl));
+  }, [configUrl]);
+
+  const remoteRelaySetConfig = platform.remoteRelaySetConfig;
+  const remoteRelayStart = platform.remoteRelayStart;
+  const remoteRelayStop = platform.remoteRelayStop;
+
+  const toastError = useCallback(
+    (error: unknown) => {
       toast(
         `${intl.formatMessage({ id: "settings.remoteRelay.toggleFailed" })}: ${
           error instanceof Error ? error.message : String(error)
         }`,
         { variant: "warning" },
       );
-    } finally {
-      setToggling(false);
+    },
+    [intl],
+  );
+
+  /** 地址落盘（仅在有改动时）：白名单字段整体覆写 + apply 重启客户端。 */
+  const saveAddress = useCallback(async (): Promise<RemoteRelayStatus | null> => {
+    if (!remoteRelaySetConfig) return status;
+    const host = addressDraft.trim();
+    const nextUrl = host ? buildRelayUrl(scenarioDraft, host) : "";
+    if (nextUrl === configUrl) {
+      addressDirtyRef.current = false;
+      return status;
     }
-  }, [platform, status?.running, intl]);
+    setSavingAddress(true);
+    try {
+      const next = await remoteRelaySetConfig({
+        config: { ...pickPersistedConfig(status?.fileConfig ?? null), url: nextUrl },
+        apply: true,
+      });
+      setStatus(next);
+      addressDirtyRef.current = false;
+      setAddressDraft(stripRelayScheme(nextUrl));
+      return next;
+    } catch (error) {
+      toastError(error);
+      return null;
+    } finally {
+      setSavingAddress(false);
+    }
+  }, [remoteRelaySetConfig, addressDraft, scenarioDraft, configUrl, status, toastError]);
+
+  /**
+   * 主开关：拨上去 = 保存未落盘的地址改动 + 启动；拨下来 = 停止。
+   * 没有任何地址（草稿与配置都空）时不允许开：启动没有可拨的目标。
+   */
+  const handleSwitch = useCallback(
+    async (next: boolean) => {
+      if (!next) {
+        if (!remoteRelayStop) return;
+        setToggling(true);
+        try {
+          setStatus(await remoteRelayStop.call(platform));
+        } catch (error) {
+          toastError(error);
+        } finally {
+          setToggling(false);
+        }
+        return;
+      }
+      if (!remoteRelayStart) return;
+      if (!addressDraft.trim() && !configUrl) {
+        toast(intl.formatMessage({ id: "settings.remoteRelay.switchNeedsAddress" }), {
+          variant: "warning",
+        });
+        return;
+      }
+      setToggling(true);
+      try {
+        // 先落盘地址（有改动时），再启动——start 读的是配置文件；保存失败则保持原位。
+        if (addressDirtyRef.current && (await saveAddress()) == null) return;
+        setStatus(await remoteRelayStart.call(platform));
+      } catch (error) {
+        toastError(error);
+      } finally {
+        setToggling(false);
+      }
+    },
+    [remoteRelayStop, remoteRelayStart, platform, addressDraft, configUrl, saveAddress, intl, toastError],
+  );
+
 
   const handleCopy = useCallback(async (key: LinkKey, url: string) => {
     try {
@@ -221,32 +319,77 @@ export function RemoteRelayAccessPanel() {
             {t("webRemoteControl.browser.description")}
           </p>
         </div>
-        <Button
-          type="button"
-          variant={status?.running ? "outline" : "default"}
-          // 没配置时启动没有意义（没有中继地址可拨）：禁用而不是让它静默失败。
-          disabled={toggling || !status?.configured}
-          className="shrink-0 enabled:cursor-pointer"
-          onClick={() => void handleToggleRun()}
-        >
-          {toggling ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : status?.running ? (
-            <Square className="size-4" />
-          ) : (
-            <Play className="size-4" />
-          )}
-          {status?.running ? t("settings.remoteRelay.stop") : t("settings.remoteRelay.start")}
-        </Button>
+        {/* 主开关（spec §19 官方形态）：开 = 保存地址改动并启动；关 = 停止。
+            没有任何地址时禁用——启动没有可拨的目标。 */}
+        <Switch
+          checked={status?.running === true}
+          disabled={toggling || savingAddress || (!status?.configured && !addressDraft.trim())}
+          aria-label={status?.running ? t("settings.remoteRelay.stop") : t("settings.remoteRelay.start")}
+          onCheckedChange={(next) => void handleSwitch(next)}
+        />
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2 text-ui-sm text-foreground-subtle">
+        {toggling || savingAddress ? <LoaderCircle className="size-3.5 animate-spin" /> : null}
         <span>{statusText}</span>
         {status?.e2ee ? (
           <span className="rounded-md bg-surface px-2 py-0.5 text-ui-xs font-medium text-foreground-subtle">
             {t("settings.remoteRelay.badgeE2ee")}
           </span>
         ) : null}
+      </div>
+
+      {/* 中继地址：主面唯一的必填输入。只填主机[:端口]，协议用相邻分段选择；
+          失焦/回车即落盘（有改动时），开关拨上去之前也会自动保存。 */}
+      <div className="mb-3 grid gap-1.5">
+        <div className="text-ui-base font-medium text-foreground">
+          {t("settings.remoteRelay.url")}
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={scenarioDraft === "lan" ? "default" : "outline"}
+              aria-pressed={scenarioDraft === "lan"}
+              onClick={() => {
+                addressDirtyRef.current = true;
+                setScenarioDraft("lan");
+              }}
+            >
+              {t("settings.remoteRelay.scenarioLan")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={scenarioDraft === "public" ? "default" : "outline"}
+              aria-pressed={scenarioDraft === "public"}
+              onClick={() => {
+                addressDirtyRef.current = true;
+                setScenarioDraft("public");
+              }}
+            >
+              {t("settings.remoteRelay.scenarioPublic")}
+            </Button>
+          </div>
+          <input
+            value={addressDraft}
+            placeholder="192.168.1.10:3180"
+            spellCheck={false}
+            autoComplete="off"
+            className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 text-ui-sm text-foreground outline-none focus:border-foreground-subtle"
+            onChange={(event) => {
+              addressDirtyRef.current = true;
+              setAddressDraft(event.target.value);
+            }}
+            onBlur={() => void saveAddress()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+          />
+        </div>
       </div>
 
       {status == null ? null : status.configured ? (
