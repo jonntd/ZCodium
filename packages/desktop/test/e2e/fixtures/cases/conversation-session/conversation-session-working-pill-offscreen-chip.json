@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "caseName": "conversation-session-working-pill-offscreen-chip",
+  "spec": "./test/e2e/conversation-session/conversation-session-working-pill-offscreen-chip.test.ts",
+  "providerFixtures": [
+    "./test/e2e/fixtures/upstream/common.json",
+    "./test/e2e/fixtures/upstream/conversation-session/conversation-session-working-pill-offscreen-chip.json"
+  ],
+  "fileFixtures": [],
+  "requests": [
+    {
+      "id": "upstream-working-pill-offscreen-chip-controlled-stream",
+      "kind": "main",
+      "source": "synthetic",
+      "timingPolicy": "controlled-stream",
+      "syntheticReason": "WPK01 需要稳定制造长历史 + running 轮组合，驱动胶囊吸顶、本轮内离底与整体离屏三个滚动分支的确定性断言。"
+    }
+  ]
+}
