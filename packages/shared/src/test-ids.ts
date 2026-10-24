@@ -699,6 +699,8 @@ export const TID_V4_USER_INPUT_OPTION = "v4-user-input-option";
 export const TID_V4_USER_INPUT_TEXT = "v4-user-input-text";
 /** v4 时间线「回到底部」按钮（解除底部跟随后出现，虚拟滚动锚定） */
 export const TID_V4_TIMELINE_BOTTOM = "v4-timeline-bottom";
+/** v4 时间线贴底兜底：状态胶囊离屏时的「工作中」按钮（点击回到胶囊） */
+export const TID_V4_TIMELINE_WORKING = "v4-timeline-working";
 /** v4 pane 外壳（Layout/Focus 层包装，动态后缀为 paneId；data-focused 标记焦点 pane，分屏） */
 export const TID_V4_PANE_SHELL = "v4-pane-shell";
 /** v4 向右拆分窗格按钮（pane header；一期为「打开分屏」，二期语义泛化为拆分） */

@@ -78,6 +78,7 @@ import {
   shouldShowTurnChatLoadingWithRunningPill,
 } from "@/v4/chatLoadingVisibility.js";
 import { ConversationWorkingStatusPill } from "@/v4/ConversationWorkingStatusPill.js";
+import { resolveAssistantHistoryStatusStickyClass } from "@/v4/conversationWorkingStatusPillModel.js";
 import {
   buildAssistantWorkRenderItems,
   ENABLE_CHANGES_TOOL_CALL_GROUPING,
@@ -685,6 +686,10 @@ function AssistantHistoryStatus({
     <div
       className={cn(
         "flex w-full flex-wrap items-center justify-between gap-2 border-b",
+        // 运行中吸顶：胶囊挂在本轮工作历史头部，工作行持续追加会把它向上顶出视口；
+        // 贴底跟随恰恰是最常见的停留位置，只靠离屏兜底覆盖不到。吸顶让
+        // 「工作中 + 用时」在本轮内始终可见，本轮结束回归普通文档流自动释放。
+        resolveAssistantHistoryStatusStickyClass(segment.workStatus?.state),
         highspeed ? "border-icon-purple/30 pb-3 pl-1" : "border-[var(--color-border)]/50 pb-2",
       )}
     >
