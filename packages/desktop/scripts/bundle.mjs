@@ -755,6 +755,15 @@ async function main() {
     "electron-builder",
     "--config",
     "electron-builder.config.js",
+    // 修复（2026-10-24 v3.15.1 发布失败，v3.15.0 draft 同因卡住）：electron-builder 配置
+    // 里的 github publish 块只用于生成 app-update.yml / latest*.yml 元数据（见
+    // electron-builder.config.js 头部约定），但 CI 环境下不带 --publish 时它会在构建阶段
+    // 直接尝试上传 GitHub Release——Bundle 步骤没有 GH_TOKEN（上传按 #76/#78 设计由
+    // release.yml 的 gh release upload 步骤负责），全平台构建在
+    // "GitHub Personal Access Token is not set" 上失败。--publish never 只禁用上传，
+    // 元数据文件仍会照常写入 dist 供 release-update-metadata stage 校验。
+    "--publish",
+    "never",
     osBuilderFlagMap[os],
     archBuilderFlagMap[arch],
   ];

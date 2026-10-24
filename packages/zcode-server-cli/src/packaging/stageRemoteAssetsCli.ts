@@ -41,9 +41,15 @@ async function main(): Promise<void> {
   }
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const repoRoot = resolve(packageRoot, "../..");
-  const { version } = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
-    version: string;
-  };
+  const { version: manifestVersion } = JSON.parse(
+    await readFile(join(repoRoot, "package.json"), "utf8"),
+  ) as { version: string };
+  // 修复（2026-10-24 v3.15.1 发布失败）：10-11 起根 package.json 走独立 1.y.z 版本线
+  // （c7351631），发布 tag 仍是 v3.x。stage 仍按 package.json 建目录（releases/1.16.3），
+  // 而 publish-remote-assets 按 ZCODE_APP_VERSION 找 releases/3.15.1 → "release
+  // directory not found"，remote-assets job 全挂。这里与 publish-remote-assets 保持
+  // 同一优先级（ZCODE_APP_VERSION > package.json），CI 传入发布版本后两侧目录一致。
+  const version = process.env.ZCODE_APP_VERSION?.trim() || manifestVersion;
   const versionReleaseDir = join(repoRoot, "packages/desktop/mock-cdn/releases", version);
   await beginSourceServerRemoteReleaseGeneration({ versionReleaseDir });
   await run("pnpm", ["--filter", "@zcode/server-cli", "build"], repoRoot, env);

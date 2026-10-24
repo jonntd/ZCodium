@@ -84,7 +84,13 @@ export function collectBuildMetadata() {
   const desktopPackageJson = readJson(resolve(desktopDir, "package.json"));
 
   return {
-    appVersion: normalizeVersion(rootPackageJson.version),
+    // 修复（2026-10-24 v3.15.1 发布失败）：10-11 起根 package.json 走独立 1.y.z 版本线
+    // （c7351631），发布 tag 是 v3.x。release.yml 已把发布版本注入 ZCODE_APP_VERSION
+    // （desktop Bundle 与 remote-assets 两处都传），这里必须认它，否则安装包/manifest
+    // 带 1.y.z 版本，release-update-metadata 按 v3.x 校验直接 "Metadata version
+    // mismatch"。本地 dev 不设该变量，仍用 package.json，行为不变。
+    // 优先级与 scripts/publish-remote-assets.mjs 一致：ZCODE_APP_VERSION > package.json。
+    appVersion: normalizeVersion(process.env.ZCODE_APP_VERSION?.trim() || rootPackageJson.version),
     minCompatibleVersion: normalizeVersion(
       rootPackageJson.zcodeCompatibility?.minCompatibleVersion ?? rootPackageJson.version,
     ),
