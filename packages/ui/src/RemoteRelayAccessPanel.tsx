@@ -7,7 +7,6 @@ import {
   resolveRelayScenario,
   stripRelayScheme,
 } from "@/remoteRelayScenario.js";
-import { RemoteRelayConfigForm } from "@/RemoteRelayConfigForm.js";
 import { Button } from "@/components/ui/button.js";
 import { Switch } from "@/components/ui/switch.js";
 import { toast } from "@/components/ui/toast.js";
@@ -20,9 +19,10 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
  * v6 key-room 之后的**主面 = 一个开关 + 一个中继地址**（对齐官方「一个开关」的体验）：
  * - 开关 = 启停中继客户端（拨上去前若地址有改动会先保存再启动）；
  * - 地址框只填主机[:端口]，协议用旁边的「明文 / TLS」小段选择；
- * - 密钥（roomKey / channelKey）由 Main 自动生成、随分享链接分发，**不出现在界面上**
- *   （轮换入口在「高级设置 → 重置密钥」）。
- * 高级设置（`RemoteRelayConfigForm`）收部署细节，其余链接/二维码逻辑不变。
+ * - 密钥（roomKey / channelKey）由 Main 自动生成、随分享链接分发，**不出现在界面上**；
+ *   界面唯一的密钥动作是卡片底部不显眼的「重置密钥」（两把一起轮换，旧链接失效）。
+ * 没有高级设置：低频部署项（公开地址覆盖 / E2EE / 并发槽位 / 工作区覆盖）写配置文件
+ * 或环境变量（spec §19.8），用户的全部输入 = 中继地址 + 开关。
  *
  * 中继是**应用级**配置（全局一份，`~/.zcodium/v2/remote-relay.json`），与弹层所属的
  * 工作区无关：本面板读写的是同一份全局配置，只是入口挪到了工作区头部的远控弹层。
@@ -193,6 +193,7 @@ export function RemoteRelayAccessPanel() {
   const [scenarioDraft, setScenarioDraft] = useState<"lan" | "public">("lan");
   const addressDirtyRef = useRef(false);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [rotatingKeys, setRotatingKeys] = useState(false);
 
   useEffect(() => {
     if (addressDirtyRef.current) return;
@@ -272,6 +273,29 @@ export function RemoteRelayAccessPanel() {
     },
     [remoteRelaySetConfig, status, toastError],
   );
+
+  /**
+   * 重置密钥（spec §19.5 轮换语义）：roomKey 与 channelKey 一起清空保存，
+   * Main 侧补齐链自动生成新值——旧手机链接/PWA 全部失效，需重新扫码。
+   * fileConfig 全字段 round-trip：整体覆写语义下漏一个字段就丢一个配置。
+   */
+  const handleRotateKeys = useCallback(async () => {
+    if (!remoteRelaySetConfig) return;
+    setRotatingKeys(true);
+    try {
+      setStatus(
+        await remoteRelaySetConfig({
+          config: { ...pickPersistedConfig(status?.fileConfig ?? null), roomKey: "", channelKey: "" },
+          apply: true,
+        }),
+      );
+      toast(intl.formatMessage({ id: "settings.remoteRelay.rotateKeysDone" }));
+    } catch (error) {
+      toastError(error);
+    } finally {
+      setRotatingKeys(false);
+    }
+  }, [remoteRelaySetConfig, status, intl, toastError]);
 
   /**
    * 主开关：拨上去 = 保存未落盘的地址改动（含 autoStart:true）+ 启动；拨下来 =
@@ -462,11 +486,21 @@ export function RemoteRelayAccessPanel() {
         </div>
       )}
 
-      {/* 中继配置：原「设置 → 远程访问」的全部配置项都在这里，未配置时默认展开
-          （用户打开弹层就是来填配置的）。保存成功后把新状态交回，链接与二维码立即刷新。 */}
-      {status ? (
-        <div className="mt-3">
-          <RemoteRelayConfigForm status={status} onSaved={setStatus} />
+      {/* 重置密钥：唯一的密钥动作（spec §19.5 轮换语义）。刻意做成不显眼的小字按钮——
+          常规使用永远不需要它；点了即轮换两把密钥，旧手机链接全部失效。 */}
+      {status?.configured ? (
+        <div className="mt-3 border-t border-border pt-2.5">
+          <button
+            type="button"
+            className="cursor-pointer text-ui-sm text-foreground-subtle underline-offset-2 hover:text-foreground hover:underline"
+            disabled={rotatingKeys}
+            onClick={() => void handleRotateKeys()}
+          >
+            {rotatingKeys ? (
+              <LoaderCircle className="mr-1 inline size-3.5 animate-spin" />
+            ) : null}
+            {t("settings.remoteRelay.rotateKeys")}
+          </button>
         </div>
       ) : null}
     </section>
