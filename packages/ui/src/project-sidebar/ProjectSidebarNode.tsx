@@ -41,7 +41,11 @@ type Props = Pick<
 > &
   Pick<
     ProjectSidebarProps,
-    "isDesktop" | "isWebRemoteControl" | "onCreateTask" | "onReconnectRemoteWorkspace" | "onOpenSidePaneFiles"
+    | "isDesktop"
+    | "isWebRemoteControl"
+    | "onCreateTask"
+    | "onReconnectRemoteWorkspace"
+    | "onOpenSidePaneFiles"
   > & {
     service?: IProjectService;
     remoteService?: IRemoteProjectService;
@@ -141,7 +145,8 @@ export const ProjectSidebarNode = memo(
             ? () => {
                 // 入口 B（spec sidebar-file-viewer.md §2）：远程单 root 项目按 Host 规则派生
                 // identity（与 data-project-workspace-identity 同源），本地项目不传 identity。
-                const primaryRoot = project.roots.find((root) => root.isPrimary) ?? project.roots[0];
+                const primaryRoot =
+                  project.roots.find((root) => root.isPrimary) ?? project.roots[0];
                 if (!primaryRoot) return;
                 const identity =
                   remoteHost && project.hostId !== "local"
