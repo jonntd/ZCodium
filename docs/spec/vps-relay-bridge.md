@@ -1988,3 +1988,28 @@ roomKey 已存在           → 用它
 | 6 | 时效签名链接 | HMAC(roomKey) 验证；派生 cookie `v1.<f>.<e>.<sig>` 过期后 401 fail-closed |
 | 7 | 未知 key 刷 `/?token=` | 建房受上限约束（100），空房间被心跳回收；`/ws` 无 host 走宽限等待（§12.3.1） |
 | 8 | E2EE 开启 | `#k=` 照旧；relay 日志与 server-info 均无明文（§16.9 回归） |
+
+## 19.8 UI 极简化（v6.1，2026-10-24）
+
+用户反馈「只想填 IP 或域名」后，界面收敛为官方形态：
+
+- **主面 = 一个开关 + 一个中继地址**（`RemoteRelayAccessPanel`）：开关开 = 保存地址
+  改动并启动；关 = 停止。协议（明文/TLS）是地址框旁的两个分段按钮。
+- **密钥零展示**：roomKey / channelKey 不再有输入框；「高级设置 → 重置密钥」一键
+  轮换两把（清空保存 → 补齐链生成新值，旧链接失效）。
+- **低频部署项移出 UI**（字段与语义全保留，写配置文件 / env 即可）：
+  公开地址覆盖（`publicUrl`）、E2EE 开关（`e2ee`）、并发槽位（`slots`）、
+  工作区覆盖（`workspace`）。指引文案在高级设置里。
+- **「随应用启动」由主开关承载**（原独立 toggle 删除）：开关拨到 off 时持久化
+  `autoStart: false`（`apply:false` 只写文件再 stop），拨回 on 写 `true` 并启动——
+  开关状态跨 App 重启保持。`shouldAutoStartRelay` 语义不变。
+- `RemoteRelayConfigField` 组件随之删除（唯一消费者是已清空的中继表单）。
+
+## 19.9 v6.1 验收
+
+| # | 场景 | 期望 |
+| --- | --- | --- |
+| 1 | 主面只出现开关 + 协议分段 + 地址框 | 无任何密钥/部署字段输入框（SSR 断言 + CDP 实测） |
+| 2 | 拨关开关 | `autoStart:false` 落盘 + 客户端停止；重启 App 不自动连 |
+| 3 | 拨开开关 | `autoStart:true` 落盘 + 启动；VPS 侧重新收到 host-report |
+| 4 | 重置密钥 | roomKey/channelKey 同时轮换，旧链接失效（§19.5 语义） |

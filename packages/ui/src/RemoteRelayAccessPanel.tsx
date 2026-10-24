@@ -217,7 +217,8 @@ export function RemoteRelayAccessPanel() {
   );
 
   /** 地址落盘（仅在有改动时）：白名单字段整体覆写 + apply 重启客户端。 */
-  const saveAddress = useCallback(async (): Promise<RemoteRelayStatus | null> => {
+  const saveAddress = useCallback(
+    async (autoStart?: boolean): Promise<RemoteRelayStatus | null> => {
     if (!remoteRelaySetConfig) return status;
     const host = addressDraft.trim();
     const nextUrl = host ? buildRelayUrl(scenarioDraft, host) : "";
@@ -228,7 +229,11 @@ export function RemoteRelayAccessPanel() {
     setSavingAddress(true);
     try {
       const next = await remoteRelaySetConfig({
-        config: { ...pickPersistedConfig(status?.fileConfig ?? null), url: nextUrl },
+        config: {
+          ...pickPersistedConfig(status?.fileConfig ?? null),
+          url: nextUrl,
+          ...(autoStart === undefined ? {} : { autoStart }),
+        },
         apply: true,
       });
       setStatus(next);
@@ -238,14 +243,40 @@ export function RemoteRelayAccessPanel() {
     } catch (error) {
       toastError(error);
       return null;
-    } finally {
-      setSavingAddress(false);
-    }
-  }, [remoteRelaySetConfig, addressDraft, scenarioDraft, configUrl, status, toastError]);
+      } finally {
+        setSavingAddress(false);
+      }
+    },
+    [remoteRelaySetConfig, addressDraft, scenarioDraft, configUrl, status, toastError],
+  );
 
   /**
-   * 主开关：拨上去 = 保存未落盘的地址改动 + 启动；拨下来 = 停止。
-   * 没有任何地址（草稿与配置都空）时不允许开：启动没有可拨的目标。
+   * 仅写 `autoStart`（apply:false，不动运行中的客户端）：
+   * v6.1 起「随应用启动」没有独立 UI——主开关的状态就是它：
+   * 拨到 off 后重启 App 不再自动连；拨回 on 恢复自动连。
+   */
+  const persistAutoStart = useCallback(
+    async (value: boolean): Promise<RemoteRelayStatus | null> => {
+      if (!remoteRelaySetConfig) return status;
+      try {
+        const next = await remoteRelaySetConfig({
+          config: { ...pickPersistedConfig(status?.fileConfig ?? null), autoStart: value },
+          apply: false,
+        });
+        setStatus(next);
+        return next;
+      } catch (error) {
+        toastError(error);
+        return null;
+      }
+    },
+    [remoteRelaySetConfig, status, toastError],
+  );
+
+  /**
+   * 主开关：拨上去 = 保存未落盘的地址改动（含 autoStart:true）+ 启动；拨下来 =
+   * 持久化 autoStart:false 并停止。没有任何地址（草稿与配置都空）时不允许开：
+   * 启动没有可拨的目标。
    */
   const handleSwitch = useCallback(
     async (next: boolean) => {
@@ -253,6 +284,7 @@ export function RemoteRelayAccessPanel() {
         if (!remoteRelayStop) return;
         setToggling(true);
         try {
+          await persistAutoStart(false);
           setStatus(await remoteRelayStop.call(platform));
         } catch (error) {
           toastError(error);
@@ -270,8 +302,12 @@ export function RemoteRelayAccessPanel() {
       }
       setToggling(true);
       try {
-        // 先落盘地址（有改动时），再启动——start 读的是配置文件；保存失败则保持原位。
-        if (addressDirtyRef.current && (await saveAddress()) == null) return;
+        // 先落盘地址（有改动时；autoStart:true 一并写入），再启动——start 读的是配置文件；
+        // 保存失败则保持原位。
+        if (addressDirtyRef.current && (await saveAddress(true)) == null) return;
+        if (!addressDirtyRef.current && status?.fileConfig?.autoStart === false) {
+          await persistAutoStart(true);
+        }
         setStatus(await remoteRelayStart.call(platform));
       } catch (error) {
         toastError(error);
@@ -279,7 +315,7 @@ export function RemoteRelayAccessPanel() {
         setToggling(false);
       }
     },
-    [remoteRelayStop, remoteRelayStart, platform, addressDraft, configUrl, saveAddress, intl, toastError],
+    [remoteRelayStop, remoteRelayStart, platform, addressDraft, configUrl, saveAddress, persistAutoStart, status, intl, toastError],
   );
 
 
@@ -430,11 +466,7 @@ export function RemoteRelayAccessPanel() {
           （用户打开弹层就是来填配置的）。保存成功后把新状态交回，链接与二维码立即刷新。 */}
       {status ? (
         <div className="mt-3">
-          <RemoteRelayConfigForm
-            status={status}
-            onSaved={setStatus}
-            defaultOpen={!status.configured}
-          />
+          <RemoteRelayConfigForm status={status} onSaved={setStatus} />
         </div>
       ) : null}
     </section>

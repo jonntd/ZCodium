@@ -48,28 +48,30 @@ const STATUS: RemoteRelayStatus = {
   },
 };
 
-describe("RemoteRelayConfigForm（v6 官方形态）", () => {
+describe("RemoteRelayConfigForm（v6.1 极简高级设置）", () => {
   const html = renderToStaticMarkup(
     createElement(RemoteRelayConfigForm, { status: STATUS, onSaved: () => {}, defaultOpen: true }),
   );
 
-  it("不渲染任何密钥输入框（roomKey / channelKey 由 App 自动管理）", () => {
+  it("高级设置只剩密钥说明 + 低频项指引，没有任何部署字段输入框", () => {
+    // 密钥本体（含 password 输入形态）一律不上屏：值只随链接分发
     expect(html).not.toContain("settings.remoteRelay.roomKey");
     expect(html).not.toContain("settings.remoteRelay.channelKey");
-    // 密钥本体（含 password 输入形态）一律不上屏：值只随链接分发
     expect(html).not.toContain("k".repeat(43));
     expect(html).not.toContain("c".repeat(43));
     expect(html).not.toContain('type="password"');
-  });
-
-  it("渲染「重置密钥」与自动管理说明", () => {
-    expect(html).toContain("settings.remoteRelay.keysTitle");
-    expect(html).toContain("settings.remoteRelay.keysAutoManaged");
+    // 低频部署项（公开地址/槽位/工作区/自启/E2EE 开关）全部移出 UI
+    expect(html).not.toContain("settings.remoteRelay.slots");
+    expect(html).not.toContain("settings.remoteRelay.workspace");
+    expect(html).not.toContain("settings.remoteRelay.autoStart");
+    expect(html).not.toContain("settings.remoteRelay.publicUrl");
+    expect(html).not.toContain("settings.remoteRelay.saveHint");
+    // 保留：低频项指引 + 配置文件路径 + 重置密钥
+    expect(html).toContain("settings.remoteRelay.lowFreqHint");
+    expect(html).toContain("settings.remoteRelay.configDescription");
     expect(html).toContain("settings.remoteRelay.rotateKeys");
-  });
-
-  it("保留 E2EE 开关但不展示密钥本体", () => {
-    expect(html).toContain("settings.remoteRelay.e2ee");
+    // 没有独立「保存」按钮（地址在主卡失焦落盘、重置密钥即点即存）
+    expect(html).not.toContain("settings.remoteRelay.save\"");
   });
 });
 
