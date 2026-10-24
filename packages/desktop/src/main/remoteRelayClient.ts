@@ -364,8 +364,12 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
 
     let ws: WebSocket;
     try {
+      // v6 key-room：拨入鉴权与 host-report、手机 token 用同一把 roomKey（spec §19）。
+      // 修复：此处曾残留 v5 字段 hostSecret（v6 调用方已不传），实际发出 `Bearer undefined`
+      // —— "undefined" 恰好通过中继的密钥格式校验，桌面进了一个谁也对不上的房间，
+      // 手机端症状为 no-free-host（4002）。
       ws = new WebSocket(`${options.url}/host${options.slot ? `?slot=${options.slot}` : ""}`, {
-        headers: { authorization: `Bearer ${options.hostSecret}` },
+        headers: { authorization: `Bearer ${options.roomKey}` },
       });
     } catch (error) {
       logger?.warn("中继连接创建失败", error);

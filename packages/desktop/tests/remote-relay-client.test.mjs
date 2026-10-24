@@ -78,7 +78,7 @@ function wrapWs(ws) {
 
 /** 起一个「假 relay」：HTTP + WS 同端口，行为与 deploy/vps-relay/relay.mjs 的最小交集。 */
 async function startFakeRelay() {
-  const state = { hostReports: [], hostSocket: null, relayProtocol: null, received: [], hostConnections: 0, upgradeUrls: [] };
+  const state = { hostReports: [], hostSocket: null, relayProtocol: null, received: [], hostConnections: 0, upgradeUrls: [], dialAuthorizations: [] };
 
   const httpServer = createServer((req, res) => {
     if (req.url === "/api/host-report" && req.method === "POST") {
@@ -101,6 +101,9 @@ async function startFakeRelay() {
   const wss = new WebSocketServer({ noServer: true });
   httpServer.on("upgrade", (req, socket, head) => {
     state.upgradeUrls.push(req.url ?? "");
+    // 回归哨兵（v6 key-room）：拨入鉴权必须是 Bearer <roomKey>。曾漏成 v5 字段
+    // hostSecret（调用方不传 → `Bearer undefined`），手机端固定 no-free-host。
+    state.dialAuthorizations.push(req.headers.authorization ?? null);
     if (!req.url?.startsWith("/host")) {
       socket.destroy();
       return;
@@ -166,6 +169,11 @@ test("remoteRelayClient：上报工作区 + 挂载 Host + 帧格式转码 + 重�
 
   // 1) 桌面拨出并连上 relay
   assert.ok(await until(() => relay.state.hostSocket?.readyState === 1), "桌面应连上 relay 的 /host");
+  assert.equal(
+    relay.state.dialAuthorizations.at(-1),
+    `Bearer ${HOST_SECRET}`,
+    "WS 拨入鉴权必须与 roomKey 选项一致（Bearer <roomKey>）",
+  );
 
   // 2) 上报工作区（走独立 HTTP，不污染数据面帧流）
   assert.ok(await until(() => relay.state.hostReports.length > 0), "应上报工作区");
