@@ -940,3 +940,19 @@ exceptions:
     paths:
       - packages/desktop/src/main/autoUpdateVersion.ts
     reason: 为 #50 版本线迁移抽出的纯版本比较模块，避免测试依赖 electron/electron-updater；接管 packages/desktop/src/main 整个目录需要单独的模块边界重构。
+  - id: cua-helper-bundled-path-unmanaged-file
+    rule: unmanaged-new-file
+    paths:
+      - packages/desktop/src/main/desktopCuaHelperBundledPath.ts
+    reason: CUA helper dev 候选解析抽出的零依赖纯函数模块，供 desktopRuntimeEnv（host env 注入链）与 desktopCuaHelperInstaller（main 侧安装链）共用同一探测顺序（docs/spec/cua-runtime-builtin.md §C）；接管 packages/desktop/src/main 整个目录需要单独的模块边界重构。
+  - id: web-remote-ui-parity-unmanaged-files
+    rule: unmanaged-new-file
+    paths:
+      - packages/ui/src/DesktopOnlyNotice.tsx
+      - packages/ui/src/app-shell/workspaceHeaderVisibility.ts
+    reason: Web/中继页 B 类差异的统一降级说明组件与工作区头部可见性纯函数（docs/spec/web-remote-ui-parity.md §2.1-A1/§2.2-B）；接管 packages/ui/src 与 packages/ui/src/app-shell 需要单独的模块边界重构（同 settings-machine-unmanaged-edit 模式）。
+  - id: composer-continue-action-unmanaged-file
+    rule: unmanaged-new-file
+    paths:
+      - packages/ui/src/v4/composer/composerContinueAction.ts
+    reason: 继续按钮的纯决策逻辑（拼接/门禁/回滚，docs/spec/patcher-parity.md §4），无宿主依赖可单测；接管 packages/ui/src/v4/composer 目录需要单独的模块边界重构。
