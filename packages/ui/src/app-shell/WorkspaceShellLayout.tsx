@@ -11,6 +11,7 @@ import { TID_APP_HEADER } from "@zcode/shared";
 // 保活：workspace tab 真正关闭时，按 workspaceKey 回收 side pane terminal 的常驻 PTY/xterm。
 // 对称下侧 Terminal.tsx 的 openWorkspaceKeys 回收。
 import { sidePaneTerminalSessionRegistry } from "@/terminal/sidePaneTerminalSessionRegistry.js";
+import { shouldRenderWorkspaceHeaderForMainView } from "@/app-shell/workspaceHeaderVisibility.js";
 import { V4WorkspaceChatArea } from "@/v4/V4WorkspaceChatArea.js";
 import { V4ChatPane } from "@/v4/V4ChatPane.js";
 import {
@@ -1828,12 +1829,11 @@ export const WorkspaceShellLayout = memo(function WorkspaceShellLayoutComponent(
     updateState?.kind === "download-progress" ||
     updateState?.kind === "update-downloaded";
   // 修复原因：Draft 之前维护一套独立轻量 header，导致 side pane、caption 安全区和拖拽入口
-  // 与 Task Header 分叉。桌面端统一复用 WorkspaceHeader，只由 variant 裁剪 task 专属内容；
-  // 手机远控无 active task 时仍不渲染桌面 chrome，继续遵守 replayable overlay 边界。
-  const shouldRenderMainViewHeader =
-    workspaceMainView !== "automations" && workspaceMainView !== "plugin-store";
-  const shouldRenderWorkspaceHeader =
-    shouldRenderMainViewHeader && (activeTaskId !== null || isDesktop);
+  // 与 Task Header 分叉。桌面端统一复用 WorkspaceHeader，只由 variant 裁剪 task 专属内容。
+  // 可见性规则（docs/spec/web-remote-ui-parity.md §2.1-A1）：草稿态也渲染 header，
+  // 不再用「有 active task 或是桌面」做条件——桌面 chrome 由 WorkspaceHeader 内部按
+  // isDesktop 裁剪；判定收敛在 workspaceHeaderVisibility.ts，壳层不维护第二份规则。
+  const shouldRenderWorkspaceHeader = shouldRenderWorkspaceHeaderForMainView(workspaceMainView);
   // 修复原因：ErrorBoundary resetKeys 的数组如果每次 render 都重新创建，
   // 即使 workspace/task 没变化也会在 React DevTools Components 轨道里持续表现为子树 props 变化。
   const workspaceOnlyResetKeys = useMemo(() => [workspaceKey], [workspaceKey]);

@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
+import { DesktopOnlyNotice } from "@/DesktopOnlyNotice.js";
 import { useFeedbackStore } from "@/feedback/feedbackStore.js";
 import { useDesktopUpdateMenu } from "@/hooks/useDesktopUpdateMenu.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -124,7 +125,8 @@ export function WorkspaceHelpMenuButton({
           {intl.formatMessage({ id: "workspaceHeader.help.productRequest" })}
         </DropdownMenuItem>
         {/* Windows/Linux 没有原生菜单栏，自绘标题栏箭头菜单也已下线，
-            资源管理器只能从这里进；Web 端没有该窗口，不渲染。 */}
+            资源管理器只能从这里进。Web 端没有这些能力：不再整块静默隐藏，
+            用统一的非交互说明行交代去向（spec web-remote-ui-parity.md §2.2-B）。 */}
         {isDesktop ? (
           <>
             <DropdownMenuSeparator />
@@ -168,7 +170,9 @@ export function WorkspaceHelpMenuButton({
               {intl.formatMessage({ id: "titleBar.menu.help.about" })}
             </DropdownMenuItem>
           </>
-        ) : null}
+        ) : (
+          <DesktopOnlyNotice variant="menu" messageId="workspaceHeader.help.desktopOnly" />
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

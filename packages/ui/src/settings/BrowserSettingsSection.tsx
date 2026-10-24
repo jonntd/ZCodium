@@ -21,6 +21,7 @@ import { useZCodeSessionService } from "@/hooks/useZCodeSessionService.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { invalidateDeferredDraftSessionForSkillChange } from "@/lib/zcodeDraftSkillInvalidation.js";
 import { logger } from "@/logger.js";
+import { DesktopOnlyNotice } from "@/DesktopOnlyNotice.js";
 import { SettingsGroupCard, SettingsRow } from "@/settings/SettingsPageParts.js";
 import { usePluginManagementStore } from "@/store/pluginManagementStore.js";
 import { useSkillStore } from "@/store/skillStore.js";
@@ -303,10 +304,10 @@ export function BrowserSettingsSection({
         <div className="text-ui-base font-medium text-foreground-subtle">
           {intl.formatMessage({ id: "settings.browser.data.section" })}
         </div>
+        {/* B 类降级说明统一走 DesktopOnlyNotice（spec web-remote-ui-parity.md §2.2-B）：
+            这里原是先例的内联手写块，收敛进组件防止再长出一份平行样式。 */}
         {!nativeActionsAvailable ? (
-          <div className="rounded-lg border border-border bg-surface px-4 py-3 text-ui-base text-foreground-subtle">
-            {intl.formatMessage({ id: "settings.browser.desktopOnly" })}
-          </div>
+          <DesktopOnlyNotice messageId="settings.browser.desktopOnly" />
         ) : null}
         <SettingsGroupCard>
           <SettingsRow

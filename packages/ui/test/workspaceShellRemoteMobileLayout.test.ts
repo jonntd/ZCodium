@@ -885,7 +885,7 @@ describe("WorkspaceShellLayout Web remote control mobile layout", () => {
     expect(html).not.toContain('data-testid="new-task-draft-drag-region"');
   });
 
-  it("does not inject the workspace header into mobile remote chat while a new task draft is active", async () => {
+  it("keeps the draft workspace header in mobile remote chat while a new task draft is active", async () => {
     vi.stubGlobal("window", {
       innerHeight: 800,
       matchMedia: vi.fn(() => ({
@@ -916,7 +916,11 @@ describe("WorkspaceShellLayout Web remote control mobile layout", () => {
     });
 
     expect(html).toContain('data-testid="web-remote-mobile-shell"');
-    expect(html).not.toContain('data-testid="workspace-header"');
+    // 2026-10 决策（spec web-remote-ui-parity.md §2.1-A1）：旧契约在草稿态整块隐藏
+    // header，手机远控丢失项目名/分支/帮助菜单；现在草稿态也渲染 draft header，
+    // 桌面 chrome 由 WorkspaceHeader 内部按 isDesktop 裁剪。
+    expect(html).toContain('data-testid="workspace-header"');
+    expect(html).toContain('data-workspace-header-variant="draft"');
 
     vi.unstubAllGlobals();
   });

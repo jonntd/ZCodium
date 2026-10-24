@@ -1,4 +1,5 @@
 import { resolveSelectionSideInheritedModel } from "@/lib/selectionSideInheritedModel.js";
+import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
 import { useStartPlanRecommendation } from "@/hooks/useStartPlanRecommendation.js";
 import type { SessionCreateSource } from "@zcode/shared";
 /* oxlint-disable eslint(max-lines) -- SessionPane 是单 pane 竖切的命令编排收口（订阅/发送/停止/fork/edit/retry/queue/slash 全集），与旧 ChatView 同粒度；HEAD 已超限（693 行计数），拆散命令组会打散 dispatchCommand/snapshotRef 的闭包纪律。 */
@@ -1900,6 +1901,11 @@ export function SessionPane({
     [cliSlashCommandNames],
   );
 
+  // 手机视口信号（spec web-remote-ui-parity.md §2.1-C1/C2）：与 composer 共用
+  // lib/mobileTextInput 的 strict 判定（767px + hover:none + pointer:coarse），
+  // /side 门禁与状态面板浮层方向都取这一个源，不另建第二份 viewport 事实。
+  const isMobileTextInputViewport = useIsMobileTextInputViewport();
+
   // `/side` App 层斜杠命令。命令目录仍以 CLI catalog 为权威，这里只在渲染层
   // 按门禁注入"选中即打开辅助对话"的本地命令；草稿态（无父 session 可挂 child）、
   // 辅助对话自身、只读与手机 viewport 均不提供。
@@ -1911,7 +1917,7 @@ export function SessionPane({
         isDraft: sessionId === null,
         selectionSideChat,
         readOnly,
-        isMobileViewport: false,
+        isMobileViewport: isMobileTextInputViewport,
       })
     ) {
       return undefined;
@@ -1935,6 +1941,7 @@ export function SessionPane({
     readOnly,
     selectionSideChat,
     sessionId,
+    isMobileTextInputViewport,
   ]);
 
   const chatLoadingBlockedByInteraction = hasChatLoadingBlockingInteraction(

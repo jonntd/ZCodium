@@ -829,12 +829,12 @@ function ConversationComposerImpl({
   const focusOptsRef = useRef<ComposerAutoFocusOptions>({
     autoFocusEnabled,
     disabled,
-    isMobileViewport: false,
+    isMobileViewport: isMobileTextInputViewport,
   });
   focusOptsRef.current = {
     autoFocusEnabled,
     disabled,
-    isMobileViewport: false,
+    isMobileViewport: isMobileTextInputViewport,
   };
   const flushPendingFocus = useCallback(() => {
     if (!pendingFocusRef.current) return;
@@ -1969,6 +1969,8 @@ function ConversationComposerImpl({
             onSwitchMode={onSwitchMode}
             onRecoverCustomModelSelection={onRecoverCustomModelSelection}
             onSendCompressionCommand={onSendCompressionCommand}
+            isWebRemoteControl={isWebRemoteControl}
+            isMobileViewport={isMobileTextInputViewport}
           />
         </span>
         {showStopControl ? (
