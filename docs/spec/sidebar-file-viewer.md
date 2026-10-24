@@ -30,7 +30,9 @@ workspaceSidePane.ts（唯一事实源，沿用既有 WorkspaceSidePaneState）
   ─→ 记录 [App] 打开右侧面板 mode=files
 
 入口 B：左侧工作区行按钮（… 旁，「打开文件面板」）
-  WorkspaceSidebarItem.onOpenSidePaneFiles(tab) ─→ WorkspaceSidebar 透传目标工作区
+  ProjectNodeContent.onOpenSidePaneFiles() ─→ ProjectSidebarNode 绑定主 root + Host identity 派生
+  ─→ project-sidebar contract 的 onOpenSidePaneFiles(path, identity) ─→ WorkspaceSidebar 经 {props} 透传
+  （2026-10-24 随 #79 多目录重构移植：旧 WorkspaceSidebarItem 行组件已由 project-sidebar 模块替代）
   ─→ App.handleOpenSidePaneFilesForWorkspace(target)
       ├ 同工作区 / 无目标（「+」菜单）→ 直接 handleOpenFiles()
       └ 跨工作区 → pendFilesOpenForWorkspace(targetKey) + handleStartDraftInWorkspace

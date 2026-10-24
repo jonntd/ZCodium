@@ -195,6 +195,7 @@ function createServerInfo(options: HttpServerOptions): ServerRemoteInfo {
       desktopContinuous: true,
       websocketRpc: true,
       ...(options.virtualProjects ? { virtualProjects: true } : {}),
+      // #79：审计版已移除采集实现，不能继续宣称支持它并让新设备 UI 订阅不存在的能力。
     },
   });
 }
