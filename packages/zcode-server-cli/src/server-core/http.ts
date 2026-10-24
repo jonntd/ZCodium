@@ -230,7 +230,6 @@ export async function createCoreHttpServer(
       desktopContinuous: true,
       websocketRpc: true,
       virtualProjects: true,
-      processResourceTelemetry: true,
     },
   });
   // 裸 Set 无法落实 expiresAt，未消费的 capability 会一直有效并持续累积。

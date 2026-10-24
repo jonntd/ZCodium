@@ -195,7 +195,6 @@ function createServerInfo(options: HttpServerOptions): ServerRemoteInfo {
       desktopContinuous: true,
       websocketRpc: true,
       ...(options.virtualProjects ? { virtualProjects: true } : {}),
-      processResourceTelemetry: true,
     },
   });
 }
