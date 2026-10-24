@@ -11,6 +11,10 @@ import {
   stageVendoredOfficialPlugins,
 } from "../packages/desktop/scripts/stage-vendored-official-plugins.mjs";
 import { runCommand } from "./spawn-command.mjs";
+import {
+  inspectAgentCliBundleFreshness,
+  resolveAgentCliSourceRoots,
+} from "./agent-cli-build-freshness.mjs";
 
 // adapters tsc 在内存受限机器上会 OOM（exit 134），给整条构建链路提高堆上限。
 process.env.NODE_OPTIONS = `${process.env.NODE_OPTIONS ? process.env.NODE_OPTIONS + " " : ""}--max-old-space-size=8192`;
@@ -197,6 +201,31 @@ if (useBootstrapWithRemoteBuild) {
   await stageDevAgentBundle();
   stageDevCuaPluginRuntime({ env: cuaPluginRuntimeStagingEnv });
   process.exit(0);
+}
+
+if (process.env.ZCODE_SKIP_AGENT_CLI_BUILD === "1") {
+  // dev 快速启动开关（docs/desktop/dev-agent-cli-incremental-build.md）：只在产物比全部
+  // CLI 相关源都新时才跳过全量重建；判定陈旧则照常构建并打印原因。bootstrap:with-remote
+  // 分支在上方已提前返回，prebuild / 打包链不受本开关影响。跳过时 staging 照常执行——
+  // staging 依赖当前环境（ZCODE_ENV、平台 key），不能省。
+  const freshness = await inspectAgentCliBundleFreshness({
+    bundlePath: resolve(repoRoot, "apps/zcode-cli/packages/cli/dist/zcode.cjs"),
+    // 两个独立 MCP runtime 不在 CLI 依赖闭包里，必须显式补进源范围。
+    sourceRoots: await resolveAgentCliSourceRoots(repoRoot, {
+      additionalPackageNames: requiredDevPluginRuntimeBuilds.map(({ packageName }) => packageName),
+    }),
+  });
+  if (freshness.fresh) {
+    console.log(
+      "[build-desktop-agent-cli] skip rebuild: bundle is newer than all CLI sources (ZCODE_SKIP_AGENT_CLI_BUILD=1)",
+    );
+    await stageDevAgentBundle();
+    stageDevCuaPluginRuntime({ env: cuaPluginRuntimeStagingEnv });
+    process.exit(0);
+  }
+  console.log(
+    `[build-desktop-agent-cli] full build required (reason=${freshness.reason}); ZCODE_SKIP_AGENT_CLI_BUILD=1 was ignored`,
+  );
 }
 
 if (!useTurboBuild) {

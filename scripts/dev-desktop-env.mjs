@@ -9,8 +9,13 @@ import { quoteArgsForWindowsShell } from "./spawn-command.mjs";
 
 const requestedEnv = process.argv[2]?.trim().toLowerCase();
 const agentBytecode = process.argv.slice(3).includes("--agent-bytecode");
+// dev 快速启动（docs/desktop/dev-agent-cli-incremental-build.md）：跳过 Agent CLI 全量
+// 重建，仅在产物仍新鲜时生效；开关只注入 build-desktop-agent-cli 子进程，不带进运行时。
+const skipAgentCliBuild = process.argv.slice(2).includes("--skip-agent-cli-build");
 if (requestedEnv !== "test" && requestedEnv !== "production") {
-  console.error("Usage: node scripts/dev-desktop-env.mjs <test|production> [--agent-bytecode]");
+  console.error(
+    "Usage: node scripts/dev-desktop-env.mjs <test|production> [--agent-bytecode] [--skip-agent-cli-build]",
+  );
   process.exit(1);
 }
 
@@ -59,7 +64,7 @@ async function resolveComputerUseDevEnv() {
   };
 }
 
-function run(command, args) {
+function run(command, args, { extraEnv = {} } = {}) {
   return new Promise((resolveRun, rejectRun) => {
     // Windows 下 shell:true 只按空格拼接参数；仓库路径含空格（如 E:\Z Code\...）时
     // node <script> 的脚本路径会被 cmd 截断成 E:\Z 并报 Cannot find module，因此先补引号。
@@ -72,6 +77,7 @@ function run(command, args) {
           ZCODE_ENV: requestedEnv,
           ZCODE_DESKTOP_AGENT_BYTECODE: agentBytecode ? "1" : "0",
           ...computerUseDevEnv,
+          ...extraEnv,
         },
         process.execPath,
       ),
@@ -110,9 +116,15 @@ try {
   // before rebuilding bundles or starting Electron.
   await run(pnpmCommand, ["--filter", "@zcode/desktop", "pre-dev"]);
   // On Windows, use "node" (resolved via PATHEXT) to avoid "C:\Program Files\..." space issues
-  await run(process.platform === "win32" ? "node" : process.execPath, [
-    resolve(repoRoot, "scripts/build-desktop-agent-cli.mjs"),
-  ]);
+  await run(
+    process.platform === "win32" ? "node" : process.execPath,
+    [resolve(repoRoot, "scripts/build-desktop-agent-cli.mjs")],
+    {
+      // 开关只作用于 Agent CLI 构建这一步：export 到全局会被 Electron / Agent 运行时
+      // 继承，导致打包链或运行中也跳过构建（docs/desktop/dev-agent-cli-incremental-build.md）。
+      extraEnv: skipAgentCliBuild ? { ZCODE_SKIP_AGENT_CLI_BUILD: "1" } : {},
+    },
+  );
   if (agentBytecode) {
     await run(process.platform === "win32" ? "node" : process.execPath, [
       resolve(repoRoot, "scripts/build-desktop-agent-bytecode.mjs"),
