@@ -29,6 +29,10 @@
  *   HOST_WAIT_GRACE_MS host 暂时缺位时手机等待的宽限毫秒数，默认 5000
  *   HEARTBEAT_INTERVAL_MS 两侧 ping 间隔，默认 30000（见下「心跳与空闲回收」）
  *   IDLE_TIMEOUT_MS    一侧多久无任何活动即视为僵尸连接并关闭，默认 60000
+ *   ROOM_CREATE_LIMIT / ROOM_CREATE_WINDOW_MS   per-IP 新房间配额，默认 20 次 / 10min（spec §20.1）
+ *   WS_CONNECT_LIMIT / WS_CONNECT_WINDOW_MS     per-IP WS upgrade 配额，默认 120 次 / 1min（spec §20.1）
+ *   RELAY_KEY_SHAPE    建房密钥形状：strict（默认，43 字符 base64url）/ legacy（v5 自定义密钥部署，spec §20.2）
+ *   TRUST_PROXY        反代部署置 1：限流键改用 X-Forwarded-For 首跳（spec §20.1）
  *
  * 配对流程：用户打开 https://<vps>/?token=<roomKey> 一次（桌面「移动端远程控制」
  * 弹层的分享链接就是这个形状），本进程下发 zcode_lite_token cookie（值 = roomKey），
@@ -103,6 +107,62 @@ function isPlausibleKey(key) {
   return typeof key === "string" && /^[!-~]{8,128}$/.test(key);
 }
 
+/**
+ * 建房密钥形状（spec §20.2）：新房间仅接受桌面 generateRelayRoomKey 的形状
+ * （43 字符 base64url）。零密钥架构下无法区分「合法密钥」与「攻击者的 junk 密钥」，
+ * 形状收紧把 junk 挡在配额计数之前。查询/解析不受影响（按指纹定位与形状无关）。
+ * v5 迁移沿用自定义历史密钥的部署设 RELAY_KEY_SHAPE=legacy 回退宽松形状。
+ */
+const STRICT_KEY_SHAPE = /^[A-Za-z0-9_-]{43}$/;
+function isCreatableKey(key) {
+  if (process.env.RELAY_KEY_SHAPE === "legacy") return isPlausibleKey(key);
+  return typeof key === "string" && STRICT_KEY_SHAPE.test(key);
+}
+
+// ---- per-IP 限流（spec §20.1，刷房 DoS 的承重防线）----
+/** 每 IP 每窗口新房间创建配额（已存在房间不计数）。 */
+const ROOM_CREATE_LIMIT = Number(process.env.ROOM_CREATE_LIMIT) || 20;
+const ROOM_CREATE_WINDOW_MS = Number(process.env.ROOM_CREATE_WINDOW_MS) || 600_000;
+/** 每 IP 每窗口 WS upgrade 配额（/ws 与 /host 同桶）。 */
+const WS_CONNECT_LIMIT = Number(process.env.WS_CONNECT_LIMIT) || 120;
+const WS_CONNECT_WINDOW_MS = Number(process.env.WS_CONNECT_WINDOW_MS) || 60_000;
+/** 反代部署（Caddy 等）置 1：改用 X-Forwarded-For 首跳作为限流键。 */
+const TRUST_PROXY = process.env.TRUST_PROXY === "1";
+
+function clientIp(req) {
+  if (TRUST_PROXY) {
+    const forwarded = req.headers["x-forwarded-for"];
+    if (typeof forwarded === "string" && forwarded.length > 0) {
+      return forwarded.split(",")[0].trim();
+    }
+  }
+  return req.socket.remoteAddress ?? "unknown";
+}
+
+/** 固定窗口计数桶：Map<ip, {count, windowStart}>。返回本次是否放行。 */
+function hitBucket(buckets, ip, limit, windowMs, now) {
+  const bucket = buckets.get(ip);
+  if (!bucket || now - bucket.windowStart >= windowMs) {
+    buckets.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+  bucket.count += 1;
+  return bucket.count <= limit;
+}
+
+/** 心跳清扫时回收过期桶（窗口整段过期后删除，下次命中重新开窗）。 */
+function pruneBuckets(buckets, windowMs, now) {
+  for (const [ip, bucket] of buckets) {
+    if (now - bucket.windowStart >= windowMs) buckets.delete(ip);
+  }
+}
+
+const createBuckets = new Map();
+const connectBuckets = new Map();
+
+/** 建房被限流时的哨兵返回值：调用方回 429（区别于 null=房间满/形状不符的 401）。 */
+const ROOM_CREATE_THROTTLED = Symbol("room-create-throttled");
+
 /** 房间指纹（日志与派生 cookie 索引用）：不泄露密钥本体，长度固定可索引。 */
 function roomFingerprint(key) {
   return createHash("sha256").update(key).digest("base64url").slice(0, 8);
@@ -169,13 +229,23 @@ function getRoom(key) {
   return rooms.get(key) ?? null;
 }
 
-/** 按需建房；房间数到上限时返回 null（调用方拒绝升级/请求）。 */
-function getOrCreateRoom(key) {
-  let room = rooms.get(key);
-  if (room) return room;
+/**
+ * 按需建房（spec §20.1/§20.2）：新房间受密钥形状 + per-IP 配额约束；
+ * 返回房间、`ROOM_CREATE_THROTTLED`（限流，调用方回 429）或 null（形状不符/房间满，401）。
+ */
+function getOrCreateRoom(key, ip) {
+  const existing = rooms.get(key);
+  if (existing) return existing;
+  if (!isCreatableKey(key)) {
+    log("room creation rejected: key shape");
+    return null;
+  }
+  if (!hitBucket(createBuckets, ip ?? "unknown", ROOM_CREATE_LIMIT, ROOM_CREATE_WINDOW_MS, Date.now())) {
+    return ROOM_CREATE_THROTTLED;
+  }
   if (rooms.size >= MAX_ROOMS) return null;
   const fingerprint = roomFingerprint(key);
-  room = {
+  const room = {
     key,
     fingerprint,
     slots: new Map(),
@@ -324,10 +394,10 @@ const CLOCK_SKEW_SECONDS = 300;
  * 返回房间或 null；`create` 为 true 时对通道 1/2 按需建房（/ws 用），false 时只认
  * 已存在房间（server-info 用——不应凭一个未知 key 凭空建房）。
  */
-function resolveRoom(req, url, { create = false } = {}) {
+function resolveRoom(req, url, { create = false, ip } = {}) {
   const queryToken = (url.searchParams.get("token") || "").trim();
   if (isPlausibleKey(queryToken)) {
-    return create ? getOrCreateRoom(queryToken) : getRoom(queryToken);
+    return create ? getOrCreateRoom(queryToken, ip) : getRoom(queryToken);
   }
   const cookie = readCookie(req, COOKIE_NAME);
   if (cookie) {
@@ -335,7 +405,7 @@ function resolveRoom(req, url, { create = false } = {}) {
     //（isPlausibleKey 允许任意可打印 ASCII，但桌面生成的 key 与 v5 沿用值都不是 v1. 前缀）。
     if (cookie.startsWith("v1.")) return resolveSessionCookie(cookie);
     if (isPlausibleKey(cookie)) {
-      return create ? getOrCreateRoom(cookie) : getRoom(cookie);
+      return create ? getOrCreateRoom(cookie, ip) : getRoom(cookie);
     }
   }
   return resolveSignedShareQuery(url);
@@ -535,7 +605,12 @@ const server = createServer(async (req, res) => {
         `${COOKIE_NAME}=v1.${fingerprint}.${expiresAtSec}.${hmacRoomKey(key, `cookie|${fingerprint}|${expiresAtSec}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}`,
       );
       // 签名通过即证明持有 key：按需建房，后续 /ws（只带 s/t/e/h）才能定位到房间。
-      getOrCreateRoom(key);
+      const created = getOrCreateRoom(key, clientIp(req));
+      if (created === ROOM_CREATE_THROTTLED) {
+        log("signed landing rejected: room-create quota");
+        sendJson(res, 429, { error: "Too Many Requests" });
+        return;
+      }
       // 与普通 token 入口一样 302 摘掉 token（永久凭据不能留在地址栏/历史/Referer），
       // **保留 s/t/e/h**——重定向后的请求走「signed 无 token」分支（逐房间验签），
       // web bundle 也靠它们把凭据附到 /ws 与 /api。不会循环：第二次请求已无 token。
@@ -546,9 +621,15 @@ const server = createServer(async (req, res) => {
       res.end();
       return;
     }
+    // 永久链接落地（spec §20.4）：cookie 下发**派生形状**（v1.<f>.<e>.<sig>）而非
+    // raw roomKey——浏览器存储里不再有完整密钥，cookie 泄露者只能当客户端进房间
+    // （cookie 定位房间需桌面已建房；桌面未连时 /ws 401，自动重连到桌面拨入即恢复），
+    // 不能拨 /host 顶替桌面、不能伪造 host-report。旧 raw-key cookie 兼容读取不变。
+    const cookieExpiresAtSec = Math.floor(Date.now() / 1000) + 2592000;
+    const cookieFingerprint = roomFingerprint(key);
     res.setHeader(
       "set-cookie",
-      `${COOKIE_NAME}=${key}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
+      `${COOKIE_NAME}=v1.${cookieFingerprint}.${cookieExpiresAtSec}.${hmacRoomKey(key, `cookie|${cookieFingerprint}|${cookieExpiresAtSec}`)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=2592000`,
     );
     const remaining = new URLSearchParams(url.searchParams);
     remaining.delete("token");
@@ -605,8 +686,15 @@ const server = createServer(async (req, res) => {
       return;
     }
     // Bearer 即房间密钥（v6 key-room）：房间按需创建（桌面先于手机到达是常态）。
+    // 建房受形状 + per-IP 配额约束（spec §20.1/§20.2）。
+    const ip = clientIp(req);
     const bearer = readBearer(req);
-    const room = isPlausibleKey(bearer) ? getOrCreateRoom(bearer) : null;
+    const room = isPlausibleKey(bearer) ? getOrCreateRoom(bearer, ip) : null;
+    if (room === ROOM_CREATE_THROTTLED) {
+      log("host report rejected: room-create quota");
+      sendJson(res, 429, { error: "Too Many Requests" });
+      return;
+    }
     if (!room) {
       sendJson(res, 401, { error: "Unauthorized" });
       return;
@@ -626,6 +714,13 @@ const server = createServer(async (req, res) => {
         room.reportEncrypted = { v: 1, e2ee: true, nonce: body.nonce, ciphertext: body.ciphertext };
         log("host report updated", { room: room.fingerprint, e2ee: true, ciphertextBytes: body.ciphertext.length });
         sendJson(res, 200, { ok: true });
+        return;
+      }
+      // 信封策略（spec §20.3）：加密房间拒绝明文报告——持 roomKey 者不得把手机可见的
+      // 工作区报告降级/伪造为明文。反向覆盖（明文→信封）是用户开启 E2EE 的正常路径。
+      if (room.reportEncrypted) {
+        log("plaintext report rejected: e2ee room", { room: room.fingerprint });
+        sendJson(res, 409, { error: "Envelope required (E2EE room)" });
         return;
       }
       room.reportEncrypted = null;
@@ -673,9 +768,22 @@ server.on("upgrade", (req, socket, head) => {
   }
 
   if (url.pathname === "/host") {
-    // Bearer 即房间密钥（v6 key-room）：房间按需创建；到上限时拒绝（防刷房）。
+    // WS upgrade 配额（spec §20.1）：/host 与 /ws 同桶，超限 429。
+    const ip = clientIp(req);
+    if (!hitBucket(connectBuckets, ip, WS_CONNECT_LIMIT, WS_CONNECT_WINDOW_MS, Date.now())) {
+      log("host upgrade rejected: connect quota");
+      rejectUpgrade(socket, 429, "Too Many Requests");
+      return;
+    }
+    // Bearer 即房间密钥（v6 key-room）：房间按需创建；形状不符/到上限时 401，
+    // 建房配额超限时 429（spec §20.1）。
     const bearer = readBearer(req);
-    const room = isPlausibleKey(bearer) ? getOrCreateRoom(bearer) : null;
+    const room = isPlausibleKey(bearer) ? getOrCreateRoom(bearer, ip) : null;
+    if (room === ROOM_CREATE_THROTTLED) {
+      log("host upgrade rejected: room-create quota");
+      rejectUpgrade(socket, 429, "Too Many Requests");
+      return;
+    }
     if (!room) {
       log("host upgrade rejected: bad room key");
       rejectUpgrade(socket, 401, "Unauthorized");
@@ -694,8 +802,21 @@ server.on("upgrade", (req, socket, head) => {
   }
 
   if (url.pathname === "/ws") {
+    // WS upgrade 配额（spec §20.1）。
+    const ip = clientIp(req);
+    if (!hitBucket(connectBuckets, ip, WS_CONNECT_LIMIT, WS_CONNECT_WINDOW_MS, Date.now())) {
+      log("client upgrade rejected: connect quota");
+      rejectUpgrade(socket, 429, "Too Many Requests");
+      return;
+    }
     // 凭据 → 房间（按需建房）：手机可能先于桌面到达，房间必须能先建出来等 host。
-    const room = resolveRoom(req, url, { create: true });
+    // 建房受形状 + per-IP 配额约束（spec §20.1/§20.2），限流时 429。
+    const room = resolveRoom(req, url, { create: true, ip });
+    if (room === ROOM_CREATE_THROTTLED) {
+      log("client upgrade rejected: room-create quota");
+      rejectUpgrade(socket, 429, "Too Many Requests");
+      return;
+    }
     if (!room) {
       log("client upgrade rejected: bad cookie/token");
       rejectUpgrade(socket, 401, "Unauthorized");
@@ -930,6 +1051,9 @@ function onClientOpen(room, ws) {
  */
 setInterval(() => {
   const now = Date.now();
+  // 限流桶回收（spec §20.1）：整段窗口过期后删除，防 Map 无界增长。
+  pruneBuckets(createBuckets, ROOM_CREATE_WINDOW_MS, now);
+  pruneBuckets(connectBuckets, WS_CONNECT_WINDOW_MS, now);
   for (const [ws, role] of socketRoles) {
     if (ws.readyState !== ws.OPEN) continue;
     if (now - (socketActivity.get(ws) ?? now) <= IDLE_TIMEOUT_MS) {

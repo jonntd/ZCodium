@@ -77,6 +77,10 @@ proof 鉴权**：`GET /api/remote-control/link` 必须带
 | `HOST_WAIT_GRACE_MS` | | host 暂时缺位时手机端的等待宽限，默认 `5000` |
 | `HEARTBEAT_INTERVAL_MS` | | 向 host/client 两侧 ping 的间隔，默认 `30000` |
 | `IDLE_TIMEOUT_MS` | | 一侧多久无任何活动即按僵尸连接关闭，默认 `60000` |
+| `ROOM_CREATE_LIMIT` / `ROOM_CREATE_WINDOW_MS` | | per-IP 新房间创建配额，默认 `20` 次 / `600000`ms（spec §20.1） |
+| `WS_CONNECT_LIMIT` / `WS_CONNECT_WINDOW_MS` | | per-IP WS upgrade 配额（/ws 与 /host 同桶），默认 `120` 次 / `60000`ms（spec §20.1） |
+| `RELAY_KEY_SHAPE` | | 建房密钥形状：`strict`（默认，43 字符 base64url）/ `legacy`（v5 迁移沿用自定义历史密钥的部署，spec §20.2） |
+| `TRUST_PROXY` | | 反代（Caddy 等）部署置 `1`：限流键改用 `X-Forwarded-For` 首跳（spec §20.1） |
 
 **v6 key-room（spec vps-relay-bridge.md §19）：没有任何密钥环境变量。**
 一把房间密钥（roomKey）同时承担桌面拨入鉴权（`Bearer`）、手机配对凭据（`?token=`）

@@ -21,7 +21,8 @@ import { test } from "node:test";
 import { WebSocket } from "ws";
 
 // v6 key-room（spec §19）：一把房间密钥同时承担桌面 Bearer 与手机 cookie/?token=。
-const ROOM_KEY = "test-room-key-0123456789";
+// 形状须过 §20.2 建房校验（43 字符 base64url，桌面 generateRelayRoomKey 同形状）。
+const ROOM_KEY = "uV4nF8kQ2mR7wZ9xT3bY6hJ1pL5cD0gS8aE4iO7fNqr";
 const HOST_WAIT_GRACE_MS = 400;
 const RELAY_PATH = fileURLToPath(
   new URL("../../../deploy/vps-relay/relay.mjs", import.meta.url),
@@ -41,6 +42,10 @@ async function startRelayServer(t, options = {}) {
       HOST_WAIT_GRACE_MS: String(options.graceMs ?? HOST_WAIT_GRACE_MS),
       ...(options.heartbeatMs ? { HEARTBEAT_INTERVAL_MS: String(options.heartbeatMs) } : {}),
       ...(options.idleMs ? { IDLE_TIMEOUT_MS: String(options.idleMs) } : {}),
+      // §20.1/§20.2 限流与形状的测试注入（缺省即生产默认值）。
+      ...(options.roomCreateLimit ? { ROOM_CREATE_LIMIT: String(options.roomCreateLimit) } : {}),
+      ...(options.wsConnectLimit ? { WS_CONNECT_LIMIT: String(options.wsConnectLimit) } : {}),
+      ...(options.keyShape ? { RELAY_KEY_SHAPE: options.keyShape } : {}),
       PORT: String(port),
       WEB_ROOT: webRoot,
     },
