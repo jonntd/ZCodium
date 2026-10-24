@@ -121,12 +121,38 @@ TCC 稳定性不受影响：helper 字节在同一上游版本间不变，adhoc 
 ```
 darwin + 未打包（app.isPackaged === false）：
   env ZCODE_CUA_BUNDLED_HELPER_APP_PATH（显式覆盖，优先）
-    → ~/.zcode/computer-use/dev/ZCode Computer Use Dev.app
-    → ~/.zcode/computer-use/ZCode Computer Use.app
     → packages/desktop/bundled-cua-helper/<key>/ZCode Computer Use.app（prepare 产物，亦供全新机器）
+    → ~/.zcodium/computer-use/dev/ZCode Computer Use Dev.app
+    → ~/.zcodium/computer-use/ZCode Computer Use.app
   命中 → host env 注入 ZCODE_CUA_BUNDLED_HELPER_APP_PATH + ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL=1
   全空 → 不注入；runtime 报 helper 未安装，设置页引导（web/linux 同语义）
 ```
+
+- 候选解析为单一纯函数（desktopCuaHelperBundledPath.ts，无 electron 依赖）：
+  `desktopRuntimeEnv`（host env 注入）与 `desktopCuaHelperInstaller`（main 侧
+  onboarding/拖拽安装链）**共用同一顺序**——staged 补丁件必须排在 zcode home 既有
+  安装之前（986c692 约束）。staged 指向 home 旧副本会自我覆盖，还可能带着 stock
+  信任门字面量死在 launcher/token 门。
+- **main 侧安装链同样以 staged 为 bundled 源（2026-10-24 回归修复）**：此前只有
+  host env 注入走上述解析，main 自己的 `createDesktopCuaHelperInstaller`
+  （openCuaPermissionOnboarding / prepareCuaHelperPermissionDrag 消费）dev 态
+  `bundledHelperAppPath` 恒 undefined → plan 落 download 源；installed 件
+  CFBundleVersion（3.14.x）与 dev plan 版本（0.0.0）判不匹配即触发重装 → 回退官方
+  dev CDN（studio.zcode-ai.com:12345，内嵌 buildId pipeline-293504）→ fork 不可达
+  → onboarding 返回 "unavailable (install/verification failed)"，系统设置页与拖拽
+  浮窗均不出现。修复分两段：① installer 在未打包态补上与 host env 同源的 staged
+  解析（desktopCuaHelperBundledPath 共享纯函数），bundled 源不再缺失；② 同步补上
+  与 buildHostProcessEnv 同构的 dev 期望值 pin（`ZCODE_CUA_HELPER_BUNDLE_ID=
+  dev.zcode.cua-helper` stock id + `ZCODE_CUA_HELPER_BUILD_ID=<staged plist 实读>`）——
+  只补源不补 pin 时，verify 会先报 "bundle id … does not match dev.zcode.cua-helper.dev"
+  再报 buildId 与 vendor 内嵌字面量不符，两段都实测复现过。
+- **运维坑（env 污染，暂不guard）**：在官方 ZCode.app 的集成终端里启动 `pnpm
+  dev:desktop` 会继承官方注入的 `ZCODE_CUA_BUNDLED_HELPER_APP_PATH`（指向
+  /Applications/ZCode.app 的 stock helper）与 `ZCODE_RUNTIME_ENV=production`——
+  前者让 envOverride 抢在 staged 之前装进未打补丁的官方件（其 broker peer 校验
+  拒绝 unsigned 的 fork host，getStatus 20s 超时返回 unavailable），后者让 dev
+  旗标失效。结论：dev 必须从干净 shell（不继承官方进程 env）启动；是否在解析层
+  加防污染 guard 待产品拍板。
 
 - `ALLOW_UNSIGNED_LOCAL=1` 仅 dev 注入：容忍 install.sh 时代遗留的 adhoc 补丁副本；
   上游原签 helper 在 dev 态走严格校验同样通过。

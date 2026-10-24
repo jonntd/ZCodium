@@ -1,11 +1,10 @@
 /* eslint-disable max-lines -- desktop runtime/env 解析需要集中维护 main/host/remote assets 的启动边界，拆分会扩大远程连接回归面。 */
 import { existsSync, readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, resolve, win32 } from "node:path";
 import type { ConnectOptions } from "@zcode/server/remote";
 import { listSSHConfigAliasesFromLocalConfig } from "@zcode/services/node";
-import { DEV_HELPER_APP_NAME, HELPER_APP_NAME } from "@zcode/zcode-cua/broker/helperConstants";
+import { HELPER_APP_NAME } from "@zcode/zcode-cua/broker/helperConstants";
 import {
   ZCODE_APP_VERSION_ENV,
   ZCODE_BUILD_COMMIT_ID_ENV,
@@ -29,6 +28,11 @@ import {
 } from "@zcode/shared";
 import { resolvePlatformKeyForPackagedApp } from "../../scripts/target-platform.mjs";
 import { ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL_ENV } from "./desktopCuaHelperTrustEnv.js";
+import {
+  defaultDevCuaHelperRootCandidates as defaultDevCuaHelperRootCandidatesPure,
+  readCuaHelperBuildIdFromPlist,
+  resolveDevCuaHelperAppPath as resolveDevCuaHelperAppPathPure,
+} from "./desktopCuaHelperBundledPath.js";
 import {
   applyForkCuaBrokerSocketEnv,
   ensureForkCuaBrokerSocketDir,
@@ -405,33 +409,19 @@ function resolveBundledRuntimeToolBinaryPath(
 }
 
 // CUA helper dev 自动接线（docs/spec/cua-runtime-builtin.md §C）：dev（未打包）不再依赖
-// install.sh 时代的 launchctl setenv——按显式 env 覆盖 → zcode home 既有安装（dev 变体优先）
-// → prepare:cua-helper 的 staging 产物 的顺序探测，命中即随 host env 注入 bundled path。
+// install.sh 时代的 launchctl setenv——按显式 env 覆盖 → prepare:cua-helper 的 staging 产物
+// → zcode home 既有安装（dev 变体优先）的顺序探测，命中即随 host env 注入 bundled path。
 // 生产打包态不走这里（resourcesPath/cua-helper 是唯一事实源）。
+// 候选解析本体在 desktopCuaHelperBundledPath（纯函数），与 main 侧 installer 链共用，
+// 两处顺序不得漂移。
 function defaultDevCuaHelperRootCandidates(): string[] {
-  // 与 resolveBundledZCodeAgentBinaryPath 的 bundled-agents 多候选根同构：
-  // dev 启动 cwd 可能是仓库根或 packages/desktop。
-  return [
-    join(process.cwd(), "bundled-cua-helper"),
-    join(process.cwd(), "packages", "desktop", "bundled-cua-helper"),
-    join(import.meta.dirname, "../../bundled-cua-helper"),
-  ];
+  return defaultDevCuaHelperRootCandidatesPure(process.cwd(), import.meta.dirname);
 }
 
-// 读 helper 自身 Info.plist 的 ZCodeCUAHelperBuildId（vendor verify 用同一来源做
-// buildId 匹配）。二进制 plist 必须走 plutil；dev 接线一次性读，代价可忽略。
+// 读 helper 自身 Info.plist 的 ZCodeCUAHelperBuildId：实现与 main 侧 installer 链共用
+// （desktopCuaHelperBundledPath.readCuaHelperBuildIdFromPlist），两条链必须钉同一实读值。
 function readCuaHelperBuildId(helperAppPath: string): string | undefined {
-  try {
-    const result = spawnSync(
-      "/usr/bin/plutil",
-      ["-extract", "ZCodeCUAHelperBuildId", "raw", "-o", "-", "--", join(helperAppPath, "Contents", "Info.plist")],
-      { encoding: "utf8" },
-    );
-    const buildId = (result.stdout ?? "").trim();
-    return /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(buildId) ? buildId : undefined;
-  } catch {
-    return undefined;
-  }
+  return readCuaHelperBuildIdFromPlist(helperAppPath);
 }
 
 export function resolveDevCuaHelperAppPath({
@@ -447,18 +437,13 @@ export function resolveDevCuaHelperAppPath({
   rootCandidates?: string[];
   existsSyncImpl?: (path: string) => boolean;
 }): string | undefined {
-  // 顺序约束：staged 补丁件必须排在 zcode home 既有安装之前。vendor 把
-  // ZCODE_CUA_BUNDLED_HELPER_APP_PATH 当作 ensureInstalled 的**安装源**（目标在
-  // computer-use/dev 变体目录），指向 home 旧副本会自我覆盖且可能带着 stock 信任门
-  // 字面量（懒启动在源缺失时还会回退 home 旧副本，死在 token 门——2026-09-30 真机实测）。
-  // staged 是 fork 自己的补丁产物，作为源与安装目标天然分离。
-  const candidates = [
+  return resolveDevCuaHelperAppPathPure({
     envOverride,
-    ...rootCandidates.map((root) => join(root, platformKey, HELPER_APP_NAME)),
-    join(zcodeHome, "computer-use", "dev", DEV_HELPER_APP_NAME),
-    join(zcodeHome, "computer-use", HELPER_APP_NAME),
-  ].filter((candidate): candidate is string => Boolean(candidate));
-  return candidates.find((candidate) => existsSyncImpl(candidate));
+    zcodeHome,
+    platformKey,
+    rootCandidates,
+    existsSyncImpl,
+  });
 }
 
 function resolveBundledLarkCliBinaryPath(): string | undefined {
