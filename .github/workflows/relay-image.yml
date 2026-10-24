@@ -1,0 +1,123 @@
+# 中继镜像补发/重发：对已存在的 Release 单独构建并推送 ghcr.io/<owner>/zcode-relay。
+# 为什么独立成工作流（2026-10-25，v3.15.1 教训）：
+# - relay job 只存在于 release-fork.yml（fork 专用发布流）；release.yml（#78/#79 重构版）
+#   没有它——用 release.yml 发的版本天然缺中继镜像与 tarball。
+# - release-fork.yml 对已存在的 tag/release 在 validate 阶段硬失败，不能用于补发。
+# 构建步骤与 release-fork.yml 的 relay job 保持一致（web 产物、去 source map、
+# sha → latest → 版本 的推送顺序约定见 cfdf8e65）；sha tag 取 Release tag 实际指向的
+# commit，保证与当初发布链一致。
+name: Relay image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "已发布版本号（不带 v 前缀），如 3.15.1；镜像与 tarball 均以此命名"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: relay-image
+  cancel-in-progress: false
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/zcode-relay
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 代码必须取 Release tag 指向的提交：web 产物要与该版本桌面端同源，
+          # 不能用触发分支的 HEAD（可能已前移）。
+          ref: refs/tags/v${{ inputs.version }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build web bundle
+        run: pnpm --filter @zcode/web build
+
+      # 中继只服务手机页，用不到 source map（占产物约六成：145M → 约 59M）。
+      - name: Drop source maps
+        run: find packages/web/dist -name '*.map' -delete
+
+      # 兜底：确认产物真的进了构建上下文。COPY 源**不存在**时 docker 会报错，
+      # 但「目录在、内容空」不会 —— 那会让镜像里没有手机页、中继全线 404。
+      - name: Assert web bundle is present
+        run: |
+          set -euo pipefail
+          test -f packages/web/dist/index.html
+          test -d packages/web/dist/assets
+          echo "web bundle ok: $(du -sh packages/web/dist | cut -f1)"
+
+      - name: Verify release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: gh release view "v$VERSION"
+
+      - name: Build relay image
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # sha tag 取 tag 实际指向的 commit（与发布链当年的镜像 tag 同源），
+          # 不是本次 run 的 GITHUB_SHA——补发时两者可能不同。
+          SHA="$(git rev-parse --short=12 HEAD)"
+          echo "SHA=$SHA" >> "$GITHUB_ENV"
+          # 上下文必须是仓库根：镜像要从 packages/web/dist 取前端产物。
+          # 仓库根的 .dockerignore 已用 `!packages/web/dist/**` 放行它；
+          # deploy/vps-relay/.dockerignore 会排除 web/，所以不能拿那个目录当上下文。
+          docker build \
+            -f deploy/vps-relay/Dockerfile.release \
+            -t "$IMAGE:$VERSION" \
+            -t "$IMAGE:$SHA" \
+            .
+
+      - name: Push relay image
+        env:
+          VERSION: ${{ inputs.version }}
+          GHCR_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+          # ⚠ 推送顺序有讲究（与 release-fork.yml 一致，见 cfdf8e65）：GHCR 包页面默认
+          # 展示「最近推送」的 tag。顺序固定为 sha → latest → 版本：版本号最后推，
+          # 页面头条才是版本号；latest 每次都推，docker pull ...:latest 永远可用。
+          docker push "$IMAGE:$SHA"
+          docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+          docker push "$IMAGE:latest"
+          docker push "$IMAGE:$VERSION"
+
+      - name: Attach relay image tarball to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          # 无 registry / 离线 VPS 可直接 docker load 这个 tar。
+          docker save "$IMAGE:$VERSION" | gzip -9 > "zcode-relay-$VERSION.tar.gz"
+          ls -lh "zcode-relay-$VERSION.tar.gz"
+          for attempt in 1 2 3; do
+            if gh release upload "v$VERSION" "zcode-relay-$VERSION.tar.gz" --clobber; then
+              exit 0
+            fi
+            echo "::warning::gh release upload failed (attempt $attempt/3), retrying in 10s"
+            sleep 10
+          done
+          echo "::error::gh release upload failed after 3 attempts"
+          exit 1
