@@ -13,10 +13,9 @@
     "./node": "./src/node.ts"
   },
   "scripts": {
-    "test": "vitest run --root ../.. packages/services",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
-    "test": "TSX_TSCONFIG_PATH=tsconfig.json node --import tsx --test test/*.test.ts"
+    "test": "TSX_TSCONFIG_PATH=tsconfig.json node --import tsx --test $(grep -l 'from \"node:test\"' test/*.test.ts)"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "^0.21.1",

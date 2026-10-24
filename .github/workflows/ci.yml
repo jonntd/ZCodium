@@ -31,14 +31,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      # 锚点单测：vitest.config.ts 的 nodeRunTestFiles 排除名单里的 node:test 文件原本
-      # 不在任何自动关卡里（各包 test 脚本存量有坏：shared 的 vitest 互操作 138 挂），
-      # 只能把逐个验证过绿的关键回归锚点接进 CI，修好存量后再逐步扩到全量。
-      # 锚点 2 是无遥测守卫：源码扫描断言，曾在 2026-10-20 上游同步带回
-      # processResourceTelemetry 能力位时静默失守（当时无任何关卡跑它），接入后
-      # 未来上游同步再带回遥测入口会被 CI 直接拦下。
-      - name: Unit tests (regression anchors)
-        run: |
-          cd packages/ui
-          TSX_TSCONFIG_PATH=tsconfig.json node --import tsx --test test/chatLoadingVisibility.test.ts
-          node --import tsx --test tests/no-telemetry.test.mjs
+      # 包级 node:test 单测：vitest.config.ts 的 nodeRunTestFiles 排除名单里的 node:test
+      # 文件（各包自己的 test 脚本执行，脚本按 `from "node:test"` import 动态圈定，与
+      # vitest 排除名单同源判定）。2026-10-24 修复前各包脚本用 test/*.test.ts 全量 glob，
+      # 会把 138+ 个 vitest 风格用例塞进 node:test 跑挂（结构性跑不通）；修复后三包
+      # 159 用例全绿（shared 49 / services 18 / ui 92，含无遥测守卫），接入 CI。
+      # ui/test 其余 942 个 vitest 风格用例仍属根 vitest 套件，接入是后续事项。
+      - name: Unit tests (node:test packages)
+        run: pnpm --filter @zcode/shared --filter @zcode/services --filter @zcode/ui test
