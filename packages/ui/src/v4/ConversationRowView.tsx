@@ -844,6 +844,14 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   );
 });
 
+// 「继续」按钮（chat.composer.continue.text）发出的纯继续消息不在对话流中展示：
+// 模型侧照常收到该文本（按钮语义不变），只是这条 user 行在 UI 上整体隐藏——
+// 否则每次点击都会在聊天窗口残留一条只有「继续」两个字的气泡。
+// 覆盖 zh/en 两个 token（fa 未覆盖该 key，回退 en）：历史行不会随 UI 语言切换重发，
+// 只按当前 locale 判定会漏掉历史消息；手输同词的消息语义相同，一并隐藏。
+// 带草稿正文、附件、上下文引用或引擎尾注的继续消息不在此列，照常展示。
+const CONTINUE_BUTTON_ROW_TOKENS = new Set(["继续", "Continue"]);
+
 const UserInputRowView = memo(function UserInputRowView({
   row,
   context,
@@ -1040,6 +1048,18 @@ const UserInputRowView = memo(function UserInputRowView({
       <FileClockIcon className="size-4" />
     </Button>
   );
+
+  // 纯「继续」行整体隐藏（含复制/编辑/时间动作行）；编辑态不可能到达（行从未渲染），
+  // 但保留 editing 判断避免未来接线变化时把编辑器一起吞掉。
+  if (
+    !editing &&
+    epilogue === undefined &&
+    !hasAttachments &&
+    !hasContextReferences &&
+    CONTINUE_BUTTON_ROW_TOKENS.has(visibleText.trim())
+  ) {
+    return null;
+  }
 
   if (editing) {
     return (

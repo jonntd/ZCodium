@@ -49,6 +49,12 @@
 - **快捷键**：Cmd/Ctrl+Shift+J，仅在焦点位于 composer 内时生效（事件冒泡天然限定
   作用域）；composer `disabled` 期间不生效——与按钮本体同一门槛，键盘不得绕过
   队列认领等禁用态（bugfix：曾只在按钮上设 disabled，快捷键路径未判）。
+- **对话流隐藏（2026-10-23 用户规则）**：纯继续消息（可见正文去掉内部 context 块后
+  恰好等于继续 token，且无附件/上下文引用/引擎尾注）不在对话流中渲染整行——
+  含复制/编辑/时间动作行一并隐藏（`ConversationRowView` 的
+  `CONTINUE_BUTTON_ROW_TOKENS`）。模型侧照常收到完整文本，按钮语义不变；token
+  覆盖 zh/en 两个取值（历史行不随 UI 语言切换重发）。手输同词的消息语义相同，
+  一并隐藏；带草稿正文拼接（「草稿 继续」）的行不属于纯继续，照常展示。
 
 ## 5. TPS 统计栏（--tps-footer → deepseek-harness StatsPills 形态）
 
