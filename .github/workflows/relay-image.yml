@@ -3,6 +3,10 @@
 # - relay job 只存在于 release-fork.yml（fork 专用发布流）；release.yml（#78/#79 重构版）
 #   没有它——用 release.yml 发的版本天然缺中继镜像与 tarball。
 # - release-fork.yml 对已存在的 tag/release 在 validate 阶段硬失败，不能用于补发。
+# 触发方式（二选一）：
+# - workflow_dispatch 传版本号：仅当本文件已进默认分支时可用（GitHub 限制）；
+# - push 触发 tag `zcode-relay-v<版本>`（指向该版本的发布提交）：push 事件用被推 ref
+#   上的工作流文件，无需默认分支存在——功能分支上补发就走这条路，跑完可删触发 tag。
 # 构建步骤与 release-fork.yml 的 relay job 保持一致（web 产物、去 source map、
 # sha → latest → 版本 的推送顺序约定见 cfdf8e65）；sha tag 取 Release tag 实际指向的
 # commit，保证与当初发布链一致。
@@ -15,6 +19,9 @@ on:
         description: "已发布版本号（不带 v 前缀），如 3.15.1；镜像与 tarball 均以此命名"
         required: true
         type: string
+  push:
+    tags:
+      - "zcode-relay-v*"
 
 permissions:
   contents: write
@@ -30,11 +37,11 @@ jobs:
     env:
       IMAGE: ghcr.io/${{ github.repository_owner }}/zcode-relay
     steps:
+      # dispatch：checkout 版本 tag；tag 触发：checkout 触发 tag 自身（与版本 tag
+      # 指向同一发布提交）。两种方式都保证 web 产物与该版本同源，不用分支 HEAD。
       - uses: actions/checkout@v4
         with:
-          # 代码必须取 Release tag 指向的提交：web 产物要与该版本桌面端同源，
-          # 不能用触发分支的 HEAD（可能已前移）。
-          ref: refs/tags/v${{ inputs.version }}
+          ref: ${{ inputs.version && format('refs/tags/v{0}', inputs.version) || github.ref }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -43,6 +50,18 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+
+      - name: Resolve version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME#zcode-relay-v}}"
+          case "$VERSION" in
+            *[!0-9.]*|[.!0-9]*|'') echo "::error::无法解析版本号：$VERSION"; exit 1 ;;
+          esac
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "relay version: $VERSION"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -66,12 +85,9 @@ jobs:
       - name: Verify release exists
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
         run: gh release view "v$VERSION"
 
       - name: Build relay image
-        env:
-          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           # sha tag 取 tag 实际指向的 commit（与发布链当年的镜像 tag 同源），
@@ -89,7 +105,6 @@ jobs:
 
       - name: Push relay image
         env:
-          VERSION: ${{ inputs.version }}
           GHCR_TOKEN: ${{ github.token }}
           GHCR_ACTOR: ${{ github.actor }}
         run: |
@@ -106,7 +121,6 @@ jobs:
       - name: Attach relay image tarball to release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
           # 无 registry / 离线 VPS 可直接 docker load 这个 tar。
