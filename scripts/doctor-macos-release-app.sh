@@ -20,7 +20,9 @@ fi
 CUA_HELPER_INSTALL_SUBDIR="${CUA_HELPER_INSTALL_VARIANT:+$CUA_HELPER_INSTALL_VARIANT/}"
 # Shell cannot import producer TS constants. macosReleaseAppDoctor.test.ts locks these literals to
 # @zcode/zcode-cua/broker/helperConstants so a future producer rename fails loudly.
-ZCODE_HOME_HELPER_APP_PATH="${ZCODE_HOME_DIR:+$ZCODE_HOME_DIR/computer-use/${CUA_HELPER_INSTALL_SUBDIR}ZCode Computer Use.app}"
+# 注意：.app 目录名随 2026-10-25 §B 改名为 ZCodium Computer Use.app；Contents/MacOS 下的
+# 可执行文件名保持官方原名 ZCode Computer Use（CFBundleExecutable 未改）。
+ZCODE_HOME_HELPER_APP_PATH="${ZCODE_HOME_DIR:+$ZCODE_HOME_DIR/computer-use/${CUA_HELPER_INSTALL_SUBDIR}ZCodium Computer Use.app}"
 HELPER_APP_PATH="${ZCODE_CUA_HELPER_APP_PATH:-$ZCODE_HOME_HELPER_APP_PATH}"
 APP_BUNDLE_NAME="$(basename "$APP_PATH")"
 APP_DISPLAY_NAME="${APP_BUNDLE_NAME%.app}"
@@ -50,10 +52,10 @@ same codesign/spctl checks and a local notarization staple check.
 
 Helper lookup order:
   1. ZCODE_CUA_HELPER_APP_PATH (CI passes the Helper bundled inside ZCode.app)
-  2. ${ZCODE_HOME:-$HOME/.zcode}/computer-use/<optional variant>/ZCode Computer Use.app
+  2. ${ZCODE_HOME:-$HOME/.zcode}/computer-use/<optional variant>/ZCodium Computer Use.app
 
 CI release acceptance validates the copy actually shipped at
-ZCode.app/Contents/Resources/cua-helper/ZCode Computer Use.app. Post-install checks
+ZCodium.app/Contents/Resources/cua-helper/ZCodium Computer Use.app. Post-install checks
 may omit the override to validate the user-level installed copy. A missing selected
 Helper.app fails closed.
 USAGE
