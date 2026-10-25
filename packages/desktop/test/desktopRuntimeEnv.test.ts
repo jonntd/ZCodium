@@ -561,60 +561,51 @@ describe("desktopRuntimeEnv buildHostProcessEnv", () => {
   // 只在 darwin 上有意义。
   // 待适配：fork 走 adhoc 免签 + bundled CUA helper，不做 dev bundle 回退，
   // 上游断言的是未定制版本的 Helper 路径推导（原为 darwin-only 用例）。
-  it.skip(
-    "本地免签 CUA 使用 dev Helper bundle，且不回退网络下载",
-    async () => {
-      const { buildHostProcessEnv } = await import("../src/main/desktopRuntimeEnv.js");
+  it.skip("本地免签 CUA 使用 dev Helper bundle，且不回退网络下载", async () => {
+    const { buildHostProcessEnv } = await import("../src/main/desktopRuntimeEnv.js");
 
-      const env = buildHostProcessEnv({
-        ZCODE_HOME: "/tmp/zcode-cua-dev-home",
-        ZCODE_CUA_PRODUCT_HELPER: "1",
-        ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL: "1",
-      });
+    const env = buildHostProcessEnv({
+      ZCODE_HOME: "/tmp/zcode-cua-dev-home",
+      ZCODE_CUA_PRODUCT_HELPER: "1",
+      ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL: "1",
+    });
 
-      expect(env.ZCODE_CUA_BUNDLED_HELPER_APP_PATH).toBe(
-        join("/tmp/zcode-cua-dev-home", "computer-use", "dev", "ZCode Computer Use Dev.app"),
-      );
-    },
-  );
+    expect(env.ZCODE_CUA_BUNDLED_HELPER_APP_PATH).toBe(
+      join("/tmp/zcode-cua-dev-home", "computer-use", "dev", "ZCode Computer Use Dev.app"),
+    );
+  });
 
   // 待适配：同上——fork 下显式 bundled Helper 路径不被 dev bundle 覆盖。
-  it.skip(
-    "本地免签 CUA 尊重显式 bundled Helper 路径以支持无打包源码验证",
-    async () => {
-      const { buildHostProcessEnv } = await import("../src/main/desktopRuntimeEnv.js");
+  it.skip("本地免签 CUA 尊重显式 bundled Helper 路径以支持无打包源码验证", async () => {
+    const { buildHostProcessEnv } = await import("../src/main/desktopRuntimeEnv.js");
 
-      const env = buildHostProcessEnv({
-        ZCODE_HOME: "/tmp/zcode-cua-dev-home",
-        ZCODE_CUA_PRODUCT_HELPER: "1",
-        ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL: "1",
-        ZCODE_CUA_BUNDLED_HELPER_APP_PATH: "/tmp/new-helper/ZCode Computer Use Dev.app",
-      });
+    const env = buildHostProcessEnv({
+      ZCODE_HOME: "/tmp/zcode-cua-dev-home",
+      ZCODE_CUA_PRODUCT_HELPER: "1",
+      ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL: "1",
+      ZCODE_CUA_BUNDLED_HELPER_APP_PATH: "/tmp/new-helper/ZCode Computer Use Dev.app",
+    });
 
-      expect(env.ZCODE_CUA_BUNDLED_HELPER_APP_PATH).toBe(
-        "/tmp/new-helper/ZCode Computer Use Dev.app",
-      );
-    },
-  );
+    expect(env.ZCODE_CUA_BUNDLED_HELPER_APP_PATH).toBe(
+      "/tmp/new-helper/ZCode Computer Use Dev.app",
+    );
+  });
 
   // 待适配：同上——fork 不回退到 dev bundle。
-  it.skip(
-    "本地免签 CUA 在显式 bundled Helper 路径为空白时回退到默认 dev bundle",
-    async () => {
-      const { buildHostProcessEnv } = await import("../src/main/desktopRuntimeEnv.js");
+  it.skip("本地免签 CUA 在显式 bundled Helper 路径为空白时回退到默认 dev bundle", async () => {
+    const { buildHostProcessEnv } = await import("../src/main/desktopRuntimeEnv.js");
 
-      const env = buildHostProcessEnv({
-        ZCODE_HOME: "/tmp/zcode-cua-dev-home",
-        ZCODE_CUA_PRODUCT_HELPER: "1",
-        ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL: "1",
-        ZCODE_CUA_BUNDLED_HELPER_APP_PATH: "   ",
-      });
+    const env = buildHostProcessEnv({
+      ZCODE_HOME: "/tmp/zcode-cua-dev-home",
+      ZCODE_CUA_PRODUCT_HELPER: "1",
+      ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL: "1",
+      ZCODE_CUA_BUNDLED_HELPER_APP_PATH: "   ",
+    });
 
-      expect(env.ZCODE_CUA_BUNDLED_HELPER_APP_PATH).toBe(
-        join("/tmp/zcode-cua-dev-home", "computer-use", "dev", "ZCode Computer Use Dev.app"),
-      );
-    },
-  );
+    expect(env.ZCODE_CUA_BUNDLED_HELPER_APP_PATH).toBe(
+      join("/tmp/zcode-cua-dev-home", "computer-use", "dev", "ZCode Computer Use Dev.app"),
+    );
+  });
 
   // 待适配：fork 的免签态会注入 ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL，上游断言其为 undefined。
   it.skip("打包态 host 进程显式注入 ZCODE_RUNTIME_ENV=production 且不传 NODE_ENV", async () => {
@@ -989,5 +980,32 @@ describe("desktopRuntimeEnv runtime identity", () => {
     expect(runtimeUserDataPath).toBeUndefined();
     expect(runtimeSessionDataPath).toBeUndefined();
     expect(appMock.getPath).not.toHaveBeenCalledWith("appData");
+  });
+
+  // Bugfix（#3）：打包正式态兜底名若沿用上游 "ZCode"，会与官方 ZCode.app 共用
+  // Electron userData，官方版运行时单实例锁拿锁失败即静默退出。钉住 fork 化的默认名
+  // 与独立数据目录，防止回退；Dev 档名也一并钉住，避免误改导致既有 dev 数据目录失联。
+  it("打包正式版使用 ZCodium 应用名和独立 Electron 数据目录", async () => {
+    appMock.isPackaged = true;
+    productFlavorMock.value = "production";
+
+    try {
+      const { runtimeApplicationName, runtimeSessionDataPath, runtimeUserDataPath } =
+        await import("../src/main/desktopRuntimeEnv.js");
+
+      expect(runtimeApplicationName).toBe("ZCodium");
+      expect(runtimeUserDataPath).toBe(join("/mock/appData", "ZCodium"));
+      expect(runtimeSessionDataPath).toBe(join("/mock/appData", "ZCodium", "session"));
+    } finally {
+      productFlavorMock.value = "preview";
+    }
+  });
+
+  it("开发态默认应用名保持 ZCode Dev，userData 落点不变", async () => {
+    const { runtimeApplicationName, runtimeUserDataPath } =
+      await import("../src/main/desktopRuntimeEnv.js");
+
+    expect(runtimeApplicationName).toBe("ZCode Dev");
+    expect(runtimeUserDataPath).toBe(join("/mock/appData", "ZCode Dev"));
   });
 });
