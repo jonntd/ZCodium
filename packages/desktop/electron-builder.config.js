@@ -993,11 +993,30 @@ export default {
     // 安装盘图标统一使用安装专用素材，避免复用应用图标导致安装识别度不足。
     icon: "build/icon_installer.icns",
     contents: [
-      // 实验性调整：为隐藏资源文件显式指定图标坐标，尽量把它们移到角落区域。
-      { x: 640, y: 56, type: "file", path: ".background.tiff" },
-      { x: 640, y: 56, type: "file", path: ".VolumeIcon.icns" },
-      { x: 130, y: 220 },
-      { x: 410, y: 220, type: "link", path: "/Applications" },
+      // Bugfix：v3.15.1 再基线（de5923d1）把 contents 覆盖成上游简化版——图标下移到 y=220
+      // 压住背景中部的解除拦截说明文字、两个说明 txt 被删、dmg-builder 自动生成的
+      // .background.tiff 与 .VolumeIcon.icns 被钉到窗口右缘外 (640,56)，挂载窗口右缘因此
+      // 露出半截图标。这里按 specs/macos-dmg-installation.md 恢复；.background.tiff 与
+      // .VolumeIcon.icns 由 dmg-builder 依据 background/icon 自动生成并保持隐藏，禁止写进
+      // contents。Finder 窗口外框比图标视图可见区高约 70px（工具栏），所有元素必须排在
+      // 顶部可见区内，否则需要滚动才能看到说明文件。
+      { x: 150, y: 120 },
+      { x: 470, y: 120, type: "link", path: "/Applications" },
+      // 未签名安装包在首次打开时会被 Gatekeeper 拦截；背景在对应位置画了箭头，
+      // 指向两个可复制解除命令的纯文本文件（各自母语文件名，不带语言后缀）。
+      // path 用绝对路径，避免 dmgbuild 依赖工作目录解析。
+      {
+        x: 170,
+        y: 370,
+        type: "file",
+        path: resolve(desktopPackageRoot, "build/dmg/解除拦截.txt"),
+      },
+      {
+        x: 450,
+        y: 370,
+        type: "file",
+        path: resolve(desktopPackageRoot, "build/dmg/Unblock.txt"),
+      },
     ],
   },
   nsis: {
