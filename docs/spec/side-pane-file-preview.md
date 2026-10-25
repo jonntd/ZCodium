@@ -56,6 +56,12 @@ workspaceSidePane.ts（唯一事实源，沿用 WorkspaceSidePaneState）
    intent=open 处理，不进入预览槽。
 6. 钉住/转正只改标签身份（id/preview），不触碰文件内容与只读门槛；不新增协议、
    服务或跨包导出。
+7. 左侧「查看文件」覆盖层（WorkspaceSidebar 的 absolute inset-0 层）顶部先渲染与
+   ProjectSidebar 共用的标题栏拖拽条（`SIDEBAR_TITLEBAR_STRIP_CLASS`：h-12
+   [app-region:drag]，手机远控 max-md:hidden 同口径），文件树渲染在其下方。覆盖层
+   若不带拖拽条直接顶到窗口上沿，树头部「返回任务」按钮会被 macOS 红绿灯
+   （关闭/最小化）盖住（2026-10-25 bugfix；回归
+   sidebarFileTreeOverlayTitlebar.test.tsx 锁定两处共用同一常量）。
 
 ## 4. 失败语义
 

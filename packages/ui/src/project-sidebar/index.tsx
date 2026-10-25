@@ -14,6 +14,7 @@ import type {
   RemoteProjectHost,
 } from "@/project-sidebar/contract.js";
 import { useProjectPinIntent } from "@/project-sidebar/useProjectPinIntent.js";
+import { SIDEBAR_TITLEBAR_STRIP_CLASS } from "@/project-sidebar/sidebarTitlebarStrip.js";
 import { ProjectTaskListContext } from "@/project-sidebar/ProjectTaskListContext.js";
 import { useWebRemoteControlStatus } from "@/hooks/useWebRemoteControlStatus.js";
 import { useProjectRemoteSync } from "@/project-sidebar/useProjectRemoteSync.js";
@@ -58,6 +59,7 @@ import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
 export { attachRemoteProjectWorkspace } from "@/project-sidebar/remote-navigation.js";
 export { resolveEntryProject } from "@/project-sidebar/view.js";
+export { SIDEBAR_TITLEBAR_STRIP_CLASS } from "@/project-sidebar/sidebarTitlebarStrip.js";
 export type {
   SidebarFileTreeOpenRequest,
   ProjectSidebarProps,
@@ -213,7 +215,7 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
       <SidebarTooltipProvider>
         <aside data-testid={TID_SIDEBAR} className="flex h-full min-h-0 flex-col overflow-hidden">
           <div
-            className={`h-12 shrink-0 [app-region:drag] ${props.isWebRemoteControl ? "max-md:hidden" : ""}`}
+            className={`${SIDEBAR_TITLEBAR_STRIP_CLASS} ${props.isWebRemoteControl ? "max-md:hidden" : ""}`}
           />
           {/* 内联改名聚焦曾把 hidden 容器横向滚动，导致手机整栏左移；滑动面板只裁切，不允许焦点滚动。 */}
           <div className="relative min-h-0 flex-1 overflow-clip">
