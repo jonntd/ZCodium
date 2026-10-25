@@ -3,16 +3,25 @@
 # - relay job 只存在于 release-fork.yml（fork 专用发布流）；release.yml（#78/#79 重构版）
 #   没有它——用 release.yml 发的版本天然缺中继镜像与 tarball。
 # - release-fork.yml 对已存在的 tag/release 在 validate 阶段硬失败，不能用于补发。
-# 触发方式（二选一）：
+# 触发方式（三选一）：
+# - workflow_call：release.yml 发布成功后自动调用（首选，日常发布走这条，无需人工）；
 # - workflow_dispatch 传版本号：仅当本文件已进默认分支时可用（GitHub 限制）；
 # - push 触发 tag `zcode-relay-v<版本>`（指向该版本的发布提交）：push 事件用被推 ref
 #   上的工作流文件，无需默认分支存在——功能分支上补发就走这条路，跑完可删触发 tag。
+# workflow_call 在调用方提交上解析被调工作流、不走事件系统，因此不受
+# GITHUB_TOKEN 产生的事件不触发工作流这一 GitHub 限制约束。
 # 构建步骤与 release-fork.yml 的 relay job 保持一致（web 产物、去 source map、
 # sha → latest → 版本 的推送顺序约定见 cfdf8e65）；sha tag 取 Release tag 实际指向的
 # commit，保证与当初发布链一致。
 name: Relay image
 
 on:
+  workflow_call:
+    inputs:
+      version:
+        description: "已发布版本号（不带 v 前缀），如 3.15.2；镜像与 tarball 均以此命名"
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:

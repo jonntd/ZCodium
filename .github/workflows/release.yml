@@ -29,6 +29,9 @@ on:
 
 permissions:
   contents: write
+  # packages 供下方 relay job（workflow_call 调用 relay-image.yml）推送 ghcr.io 镜像；
+  # 被调工作流只能降权不能扩权，必须在调用方授予。
+  packages: write
 
 concurrency:
   group: release
@@ -645,3 +648,15 @@ jobs:
             args+=(--latest)
           fi
           gh release edit "$TAG" "${args[@]}"
+
+  # 中继镜像随发布自动构建（fork 定制，登记 scripts/fork-customizations.json）：
+  # release.yml 本体（上游 #78/#79 重构版）没有 relay job，此前每次发版后都要
+  # 手动推 zcode-relay-v<版本> tag 补发（v3.15.1/v3.15.2 教训）。publish 成功后
+  # 直接调用 relay-image.yml；仅正式发布（带产物、非 keep_draft）时推送镜像。
+  # workflow_call 在本提交上解析被调工作流，不走事件系统，GITHUB_TOKEN 限制不适用。
+  relay:
+    needs: [release, publish]
+    if: ${{ inputs.build_artifacts && inputs.keep_draft != true && needs.publish.result == 'success' }}
+    uses: ./.github/workflows/relay-image.yml
+    with:
+      version: ${{ needs.release.outputs.version }}

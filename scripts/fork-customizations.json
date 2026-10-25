@@ -104,6 +104,17 @@
       ]
     },
     {
+      "id": "relay-image-auto-publish",
+      "title": "中继镜像随发布自动构建（release.yml workflow_call relay-image.yml）",
+      "spec": ".github/workflows/relay-image.yml（触发通道与推送顺序契约）",
+      "markers": [
+        {
+          "file": ".github/workflows/release.yml",
+          "contains": "uses: ./.github/workflows/relay-image.yml"
+        }
+      ]
+    },
+    {
       "id": "vendored-plugin-roots",
       "title": "VENDORED_PLUGIN_ROOT_CANDIDATES 包源",
       "spec": "apps/zcode-cli/packages/bootstrap/src/app/official-plugin-definitions.ts",
