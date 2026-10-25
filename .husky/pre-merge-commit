@@ -1,0 +1,17 @@
+#!/usr/bin/env sh
+# 合并闸门：pre-merge-commit 执行时 git 既不传待合并 ref（$1 为空）也未写入
+# MERGE_HEAD，钩子自己无法计算影响对比，因此这里只做强制闸门——未经
+# scripts/merge-main-impact-check.mjs 评估（无 ZCODE_MERGE_IMPACT_ACK=1）的
+# git merge 一律拦下并给指引。同步 main 用 pnpm merge:main（自动先对比影响）；
+# 确有必要的其他分支合并，人工确认后 ZCODE_MERGE_IMPACT_ACK=1 git merge ... 放行。
+# 注意：FF 合并不经过本钩子；有文本冲突的合并不自动提交、同样不触发本钩子。
+if [ "$ZCODE_MERGE_IMPACT_ACK" = "1" ]; then
+  exit 0
+fi
+cat >&2 <<'MSG'
+[merge-impact] 本次 git merge 未经合并影响评估，已拦下。
+[merge-impact] 同步 main：pnpm merge:main        （先对比对本分支的影响，再自动合并）
+[merge-impact] 其他分支合并或已人工确认影响：ZCODE_MERGE_IMPACT_ACK=1 git merge ...
+[merge-impact] 合同见 docs/merge-main-impact-check.md
+MSG
+exit 1

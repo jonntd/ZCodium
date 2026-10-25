@@ -21,6 +21,8 @@
     "prepare:desktop-runtime": "pnpm --filter @zcode/desktop prepare:runtime-assets",
     "dep:graph": "node scripts/dependency-graph.mjs",
     "dep:refs": "node scripts/dep-refs.mjs",
+    "merge:impact": "node scripts/merge-main-impact-check.mjs",
+    "merge:main": "node scripts/merge-main-impact-check.mjs --merge",
     "audit:agent-remnants": "node scripts/audit-zcode-agent-remnants.mjs",
     "audit:conversation-session-coverage": "node scripts/audit-conversation-session-case-coverage.mjs --check",
     "audit:conversation-session-complete": "node scripts/audit-conversation-session-case-coverage.mjs --check --require-complete",

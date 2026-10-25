@@ -11,18 +11,19 @@
 
 以下命令从仓库根目录执行：
 
-| 用途             | 命令                                                 |
-| ---------------- | ---------------------------------------------------- |
-| 类型检查         | `pnpm typecheck`                                     |
-| Lint             | `pnpm lint` / `pnpm lint:fix`                        |
-| 格式检查         | `pnpm fmt:check`                                     |
-| 桌面开发         | `pnpm dev:desktop`                                   |
-| Web 开发         | `pnpm dev:web`                                       |
-| 提交前检查       | `pnpm verify:pre-push`（Lint、架构检查与受影响单测） |
-| 架构检查         | `pnpm architecture:check --changed`                  |
-| 模块阅读包       | `pnpm architecture:context <module-id>`              |
-| 未使用依赖与导出 | `pnpm knip`                                          |
-| 导出引用查询     | `pnpm dep:refs --list-exports <file>`                |
+| 用途               | 命令                                                                 |
+| ------------------ | -------------------------------------------------------------------- |
+| 类型检查           | `pnpm typecheck`                                                     |
+| Lint               | `pnpm lint` / `pnpm lint:fix`                                        |
+| 格式检查           | `pnpm fmt:check`                                                     |
+| 桌面开发           | `pnpm dev:desktop`                                                   |
+| Web 开发           | `pnpm dev:web`                                                       |
+| 提交前检查         | `pnpm verify:pre-push`（Lint、架构检查与受影响单测）                 |
+| 架构检查           | `pnpm architecture:check --changed`                                  |
+| 模块阅读包         | `pnpm architecture:context <module-id>`                              |
+| 未使用依赖与导出   | `pnpm knip`                                                          |
+| 导出引用查询       | `pnpm dep:refs --list-exports <file>`                                |
+| 合并 main 影响评估 | `pnpm merge:main`（评估并合并）/ `pnpm merge:impact [ref]`（仅预览） |
 
 affected 使用 Vitest 官方选择，只运行选中的根 UT；选中整个套件时说明并跳过 UT，成功退出，不因此阻止 Push；不替代 CLI 测试或桌面 E2E。全量使用 `pnpm test` / `pnpm test:unit`，仅在用户明确要求时调用。范围与输出合同见 [pre-push 说明](docs/testing/pre-push-hook.md)。
 
@@ -42,6 +43,11 @@ affected 使用 Vitest 官方选择，只运行选中的根 UT；选中整个套
 - 每个 PR 必须关联至少一个 Issue：在 PR 正文写 `Closes #<编号>`（合并后自动关闭），或在 PR 右侧 Development 手动关联。
 - 关联与否以 GitHub 原生语义为准（`closingIssuesReferences`），由 `.github/workflows/require-issue.yml` 的 `linked-issue` 检查执行；该检查已加入 `main-protection` ruleset 的必需状态检查，无豁免，机器人 / draft PR 同样适用。
 - 动手前先创建或认领对应 Issue，再开 PR；未关联 Issue 的 PR 无法合并。
+
+## 合并 main
+
+- 合并 main（或任何上游 ref）前先对比对本分支的影响：用 `pnpm merge:main [ref]`（默认 `origin/main`），脚本先输出影响报告，存在双方同路径改动时会拦截合并；逐个 review 报告里的交集文件（重点看含 fork 定制标记的项），确认后用 `ZCODE_MERGE_IMPACT_ACK=1 pnpm merge:main` 放行。随时预览：`pnpm merge:impact [ref]`。绕过入口直接 `git merge` 会被 pre-merge-commit 闸门拦下。合同见 [merge-main-impact-check](docs/merge-main-impact-check.md)。
+- 同步 main 使用 merge，不 rebase 长期分支；rebase 路径不经过 pre-merge-commit 钩子。
 
 ## 实现与验证
 
