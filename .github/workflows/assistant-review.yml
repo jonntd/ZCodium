@@ -50,6 +50,6 @@ jobs:
           # question 保持 deny，避免 agent 向无人应答的 CI 环境提问。
           OPENCODE_PERMISSION: '{"*":"allow","question":"deny","doom_loop":"allow","external_directory":"allow"}'
         with:
-          model: deepseek/deepseek-flash
+          model: deepseek-flash
           use_github_token: true
           share: false
