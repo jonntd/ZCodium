@@ -22,9 +22,9 @@ function makeExists(known) {
 }
 
 test("staged 补丁件排在 zcode home 既有安装之前（986c692 顺序约束）", () => {
-  const staged = "/repo/packages/desktop/bundled-cua-helper/darwin-arm64/ZCode Computer Use.app";
+  const staged = "/repo/packages/desktop/bundled-cua-helper/darwin-arm64/ZCodium Computer Use.app";
   const homeDev = "/home/.zcodium/computer-use/dev/ZCode Computer Use Dev.app";
-  const homePlain = "/home/.zcodium/computer-use/ZCode Computer Use.app";
+  const homePlain = "/home/.zcodium/computer-use/ZCodium Computer Use.app";
   const picked = resolveDevCuaHelperAppPath({
     zcodeHome: "/home/.zcodium",
     platformKey: "darwin-arm64",
@@ -36,7 +36,7 @@ test("staged 补丁件排在 zcode home 既有安装之前（986c692 顺序约�
 
 test("home 既有安装按 dev 变体优先、平台 key 拼进 staged 路径", () => {
   const homeDev = "/home/.zcodium/computer-use/dev/ZCode Computer Use Dev.app";
-  const homePlain = "/home/.zcodium/computer-use/ZCode Computer Use.app";
+  const homePlain = "/home/.zcodium/computer-use/ZCodium Computer Use.app";
   const picked = resolveDevCuaHelperAppPath({
     zcodeHome: "/home/.zcodium",
     platformKey: "darwin-arm64",
@@ -55,8 +55,8 @@ test("home 既有安装按 dev 变体优先、平台 key 拼进 staged 路径", 
 });
 
 test("显式 envOverride 存在时优先；不存在时不得拦截后续候选", () => {
-  const staged = "/repo/packages/desktop/bundled-cua-helper/darwin-arm64/ZCode Computer Use.app";
-  const override = "/opt/custom-helper/ZCode Computer Use.app";
+  const staged = "/repo/packages/desktop/bundled-cua-helper/darwin-arm64/ZCodium Computer Use.app";
+  const override = "/opt/custom-helper/ZCodium Computer Use.app";
   assert.equal(
     resolveDevCuaHelperAppPath({
       envOverride: override,
@@ -69,7 +69,7 @@ test("显式 envOverride 存在时优先；不存在时不得拦截后续候选"
   );
   assert.equal(
     resolveDevCuaHelperAppPath({
-      envOverride: "/missing/ZCode Computer Use.app",
+      envOverride: "/missing/ZCodium Computer Use.app",
       zcodeHome: "/home/.zcodium",
       platformKey: "darwin-arm64",
       rootCandidates: ["/repo/packages/desktop/bundled-cua-helper"],
@@ -116,20 +116,27 @@ test("main 侧 installer 接线守卫：dev staged 兜底不得被删（否则�
     "installer 不得内联 zcode home 候选路径；候选顺序唯一事实源在 desktopCuaHelperBundledPath",
   );
   assert.ok(
-    source.includes('ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcode.cua-helper"'),
-    "dev 态必须 pin stock bundle id：dev 变体默认期望 dev.zcode.cua-helper.dev，" +
-      "staged 件是官方 stock id，缺 pin 必报 bundle id does not match（2026-10-24 实测第二段）",
+    source.includes('ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcodium.computer"'),
+    "bundled 件必须 pin 改名后的 bundle id（2026-10-25 §B）：plan 期望值必须与 staged/随包件 " +
+      "plist 的 CFBundleIdentifier 一致，缺 pin/旧值必报 bundle id does not match",
   );
   assert.ok(
-    source.includes("readCuaHelperBuildIdFromPlist"),
-    "dev 态必须用 staged 件 Info.plist 实读 buildId 钉住期望：vendor 内嵌字面量与 staged 不一致",
+    source.includes("readCuaHelperBuildIdFromPlist(bundledAppPath)"),
+    "期望值 pin 必须从解析后的 bundled 件 Info.plist 实读（dev staged 与打包随包同构）：" +
+      "2026-10-24 修复只给 dev 算 pin，打包态 main 安装链没有 buildId pin，vendor 内嵌字面量" +
+      "（pipeline-293504…）与随包件（pipeline-298526…）不一致即 fail-closed，" +
+      "onboarding 报 install/verification failed（2026-10-25 真机实锤）",
+  );
+  assert.ok(
+    !source.includes("readCuaHelperBuildIdFromPlist(devBundledAppPath)"),
+    "buildId pin 不得只按 dev 态计算：打包态 onboarding 与 host getStatus 链必须同源配对",
   );
 });
 
 test("readCuaHelperBuildIdFromPlist 对本机 staged 件实读成功且格式合法", () => {
   const staged = resolve(
     repoRoot,
-    "packages/desktop/bundled-cua-helper/darwin-arm64/ZCode Computer Use.app",
+    "packages/desktop/bundled-cua-helper/darwin-arm64/ZCodium Computer Use.app",
   );
   if (!existsSync(staged)) return; // 未跑 prepare:cua-helper 的机器跳过
   const buildId = readCuaHelperBuildIdFromPlist(staged);

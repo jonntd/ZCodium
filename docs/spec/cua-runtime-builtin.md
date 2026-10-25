@@ -110,6 +110,24 @@ ZCodium 是 adhoc 外壳，永远不满足，pristine helper 在 fork 里必然�
 TCC 稳定性不受影响：helper 字节在同一上游版本间不变，adhoc 签名对相同字节是确定性的，
 授权跨更新持久。
 
+**身份改名（2026-10-25 §B 追加，用户决策）**：官方 ZCode 的 Helper 与本 fork 的 Helper
+同名、同图标、**同 bundle id**（dev.zcode.cua-helper），而 TCC 授权行按 bundle id 存键——
+两边在系统设置里互相踩授权（拖拽撞已有行不可见、`tccutil reset` 互相清除、同一时刻只有
+一方能持有授权）。随包 Helper 因此改为独立身份：
+
+- bundle id：`dev.zcodium.computer`——**必须与旧 id 等长（20 字节）**：Helper 是单文件 SEA，
+  变长 patch 会错位 Mach-O 段偏移（codesign strict validation 直接失败，真机实测）；
+  等长替换沿用 local-dev 补丁的确定性 cdhash 语义，跨更新授权仍持久。
+- 目录名/显示名：`ZCodium Computer Use.app`（plist CFBundleDisplayName/Name 长度自由；
+  Contents/MacOS 可执行文件名保持官方原名，CFBundleExecutable 不动）。
+- patch 点：prepare 脚本 `patchHelperIdentity`（二进制字面量全量等长替换 + plist +
+  helper-meta 登记）在 local-dev 补丁之后、re-sign 之前；vendor dist-index.js 与 workspace
+  stub 的 helperConstants 三常量（APP_NAME/BUNDLE_ID/DISPLAY_NAME）同步，DEV_* 保持官方
+  命名（dev 流管线独立）。plist 与二进制必须同时改：Helper 内 CUA_HELPER_BUNDLE_IDS
+  本地开发门按 subject bundle id 校验，只改一边会在 tokenless 启动直接退出。
+- installer/host 链的 `ZCODE_CUA_HELPER_BUNDLE_ID` pin 同步新值（vendor 默认值已随
+  patch 改变，pin 为双保险）；改身份后新装机器的 TCC 行天然干净，无需 tccutil reset。
+
 - Windows：`runtimes/cua-helper`（入库预编译 win32-x64，含 `runtime-manifest.json`+sha256）
   由 extraResources 直引到 `tools/cua-helper`
   （`windowsCuaDevRuntime` PRODUCT_RUNTIME_SEGMENTS 既有 fail-closed 校验兜底）。
@@ -146,6 +164,15 @@ darwin + 未打包（app.isPackaged === false）：
   dev.zcode.cua-helper` stock id + `ZCODE_CUA_HELPER_BUILD_ID=<staged plist 实读>`）——
   只补源不补 pin 时，verify 会先报 "bundle id … does not match dev.zcode.cua-helper.dev"
   再报 buildId 与 vendor 内嵌字面量不符，两段都实测复现过。
+  **2026-10-25 补段（打包态 pin 同构）**：②的 pin 只在 dev 态计算，打包态 main 安装链
+  没有 buildId pin——vendor 内嵌字面量（pipeline-293504-ab4d5e6b）与随包 helper
+  （pipeline-298526-10bbcea5，prepare pin 官方 3.14.4）判不匹配，对已有安装 verify
+  直接 fail-closed，onboarding 报 "install/verification failed: build id … does not
+  match"（真机实锤；host getStatus 链因 buildHostProcessEnv 注入 pin 而幸存，这正是
+  两链漂移的暴露面）。修复：期望值 pin 改为按**解析后的 bundledAppPath** 统一计算
+  （dev staged 与打包随包同构），不再区分态；依赖 vendor env 优先 patch 的放行条件
+  「本地开发运行时或显式 opt-in」，applyBundledCuaHelperTrustEnv 在打包态恒置
+  ALLOW_UNSIGNED_LOCAL=1，pin 恒生效。
 - **运维坑（env 污染，暂不guard）**：在官方 ZCode.app 的集成终端里启动 `pnpm
   dev:desktop` 会继承官方注入的 `ZCODE_CUA_BUNDLED_HELPER_APP_PATH`（指向
   /Applications/ZCode.app 的 stock helper）与 `ZCODE_RUNTIME_ENV=production`——
@@ -204,8 +231,24 @@ darwin + 未打包（app.isPackaged === false）：
 4. **stub/vendor 谓词漂移（结果侧）**：成功结果**不带** available 字段；vendor 谓词是
    `available !== false`，stub 是 `available === true`。renderer（vite 无 alias，解析
    stub）把每个成功状态判成 unavailable——即使查询正常返回，设置页也只能显示「未知」。
+5. **设置页 standalone 链漏传 peer escape（2026-10-25 打包态实锤，本次根因）**：
+   helper 的 broker peer 三道门（`createPeerVerifier`）对 same-uid 对端的唯一放行口是
+   `allowSameUidExternalPeerLocalDev`，它 = **显式 argv `--allow-external-broker-client-local-dev`**
+   且 SEA 内嵌 dev policy 允许（helper 侧注释原话：「**仅**显式 … 才放行 same-uid 对端」）。
+   vendor 的 SDK 懒启动 / 托管 host start（`launchHelperApp`）**无条件**传一对 escape
+   （「stock helpers ignore unknown argv」）；fork 自写的 `launchStandaloneCuaHelperForStatus`
+   却按 `isCuaLocalDevelopmentRuntime(process.env)` 门控——打包态 host bundle 该常量编译期
+   折叠恒 false（§C），于是这条链成为全链路唯一漏传点：helper 正常启动监听，但 host 的
+   每次 probe/permission_status 连接都被拒（exit log 连篇 `cua broker rejected connection:
+   peer verification failed`，90s 后 startup-claim-timeout 自杀）。getStatus 每次耗
+   ~25s 返回 unavailable(idle)，store 有界退避耗尽后按设计停在 lastKnown + fresh=false
+   ——冷启动无缓存即 settled=false，设置页**永久「正在验证… + 未知」**。与 §D 第 1 条
+   的沉默对端是同一道门的两个受害方向：官方 helper 是 token 模式拒外部对端，自家
+   patched helper 是缺 argv 标志拒自家 host。
 
-修复分层，责任分明：
+修复分层，责任分明（第 5 层修复：设置页链与 vendor `launchHelperApp` 同口径无条件
+携带一对 escape，抽 `buildCuaStatusLaunchOpenArgs` 纯函数 + 守卫测试；标志本身无授权力，
+stock helper 内嵌门为 false 时忽略未知 argv）：
 
 ```
 node.ts probeStableCuaHelperSocket      cuaPermissionStatusStore（ui）      ChannelClient（rpc）
@@ -215,6 +258,10 @@ node.ts probeStableCuaHelperSocket      cuaPermissionStatusStore（ui）      Ch
                                               ├─ rerunRequested? → 立即补查
                                               ├─ 否则按既有有界退避重试（1s/2s/4s）
                                               └─ 额度用尽 → lastKnown + fresh=false
+  cuaStandaloneStatusLaunch.buildCuaStatusLaunchOpenArgs（2026-10-25 第 5 层）
+    设置页 standalone 启动 argv 无条件携带 allowUnsignedLauncherLocalDev +
+    allowExternalBrokerClientLocalDev（与 vendor launchHelperApp 同口径），
+    patched helper 的 peer 三道门据此放行 same-uid 对端
   packages/zcode-cua（stub 契约副本）
     broker-ports.js 两个值谓词与 vendor 逐字一致（alignment 测试按行为对照防守）
 ```
@@ -314,6 +361,11 @@ main（buildHostProcessEnv，desktopCuaBrokerSocket.ts）
 9. **跨安装 socket 占用**（dev 真机）：官方 ZCode.app 持有 stable socket 时，fork 的
    getStatus 在 300ms 探测预算内有界返回 unavailable（不再挂起）；socket 空闲时 fork
    拉起自己的 dev helper 并返回真实 TCC 状态。
+10. **设置页启动链 peer escape**（打包态真机 + 守卫测试）：`buildCuaStatusLaunchOpenArgs`
+    产出的 argv 无条件含 `--allow-unsigned-launcher-local-dev` 与
+    `--allow-external-broker-client-local-dev`；打包版设置页权限两行在冷启动（无缓存）
+    数秒内收敛到真实 TCC 状态（denied → 「未授权」红点），不再永久停在「正在验证… + 未知」；
+    helper exit log 无连篇 `peer verification failed`。
 
 ## 回滚边界
 

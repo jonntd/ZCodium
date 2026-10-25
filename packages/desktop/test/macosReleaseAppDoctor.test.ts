@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { HELPER_APP_NAME, HELPER_DISPLAY_NAME } from "@zcode/zcode-cua/broker/helperConstants";
+import { HELPER_APP_NAME } from "@zcode/zcode-cua/broker/helperConstants";
 import { afterEach, describe, expect, it } from "vitest";
 
 const isWindows = process.platform === "win32";
@@ -66,7 +66,10 @@ function createZcodeHomeHelper(zcodeHome: string, variant?: string) {
     ...(variant ? [variant] : []),
     HELPER_APP_NAME,
   );
-  writeFakeMachOExecutable(join(helperAppPath, "Contents", "MacOS", HELPER_DISPLAY_NAME));
+  // Contents/MacOS 下的可执行文件名 = CFBundleExecutable，2026-10-25 §B 改名未动它，
+  // 仍是官方原名 "ZCode Computer Use"（与 doctor 默认 HELPER_EXECUTABLE_NAME 对齐）；
+  // 不能用 HELPER_DISPLAY_NAME（已改为 ZCodium Computer Use，只是 plist 显示名）。
+  writeFakeMachOExecutable(join(helperAppPath, "Contents", "MacOS", "ZCode Computer Use"));
   return helperAppPath;
 }
 
@@ -258,7 +261,8 @@ describe.skipIf(isWindows)("doctor-macos-release-app.sh", () => {
     const { appPath } = createReleaseApp(workspaceDir);
     const zcodeHome = join(workspaceDir, ".zcode");
     const helperAppPath = createZcodeHomeHelper(zcodeHome);
-    writeExecutable(join(helperAppPath, "Contents", "MacOS", HELPER_DISPLAY_NAME), "#!/bin/bash\n");
+    // 主可执行（CFBundleExecutable 原名 "ZCode Computer Use"，见 createZcodeHomeHelper 注释）
+    writeExecutable(join(helperAppPath, "Contents", "MacOS", "ZCode Computer Use"), "#!/bin/bash\n");
 
     mkdirSync(binDir, { recursive: true });
     writeFakeTool(binDir, "codesign", toolLog);

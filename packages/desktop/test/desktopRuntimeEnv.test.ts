@@ -672,7 +672,7 @@ describe("desktopRuntimeEnv buildHostProcessEnv", () => {
       });
 
       expect(env.ZCODE_CUA_BUNDLED_HELPER_APP_PATH).toBe(
-        join("/mock/resources", "cua-helper", "ZCode Computer Use.app"),
+        join("/mock/resources", "cua-helper", "ZCodium Computer Use.app"),
       );
     },
   );

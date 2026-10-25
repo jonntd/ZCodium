@@ -622,12 +622,11 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
           ...(cuaHelperBuildId ? { ZCODE_CUA_HELPER_BUILD_ID: cuaHelperBuildId } : {}),
         }
       : {}),
-    // dev 态额外注入 bundle id 覆盖（打包态期望 stock id 即默认值，不需要该键）：
-    // dev 变体默认期望 dev.zcode.cua-helper.dev，而本机/随包 helper 都是
-    // 官方 stock id dev.zcode.cua-helper（2026-09-29 真机验收实测：不注入必报
-    // "bundle id dev.zcode.cua-helper does not match dev.zcode.cua-helper.dev"）。
+    // dev 态额外注入 bundle id 覆盖（打包态 vendor 默认值已随 §B 改名 patch 为
+    // dev.zcodium.computer，不需要该键）：dev 变体 plan 默认期望 dev 变体 id，而
+    // staged/随包件 plist 已 patch 为 dev.zcodium.computer（2026-10-25 §B 改名）。
     ...(bundledCuaHelperAppPath && !packagedDesktop
-      ? { ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcode.cua-helper" }
+      ? { ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcodium.computer" }
       : {}),
     ...(resolvedGlmBinaryPath ? { GLM_BINARY_PATH: resolvedGlmBinaryPath } : {}),
     ...(resolvedLarkCliBinaryPath ? { ZCODE_LARK_CLI_BINARY: resolvedLarkCliBinaryPath } : {}),

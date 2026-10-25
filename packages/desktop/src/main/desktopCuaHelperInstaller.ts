@@ -68,23 +68,30 @@ export function createDesktopCuaHelperInstaller(
       : undefined;
   const bundledAppPath =
     options.bundledHelperAppPath ?? resolvePackagedCuaHelperAppPath(options) ?? devBundledAppPath;
-  // dev 期望值 pin（与 buildHostProcessEnv 对 host env 的注入同构）：staged 件是官方 stock
-  // bundle id（dev.zcode.cua-helper），而 dev 变体 plan 默认期望 dev.zcode.cua-helper.dev；
-  // vendor 内嵌期望 buildId 也是上游字面量。main 自己的安装链没有这两条 env 就会在
-  // "bundle id/build id does not match" 上 fail-closed（2026-10-24 实测第二段）。
-  const devBundledBuildId = devBundledAppPath
-    ? readCuaHelperBuildIdFromPlist(devBundledAppPath)
+  // 期望值 pin（与 buildHostProcessEnv 对 host env 的注入同构；2026-10-25 起 dev/打包两态统一）：
+  // - bundle id：dev 变体 plan 默认期望 dev.zcode.cua-helper.dev，而 staged/随包件都是官方
+  //   stock id（打包态 vendor 默认本就是 stock id，pin 是同值冗余，统一带上防两条链漂移）；
+  // - build id：vendor 内嵌期望值是上游某次发布的字面量，与 staged/随包件的 buildId 无关，
+  //   必须从 bundled 件 Info.plist 实读钉住。2026-10-24 的修复只给 dev 算了 pin，打包态
+  //   main 安装链（onboarding/拖拽浮窗）没有 buildId pin，verify 对已有安装直接 fail-closed：
+  //   "build id pipeline-298526-10bbcea5 does not match pipeline-293504-ab4d5e6b"（真机实锤）。
+  //   依赖 vendor env 优先 patch 的放行条件「本地开发运行时或显式 opt-in」：applyBundledCuaHelper
+  //   TrustEnv 在打包态确定性置 ALLOW_UNSIGNED_LOCAL=1，opt-in 门恒开，pin 恒生效。
+  const bundledBuildId = bundledAppPath
+    ? readCuaHelperBuildIdFromPlist(bundledAppPath)
     : undefined;
-  const devEnvPins = devBundledAppPath
+  const trustEnvPins = bundledAppPath
     ? {
-        ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcode.cua-helper",
-        ...(devBundledBuildId ? { ZCODE_CUA_HELPER_BUILD_ID: devBundledBuildId } : {}),
+        // fork 改名（2026-10-25，§B）：随包/staged 件的 plist 与二进制常量已 patch 为
+        // dev.zcodium.computer，期望值必须同步；vendor 默认值亦已 patch，此处 pin 是双保险。
+        ZCODE_CUA_HELPER_BUNDLE_ID: "dev.zcodium.computer",
+        ...(bundledBuildId ? { ZCODE_CUA_HELPER_BUILD_ID: bundledBuildId } : {}),
       }
     : {};
   // 信任门 env 决策抽到零依赖纯函数（docs/spec/cua-runtime-builtin.md §B 偏离第三条）：fork 的
   // 随包 helper 是 patched+adhoc 变体，打包态必须确定性置 "1" 走 local_dev_unsigned，而不是上游
   // 的 delete（delete 会让 onboarding 链在干净机器上被严格验证 fail-closed 拒收，修复于 2026-09-29）。
-  const env = applyBundledCuaHelperTrustEnv({ ...options.env, ...devEnvPins }, bundledAppPath);
+  const env = applyBundledCuaHelperTrustEnv({ ...options.env, ...trustEnvPins }, bundledAppPath);
   return createInstaller(
     canonicalizeCuaHelperInstallerOptions({
       env,

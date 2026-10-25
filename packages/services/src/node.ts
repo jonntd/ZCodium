@@ -595,7 +595,6 @@ import {
   buildAgentRuntimeEnv,
 } from "./runtime-tools/agentProxyEnv.js";
 import { ensureAppCaCert } from "./runtime-tools/appCaCert.js";
-import { buildHelperOpenArgs, isCuaLocalDevelopmentRuntime } from "@zcode/zcode-cua/broker/server";
 import { createServiceLogger, type ServiceLogger } from "#src/logger/serviceLogger.js";
 import { IOffPeakTaskService } from "./session/offPeakTask.js";
 import type { HighspeedMockScenario } from "@zcode/shared";
@@ -628,6 +627,7 @@ import {
 import {
   BROKER_SOCKET_ENV,
   BROKER_UNAVAILABLE_ENV,
+  buildCuaStatusLaunchOpenArgs,
   createCuaPipSessionService,
   createCuaProductMcpServerResolver,
   createProductCuaHelperHost,
@@ -1849,23 +1849,13 @@ export function createLocalServices(options: {
     }
   };
 
-  // 按需启动：拉起 standalone Helper（稳定 socket）。dev 场景（本 Helper 构建内嵌 dev
-  // policy）成对带 unsigned-launcher/external-escape argv，让 ad-hoc 签名的本进程也能过
-  // 签名门查询；产品 Helper 不嵌 dev policy，这对 argv 无效（产品签名天然过 Team 门）。
-  // 拉起后轮询 ping（5s/100ms），就绪返回 socket 路径，否则 null。
+  // 按需启动：拉起 standalone Helper（稳定 socket）。拉起后轮询 ping（5s/100ms），
+  // 就绪返回 socket 路径，否则 null。
   //
-  // dev 判定直接用上游的 isCuaLocalDevelopmentRuntime（@zcode/zcode-cua/broker/server，
-  // 即本文件已经用来 import buildHelperOpenArgs 的那个 subpath，可正常导入）。
-  //
-  // 行为等价性（别误读成安全加固）：上游是 `COMPILED_LOCAL_DEVELOPMENT_RUNTIME &&
-  // ZCODE_RUNTIME_ENV!=="production"`，而那个编译期常量只有 scripts/build-cua-helper-app.mjs
-  // 会用 define 折叠（Helper bundle）；desktop host bundle 没有该 define，于是回退成
-  // `process.env.NODE_ENV !== "production"` —— 正是复制品写的那一项。所以在**当前**打包形态下
-  // 两者逐字等价，关门靠的是 ZCODE_RUNTIME_ENV=production（打包态显式注入且不传 NODE_ENV）。
-  //
-  // 换成上游的收益是消除漂移面：折叠点、因子个数与 fail-closed 方向都由上游一处决定，
-  // 哪天 host bundle 也补上 __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__ define（Helper 侧已经有），
-  // 编译期门自动生效，不需要再回来改这里。
+  // local-dev escape argv 由 buildCuaStatusLaunchOpenArgs 无条件携带（与 vendor
+  // launchHelperApp 同口径）：打包态 host 的 isCuaLocalDevelopmentRuntime 编译期折叠
+  // 恒 false，若按 dev 门传参，这条链会成为全链路唯一漏传点——patched helper 的 peer
+  // 三道门拒掉自家 host 的每个连接（2026-10-25 打包态真机实锤，见该函数与 spec §D 第 5 层）。
 
   const cuaStatusLaunchLog = createServiceLogger("cua-status-launch");
   const launchStandaloneCuaHelperForStatus = async (): Promise<string | null> => {
@@ -1897,13 +1887,10 @@ export function createLocalServices(options: {
     // Helper 启动参数统一由 buildHelperOpenArgs 构造，避免多处手写导致漏传或漂移。
     // 设置页只读权限探测不承载 PiP，不传 --launcher-pid 和 --pip-mode；
     // exit-log 使用 .settings.exit.log。新增参数应定义在 HelperLaunchSpec 中供调用方共用。
-    const args = buildHelperOpenArgs({
+    const args = buildCuaStatusLaunchOpenArgs({
       appPath,
       socketPath,
       exitLogPath: `${socketPath}.settings.exit.log`,
-      ...(isCuaLocalDevelopmentRuntime(process.env)
-        ? { allowUnsignedLauncherLocalDev: true, allowExternalBrokerClientLocalDev: true }
-        : {}),
     });
     try {
       await promisify(execFile)("/usr/bin/open", args, { timeout: 5_000 });

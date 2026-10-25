@@ -38,9 +38,18 @@ const scriptDir = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = resolve(scriptDir, "..");
 const repoRoot = resolve(desktopRoot, "..", "..");
 
-const HELPER_APP_NAME = "ZCode Computer Use.app";
+const HELPER_APP_NAME = "ZCodium Computer Use.app";
+// staging 源件名：官方 CDN/本机官方 app 里的原始目录名（staged 中间态沿用，rename 在 patch 后做）。
+const SOURCE_HELPER_APP_NAME = "ZCode Computer Use.app";
 // 与 runtimes/zcode-cua vendor 的 HELPER_TEAM_ID 一致；上游 Developer ID 是唯一可用信任源。
 const HELPER_TEAM_ID = "8A5X4JJ39T";
+// fork 改名（2026-10-25，§B）：Helper 身份与官方 ZCode 彻底分离。TCC 按 bundle id 存键，
+// 官方与 fork 共享 dev.zcode.cua-helper 时同名同图标互相踩授权（拖拽撞行、reset 互清）。
+// 新 id 必须与旧 id 等长（20 字节）：Helper 是单文件 SEA，变长 patch 会错位 Mach-O 段偏移
+// （codesign strict validation 直接失败，真机实测）；等长替换沿用 local-dev 补丁的确定性 cdhash 语义。
+const HELPER_BUNDLE_ID = "dev.zcodium.computer";
+const HELPER_BUNDLE_ID_SOURCE = "dev.zcode.cua-helper";
+const HELPER_DISPLAY_NAME = "ZCodium Computer Use";
 // pin 的官方版本：官方 CDN 目前最新为 3.14.4（3.14.5+ 是本 fork 自己的版本号，CDN 404）。
 // helper 的 buildId/短版本从产物读出，不随 pin 手抄；换 pin 无需改其他代码。
 const DEFAULT_SOURCE_APP_VERSION = "3.14.4";
@@ -169,6 +178,44 @@ function patchBytesOnce(data, pattern, replacement, label) {
   ]);
 }
 
+// 身份改名的 bundle id 替换是全量替换：常量定义、dev 变体前缀、自报 subject 等多处
+// 共用同一字面量，只换第一处会让 Set 校验与自报身份不一致。等长替换不改变文件布局。
+function patchBytesAll(data, pattern, replacement, label) {
+  if (pattern.length !== replacement.length) {
+    throw new Error(`[prepare:cua-helper] ${label} 替换必须等长（SEA/Mach-O 段偏移不可变）`);
+  }
+  const count = data.split(pattern).length - 1;
+  if (count === 0) {
+    if (data.includes(replacement)) return { data, count: 0 };
+    throw new Error(`[prepare:cua-helper] helper 二进制里找不到 ${label} 字面量，上游结构变了，拒绝盲patch`);
+  }
+  return { data: data.replaceAll(pattern, replacement), count };
+}
+
+// fork 改名（2026-10-25，§B）：bundle id 与显示名与官方 ZCode 的 Helper 彻底分离。
+// - bundle id 等长 patch 二进制内全部字面量（含 dev 变体前缀，同步变为 dev.zcodium.computer.dev）；
+//   这是 TCC 身份键，也是 Helper 内 CUA_HELPER_BUNDLE_IDS 本地开发门的成员来源，
+//   plist 与二进制必须同时改，否则 subject 不在集合内、tokenless 启动直接退出。
+// - 显示名/CFBundleIdentifier 走 plist（长度自由）；可执行文件名保持官方原名（CFBundleExecutable 不动）。
+// 调用方必须在 patch 后重新 adhoc 签名（patchHelperLocalDevGate 的 re-sign 覆盖本步骤）。
+function patchHelperIdentity(stagedAppPath) {
+  const binPath = join(stagedAppPath, "Contents", "MacOS", SOURCE_HELPER_APP_NAME.slice(0, -4));
+  let data = readFileSync(binPath);
+  const { data: patched, count } = patchBytesAll(
+    data,
+    Buffer.from(HELPER_BUNDLE_ID_SOURCE),
+    Buffer.from(HELPER_BUNDLE_ID),
+    "bundle id",
+  );
+  data = patched;
+  writeFileSync(binPath, data);
+  const plist = join(stagedAppPath, "Contents", "Info.plist");
+  runCommand("/usr/bin/plutil", ["-replace", "CFBundleIdentifier", "-string", HELPER_BUNDLE_ID, plist]);
+  runCommand("/usr/bin/plutil", ["-replace", "CFBundleDisplayName", "-string", HELPER_DISPLAY_NAME, plist]);
+  runCommand("/usr/bin/plutil", ["-replace", "CFBundleName", "-string", HELPER_DISPLAY_NAME, plist]);
+  return { bundleIdReplacements: count };
+}
+
 function patchHelperLocalDevGate(helperAppPath) {
   // SEA 内嵌 JS 是明文，可直接按字节替换（与 install.sh 的 python 补丁一致，长度不变）。
   const binPath = join(helperAppPath, "Contents", "MacOS", "ZCode Computer Use");
@@ -207,10 +254,16 @@ async function prepareDarwinHelper(target) {
   try {
     let sourceAppPath;
     if (localSourceApp) {
-      sourceAppPath = join(localSourceApp, "Contents", "Resources", "cua-helper", HELPER_APP_NAME);
+      sourceAppPath = join(
+        localSourceApp,
+        "Contents",
+        "Resources",
+        "cua-helper",
+        SOURCE_HELPER_APP_NAME,
+      );
       if (!existsSync(sourceAppPath)) {
         throw new Error(
-          `[prepare:cua-helper] ZCODE_CUA_HELPER_LOCAL_APP=${localSourceApp} 下没有 ${HELPER_APP_NAME}`,
+          `[prepare:cua-helper] ZCODE_CUA_HELPER_LOCAL_APP=${localSourceApp} 下没有 ${SOURCE_HELPER_APP_NAME}`,
         );
       }
       console.log(`[prepare:cua-helper] staging helper from local app: ${localSourceApp}`);
@@ -234,10 +287,10 @@ async function prepareDarwinHelper(target) {
         "Contents",
         "Resources",
         "cua-helper",
-        HELPER_APP_NAME,
+        SOURCE_HELPER_APP_NAME,
       );
       if (!existsSync(sourceAppPath)) {
-        throw new Error(`[prepare:cua-helper] 发布 zip 中没有 ${HELPER_APP_NAME}`);
+        throw new Error(`[prepare:cua-helper] 发布 zip 中没有 ${SOURCE_HELPER_APP_NAME}`);
       }
     }
 
@@ -253,8 +306,9 @@ async function prepareDarwinHelper(target) {
     }
 
     assertHelperSignature(stagedAppPath);
-    // 先对 pristine Developer-ID 件验明正身（TeamID），再打 local-dev 补丁并 adhoc 重签——
+    // 先对 pristine Developer-ID 件验明正身（TeamID），再改身份、打 local-dev 补丁并一并 adhoc 重签——
     // ZCodium 的 adhoc 外壳无法通过 stock helper 的 launcher 信任门（见 patchHelperLocalDevGate 注释）。
+    const identity = patchHelperIdentity(stagedAppPath);
     patchHelperLocalDevGate(stagedAppPath);
     const { buildId, helperVersion } = readHelperIdentity(stagedAppPath);
     writeFileSync(stagedBuildIdFile, `${buildId}\n`);
@@ -267,6 +321,9 @@ async function prepareDarwinHelper(target) {
           patchedLocalDev: true,
           sourceAppVersion: localSourceApp ? "local-app" : appVersion,
           teamIdentifier: HELPER_TEAM_ID,
+          bundleId: HELPER_BUNDLE_ID,
+          displayName: HELPER_DISPLAY_NAME,
+          bundleIdReplacements: identity.bundleIdReplacements,
         },
         null,
         2,

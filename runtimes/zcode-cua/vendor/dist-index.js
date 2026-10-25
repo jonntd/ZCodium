@@ -6964,9 +6964,9 @@ var HELPER_GHOST_CURSOR_CAPTURE_ARG;
 var init_helperConstants = __esm({
   "src/broker/helperConstants.ts"() {
     "use strict";
-    HELPER_APP_NAME = "ZCode Computer Use.app";
+    HELPER_APP_NAME = "ZCodium Computer Use.app";
     DEV_HELPER_APP_NAME = "ZCode Computer Use Dev.app";
-    HELPER_BUNDLE_ID = "dev.zcode.cua-helper";
+    HELPER_BUNDLE_ID = "dev.zcodium.computer";
     DEV_CUA_HELPER_BUNDLE_ID = "dev.zcode.cua-helper.dev";
     HELPER_TEAM_ID = "8A5X4JJ39T";
     LAUNCHER_PID_ENV = "ZCODE_CUA_LAUNCHER_PID";
