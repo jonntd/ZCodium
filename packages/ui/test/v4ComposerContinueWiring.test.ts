@@ -14,6 +14,25 @@ import { composerScopeKey, resolveComposerScope } from "@/v4/composer/composerDr
 import { useComposerAttachmentUploadStore } from "@/store/composerAttachmentUploadStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 
+// ui 测试环境不提供 localStorage（composerDraftStore 持久化会读写），与
+// agentToolCallBlock.test.ts 同口径用 Map 桩，beforeEach 的 clear() 才不挂。
+const localStorageState = new Map<string, string>();
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: {
+    getItem: (key: string) => localStorageState.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      localStorageState.set(key, value);
+    },
+    removeItem: (key: string) => {
+      localStorageState.delete(key);
+    },
+    clear: () => {
+      localStorageState.clear();
+    },
+  },
+});
+
 type EditorProps = ComponentProps<typeof ChatPromptEditor>;
 const h = vi.hoisted(() => ({ editor: null as EditorProps | null, text: "", mounts: 0 }));
 vi.mock("@/prompt-editor/ChatPromptEditor.js", () => ({
