@@ -5,7 +5,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { computeMergeImpact, parseNameStatus } from "./merge-main-impact-check.mjs";
+import {
+  classifyOverlap,
+  computeMergeImpact,
+  parseNameStatus,
+} from "./merge-main-impact-check.mjs";
 
 const execFile = promisify(execFileCallback);
 
@@ -78,6 +82,52 @@ describe("parseNameStatus", () => {
 });
 
 describe("computeMergeImpact", () => {
+  it("交集文件命中 fork 定制登记表时点名定制点；absent 标记以出现为命中", async () => {
+    // electron-builder.config.js 在登记表里挂了 dmg-install-guide（两条正向标记）
+    // 与 github-update-provider（一条正向标记）：标记出现 → 报告点名 id。
+    // http.ts 的去遥测是 absent 标记：上游实现回流（processResourceTelemetry 出现）
+    // 才算命中，健康态（不含）不得误报——正向与反向的命中语义在这里钉死。
+    const overlap = await classifyOverlap({
+      incomingFiles: new Map([
+        ["packages/desktop/electron-builder.config.js", "M"],
+        ["packages/server/src/http.ts", "M"],
+        ["packages/ui/src/lib/taskListMetaSync.ts", "M"],
+      ]),
+      localFiles: new Map([
+        ["packages/desktop/electron-builder.config.js", "M"],
+        ["packages/server/src/http.ts", "M"],
+        ["packages/ui/src/lib/taskListMetaSync.ts", "M"],
+      ]),
+      readHeadFile: async (path) => {
+        if (path === "packages/server/src/http.ts") {
+          return "export function processResourceTelemetry() {}";
+        }
+        if (path === "packages/ui/src/lib/taskListMetaSync.ts") {
+          return "export function otherHelper() {}";
+        }
+        return [
+          'background: "build/dmg_background.png",',
+          'provider: "github",',
+          "contents: [{ x: 150, y: 120 }],",
+        ].join("\n");
+      },
+    });
+
+    const byPath = new Map(overlap.map((item) => [item.path, item]));
+    const dmgEntry = byPath.get("packages/desktop/electron-builder.config.js");
+    expect(dmgEntry.forkCustomized).toBe(true);
+    expect(dmgEntry.forkCustomizations).toEqual(
+      expect.arrayContaining(["dmg-install-guide", "github-update-provider"]),
+    );
+    const telemetryEntry = byPath.get("packages/server/src/http.ts");
+    expect(telemetryEntry.forkCustomized).toBe(true);
+    expect(telemetryEntry.forkCustomizations).toEqual(["de-telemetry-baseline"]);
+    // 健康文件（登记标记均未出现）不因登记表接入而误报。
+    const healthyEntry = byPath.get("packages/ui/src/lib/taskListMetaSync.ts");
+    expect(healthyEntry.forkCustomized).toBe(false);
+    expect(healthyEntry.forkCustomizations).toEqual([]);
+  });
+
   it("识别双方同路径改动，并按 fork 定制标记区分高危项", async () => {
     const dir = initRepo();
     commitFeatureBranch(dir);

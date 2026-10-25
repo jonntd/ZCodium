@@ -1,0 +1,119 @@
+{
+  "$comment": "fork 定制登记表：merge:impact（scripts/merge-main-impact-check.mjs）用它把命中的交集文件标成最高危并点名定制点；scripts/fork-customization-guard.test.mjs 用它断言每个定制点在 HEAD 的存活状态。新增 fork 定制时的动作：先写 spec，再在此登记一条（contains 选上游不会无意写出的稳定标记串），守护测试自动生效。",
+  "customizations": [
+    {
+      "id": "dmg-install-guide",
+      "title": "DMG 安装引导布局与解除拦截说明文件",
+      "spec": "packages/desktop/specs/macos-dmg-installation.md",
+      "guardTest": "packages/desktop/test/dmgInstallGuideLayout.test.ts",
+      "markers": [
+        {
+          "file": "packages/desktop/electron-builder.config.js",
+          "contains": "build/dmg/解除拦截.txt"
+        },
+        { "file": "packages/desktop/electron-builder.config.js", "contains": "{ x: 150, y: 120 }" }
+      ]
+    },
+    {
+      "id": "fork-app-identity",
+      "title": "应用身份（正式档兜底名 ZCodium，独立 userData/单实例锁）",
+      "spec": "packages/desktop/specs/fork-app-identity.md（随 PR #4 提供）",
+      "pending": "PR #4 未合并：合并前官方 ZCode 运行时 ZCodium 拿不到单实例锁会静默退出",
+      "markers": [
+        { "file": "packages/desktop/src/main/desktopRuntimeEnv.ts", "contains": ": \"ZCodium\");" }
+      ]
+    },
+    {
+      "id": "github-update-provider",
+      "title": "自动更新源指向 fork 的 GitHub Releases",
+      "spec": "packages/desktop/scripts/update-feed-target.mjs",
+      "markers": [
+        {
+          "file": "packages/desktop/electron-builder.config.js",
+          "contains": "provider: \"github\""
+        }
+      ]
+    },
+    {
+      "id": "de-telemetry-baseline",
+      "title": "去遥测基线（上游采集能力位不得回流）",
+      "spec": "packages/server/src/http.ts（能力位注释，c1797dba）",
+      "markers": [
+        {
+          "file": "packages/server/src/http.ts",
+          "contains": "processResourceTelemetry",
+          "absent": true
+        }
+      ]
+    },
+    {
+      "id": "relay-access-panel",
+      "title": "中继/远控弹层形态（RemoteRelayAccessPanel）",
+      "spec": "docs/spec/vps-relay-bridge.md",
+      "markers": [
+        {
+          "file": "packages/ui/src/WebRemoteControlDialog.tsx",
+          "contains": "RemoteRelayAccessPanel"
+        }
+      ]
+    },
+    {
+      "id": "builtin-provider-source",
+      "title": "内置 Provider 事实源 zcode-builtin.json（去智谱化 CDN 配置源）",
+      "spec": "scripts/builtin-provider-config.mjs",
+      "markers": [
+        { "file": "scripts/builtin-provider-config.mjs", "contains": "zcode-builtin.json" }
+      ]
+    },
+    {
+      "id": "guarded-bash-approval",
+      "title": "guarded bash 只读与批量删除审批",
+      "spec": "packages/shared/src/zcode-protocol/index.ts",
+      "markers": [{ "file": "packages/shared/src/zcode-protocol/index.ts", "contains": "批量删除" }]
+    },
+    {
+      "id": "builtin-system-prompt-source",
+      "title": "内置系统提示词唯一来源（shared）",
+      "spec": "packages/shared/src/system-prompt-segments.ts",
+      "markers": [
+        {
+          "file": "packages/shared/src/system-prompt-segments.ts",
+          "contains": "SYSTEM_PROMPT_SEGMENT_IDS"
+        }
+      ]
+    },
+    {
+      "id": "workspace-task-cache",
+      "title": "workspace 感知的任务列表缓存与移除助手",
+      "spec": "packages/ui/src/lib/taskListMetaSync.ts",
+      "markers": [
+        {
+          "file": "packages/ui/src/lib/taskListMetaSync.ts",
+          "contains": "removeTaskFromTaskCaches"
+        }
+      ]
+    },
+    {
+      "id": "audit-login-badge",
+      "title": "审计版登录区文案（未登录显示应用名，无官方账户体系）",
+      "spec": "packages/ui/src/WorkspaceSidebarFooter.tsx",
+      "markers": [
+        {
+          "file": "packages/ui/src/WorkspaceSidebarFooter.tsx",
+          "contains": "getSidebarProfileBadge"
+        }
+      ]
+    },
+    {
+      "id": "vendored-plugin-roots",
+      "title": "VENDORED_PLUGIN_ROOT_CANDIDATES 包源",
+      "spec": "apps/zcode-cli/packages/bootstrap/src/app/official-plugin-definitions.ts",
+      "markers": [
+        {
+          "file": "apps/zcode-cli/packages/bootstrap/src/app/official-plugin-definitions.ts",
+          "contains": "VENDORED_PLUGIN_ROOT_CANDIDATES"
+        }
+      ]
+    }
+  ]
+}

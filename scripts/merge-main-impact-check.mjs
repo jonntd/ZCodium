@@ -24,6 +24,7 @@
 // 被覆盖」的高危场景（例如同名文件双方都改、fork 标记被上游版本冲掉）。
 
 import { execFile as execFileCallback, spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
@@ -31,6 +32,23 @@ const execFile = promisify(execFileCallback);
 // fork 身份/定制标记：交集中任一文件在当前分支版本里含有这些内容，即视为
 // 「上游不知道本分支定制、合并方向以对方为准时会丢」的高危文件。大小写不敏感。
 const FORK_MARKERS = [/zcodium/i, /解除拦截/];
+
+// fork 定制登记表：与 scripts/fork-customization-guard.test.mjs 共用同一份事实源。
+// 交集文件命中登记标记 → 报告点名定制点 id；守护测试则断言标记在 HEAD 的存活状态，
+// 让「合并/再基线冲掉定制」在 CI 就炸，而不是等打包后由用户发现（v3.15.1 事故）。
+const FORK_CUSTOMIZATION_REGISTRY = JSON.parse(
+  readFileSync(new URL("./fork-customizations.json", import.meta.url), "utf8"),
+);
+// Map<文件路径, Array<{ contains, absent?, id }>>：正向标记出现 = 定制在场（被上游覆盖会丢）；
+// absent 标记出现 = 定制已被冲掉（上游实现回流）。两种命中在影响报告里都是最高危信号。
+const FORK_FILE_MARKERS = new Map();
+for (const customization of FORK_CUSTOMIZATION_REGISTRY.customizations) {
+  for (const marker of customization.markers ?? []) {
+    const entries = FORK_FILE_MARKERS.get(marker.file) ?? [];
+    entries.push({ ...marker, id: customization.id });
+    FORK_FILE_MARKERS.set(marker.file, entries);
+  }
+}
 
 export const ACK_ENV = "ZCODE_MERGE_IMPACT_ACK";
 const DEFAULT_REF = "origin/main";
@@ -64,11 +82,17 @@ export async function classifyOverlap({ incomingFiles, localFiles, readHeadFile 
     const localStatus = localFiles.get(path);
     if (localStatus === undefined) continue;
     const headFile = await readHeadFile(path);
+    // 登记标记命中判定：contains 在 HEAD 内容中出现即命中——正向标记代表定制在场
+    // （被上游覆盖会丢），absent 标记代表定制已被冲掉（上游实现回流）。
+    const registryHits = (FORK_FILE_MARKERS.get(path) ?? []).filter((marker) =>
+      headFile.includes(marker.contains),
+    );
     overlap.push({
       path,
       incomingStatus,
       localStatus,
-      forkCustomized: hasForkMarker(headFile),
+      forkCustomized: hasForkMarker(headFile) || registryHits.length > 0,
+      forkCustomizations: [...new Set(registryHits.map((marker) => marker.id))],
     });
   }
   return overlap;
@@ -112,9 +136,10 @@ function formatReport({
     return lines;
   }
   lines.push(`[merge-impact] 双方同时改动（冲突/覆盖风险）${overlap.length} 个：`);
-  for (const { path, incomingStatus, localStatus, forkCustomized } of overlap) {
+  for (const { path, incomingStatus, localStatus, forkCustomized, forkCustomizations } of overlap) {
     const tags = [`对方:${incomingStatus}`, `本分支:${localStatus}`];
     if (forkCustomized) tags.push("含 fork 定制标记");
+    if (forkCustomizations?.length > 0) tags.push(`定制点:${forkCustomizations.join("、")}`);
     lines.push(`  ! ${path}  [${tags.join(" + ")}]`);
   }
   lines.push(

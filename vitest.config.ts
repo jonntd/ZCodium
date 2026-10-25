@@ -144,6 +144,8 @@ export default defineConfig({
             "packages/services/src/gen-ui/**/*.test.ts",
             "scripts/assert-safe-cua-helper-zip.test.mjs",
             "scripts/ci/ci-telemetry-keyword-guard.test.mjs",
+            // fork 定制登记表守护：上游同步冲掉定制时 CI 直接红（docs/merge-main-impact-check.md）。
+            "scripts/fork-customization-guard.test.mjs",
             // 合并 main 影响评估（docs/merge-main-impact-check.md）在临时 git 仓库上做集成回归。
             "scripts/merge-main-impact-check.test.mjs",
           ],
