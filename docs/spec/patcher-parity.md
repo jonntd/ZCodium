@@ -42,10 +42,23 @@
 ## 4. 继续按钮（--continue-btn）
 
 - **行为**：把本地化文案（zh「继续」/en「Continue"）追加到当前草稿（已有草稿时空格
-  拼接，不丢原文），随后走与原生发送按钮完全相同的 `submit()` 通路。
+  拼接，不丢原文，`buildComposerContinueText`），随后走与原生发送按钮完全相同的
+  `submit()` 通路。
+- **启用门禁与回滚（2026-10-25 bugfix）**：按钮启用条件 = 发送键 `canSend` 去掉
+  「有草稿可发」一项（`canComposerContinueSend`：disabled / pending /
+  routingAllowsSend / submissionReady / attachmentsReady，与 `submit()` 准入完全
+  一致）；门禁不过时点击与快捷键都不填入。此前按钮无门禁，先填入后调 `submit()`，
+  而 `submit()` 对 pending（上次发送在途）/ 未就绪 / 附件未传完的静默 early-return
+  会把已填入的合成文案留在输入框，连点即「继续 继续」叠加，某次放行后整串还会被
+  当作一条消息发出。为此 `submit()` 补齐结果合同：`sent` / `blocked` /
+  `confirmationRequired` / `rejected`（准入 early-return 与附件预传失败）/
+  `failed`（未捕获异常）；返回非 `sent` 且非 `confirmationRequired` 时，若等待期间
+  编辑器正文仍等于本次填入串（用户未再输入），回滚本次合成的「继续」到点击前草稿
+  （`shouldRollbackComposerContinueDraft`）。`confirmationRequired` 不回滚：队列
+  确认框的两个按钮基于已填入正文重新 submit，回滚会让确认动作提交空文本。
 - **所有权**：草稿事实源仍是 composer 的 `textRef`/Lexical 编辑器与 composerDraftStore；
-  按钮不维护第二份草稿状态。生成中排队、权限锁定、CommandInbox admission 全部交给
-  应用自身判断，按钮不做额外守卫。
+  按钮不维护第二份草稿状态。门禁只对齐 `submit()` 自身的准入，不新增业务守卫；
+  生成中排队、权限锁定、CommandInbox admission 仍全部交给应用自身判断。
 - **快捷键**：Cmd/Ctrl+Shift+J，仅在焦点位于 composer 内时生效（事件冒泡天然限定
   作用域）；composer `disabled` 期间不生效——与按钮本体同一门槛，键盘不得绕过
   队列认领等禁用态（bugfix：曾只在按钮上设 disabled，快捷键路径未判）。

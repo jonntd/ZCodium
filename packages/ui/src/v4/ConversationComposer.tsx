@@ -130,6 +130,12 @@ import {
 } from "@/v4/composer/composerAutoFocus.js";
 import { V4_DRAFT_SCOPE_ROOT, type V4ComposerDraft } from "@/v4/composer/composerDraftStore.js";
 import {
+  buildComposerContinueText,
+  canComposerContinueSend,
+  shouldRollbackComposerContinueDraft,
+  type ComposerSubmitOutcome,
+} from "@/v4/composer/composerContinueAction.js";
+import {
   resolveOppositeFollowupDelivery,
   resolveFollowupModifierTooltip,
   shouldEnableModifiedEnterSubmit,
@@ -1164,6 +1170,15 @@ function ConversationComposerImpl({
     routingAllowsSend &&
     attachmentsReady &&
     submissionReady;
+  // 继续按钮启用门禁 = 发送键 canSend 去掉「有草稿可发」一项（「继续」文案由按钮
+  // 自身提供），其余项与 submit() 准入完全一致；拒绝态下不填入。
+  const continueCanSend = canComposerContinueSend({
+    disabled,
+    pending,
+    routingAllowsSend,
+    submissionReady,
+    attachmentsReady,
+  });
   // 旧 UI 状态机：streaming + 空草稿 → Stop；有草稿 → 发送键（入队）。
   const showStopControl = canStop && !hasDraftToSubmit;
 
@@ -1176,7 +1191,7 @@ function ConversationComposerImpl({
       heldQueueDisposition?: "clearQueueAndSend" | "keepQueueAndSend",
       expectedHeldQueueItemIds?: readonly string[],
       requestedDelivery?: "startNow" | "queue" | "guide",
-    ) => {
+    ): Promise<ComposerSubmitOutcome> => {
       const trimmed = textRef.current.trim();
       const submittedQueueItemIds =
         snapshotRef.current?.queue.items.map((item) => item.queueItemId) ?? [];
@@ -1210,7 +1225,7 @@ function ConversationComposerImpl({
         (createSubmissionFromComposer !== undefined && submission === null) ||
         attachmentsApi.hasUnreadyAttachments
       ) {
-        return;
+        return "rejected";
       }
       pendingRef.current = true;
       setPending(true);
@@ -1270,7 +1285,7 @@ function ConversationComposerImpl({
         // 二次门禁：只消费预传完成的 ref，不在点击发送时回落上传。
         const readyAttachmentRefs = await attachmentsApi.prepareForSend();
         if (readyAttachmentRefs === null) {
-          return;
+          return "rejected";
         }
         // 外部上下文不走协议附件；按 selection -> code comment -> web -> PPTX 的固定尾块顺序
         // 序列化，历史 user row 才能按相反顺序无损解析并隐藏内部 prompt block。
@@ -1339,7 +1354,7 @@ function ConversationComposerImpl({
           // 同时不 clear editor/draft/附件，让用户切换模式后可以直接重试。
           rollbackPromptHistory();
           restoreSubmittedDraft();
-          return;
+          return "blocked";
         }
         if (sendResult === "confirmationRequired") {
           rollbackPromptHistory();
@@ -1352,7 +1367,7 @@ function ConversationComposerImpl({
             queueItemIds:
               latestQueueItemIds.length > 0 ? latestQueueItemIds : submittedQueueItemIds,
           });
-          return;
+          return "confirmationRequired";
         }
         setHeldQueueConfirmation(null);
         // 暂存内容只有在发送成功后才移交给 task；失败仍保留为可重试草稿。
@@ -1375,11 +1390,13 @@ function ConversationComposerImpl({
         // 发送成功：清本次提交捕获的 scope 草稿；prompt history 已在真实发送前同步写盘，
         // 避免首发 promote 丢失或误清 promotion 后的新 scope。
         finalizeSubmittedDraft();
+        return "sent";
       } catch (error) {
         rollbackPromptHistory();
         restoreSubmittedDraft();
         // 发送失败草稿保留在输入框（不清空），仅记录原因。
         logger.warn(`[v4-composer] 发送失败: ${String(error)}`);
+        return "failed";
       } finally {
         pendingRef.current = false;
         setPending(false);
@@ -1504,12 +1521,40 @@ function ConversationComposerImpl({
     [scheduleDraftPersist, updateText],
   );
   const handleContinue = useCallback(() => {
-    const draft = textRef.current.trim();
+    // 门禁用 ref 与 submit() 准入同步判定（pending 等都是 submit 的同步 early-return
+    // 项），不过门不填入——bugfix：此前无门禁先填后发，submit() 静默拒绝时已填入的
+    // 合成文案留在输入框，连点即「继续 继续」叠加，放行后整串还会被当作一条消息发出。
+    if (
+      !canComposerContinueSend({
+        disabled,
+        pending: pendingRef.current,
+        routingAllowsSend,
+        submissionReady,
+        attachmentsReady,
+      })
+    ) {
+      return;
+    }
+    const draft = textRef.current;
     const continueText = intl.formatMessage({ id: "chat.composer.continue.text" });
-    const next = draft ? `${draft} ${continueText}` : continueText;
+    const next = buildComposerContinueText(draft, continueText);
     handleReplaceComposerDraft(next);
-    void submit();
-  }, [handleReplaceComposerDraft, intl, submit]);
+    void submit().then((outcome) => {
+      // 非 sent/confirmationRequired（rejected/blocked/failed）时回滚本次合成的
+      // 「继续」；等待期间用户已再输入（正文不再是本次填入串）则以用户输入为准。
+      if (shouldRollbackComposerContinueDraft(outcome) && textRef.current === next) {
+        handleReplaceComposerDraft(draft);
+      }
+    });
+  }, [
+    attachmentsReady,
+    disabled,
+    handleReplaceComposerDraft,
+    intl,
+    routingAllowsSend,
+    submissionReady,
+    submit,
+  ]);
 
   // ✨增强 run 注册面：按钮挂载后把自己 run 递上来，Ctrl+/ 快捷键经此触发。
   const enhanceRunRef = useRef<(() => void) | null>(null);
@@ -2107,7 +2152,7 @@ function ConversationComposerImpl({
             size="default"
             data-testid="v4-composer-continue-button"
             aria-label={continueLabel}
-            disabled={disabled}
+            disabled={!continueCanSend}
             onClick={handleContinue}
             className="h-7 w-fit justify-center rounded-lg px-1.5 py-1.5 text-ui-base"
           >
@@ -2134,6 +2179,7 @@ function ConversationComposerImpl({
       activeConfigPicker,
       backgroundWorkOpenTarget,
       canStop,
+      continueCanSend,
       continueLabel,
       disabled,
       draftConfig,
