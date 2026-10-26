@@ -237,9 +237,13 @@ async function main(): Promise<void> {
     );
   }
 
-  const appVersion = (
+  const packageVersion = (
     JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as { version: string }
   ).version;
+  // 与 stageRemoteAssetsCli 相同：CI 预发布的完整版本通过 ZCODE_APP_VERSION 注入。
+  // 只读 package.json 会让 runtime manifest 的 appVersion 与安装包版本不一致，
+  // 客户端远端版本检查会拒绝这次发布。
+  const appVersion = process.env.ZCODE_APP_VERSION?.trim() || packageVersion;
   const [agentBundlePath, nodeBinaryPath] = await Promise.all([
     ensureAgentBundle(repoRoot, argv.includes("--skip-agent-build")),
     ensureNodeBinary(repoRoot, target),

@@ -919,8 +919,28 @@ export default {
       // 实验性调整：为隐藏资源文件显式指定图标坐标，尽量把它们移到角落区域。
       { x: 640, y: 56, type: "file", path: ".background.tiff" },
       { x: 640, y: 56, type: "file", path: ".VolumeIcon.icns" },
-      { x: 130, y: 220 },
-      { x: 410, y: 220, type: "link", path: "/Applications" },
+      // 以下坐标与 build/dmg_background.png（620x560）上的图形一一对应，不能回退到
+      // electron-builder 的默认布局 (130,220)/(410,220)：背景从 y≈190 起是安装说明文字，
+      // 默认坐标会把应用图标和 Applications 链接压在文字上。2026-10 的上游同步（de5923d1）
+      // 曾整体覆盖 dmg.contents，导致 1.17.0 的 DMG 文字被图标遮挡、说明文件也一起丢失。
+      // 调整背景图时必须同步修改这里的坐标，electronBuilderDmgLayout.test.ts 会守护该契约。
+      { x: 150, y: 120 },
+      { x: 470, y: 120, type: "link", path: "/Applications" },
+      // 背景上的两个箭头分别指向两个说明文件的落点。安装包没有签名，首次打开会被
+      // Gatekeeper 拦截，用户需要从这两个文件复制解除命令，因此它们必须随 DMG 分发。
+      // path 用绝对路径，避免 dmgbuild 依赖工作目录解析。
+      {
+        x: 170,
+        y: 370,
+        type: "file",
+        path: resolve(desktopPackageRoot, "build/dmg/解除拦截.txt"),
+      },
+      {
+        x: 450,
+        y: 370,
+        type: "file",
+        path: resolve(desktopPackageRoot, "build/dmg/Unblock.txt"),
+      },
     ],
   },
   nsis: {

@@ -112,6 +112,22 @@ describe("remote asset staging CLI", () => {
     expect(collect).toHaveBeenCalledWith(expect.objectContaining({ targets: allTargets }));
   });
 
+  it("stages the CI audit version injected through ZCODE_APP_VERSION", async () => {
+    // 修复原因：只读 package.json 时远端资源写到基础版本目录，发布链路随后找不到
+    // releases/<tag 版本>，预发布 job 在 Build GitHub release layout 步骤失败。
+    vi.stubEnv("ZCODE_APP_VERSION", "1.17.1-audit.20261026");
+    await runCli(["--linux"]);
+
+    expect(begin).toHaveBeenCalledWith({
+      versionReleaseDir: expect.stringContaining(
+        "/packages/desktop/mock-cdn/releases/1.17.1-audit.20261026",
+      ),
+    });
+    expect(collect).toHaveBeenCalledWith(
+      expect.objectContaining({ version: "1.17.1-audit.20261026" }),
+    );
+  });
+
   it("rejects invalid Linux environments before invalidating or building", async () => {
     vi.stubEnv("ZCODE_ENV", "invalid");
     await expect(runCli(["--linux"])).rejects.toThrow(/Invalid ZCODE_ENV/);

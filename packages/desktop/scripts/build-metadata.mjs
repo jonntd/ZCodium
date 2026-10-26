@@ -84,7 +84,11 @@ export function collectBuildMetadata() {
   const desktopPackageJson = readJson(resolve(desktopDir, "package.json"));
 
   return {
-    appVersion: normalizeVersion(rootPackageJson.version),
+    // CI 发布时把完整 tag 版本（如 1.17.1-audit.20261026）通过 ZCODE_APP_VERSION 注入，
+    // 安装包文件名与应用版本都会带上审计序号；本地构建回退到 package.json 版本。
+    // 修复原因：2026-10 上游同步（06e0b728）删掉了这行注入，预发布构建的元数据仍写
+    // 基础版本，release 校验会报 "Metadata version mismatch"，产物名也缺少审计序号。
+    appVersion: normalizeVersion(process.env.ZCODE_APP_VERSION?.trim() || rootPackageJson.version),
     minCompatibleVersion: normalizeVersion(
       rootPackageJson.zcodeCompatibility?.minCompatibleVersion ?? rootPackageJson.version,
     ),

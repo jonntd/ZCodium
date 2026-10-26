@@ -2,6 +2,12 @@
 
 本索引从 v1.17.0 起维护；不补造此前版本的发布历史。每版完整说明在 `docs/releases/`，GitHub Release 使用对应版本文件作为正文。
 
+## v1.17.1
+
+补丁发行：修复 macOS DMG 图标压住安装说明文字、`解除拦截.txt` / `Unblock.txt` 未随包分发的问题，并恢复发布构建的 `ZCODE_APP_VERSION` 注入。详见[完整发布说明](docs/releases/v1.17.1.md)。
+
+Patch release: restores the DMG layout and bundled unblock notes, and fixes release version injection. See the [release notes](docs/releases/v1.17.1.md).
+
 ## v1.17.0
 
 [#79](https://github.com/ZCodium-project/ZCodium/issues/79) 功能更新：本地同项目多目录、主要目录和文件/能力来源；草稿隔离与冷恢复修复；GenUI、完整视图、自有 Source、插件后台/文档、消息呈现及所有 roots 配置与工作流归属。

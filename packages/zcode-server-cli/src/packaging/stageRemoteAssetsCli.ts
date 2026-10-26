@@ -41,9 +41,13 @@ async function main(): Promise<void> {
   }
   const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
   const repoRoot = resolve(packageRoot, "../..");
-  const { version } = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
-    version: string;
-  };
+  const { version: packageVersion } = JSON.parse(
+    await readFile(join(repoRoot, "package.json"), "utf8"),
+  ) as { version: string };
+  // CI 预发布通过 ZCODE_APP_VERSION 注入完整审计版本（如 1.17.1-audit.20261026）。
+  // 只读 package.json 会把远端资源写到基础版本目录，publish-remote-assets 找不到
+  // releases/<tag 版本>，2026-10 的 1.17.1 预发布构建即因此失败。
+  const version = process.env.ZCODE_APP_VERSION?.trim() || packageVersion;
   const versionReleaseDir = join(repoRoot, "packages/desktop/mock-cdn/releases", version);
   await beginSourceServerRemoteReleaseGeneration({ versionReleaseDir });
   await run("pnpm", ["--filter", "@zcode/server-cli", "build"], repoRoot, env);
