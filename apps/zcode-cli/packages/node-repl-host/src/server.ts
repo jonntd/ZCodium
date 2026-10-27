@@ -374,11 +374,86 @@ export function captureComputerUseRuntimeFromEnvironment(
 ): ComputerUseRuntime | undefined {
   const socketPath = env.ZCODE_CUA_PERMISSION_BROKER_SOCKET?.trim();
   if (!socketPath) return undefined;
+  const recipe = parseWindowsHelperRecipe(env);
   return createComputerUseRuntime({
     brokerSocketPath: socketPath,
     refreshMarkerPath: env.ZCODE_CUA_PERMISSION_BROKER_REFRESH_MARKER?.trim(),
+    // win32 懒启动（lazy-startup spec §9.2-D2）：vendor 默认的 ensureStandaloneHelperLaunched
+    // 只认 darwin 的 .app/LaunchServices 形态，win32 直接 return，SDK 首调永远不会拉起
+    // Helper（2026-10-27 Windows 实机验证）。services 在 spawn env 里注入的
+    // ZCODE_CUA_WIN_HELPER_RECIPE（entryPath/command/root/addonPath/commandEnv/hostPid）
+    // 此前零消费者，这里补上消费端：按 recipe fork Helper 绑定 socketPath，
+    // 与产品托管 host（windowsCuaDevHelperHost）同一 argv/env/IPC 形态。
+    ...(recipe ? { ensureBrokerAvailable: () => launchWindowsHelperFromRecipe(recipe, socketPath) } : {}),
   });
 }
+
+interface WindowsHelperRecipe {
+  command: string;
+  entryPath: string;
+  root: string;
+  addonPath: string;
+  commandEnv: Record<string, string>;
+  hostPid: number;
+}
+
+function parseWindowsHelperRecipe(env: NodeJS.ProcessEnv): WindowsHelperRecipe | undefined {
+  const raw = env["ZCODE_CUA_WIN_HELPER_RECIPE"]?.trim();
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as Partial<WindowsHelperRecipe> | null;
+    if (
+      !parsed ||
+      typeof parsed.command !== "string" ||
+      typeof parsed.entryPath !== "string" ||
+      typeof parsed.root !== "string" ||
+      typeof parsed.addonPath !== "string" ||
+      typeof parsed.hostPid !== "number" ||
+      !Number.isSafeInteger(parsed.hostPid) ||
+      parsed.hostPid <= 0 ||
+      typeof parsed.commandEnv !== "object" ||
+      parsed.commandEnv === null
+    ) {
+      return undefined;
+    }
+    return {
+      command: parsed.command,
+      entryPath: parsed.entryPath,
+      root: parsed.root,
+      addonPath: parsed.addonPath,
+      commandEnv: parsed.commandEnv,
+      hostPid: parsed.hostPid,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+async function launchWindowsHelperFromRecipe(
+  recipe: WindowsHelperRecipe,
+  socketPath: string,
+): Promise<void> {
+  // ensure 钩子在 broker_unavailable 重试环上运行且有 5s 冷却；fork 失败本身会被
+  // 重试环吞掉再试，这里不额外做重试与超时，保持与 vendor ensureStandaloneHelperLaunched
+  // 同等的「尽力拉起」语义。
+  const { fork } = await import("node:child_process");
+  const { HELPER_ADDON_ENV } = await import("@zcode/zcode-cua/broker/server");
+  const child = fork(recipe.entryPath, ["--socket", socketPath, "--parent-pid", String(recipe.hostPid)], {
+    cwd: recipe.root,
+    execPath: recipe.command,
+    env: {
+      ...process.env,
+      ...recipe.commandEnv,
+      ELECTRON_RUN_AS_NODE: "1",
+      [HELPER_ADDON_ENV]: recipe.addonPath,
+    },
+    stdio: ["ignore", "ignore", "ignore", "ipc"],
+  });
+  child.unref();
+}
+
+// 仅供单测驱动 fork 行为（argv/env 契约）；生产路径走 captureComputerUseRuntimeFromEnvironment。
+export const __launchWindowsHelperFromRecipeForTest = launchWindowsHelperFromRecipe;
 
 function isWorkerCallData(value: unknown): value is WorkerCallData {
   if (!value || typeof value !== "object") return false;

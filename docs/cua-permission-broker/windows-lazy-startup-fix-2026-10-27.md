@@ -41,12 +41,30 @@ MCP 仍连不上，除非绑定从插件宿主进程内存中扫出的随机管�
   `refresh()` 放宽到 `supportsLocalWindowsWorkspace`——进设置页电脑控制区即经
   `getStatus` 拉起 helper，输入框入口隐藏的用户也有启动路径；TCC 权限行仍仅 macOS 渲染。
 
-### D2：producer 侧 win32 ensure 分支（producer 仓库，待办）
+### D2：win32 ensure 分支消费 recipe（node-repl-host）
 
-随包 producer 补齐 spec §3.3 的 win32 fork 分支，消费已注入的 recipe。本仓以
-`packages/services/test/agentProxyEnv.test.ts` 的 wiring 断言锁定契约（键名
-`ZCODE_CUA_WIN_HELPER_RECIPE`、JSON 字段 entryPath/command/root/addonPath/commandEnv/
-hostPid、argv 形态），producer 落地后人工兜底脚本可退役。
+最初判定为「producer 仓库待办」，后续核实纠正：`ensureStandaloneHelperLaunched`
+只是 `createComputerUseRuntime` 的**默认** ensure 值，调用方传入
+`ensureBrokerAvailable` 即可覆盖；真正的调用方
+`node-repl-host` 的 `captureComputerUseRuntimeFromEnvironment` 就在本仓（vendor
+产物 `runtimes/zcode-cua/vendor/dist-index.js` 与其同源，均 git 跟踪）。实现
+（`apps/zcode-cli/packages/node-repl-host/src/server.ts`）：
+
+- 解析 spawn env 里的 `ZCODE_CUA_WIN_HELPER_RECIPE`（键名与 JSON 字段
+  entryPath/command/root/addonPath/commandEnv/hostPid，畸形值静默回退 vendor 默认，
+  不阻塞 darwin 链路）；
+- ensure 钩子按 recipe fork Helper：argv `--socket <稳定管道名> --parent-pid <hostPid>`
+  （helper 侧严格四参校验）、`cwd=root`、`execPath=command`、env 带
+  `ELECTRON_RUN_AS_NODE=1` 与 `HELPER_ADDON_ENV`（native addon 路径），形态与产品
+  托管 host（`windowsCuaDevHelperHost.startGeneration`）同构；
+- fork 后不等待 `transport_ready`/`ready`：Helper bind 后 SDK 的 warmup 重试环自然
+  连上，90s claim TTL 由首调 `broker_info` 解除；fork 失败由重试环（5s 冷却）兜底，
+  与 vendor darwin 路径「尽力拉起」语义一致。
+
+生产/消费两侧契约由两侧单测各锁一端：services 侧 `agentProxyEnv.test.ts`（注入
+形态），node-repl-host 侧 `test/win32-recipe-ensure.test.ts`（消费形态）。bundle
+经 `scripts/build.mjs`（alias 到 `runtimes/zcode-cua` 真实现）重建并过 stub-marker
+守卫与加载 smoke。
 
 ## 验证
 
@@ -56,7 +74,11 @@ hostPid、argv 形态），producer 落地后人工兜底脚本可退役。
     稳定 / reset 跟随）；
   - `packages/ui/test/computerUseSectionWindowsWiring.test.tsx`（win32 path 非空 / 开关
     触发 refresh / TCC 行不渲染 / macOS 行为不变）；
+  - `apps/zcode-cli/packages/node-repl-host/test/win32-recipe-ensure.test.ts`（ensure
+    wiring 挂接 / fork argv-env 契约 / recipe 畸形静默回退 / socket 缺失不 capture）；
   - `agentProxyEnv.test.ts` 追加 spawn env wiring 断言。
+- node-repl-host bundle 重建后 stub-marker 为 0、模块加载 smoke 通过；
+  `test/bundle-smoke.test.ts` 中 1 项为存量失败（干净树上同样失败，与本次无关）。
 - Windows 实机回归（待补，spec §9.3）：MC-5'（首调自拉）、MC-9'（设置页拉起）、
   MC-11（重启后 pipe 名不变）。
 

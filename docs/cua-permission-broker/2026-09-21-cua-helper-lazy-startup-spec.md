@@ -330,10 +330,16 @@ Windows 实机全链路验证（ZCodium v1.17.x 安装包，真实 producer 随�
 `resolveSpawnEnv` 与探测处 darwin/win32 的平台分叉顺势抹平（统一
 `getStableCuaPipeName()`）。铸随机名分支保留：CLI 直跑等未注入场景仍是合法回退。
 
-**D2 producer 侧 win32 ensure 分支按 §3.3 原设计补齐**（随包 producer pin bump 后
-消费 `ZCODE_CUA_WIN_HELPER_RECIPE` fork helper）。该改动在 producer 仓库，本仓只
-锁契约：recipe 键名、JSON 字段（entryPath/command/root/addonPath/commandEnv/hostPid）
-与 argv 形态不变；services 侧单测按 recipe 契约断言注入值。D1/D3 的落地范围与验证
+**D2 producer 侧 win32 ensure 分支按 §3.3 原设计补齐**（消费
+`ZCODE_CUA_WIN_HELPER_RECIPE` fork helper）。已在本仓落地：消费点不在「外部 producer
+仓库」，而在 `node-repl-host` 的 `captureComputerUseRuntimeFromEnvironment`——vendor
+的 `ensureStandaloneHelperLaunched` 只是 `createComputerUseRuntime` 的**默认**
+ensure 值，调用方传入 `ensureBrokerAvailable` 即可覆盖。实现按 recipe fork Helper
+（argv `--socket/--parent-pid`、`ELECTRON_RUN_AS_NODE`、`HELPER_ADDON_ENV`，与产品
+托管 host 同构），fork 后不等待 ready，由 SDK warmup 重试环 + broker_info claim 收口
+（90s claim TTL 由首调解除）。recipe 键名、JSON 字段
+（entryPath/command/root/addonPath/commandEnv/hostPid）与 argv 形态为消费/生产两侧
+的锁定契约，services 与 node-repl-host 两侧单测各断言一端。D1/D3 的落地范围与验证
 结果见 [Windows 懒启动修复记录](./windows-lazy-startup-fix-2026-10-27.md)。
 
 **D3 设置页 win32 触发链接通。** `ComputerUseSection` 的 `path` 门控与开关后
@@ -345,8 +351,8 @@ granted 展示（身份模式无 token 门），授权引导 UI 仍仅 darwin �
 
 ### 9.3 补充验收
 
-- MC-5'（win32）：未注入稳定名的 CLI 直跑场景，首调铸随机名 → ensure 分支（producer
-  补齐后）按 recipe fork → 同名 pipe bind → 调用成功。
+- MC-5'（win32）：未注入稳定名的 CLI 直跑场景，首调铸随机名 → ensure 分支按 recipe
+  fork → 同名 pipe bind → 调用成功。
 - MC-9'（win32）：冷启 app → 进设置页电脑控制区 → Host fork helper → 权限真值
   （身份态）→ 杀 helper 后重进页面再次拉起。
 - MC-11（win32）：app 重启前后 pipe 名不变（`zcode-cua-helper-zcodium`），旧 Agent
