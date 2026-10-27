@@ -1806,8 +1806,9 @@ export function createLocalServices(options: {
   // 自启动（SDK 首调拉起）的 Helper。只 ping，绝不拉起；300ms 预算。probe 结果仅用于
   // 状态展示 / PiP 凭据发现；权限详情与 onboarding 仍走显式 host 流。
   const probeStableCuaHelperSocket = async (): Promise<string | null> => {
-    const socketPath =
-      process.platform === "win32" ? getStableCuaPipeName() : resolveBrokerSocketPath();
+    // 与 spawn env 同源（spec §9.2-D1）：getStableCuaPipeName 优先读恢复后的标准键，
+    // darwin 推导语义不变，win32 不再绕过共存层稳定名铸随机名。
+    const socketPath = getStableCuaPipeName();
     try {
       const { createConnection } = await import("node:net");
       return await new Promise<string | null>((resolve) => {
@@ -1950,8 +1951,10 @@ export function createLocalServices(options: {
   // §D/§E 观测点（docs/spec/cua-runtime-builtin.md）：host 进程内解析出的 broker socket。
   // probe/launch/agent env 全部以此为唯一事实源；历史上 main 注入失败时这里读到默认路径、
   // 全链路零日志只能靠 helper exit log 反推。每次 host 启动必打一条，直接暴露 env 覆盖是否穿透。
+  // 用 getStableCuaPipeName（与 probe/spawn env 同源）而非裸 vendor 解析，win32 才能反映
+  // 共存层稳定名收敛结果（spec §9.2-D1）。
   createServiceLogger("cua-pip-session").info(undefined, "[cua-permission] broker socket resolved", {
-    socketPath: resolveBrokerSocketPath(),
+    socketPath: getStableCuaPipeName(),
   });
   // Computer Use Helper macOS 权限状态服务：renderer 经 host RPC 查询当前 Helper 的运行态与权限，并在
   // 用户授权后从明确入口精确重启一次 Helper。重启**必须走 resolver.restart()**（不是裸 host.restart），
@@ -2092,12 +2095,9 @@ export function createLocalServices(options: {
       workspaceIdentity?: string,
       restartOptions?: CuaPermissionRestartOptions,
     ): Promise<CuaPermissionRestartResult> {
-      if (process.platform !== "darwin") {
-        return {
-          ok: false,
-          reason: "CUA permissions are only available on macOS.",
-        };
-      }
+      // win32 同样走 resolver.restart()（lazy-startup spec §9.2-D3）：Windows Helper 由
+      // 托管 host fork（WindowsCuaHelperHost），resolver 复用既有 socket/token 的语义
+      // 与 darwin 相同；唯一平台差异是 macPermissionHost 仅 darwin 存在。
       const context = workspacePath ? { workspacePath, workspaceIdentity } : undefined;
       // 与 getStatus 一致：插件关闭时不触碰现有 Helper，避免设置页动作改变已有 Agent runtime。
       if (
@@ -2113,10 +2113,15 @@ export function createLocalServices(options: {
       // 走 resolver.restart()，让 host 尽可能复用 transport；不得通过 disposeWorkspace
       // 重建正在运行的 Agent。
       const helper = await getOrCreateDefaultCuaProductHelper(context);
-      const resolver =
-        helper && helper.macPermissionHost && isDefaultCuaProductHelperCurrent(helper)
-          ? helper.resolver
-          : undefined;
+      // darwin 托管 host 只在授权流窗口存在（macPermissionHost）；win32 托管 host 恒可用
+      // （WindowsCuaHelperHost 懒解析，restart 触发首次 start()）。
+      const isManagedHostAvailable =
+        helper !== undefined &&
+        isDefaultCuaProductHelperCurrent(helper) &&
+        (process.platform === "darwin"
+          ? helper.macPermissionHost !== undefined
+          : process.platform === "win32");
+      const resolver = isManagedHostAvailable ? helper.resolver : undefined;
       if (!resolver) {
         return {
           ok: false,
@@ -2381,8 +2386,10 @@ export function createLocalServices(options: {
       const cuaPluginEnabled = isCuaEnabledForContext(context);
       let cuaProductHelperEnv: Record<string, string> = {};
       if (cuaPluginEnabled && (process.platform === "darwin" || process.platform === "win32")) {
-        const brokerSocket =
-          process.platform === "win32" ? getStableCuaPipeName() : resolveBrokerSocketPath();
+        // darwin/win32 统一走 getStableCuaPipeName：优先读恢复后的标准键（darwin 稳定
+        // socket 推导、win32 共存层稳定 pipe 名都经它注入），env 缺失时内部按平台回退。
+        // 旧 win32 分支直接铸随机名，与共存层稳定名分裂（spec §9.1.2），已收敛。
+        const brokerSocket = getStableCuaPipeName();
         cuaProductHelperEnv = {
           [BROKER_SOCKET_ENV]: brokerSocket,
           [ZCODE_CUA_PLUGIN_AUTHORITY_ENV_KEY]: randomBytes(16).toString("hex"),

@@ -2,8 +2,8 @@
 
 ## 状态
 
-- 状态：已实现（MR1/MR2 落地于 feat/cua-helper-lazy-startup + producer feat/win-lazy-fork@5bcdde06）；全部门禁绿（typecheck/lint/architecture/services 单测 3141）；darwin 实机 MC-1/2/3 与 Windows 全链路 MC-4~7/9 待实机验证
-- 日期：2026-09-21
+- 状态：已实现（MR1/MR2 落地于 feat/cua-helper-lazy-startup + producer feat/win-lazy-fork@5bcdde06）；全部门禁绿（typecheck/lint/architecture/services 单测 3141）；darwin 实机 MC-1/2/3 已验证；Windows 全链路 MC-4~7/9 实机验证发现断链（见 §九，2026-10-27 补录），修复见 §九
+- 日期：2026-09-21（§九 修订：2026-10-27）
 - 适用范围：Desktop Host（services）、Agent spawn/session 链路、zcode-cua SDK（producer）、
   Computer Use Helper
 - 平台：macOS 与 Windows；Linux 不在本规范范围
@@ -285,3 +285,70 @@ Agent(SDK)                                    Helper
 4. 按 [E2E 工作流](../../.agents/skills/e2e-case-lifecycle/SKILL.md)评估并更新
    desktop CUA E2E case catalog。
 5. 完成后运行第六节验证命令；无法实机验证的平台在 MR 列出风险与待补证据。
+
+## 九、Windows 实机验证结论与修订（2026-10-27）
+
+Windows 实机全链路验证（ZCodium v1.17.x 安装包，真实 producer 随包）确认 §七 风险 1
+与风险 2 同时兑现：懒启动链在 win32 上实际断裂，本文原设计的三条首调/状态触发者
+（§一.3）只有设置页 getStatus 一条在 win32 可达，且该条还因 UI 门控常年不通。
+
+### 9.1 实测断链事实（三处，全部已确认）
+
+1. **producer 侧 `ensureStandaloneHelperLaunched` 无 win32 分支生效**：随包
+   node-repl-host（0.6.1）首调兜底第一行为
+   `if (process.platform !== "darwin") return;`——win32 上 SDK 首调从不 fork Helper，
+   MC-5/MC-6 不成立。services 侧按 §3.3 注入的 `ZCODE_CUA_WIN_HELPER_RECIPE`
+   （`node.ts` resolveSpawnEnv）在仓库内无任何消费方：recipe 注入了但没人接，
+   是该分支缺失的镜像证据。
+2. **管道名双规范冲突（§E 共存层 vs 本文懒启动层）**：共存层
+   （`docs/spec/cua-runtime-builtin.md` §E）在 win32 写死稳定名
+   `\\.\pipe\zcode-cua-helper-zcodium` 经 `ZCODIUM_CUA_BROKER_SOCKET` 注入；
+   本文 §3.1 的 win32「稳定」语义是进程内铸名（`getStableCuaPipeName()` →
+   `mintBrokerSocketPath`，`\\.\pipe\zcode-cua-helper-<16hex>`，不读 env）。
+   分叉点在 `resolveSpawnEnv`/探测：darwin 用 `resolveBrokerSocketPath()`（读 env，
+   共存层值可达），win32 用 `getStableCuaPipeName()`（铸新名，忽略注入值）。于是
+   探测、spawn env、Host fork 三者用随机名自洽，共存层稳定名在 win32 CUA 链路上
+   是死值（仅日志仍在打印），把人工恢复引向稳定名后握手成功但 MCP 连不上。
+3. **设置页触发链不通**：win32 上 `supportsLocalMacWorkspace=false`，
+   `ComputerUseSection` 的 `path` 门控为 `null` → `useCuaPermissionStatus`
+   不查询；插件开关切换后的 `refresh()` 也仅对 `supportsLocalMacWorkspace` 执行。
+   状态页对 win32 的拉起路径（`launchWindowsCuaHelperForStatus`）因此一次都不跑。
+
+另实测确认两条**非产品缺陷**的边界：helper 90s 认领自退（`DEFAULT_STARTUP_CLAIM_TTL_MS`）
+与 peer 门 win32 未实现（`WINDOWS_PEER_IDENTITY_GATE_TEMPORARILY_OPEN` + 本地豁免 env）
+均按既有设计工作；会话非 Active（锁屏/远程断开）时 Graphics Capture 拿不到像素
+（Accessibility 树读写不受影响）属 OS 行为，写入文档不做修复。
+
+### 9.2 修订决策
+
+**D1 管道名收敛到共存层稳定名（win32）。**
+`\\.\pipe\zcode-cua-helper-zcodium` 的 `-zcodium` 后缀已实现跨安装隔离（随机段的原始
+动机），固定名同时让「Host 重建复用同名」（§四）自动成立，并消除 §9.1.2 的死值。
+实现：`getStableCuaPipeName()` 改为优先读恢复后的标准键
+`ZCODE_CUA_PERMISSION_BROKER_SOCKET`（host 侧 `restoreZCodiumCuaBrokerSocketEnv`
+已把 fork 键恢复成标准键，darwin 在 spawn env 处已同语义），取不到再回退铸随机名；
+`resolveSpawnEnv` 与探测处 darwin/win32 的平台分叉顺势抹平（统一
+`getStableCuaPipeName()`）。铸随机名分支保留：CLI 直跑等未注入场景仍是合法回退。
+
+**D2 producer 侧 win32 ensure 分支按 §3.3 原设计补齐**（随包 producer pin bump 后
+消费 `ZCODE_CUA_WIN_HELPER_RECIPE` fork helper）。该改动在 producer 仓库，本仓只
+锁契约：recipe 键名、JSON 字段（entryPath/command/root/addonPath/commandEnv/hostPid）
+与 argv 形态不变；services 侧单测按 recipe 契约断言注入值。D1/D3 的落地范围与验证
+结果见 [Windows 懒启动修复记录](./windows-lazy-startup-fix-2026-10-27.md)。
+
+**D3 设置页 win32 触发链接通。** `ComputerUseSection` 的 `path` 门控与开关后
+`refresh()` 放宽到 `supportsLocalMacWorkspace || supportsLocalWindowsWorkspace`；
+`cuaPermissionService.restartHelper` 删除 darwin-only 短路，win32 走与
+`launchWindowsCuaHelperForStatus` 同源的托管 host 重启（`resolver.restart()`，
+保凭据语义见 §二）。win32 无 TCC 状态语义：`permission_status` 返回的身份态按
+granted 展示（身份模式无 token 门），授权引导 UI 仍仅 darwin 渲染。
+
+### 9.3 补充验收
+
+- MC-5'（win32）：未注入稳定名的 CLI 直跑场景，首调铸随机名 → ensure 分支（producer
+  补齐后）按 recipe fork → 同名 pipe bind → 调用成功。
+- MC-9'（win32）：冷启 app → 进设置页电脑控制区 → Host fork helper → 权限真值
+  （身份态）→ 杀 helper 后重进页面再次拉起。
+- MC-11（win32）：app 重启前后 pipe 名不变（`zcode-cua-helper-zcodium`），旧 Agent
+  凭据在 Host 重建后仍可用。
+- 回归红线不变（§六）；win32 实机验证缺失即视为修复未完成。

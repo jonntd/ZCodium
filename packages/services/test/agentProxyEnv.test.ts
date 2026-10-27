@@ -259,4 +259,15 @@ describe("node.ts wires the authoritative origin into resolveSpawnEnv", () => {
       "buildAgentEndpointOriginEnv(await resolveCurrentZCodeEndpointOrigin())",
     );
   });
+
+  it("injects the windows helper recipe and mints the pipe name via the converged transport", () => {
+    // 2026-10-27 Windows 实机断链修复（lazy-startup spec §9.2-D1）：win32 的 spawn env
+    // 不再绕过共存层稳定名铸随机名（与探测/Host fork 分裂，MCP 连不上 helper），
+    // 统一走 getStableCuaPipeName；recipe 注入保持 §3.3 契约，等待 producer
+    // ensure 分支消费。这里锁定 wiring，防止平台分叉复活。
+    expect(spawnEnvBlock).toContain("const brokerSocket = getStableCuaPipeName();");
+    expect(spawnEnvBlock).not.toContain("resolveBrokerSocketPath()");
+    expect(spawnEnvBlock).toContain('cuaProductHelperEnv["ZCODE_CUA_WIN_HELPER_RECIPE"]');
+    expect(spawnEnvBlock).toContain("hostPid: process.pid");
+  });
 });

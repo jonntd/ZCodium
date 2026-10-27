@@ -1016,3 +1016,8 @@ exceptions:
     paths:
       - packages/ui/src/v4/composer/composerContinueAction.ts
     reason: 继续按钮的纯决策逻辑（拼接/门禁/回滚，docs/spec/patcher-parity.md §4），无宿主依赖可单测；接管 packages/ui/src/v4/composer 目录需要单独的模块边界重构。
+  - id: stable-cua-transport-unmanaged-file
+    rule: unmanaged-new-file
+    paths:
+      - packages/services/src/cua-permission-broker/stableCuaTransport.ts
+    reason: win32 稳定 pipe 名 singleton 与 fork recipe 解析（lazy-startup spec §3.1/§3.3，§9.2-D1 收敛 env 优先）；de5923d1 上游同步带入的存量文件落在尚未受管的 services/cua-permission-broker 目录，接管该目录需要单独的模块边界重构。
