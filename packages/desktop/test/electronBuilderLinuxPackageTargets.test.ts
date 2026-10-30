@@ -10,6 +10,14 @@ describe("electron-builder Linux 打包目标", () => {
     expect(desktopBuilderConfig.detectUpdateChannel).toBe(false);
   });
 
+  it("更新元数据指向公开 GitHub feed，而不是 localhost 占位", () => {
+    // #88：打包产物 app-update.yml 的 publish.url 曾被写成 localhost:8081，
+    // 运行时又漏了 setFeedURL，导致所有打包版无法检查更新。
+    expect(desktopBuilderConfig.publish?.url).toBe(
+      "https://github.com/ZCodium-project/ZCodium/releases/latest/download/",
+    );
+  });
+
   it("Linux 同时产出 AppImage、deb、rpm 与 pacman 安装包", () => {
     const targets = desktopBuilderConfig.linux?.target ?? [];
 

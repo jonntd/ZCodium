@@ -1990,6 +1990,11 @@ const enUS: Record<string, string> = {
   "updateDialog.releaseNotesExpand": "Show",
   "updateDialog.releaseNotesCollapse": "Hide",
   "updateDialog.downloadAndUpdate": "Download update",
+  "updateDialog.manualInstall": "Download and install manually",
+  "updateDialog.manualInstallOpenFailed":
+    "Could not open the download page. Try again, or visit ZCodium Releases on GitHub in your browser.",
+  "updateDialog.manualInstallDescription":
+    "This macOS build is unsigned and cannot be installed automatically. Visit the official Releases page to download the DMG for your architecture (Apple silicon or Intel), then quit the app and replace the installed application.",
   "updateDialog.cancelDownload": "Cancel download",
   "updateDialog.autoDownloadAndInstall": "Automatically download and install updates next time",
   "updateDialog.downloadingAction": "Downloading",

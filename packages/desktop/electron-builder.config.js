@@ -958,8 +958,9 @@ export default {
     // electron-updater 会因缺少 multipart/byteranges 直接回退整包下载。关闭 multiple range 后仍走差分，
     // 只是按单 Range 顺序拉取差异块，避免 Windows 用户更新时从约 15MB 退化成 300MB+ 全量包。
     useMultipleRangeRequest: false,
-    // 新客户端运行时使用服务端 manifest provider；这里仅保留 electron-builder 必需的
-    // generic publish 占位，避免打包产物继续携带可配置的旧 stable feed。
-    url: "http://localhost:8081",
+    // 打包产物里的 app-update.yml 必须与运行时默认 feed 一致；运行时仍会在
+    // initAutoUpdater 中显式 setFeedURL，但这里不能再写 localhost 占位，否则任何
+    // 读取 app-update.yml 的兜底路径都会把更新检查发到本机（#88）。
+    url: "https://github.com/ZCodium-project/ZCodium/releases/latest/download/",
   },
 };

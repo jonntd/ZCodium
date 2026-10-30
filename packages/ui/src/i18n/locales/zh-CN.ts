@@ -1851,6 +1851,11 @@ const zhCN: Record<string, string> = {
   "updateDialog.releaseNotesExpand": "查看",
   "updateDialog.releaseNotesCollapse": "收起",
   "updateDialog.downloadAndUpdate": "下载更新",
+  "updateDialog.manualInstall": "前往下载并手动安装",
+  "updateDialog.manualInstallOpenFailed":
+    "无法打开下载页面，请稍后重试，或在浏览器中访问 GitHub 的 ZCodium Releases。",
+  "updateDialog.manualInstallDescription":
+    "此 macOS 版本未签名，无法自动安装。请前往官方 Releases 下载对应架构（Apple 芯片或 Intel）的 DMG，退出应用后替换安装。",
   "updateDialog.cancelDownload": "取消下载",
   "updateDialog.autoDownloadAndInstall": "以后自动下载并安装更新",
   "updateDialog.downloadingAction": "下载中",

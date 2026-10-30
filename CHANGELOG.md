@@ -2,6 +2,12 @@
 
 本索引从 v1.17.0 起维护；不补造此前版本的发布历史。每版完整说明在 `docs/releases/`，GitHub Release 使用对应版本文件作为正文。
 
+## v1.17.2
+
+修复更新源指向 localhost 的问题；未签名 macOS 安装包改为明确提示并打开官方页面手动安装，不再承诺原生自动安装。包含 Windows 关闭窗口隐藏到托盘修复，以及 SQLite schema 只增门禁与 CI。详见[完整发布说明](docs/releases/v1.17.2.md)。
+
+Fixes the update feed and provides explicit manual-install guidance for unsigned macOS builds. Includes Windows close-to-tray repair and SQLite schema compatibility gates. See the [release notes](docs/releases/v1.17.2.md).
+
 ## v1.17.1
 
 补丁发行：修复 macOS DMG 图标压住安装说明文字、`解除拦截.txt` / `Unblock.txt` 未随包分发的问题，并恢复发布构建的 `ZCODE_APP_VERSION` 注入。详见[完整发布说明](docs/releases/v1.17.1.md)。

@@ -1,5 +1,5 @@
 /* eslint-disable max-lines -- autoUpdater 需要集中维护 Electron 事件、菜单状态与 IPC 交互，过度拆分会让更新状态流更难追踪 */
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
 import type { ISettingService } from "@zcode/services";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
@@ -25,6 +25,12 @@ const AUTO_UPDATE_POLL_INTERVAL_MS = 15 * 60 * 1000;
 const AUTO_UPDATE_VISIBLE_POLL_INTERVAL_MS = 2 * 60 * 1000;
 const UPDATE_FEED_URL_ENV = "ZCODE_UPDATE_FEED_URL";
 const UPDATE_FEED_URL_SWITCH = "--zcode-update-feed-url";
+// 运行时必须显式配置 generic feed；打包产物里的 app-update.yml 只是 electron-builder
+// 的构建占位，不能再作为实际更新源（#88：localhost 占位曾导致所有打包版检查更新失败）。
+const DEFAULT_UPDATE_FEED_URL =
+  "https://github.com/ZCodium-project/ZCodium/releases/latest/download/";
+const MANUAL_UPDATE_DOWNLOAD_URL = "https://github.com/ZCodium-project/ZCodium/releases/latest";
+let manualDownloadInFlight: Promise<void> | null = null;
 const DEV_AUTO_UPDATE_ENV = "ZCODE_AUTO_UPDATE_DEV";
 const DEV_AUTO_UPDATE_SWITCH = "--zcode-auto-update-dev";
 const DEV_AUTO_UPDATE_VERSION_ENV = "ZCODE_AUTO_UPDATE_DEV_VERSION";
@@ -50,7 +56,6 @@ let downloadingUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
 let downloadingUpdateChannel: ElectronReleaseChannel | null = null;
 let downloadCancellationToken: CancellationToken | null = null;
 let readyUpdateChannel: ElectronReleaseChannel | null = null;
-let pendingManifestReleaseChannelRefresh: ElectronReleaseChannel | null = null;
 let onBeforeQuitAndInstall: (() => void | Promise<void>) | undefined;
 const acknowledgedPostUpdateReleaseNotesVersions = new Set<string>();
 const cancelledDownloadTokens = new WeakSet<CancellationToken>();
@@ -155,6 +160,12 @@ function isDevAutoUpdateEnabled(): boolean {
 
 function canUseAutoUpdaterInCurrentRuntime(): boolean {
   return app.isPackaged || isDevAutoUpdateEnabled();
+}
+
+function requiresManualInstall(): boolean {
+  // #88：当前 macOS 正式发行未签名，Squirrel.Mac 不能自动安装。
+  // 不能只修好 feed 就继续向用户提供无法完成的“重启以更新”。
+  return app.isPackaged && process.platform === "darwin";
 }
 
 function shouldRelaunchForDevAutoUpdateInstall(): boolean {
@@ -264,23 +275,14 @@ function completeAutoUpdateCheck(reason: string, checkId: number | null): void {
   activeAutoUpdateCheckId = null;
   activeAutoUpdateCheckChannel = null;
   settlingAutoUpdateCheckId = null;
+  logger.debug(`[auto-update] ${reason}: check completed`);
 
-  const pendingChannel = pendingManifestReleaseChannelRefresh;
   const shouldRecheckFailedDownload = pendingFailedDownloadRecheck;
   pendingFailedDownloadRecheck = false;
-  if (shouldRecheckFailedDownload && !pendingChannel && !activeForceAutoUpdateListener) {
+  if (shouldRecheckFailedDownload && !activeForceAutoUpdateListener) {
     // 下载失败发生在本次检查收口前。等标记清掉后再查一次，避免复查被进行中的检查直接丢掉。
     queueMicrotask(() => recheckAfterDownload?.("download-failed"));
   }
-  if (!pendingChannel) {
-    return;
-  }
-
-  pendingManifestReleaseChannelRefresh = null;
-  refreshAutoUpdaterReleaseChannel(
-    pendingChannel === "preview",
-    `${reason} pending release channel refresh`,
-  );
 }
 
 function finishAutoUpdateCheck(reason: string, checkId: number | null): void {
@@ -351,6 +353,7 @@ function buildUpdateAvailableState(
     enabled: true,
     version,
     channel,
+    ...(requiresManualInstall() ? { manualInstall: true } : {}),
     ...(releaseNotes ? { releaseNotes } : {}),
   };
 }
@@ -407,6 +410,11 @@ function buildDownloadProgressState(
 }
 
 async function quitAndInstallUpdate(rejectUnavailable = false) {
+  if (requiresManualInstall()) {
+    // 防御旧 renderer/缓存重放安装命令：手动安装模式绝不退出或交给原生安装器。
+    if (rejectUnavailable) throw new Error("This macOS release requires manual installation.");
+    return;
+  }
   if (
     menuState.kind === "update-downloaded" &&
     readyUpdateVersion &&
@@ -727,28 +735,22 @@ export function resolveUpdateFeedSourceFromStartupConfig(
     : undefined;
 }
 
-async function resolveUpdateReleaseChannel(
-  settingService: SettingServiceLike | undefined,
-): Promise<ElectronReleaseChannel> {
-  if (!settingService) {
-    return "stable";
-  }
-
-  try {
-    const settings = await settingService.get();
-    return settings.receivePreviewUpdates === true ? "preview" : "stable";
-  } catch (error) {
-    logger.warn("[auto-update] read preview update setting failed:", error);
-    return "stable";
-  }
+function applyGenericUpdateProvider(options: InitAutoUpdaterOptions): void {
+  const url = options.updateFeedSource?.url.trim() || DEFAULT_UPDATE_FEED_URL;
+  // 每次 init 都重新设置 feed，避免 electron-updater 回退读取打包时的 app-update.yml 占位。
+  autoUpdater.setFeedURL({
+    provider: "generic",
+    url,
+    channel: "latest",
+    useMultipleRangeRequest: false,
+  });
+  logger.info(`[auto-update] generic provider applied url=${redactUpdateFeedUrlForLog(url)}`);
 }
 
-async function syncAutoUpdateCheckChannelFromSettings(
-  checkId: number,
-  settingService: SettingServiceLike | undefined,
-  reason: string,
-): Promise<void> {
-  const nextChannel = await resolveUpdateReleaseChannel(settingService);
+function syncStableAutoUpdateCheckChannel(checkId: number, reason: string): void {
+  // #88：generic provider 只读取 latest。旧 preview 偏好若改变逻辑通道，
+  // 会把稳定更新误标为 preview，连跳过版本也查询到错误的存储 key。
+  const nextChannel: ElectronReleaseChannel = "stable";
   if (activeAutoUpdateCheckId !== checkId) {
     return;
   }
@@ -758,8 +760,6 @@ async function syncAutoUpdateCheckChannelFromSettings(
       `[auto-update] ${reason}: check channel ${availableUpdateChannel} -> ${nextChannel}`,
     );
   }
-  // 服务端 manifest provider 会在 checkForUpdates 内部读取 preview 设置。
-  // 如果 begin 阶段仍用默认 stable 作为 expected channel，冷启动 preview 结果会被误判为 stale。
   availableUpdateChannel = nextChannel;
   activeAutoUpdateCheckChannel = nextChannel;
 }
@@ -1085,6 +1085,7 @@ async function isSkippedUpdateVersion(
 async function shouldAutoDownloadAndInstallUpdates(
   settingService: SettingServiceLike | undefined,
 ): Promise<boolean> {
+  if (requiresManualInstall()) return false;
   if (!settingService) {
     return false;
   }
@@ -1213,6 +1214,15 @@ export function downloadAvailableUpdate(reason = "renderer") {
     return;
   }
 
+  if (requiresManualInstall()) {
+    // 固定官方地址，不使用更新清单/renderer 提供的 URL；后台偏好不能自动打开浏览器。
+    if (reason !== "renderer") return;
+    manualDownloadInFlight ??= shell.openExternal(MANUAL_UPDATE_DOWNLOAD_URL).finally(() => {
+      manualDownloadInFlight = null;
+    });
+    return manualDownloadInFlight;
+  }
+
   downloadingUpdateVersion = menuState.version;
   downloadingUpdateReleaseNotes = menuState.releaseNotes ?? availableUpdateReleaseNotes;
   downloadingUpdateChannel = menuState.channel ?? availableUpdateChannel;
@@ -1321,6 +1331,7 @@ export async function hydratePendingPostUpdateReleaseNotes(settingService: Setti
   }
 
   if (
+    !requiresManualInstall() &&
     pendingPostUpdateReleaseNotes &&
     isPendingReleaseNotesForFutureVersion(pendingPostUpdateReleaseNotes)
   ) {
@@ -1338,7 +1349,7 @@ export async function hydratePendingPostUpdateReleaseNotes(settingService: Setti
 }
 
 export function syncReadyUpdateToWindow(win: BrowserWindow) {
-  if (!readyUpdateVersion || win.isDestroyed()) {
+  if (requiresManualInstall() || !readyUpdateVersion || win.isDestroyed()) {
     return;
   }
 
@@ -1359,55 +1370,11 @@ export function refreshAutoUpdaterReleaseChannel(
   receivePreviewUpdates: boolean,
   reason = "settings receivePreviewUpdates changed",
 ) {
-  const nextChannel: ElectronReleaseChannel = receivePreviewUpdates ? "preview" : "stable";
-
-  if (!canUseAutoUpdaterInCurrentRuntime()) {
-    logger.info(`[auto-update] skip ${reason}: not packaged`);
-    return;
-  }
-
-  if (menuState.kind === "download-progress" || menuState.kind === "update-downloaded") {
-    logger.info(`[auto-update] skip ${reason}: state=${menuState.kind} channel=${nextChannel}`);
-    return;
-  }
-
-  if (checkForUpdatesInFlight) {
-    // 用户可能在启动检查尚未完成时切换 preview 开关。
-    // 不能立刻改 availableUpdateChannel，否则旧请求返回时会把旧通道的版本标成新通道；
-    // 这里只记录待刷新通道，等当前 check 收口后再重新请求 manifest。
-    pendingManifestReleaseChannelRefresh = nextChannel;
-    logger.info(
-      `[auto-update] defer ${reason}: check already in flight, next channel=${nextChannel}`,
-    );
-    return;
-  }
-
-  const currentChannel = getAutoUpdaterReleaseChannelForCurrentState();
-  if (currentChannel === nextChannel) {
-    logger.info(`[auto-update] skip ${reason}: channel unchanged (${nextChannel})`);
-    return;
-  }
-
-  logger.info(
-    `[auto-update] ${reason}: refresh manifest channel ${currentChannel} -> ${nextChannel}`,
+  // 保留设置同步接口，但稳定 feed 不提供 preview 更新；切换偏好不能清空
+  // 已展示目标、干扰正在下载的版本或额外发起一次相同 latest 请求。
+  logger.debug(
+    `[auto-update] ${reason}: stable-only feed ignores preview=${receivePreviewUpdates}`,
   );
-  availableUpdateChannel = nextChannel;
-  clearAvailableUpdateState();
-  setAutoUpdaterMenuState({ kind: "checking", enabled: false });
-  const checkId = beginAutoUpdateCheck();
-  autoUpdater
-    .checkForUpdates()
-    .catch((err) => {
-      logger.error(`[auto-update] ${reason} check failed:`, err);
-      setAutoUpdaterMenuState(
-        readyUpdateVersion
-          ? buildUpdateDownloadedState(readyUpdateVersion)
-          : { kind: "idle", enabled: true },
-      );
-    })
-    .finally(() => {
-      finishAutoUpdateCheck(reason, checkId);
-    });
 }
 
 export function syncAutoUpdaterStateToWindow(win: BrowserWindow) {
@@ -1492,7 +1459,6 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   activeAutoUpdateCheckId = null;
   activeAutoUpdateCheckChannel = null;
   settlingAutoUpdateCheckId = null;
-  pendingManifestReleaseChannelRefresh = null;
   devAutoUpdateVersionOverride = null;
   availableUpdateChannel = "stable";
   clearAvailableUpdateState();
@@ -1510,6 +1476,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   // 由 before-quit 主动安装，避免目标已经升高后退出装上旧包。
   autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.logger = logger;
+  applyGenericUpdateProvider(options);
   // #50：legacy 3.x 安装必须允许一次“降级”到 fork 1.x 版本线，否则 electron-updater
   // 会在发出 update-available 之前按 semver 过滤掉 1.x 迁移包。新 1.x 安装仍禁止降级。
   const currentUpdateVersion = semver.coerce(getCurrentAppVersionForUpdate());
@@ -1532,7 +1499,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
     const checkId = beginAutoUpdateCheck();
     const checkForUpdatesPromise = options.settingService
       ? (async () => {
-          await syncAutoUpdateCheckChannelFromSettings(checkId, options.settingService, reason);
+          syncStableAutoUpdateCheckChannel(checkId, reason);
           await autoUpdater.checkForUpdates();
         })()
       : autoUpdater.checkForUpdates();
@@ -1677,6 +1644,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   });
 
   autoUpdater.on("download-progress", (progress) => {
+    if (requiresManualInstall()) return;
     // 用户快速取消下载后，electron-updater 可能还会补发旧下载流的 progress。
     // 如果继续接收这个陈旧事件，UI 会从“可更新”被重新推回“下载中”，看起来像取消后卡住。
     if (!downloadCancellationToken || downloadCancellationToken.cancelled) {
@@ -1709,6 +1677,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   });
 
   autoUpdater.on("update-downloaded", (info: UpdateDownloadedInfoLike) => {
+    if (requiresManualInstall()) return;
     readyUpdateVersion = info.version;
     readyUpdateRestoredFromPendingReleaseNotes = false;
     readyUpdateChannel = downloadingUpdateChannel ?? availableUpdateChannel;
@@ -1774,9 +1743,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
   ipcMain.on(PlatformChannels.QuitAndInstallUpdate, () => {
     void quitAndInstallUpdate();
   });
-  ipcMain.handle(PlatformChannels.DownloadUpdate, () => {
-    downloadAvailableUpdate("renderer");
-  });
+  ipcMain.handle(PlatformChannels.DownloadUpdate, () => downloadAvailableUpdate("renderer"));
   ipcMain.handle(PlatformChannels.CancelUpdateDownload, () => {
     cancelDownloadingUpdate("renderer");
   });

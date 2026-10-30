@@ -13,10 +13,14 @@ async function load(relative, imports = {}) {
     compilerOptions: { module: ModuleKind.CommonJS },
   }).outputText;
   const exports = {};
-  new Function("require", "exports", output)((name) => {
-    assert.ok(name in imports, `unexpected runtime import: ${name}`);
-    return imports[name];
-  }, exports);
+  new Function("require", "exports", "process", output)(
+    (name) => {
+      assert.ok(name in imports, `unexpected runtime import: ${name}`);
+      return imports[name];
+    },
+    exports,
+    imports.runtimeProcess ?? process,
+  );
   return exports;
 }
 const logger = { info() {}, warn() {}, error() {}, debug() {} };
@@ -48,6 +52,14 @@ test("force guard never fetches, blocks or invokes callbacks", async () => {
 
 test("generic feed, overrides, manual check and native download/install remain wired", async () => {
   const updater = new EventEmitter();
+  const settings = {
+    receivePreviewUpdates: true,
+    skippedElectronUpdateVersions: { stable: "2.0.0" },
+  };
+  const settingService = {
+    get: async () => settings,
+    update: async (patch) => Object.assign(settings, patch),
+  };
   let checks = 0,
     downloads = 0,
     installs = 0,
@@ -74,8 +86,9 @@ test("generic feed, overrides, manual check and native download/install remain w
     webContents: { id: 1, send: (...args) => sent.push(args) },
   };
   const module = await load("autoUpdater", {
+    runtimeProcess: { ...process, platform: "win32" },
     electron: {
-      app: { isPackaged: true, getVersion: () => "1.0.0" },
+      app: { isPackaged: true, getVersion: () => "1.0.0", on: () => {} },
       BrowserWindow: { getAllWindows: () => [win], getFocusedWindow: () => win },
       Menu: { getApplicationMenu: () => null },
       ipcMain: { handle: (key, fn) => handlers.set(key, fn), on() {} },
@@ -97,6 +110,10 @@ test("generic feed, overrides, manual check and native download/install remain w
     },
     semver: { __esModule: true, default: require("semver") },
     "./logger.js": { logger },
+    // 加载真实版本比较模块，避免手写替身漏掉 legacy 版本线的规则。
+    "./autoUpdateVersion.js": await load("autoUpdateVersion", {
+      semver: { __esModule: true, default: require("semver") },
+    }),
   });
   assert.deepEqual(
     module.resolveUpdateFeedSourceFromStartupConfig({
@@ -118,6 +135,7 @@ test("generic feed, overrides, manual check and native download/install remain w
     );
   }
   await module.initAutoUpdater({
+    settingService,
     onBeforeQuitAndInstall: async () => {
       preparation++;
     },
@@ -126,17 +144,31 @@ test("generic feed, overrides, manual check and native download/install remain w
   assert.equal(configured.provider, "generic");
   assert.equal(configured.url, feed);
   assert.equal(configured.channel, "latest");
+  assert.equal(configured.useMultipleRangeRequest, false);
   assert.equal(checks, 1);
+  // #88：latest 只有 stable，preview 偏好不得发起重复检查或污染跳过版本的 key。
   module.refreshAutoUpdaterReleaseChannel(true);
+  await new Promise(setImmediate);
   assert.equal(checks, 1);
   module.requestForceAutoUpdate(() => assert.fail("no callback"))();
   assert.equal(checks, 1);
+  updater.emit("update-available", { version: "2.0.0" });
+  await new Promise(setImmediate);
+  assert.equal(module.getAutoUpdaterState().kind, "idle");
   module.checkForUpdateMenuClick(win);
   await new Promise(setImmediate);
   assert.equal(checks, 2);
+  assert.equal(settings.skippedElectronUpdateVersions.stable, undefined);
   updater.emit("update-available", { version: "2.0.0" });
   await new Promise(setImmediate);
   assert.equal(module.getAutoUpdaterState().kind, "update-available");
+  assert.equal(module.getAutoUpdaterState().channel, "stable");
+  await module.skipAvailableUpdateVersion("2.0.0", settingService);
+  assert.equal(settings.skippedElectronUpdateVersions.stable, "2.0.0");
+  assert.equal(settings.skippedElectronUpdateVersions.preview, undefined);
+  await settingService.update({ skippedElectronUpdateVersions: {} });
+  updater.emit("update-available", { version: "2.0.0" });
+  await new Promise(setImmediate);
   await handlers.get("DownloadUpdate")();
   assert.equal(downloads, 1);
   updater.emit("update-downloaded", { version: "2.0.0" });
@@ -176,4 +208,119 @@ test("built-in provider reads platform YAML and resolves release assets", async 
     assert.equal(requested, `${feed}latest${suffix}.yml`);
     assert.equal(provider.resolveFiles(info)[0].url.href, `${feed}app.zip`);
   }
+});
+
+test("packaged macOS offers manual installation without native downloads, ready replay or quit", async () => {
+  const updater = new EventEmitter();
+  const app = Object.assign(new EventEmitter(), {
+    isPackaged: true,
+    getVersion: () => "1.0.0",
+  });
+  let downloads = 0;
+  let installs = 0;
+  const opened = [];
+  let finishOpen;
+  let failOpen = false;
+  const handlers = new Map();
+  const settings = {
+    autoDownloadAndInstallUpdates: true,
+    receivePreviewUpdates: true,
+    pendingPostUpdateReleaseNotes: {
+      version: "2.0.0",
+      title: "Old cached download",
+      markdown: "Not a staged signed update",
+    },
+  };
+  const settingService = {
+    get: async () => settings,
+    update: async (patch) => Object.assign(settings, patch),
+  };
+  updater.setFeedURL = () => {};
+  updater.checkForUpdates = async () => {
+    updater.emit("checking-for-update");
+    updater.emit("update-available", { version: "2.0.0" });
+  };
+  updater.downloadUpdate = async () => {
+    downloads++;
+  };
+  updater.quitAndInstall = () => {
+    installs++;
+  };
+  const module = await load("autoUpdater", {
+    runtimeProcess: { ...process, platform: "darwin" },
+    electron: {
+      app,
+      shell: {
+        openExternal: (url) => {
+          opened.push(url);
+          return failOpen
+            ? Promise.reject(new Error("Cannot open browser"))
+            : new Promise((resolve) => {
+                finishOpen = resolve;
+              });
+        },
+      },
+      BrowserWindow: { getAllWindows: () => [], getFocusedWindow: () => null },
+      Menu: { getApplicationMenu: () => null },
+      ipcMain: { handle: (key, fn) => handlers.set(key, fn), on() {} },
+    },
+    "@zcode/shared": {
+      DEFAULT_LOCALE: "en-US",
+      ZCODE_VERSION: "1.0.0",
+      PlatformChannels: new Proxy({}, { get: (_, key) => key }),
+      desktopMenuMessageIds: {},
+      getDesktopMenuMessage: () => "",
+      formatDesktopMenuMessage: () => "",
+    },
+    "electron-updater": {
+      __esModule: true,
+      default: { autoUpdater: updater },
+      CancellationToken: class {
+        dispose() {}
+      },
+    },
+    semver: { __esModule: true, default: require("semver") },
+    "./logger.js": { logger },
+    "./autoUpdateVersion.js": await load("autoUpdateVersion", {
+      semver: { __esModule: true, default: require("semver") },
+    }),
+  });
+
+  await module.hydratePendingPostUpdateReleaseNotes(settingService);
+  assert.equal(module.getAutoUpdaterState().kind, "idle");
+  await module.initAutoUpdater({ settingService });
+  await new Promise(setImmediate);
+  assert.deepEqual(module.getAutoUpdaterState(), {
+    kind: "update-available",
+    version: "2.0.0",
+    enabled: true,
+    channel: "stable",
+    manualInstall: true,
+  });
+  assert.equal(downloads, 0);
+  assert.deepEqual(opened, []);
+  module.downloadAvailableUpdate("auto-download");
+  assert.deepEqual(opened, []);
+
+  const firstOpen = handlers.get("DownloadUpdate")();
+  const repeatedOpen = handlers.get("DownloadUpdate")();
+  assert.equal(firstOpen, repeatedOpen);
+  assert.deepEqual(opened, ["https://github.com/ZCodium-project/ZCodium/releases/latest"]);
+  finishOpen();
+  await firstOpen;
+  failOpen = true;
+  await assert.rejects(handlers.get("DownloadUpdate")(), /Cannot open browser/);
+  assert.equal(module.getAutoUpdaterState().manualInstall, true);
+  updater.emit("download-progress", { percent: 50 });
+  updater.emit("update-downloaded", { version: "2.0.0" });
+  assert.equal(module.getAutoUpdaterState().kind, "update-available");
+  module.syncReadyUpdateToWindow({
+    isDestroyed: () => false,
+    webContents: { send: () => assert.fail("manual mode must not replay UpdateReady") },
+  });
+  await assert.rejects(handlers.get("QuitAndInstallUpdate")(), /manual installation/);
+  app.emit("before-quit", { preventDefault: () => assert.fail("must not intercept quit") });
+  assert.equal(downloads, 0);
+  assert.equal(installs, 0);
+  await module.initAutoUpdater({ enabled: false });
 });

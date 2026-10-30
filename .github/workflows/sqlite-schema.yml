@@ -1,0 +1,48 @@
+name: SQLite schema compatibility
+
+on:
+  pull_request:
+    paths:
+      - "packages/services/src/**"
+      - "packages/shared/src/**"
+      - "apps/zcode-cli/packages/adapters/src/storage/**"
+      - "scripts/*sqlite-schema*"
+      - "scripts/test/sqlite-schema*"
+      - "package.json"
+      - "**/package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "patches/**"
+      - "mise.toml"
+      - ".github/workflows/sqlite-schema.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sqlite-schema-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 历史缺失不能当成首次引入基线；必须取到 PR 目标 commit 和 tree。
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Test schema contracts and Git baseline selection
+        run: node --test scripts/test/sqlite-schema-contract.test.mjs scripts/test/sqlite-schema-git.test.mjs
+      - name: Check both migrated schemas against PR base
+        env:
+          SQLITE_SCHEMA_BASE_REF: ${{ github.event.pull_request.base.sha }}
+        run: pnpm db:schema:check

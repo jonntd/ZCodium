@@ -25,6 +25,7 @@ export function UpdateStatusDialog({
   edgeToEdge = false,
   intl,
   isUpdateActionPending,
+  manualInstall = false,
   autoDownloadAndInstallUpdates,
   onAutoDownloadAndInstallUpdatesChange,
   onCancelDownload,
@@ -44,6 +45,7 @@ export function UpdateStatusDialog({
   edgeToEdge?: boolean;
   intl: IntlInstance;
   isUpdateActionPending: boolean;
+  manualInstall?: boolean;
   autoDownloadAndInstallUpdates: boolean;
   localizedUpdateReleaseNotes: LocalizedUpdateReleaseNotes | null;
   onAutoDownloadAndInstallUpdatesChange: (enabled: boolean) => Promise<void>;
@@ -61,9 +63,9 @@ export function UpdateStatusDialog({
   showOverlay?: boolean;
   skippableVersion: string | null;
 }) {
-  const isBeforeDownload = phase === "before-download";
-  const isDownloading = phase === "downloading";
-  const isDownloaded = phase === "downloaded";
+  const isBeforeDownload = manualInstall || phase === "before-download";
+  const isDownloading = !manualInstall && phase === "downloading";
+  const isDownloaded = !manualInstall && phase === "downloaded";
   const dialogTitleId = isDownloaded
     ? "updateDialog.readyTitle"
     : isDownloading
@@ -89,7 +91,7 @@ export function UpdateStatusDialog({
   );
   const contentClassName = cn(
     "max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)] overflow-hidden p-5 sm:max-w-lg",
-    edgeToEdge && !isDownloading
+    edgeToEdge && !isDownloading && !manualInstall
       ? // 普通/下载完成状态没有中间内容，不能继续使用 minmax(0,1fr)。
         // 否则 footer 会占满剩余窗口高度，按钮被垂直居中后看起来像中间有大块空白。
         "grid-rows-[auto_auto]"
@@ -149,8 +151,19 @@ export function UpdateStatusDialog({
         </div>
       ) : null}
 
-      <div className={cn("[app-region:no-drag]", isDownloading ? "-mt-2" : null)}>
-        {isBeforeDownload ? (
+      <div
+        className={cn(
+          "[app-region:no-drag]",
+          isDownloading ? "-mt-2" : null,
+          manualInstall ? "min-h-0 overflow-y-auto" : null,
+        )}
+      >
+        {manualInstall ? (
+          <p className="mb-4 text-ui-base leading-5 text-foreground-subtle">
+            {intl.formatMessage({ id: "updateDialog.manualInstallDescription" })}
+          </p>
+        ) : null}
+        {isBeforeDownload && !manualInstall ? (
           <label className="mb-4 flex min-w-0 items-center gap-2 text-ui-base leading-5 text-foreground">
             <Checkbox
               checked={autoDownloadAndInstallUpdates}
@@ -169,6 +182,7 @@ export function UpdateStatusDialog({
         <DialogFooter
           className={cn(
             "p-0 [app-region:no-drag]",
+            manualInstall ? "flex-wrap" : null,
             edgeToEdge
               ? // 独立更新窗口宽度只有 480px，小于 Tailwind 的 sm 断点。
                 // 继续依赖 sm:flex-row 会退化成移动端竖排，导致底部按钮布局和原桌面弹窗不一致。
@@ -204,6 +218,7 @@ export function UpdateStatusDialog({
             className={cn(
               "flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:justify-end",
               edgeToEdge ? "w-auto flex-row justify-end" : null,
+              manualInstall ? "max-w-full flex-wrap" : null,
             )}
           >
             {showLaterButton ? (
@@ -243,11 +258,18 @@ export function UpdateStatusDialog({
               <Button
                 type="button"
                 size="lg"
-                className="h-9 px-4"
+                className={cn(
+                  "h-9 px-4",
+                  manualInstall ? "h-auto min-h-9 whitespace-normal" : null,
+                )}
                 disabled={isUpdateActionPending}
                 onClick={() => void onDownloadUpdate()}
               >
-                {intl.formatMessage({ id: "updateDialog.downloadAndUpdate" })}
+                {intl.formatMessage({
+                  id: manualInstall
+                    ? "updateDialog.manualInstall"
+                    : "updateDialog.downloadAndUpdate",
+                })}
               </Button>
             )}
           </div>

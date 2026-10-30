@@ -1,0 +1,42 @@
+name: Desktop update contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/desktop-update-contract.yml"
+      - "packages/desktop/src/main/autoUpdater.ts"
+      - "packages/desktop/src/main/autoUpdateVersion.ts"
+      - "packages/desktop/src/main/index.ts"
+      - "packages/desktop/src/main/forceUpdateGuard.ts"
+      - "packages/desktop/electron-builder.config.js"
+      - "packages/desktop/tests/github-updates.test.mjs"
+      - "packages/desktop/test/desktopUpdateWindowLayout.test.ts"
+      - "packages/shared/src/update.ts"
+      - "packages/ui/src/UpdateStatusDialog.tsx"
+      - "packages/ui/src/UpdateStatusDialogController.tsx"
+      - "packages/ui/src/updateStatusModel.ts"
+      - "packages/ui/src/i18n/locales/*.ts"
+      - "packages/ui/test/updateManualInstall.test.ts"
+      - "package.json"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: node --test packages/desktop/tests/github-updates.test.mjs
+      - run: pnpm exec vitest run packages/ui/test/updateManualInstall.test.ts packages/desktop/test/electronBuilderLinuxPackageTargets.test.ts packages/desktop/test/desktopUpdateWindowLayout.test.ts

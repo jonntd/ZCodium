@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { UpdateStatusDialog } from "@/UpdateStatusDialog.js";
+import { logger } from "@/logger.js";
+import { toast } from "@/components/ui/toast.js";
 import { formatUpdateReleaseDate, getLocalizedUpdateReleaseNotes } from "@/updateReleaseNotes.js";
 import {
   deriveUpdateStatusViewModel,
@@ -50,6 +52,8 @@ export function UpdateStatusDialogController({
     legacyReadyVersion: version,
     updateState,
   });
+  const manualInstall =
+    updateState?.kind === "update-available" && updateState.manualInstall === true;
   const lastVisibleUpdateStatusViewModelSelection = useRef<UpdateStatusViewModel | null>(null);
   const renderedUpdateStatusViewModel =
     updateStatusViewModel.displayVersion || updateActionInFlight === null
@@ -157,9 +161,17 @@ export function UpdateStatusDialogController({
       await platform.downloadUpdate();
     } catch (error) {
       setUpdateActionInFlight(null);
-      throw error;
+      // 手动模式只打开网页，没有原生 updater error 事件，需明确展示失败并允许重试。
+      // 事件处理器不能再次抛出未处理 rejection。
+      if (manualInstall) toast(intl.formatMessage({ id: "updateDialog.manualInstallOpenFailed" }));
+      logger.warn("Download update failed", error);
+    } finally {
+      // 手动安装只打开 Releases，不会收到下载进度；必须由 IPC 结果释放，不能等待超时。
+      if (manualInstall) {
+        setUpdateActionInFlight(null);
+      }
     }
-  }, [platform, setUpdateActionInFlight]);
+  }, [intl, manualInstall, platform, setUpdateActionInFlight]);
   const handleAutoDownloadAndInstallUpdatesChange = useCallback(
     async (enabled: boolean) => {
       setAutoDownloadAndInstallUpdates(enabled);
@@ -245,6 +257,9 @@ export function UpdateStatusDialogController({
     if (!updateActionInFlight) {
       return;
     }
+    if (manualInstall && updateActionInFlight === "download") {
+      return;
+    }
 
     if (isUpdateActionCompleted(updateActionInFlight, updateState)) {
       setUpdateActionInFlight(null);
@@ -272,7 +287,7 @@ export function UpdateStatusDialogController({
     return () => {
       globalThis.clearTimeout(timeout);
     };
-  }, [setUpdateActionInFlight, updateActionInFlight, updateState?.kind]);
+  }, [manualInstall, setUpdateActionInFlight, updateActionInFlight, updateState?.kind]);
 
   if (!displayVersion) return null;
 
@@ -287,6 +302,7 @@ export function UpdateStatusDialogController({
       edgeToEdge={edgeToEdge}
       intl={intl}
       isUpdateActionPending={updateActionInFlight !== null}
+      manualInstall={manualInstall}
       localizedUpdateReleaseNotes={visibleUpdateReleaseNotes}
       onAutoDownloadAndInstallUpdatesChange={handleAutoDownloadAndInstallUpdatesChange}
       onCancelDownload={handleCancelDownload}

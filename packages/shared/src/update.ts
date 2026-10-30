@@ -37,6 +37,8 @@ export type UpdateStatePayload =
       enabled: boolean;
       version: string;
       channel?: ElectronReleaseChannel;
+      /** Main 判定当前发行包只支持打开下载页手动安装；缺省仍走原生升级。 */
+      manualInstall?: boolean;
       releaseNotes?: PostUpdateReleaseNotesPayload;
     }
   | {

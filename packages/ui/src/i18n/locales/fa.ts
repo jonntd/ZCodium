@@ -1547,6 +1547,11 @@ const faIR: Record<string, string> = {
   "updateDialog.releaseNotesExpand": "نمایش",
   "updateDialog.releaseNotesCollapse": "پنهان",
   "updateDialog.downloadAndUpdate": "دانلود به‌روزرسانی",
+  "updateDialog.manualInstall": "رفتن به دانلود و نصب دستی",
+  "updateDialog.manualInstallOpenFailed":
+    "باز کردن صفحهٔ دانلود ممکن نشد. دوباره تلاش کنید یا صفحهٔ Releases پروژهٔ ZCodium در GitHub را در مرورگر باز کنید.",
+  "updateDialog.manualInstallDescription":
+    "این نسخهٔ macOS امضای دیجیتال ندارد و خودکار نصب نمی‌شود. از صفحهٔ رسمی Releases فایل DMG متناسب با معماری دستگاه (Apple silicon یا Intel) را دانلود کنید، سپس از برنامه خارج شوید و نسخهٔ نصب‌شده را جایگزین کنید.",
   "updateDialog.cancelDownload": "لغو دانلود",
   "updateDialog.autoDownloadAndInstall": "دانلود و نصب خودکار به‌روزرسانی‌ها در دفعات بعد",
   "updateDialog.downloadingAction": "در حال دانلود",

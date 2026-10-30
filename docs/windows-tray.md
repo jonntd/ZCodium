@@ -8,7 +8,25 @@ Windows close-to-tray behavior is enabled by default. Users can disable `closeTo
 
 ## Runtime Behavior
 
-- On Windows, the tray is created after `app.whenReady()`. Linux creation follows the capability checks in [Linux close-to-tray](desktop/linux-close-to-tray.md).
+### #77 / PR #92 修复边界
+
+- 本次只恢复 Windows 接线：生命周期参数使用 `closeToTray`，且只有 Electron 托盘创建成功后才允许隐藏；创建失败保持原确认退出路径。
+- Main 是能力的唯一所有者：`desktopTrayReady` 初始为 false，app ready 创建托盘后按返回值置位；关窗与能力 IPC 读取同一 `getCloseToTrayCapability()` 结果。
+- Linux 在本 PR 中不启用关闭隐藏，能力 IPC 固定返回不可用；不启动 DBus monitor，不执行 Linux 默认值迁移，不宣称 Linux spec 已完成。既有托盘创建/菜单不在本次变更范围。
+- [Linux close-to-tray](desktop/linux-close-to-tray.md) 描述后续完整接入目标；迁移、按能力建盘、设置 UI 和合并能力返回未完整接入前不得单独打开隐藏分支。
+
+```text
+app ready → createDesktopTray → Main.desktopTrayReady
+                                  ↓
+                   getCloseToTrayCapability (Windows ∧ ready)
+                         ├→ 关窗 + 设置 + 非显式/强制退出 → hide
+                         └→ 能力 IPC → 同一结果
+Linux / 未 ready / 创建失败 → false → 原确认退出路径
+```
+
+验收：执行 Main 的真实 AST 接线，覆盖 ready 前、创建成功/失败、设置开/关、强制/显式退出、Linux 和 macOS；能力 IPC 与关窗参数一致。原生 Windows GUI 验证仍需 Windows 设备。
+
+- On Windows, the tray is created after `app.whenReady()`. The existing Linux tray menu is unchanged; capability-gated Linux creation remains a follow-up target in [Linux close-to-tray](desktop/linux-close-to-tray.md), not a feature enabled by PR #92.
 - The tray instance is held by `packages/desktop/src/main/desktopTray.ts` module state so Electron does not garbage collect it.
 - Left-click and double-click call `primaryWindowCoordinator.ensurePrimaryWindow("tray-show-current-window")`, reusing the current window restore/create logic.
 - The context menu exposes Open ZCode, New Task, Open Workspace, Check for Updates (production only), About, Export Logs, and Quit. Export Logs replaces Clear All Data in the same position; the tray no longer exposes data deletion.
