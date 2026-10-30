@@ -26,6 +26,7 @@
 import { execFile as execFileCallback, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 
 const execFile = promisify(execFileCallback);
 
@@ -243,4 +244,10 @@ async function main() {
   }
 }
 
-await main();
+// 修复：只有作为 CLI 直接执行时才跑 main。此前模块顶层无条件 await main()，
+// merge-main-impact-check.test.mjs 为复用导出的纯函数而 import 本模块时，会在真实仓库上
+// 计算出与 origin/main 的交集并 process.exit(2)，把整个测试文件拉成收集失败（凡与 main
+// 有交集的分支上该测试必红）。测试与 CLI 共用同一入口的合同见 docs/merge-main-impact-check.md。
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}
