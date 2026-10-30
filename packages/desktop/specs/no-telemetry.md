@@ -20,4 +20,6 @@ sequenceDiagram
 
 崩溃采集模块整体删除，连同其自定义 dump 归档、OOM 注解和周期清理；已有日志与磁盘文件不删除。错误仍由现有 logger 记录。
 
-验收：指定文件与生成物不存在；无 ARMS/OTLP 导出依赖或入口；数据库 ready/failed 转发、OAuth 深链投递和远程连接不依赖遥测；根目录 typecheck 和 lint 通过。静态防回归检查覆盖出口和依赖，实际桌面端运行验证受本机环境约束时单独说明。
+验收：指定文件与生成物不存在；无 ARMS/OTLP 导出依赖或入口；数据库 ready/failed 转发、OAuth 深链投递和远程连接不依赖遥测；根目录 typecheck 和 lint 通过。实际桌面端运行验证受本机环境约束时单独说明。
+
+静态防回归接线（2026-10-31）：`pnpm test:no-telemetry` 依次执行 desktop / ui / cli 三份 `no-telemetry.test.mjs`，纳入 `verify:pre-push` 与 ci.yml；仓库级关键词守卫 `scripts/ci/ci-telemetry-keyword-guard.test.mjs`（vitest unit include，随全量单测与 nightly 执行）扫描 packages/apps/scripts 的源码与全部 package.json 依赖。禁词表与豁免清单在该守卫文件内维护，豁免仅限：打包排除清单（bundle.mjs / electron-builder.config.js，把 SDK 挡在产物外）、测试替身与注释、守卫自身的断言串、RPC 现有遥测导出面（`packages/rpc/src/network-telemetry-middleware.ts`，桌面不得消费，删除属独立决策）与 `packages/shared/src/server-remote.ts` 的上游 payload 兼容 schema 字段（仅解析不产生上报）。

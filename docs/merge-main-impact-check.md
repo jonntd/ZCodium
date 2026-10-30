@@ -113,3 +113,7 @@ v3.15.1 事故的教训：冲突解决时靠人脑维护「fork 定制保留清�
    窗口 620x560、图标在顶部、两个说明 txt 落在箭头下、无需滚动。
 4. 官方 ZCode 运行时双击 ZCodium 确认可并存启动（fork-app-identity，PR #4 合并后）。
 5. 登录页文案与中继页形态抽查（audit-login-badge / relay-access-panel）。
+6. `pnpm test:no-telemetry` 绿（ci.yml 固定步骤，pre-push 也会跑）——上游同步带回 ARMS/OTLP
+   SDK、遥测核心或上报 IPC 通道时，这道守卫和随全量单测执行的关键词守卫
+   （`scripts/ci/ci-telemetry-keyword-guard.test.mjs`）会最先红；恢复方式对照
+   `packages/desktop/specs/no-telemetry.md`。

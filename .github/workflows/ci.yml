@@ -39,3 +39,10 @@ jobs:
       # ui/test 其余 942 个 vitest 风格用例仍属根 vitest 套件，接入是后续事项。
       - name: Unit tests (node:test packages)
         run: pnpm --filter @zcode/shared --filter @zcode/services --filter @zcode/ui test
+
+      # 桌面/UI/CLI 无遥测守卫（node:test，不在 vitest 范围）：上游同步带回
+      # ARMS/OTLP SDK、遥测核心或上报 IPC 通道时此步先红。规则见
+      # packages/desktop/specs/no-telemetry.md，源码级关键词守卫另见
+      # scripts/ci/ci-telemetry-keyword-guard.test.mjs（随 vitest unit 执行）。
+      - name: No-telemetry guard
+        run: pnpm test:no-telemetry

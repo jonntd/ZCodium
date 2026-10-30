@@ -46,6 +46,15 @@
       ]
     },
     {
+      "id": "de-telemetry-desktop-exports",
+      "title": "桌面无遥测（desktop 依赖不得回流 ARMS/OTLP SDK）",
+      "spec": "packages/desktop/specs/no-telemetry.md",
+      "markers": [
+        { "file": "packages/desktop/package.json", "contains": "@arms/", "absent": true },
+        { "file": "packages/desktop/package.json", "contains": "@opentelemetry/", "absent": true }
+      ]
+    },
+    {
       "id": "relay-access-panel",
       "title": "中继/远控弹层形态（RemoteRelayAccessPanel）",
       "spec": "docs/spec/vps-relay-bridge.md",
