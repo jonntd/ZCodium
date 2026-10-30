@@ -40,3 +40,12 @@ sequenceDiagram
 - 执行内置 GenericProvider，验证各平台 yml 请求和相对安装包 URL 解析。
 - 守卫在注入会抛错的网络/阻塞回调时仍返回不阻塞；强制更新入口无网络、无状态回调。
 - `pnpm typecheck`、`pnpm lint`、架构检查通过；真实签名安装包升级需发布后另行验证。
+
+## 合并决策记录：保留 fork 自有发布流水线（2026-10-31）
+
+main 在 #88（fb15ad81、1113c8e3、2471d1f5，随 v1.17.2）针对同一个「打包版更新失效」问题实现了另一套方案。合并 main 时按本节取舍；本文件上方规则与 `github-release-update-metadata.md` 仍是唯一事实源。
+
+- 冲突文件取 fork 侧语义：`src/main/autoUpdater.ts`、`electron-builder.config.js`、`tests/github-updates.test.mjs`、本 spec 及 `UpdateStatusDialog*.tsx`。保留 GitHub provider + `resolveUpdateFeedTarget` 坐标（默认 `jonntd/ZCodium`）+ `allowPrerelease` + mac 退出时直接替换安装。
+- 不采纳 main 方案的载体：指向 `ZCodium-project/ZCodium` 的 `DEFAULT_UPDATE_FEED_URL` / `publish.url` / `MANUAL_UPDATE_DOWNLOAD_URL`、`manualInstall` 状态与 `requiresManualInstall`（`packages/shared/src/update.ts` 同步不引入该字段）、`shell.openExternal` 手动下载链路、`UPDATE_STATUS_WINDOW_MANUAL_HEIGHT`、`updateDialog.manualInstall*` 三语文案，以及只服务该方案的 `docs/manual-review/pending/update-manual-install.md`、`packages/ui/test/updateManualInstall.test.ts` 和 `desktopUpdateWindowLayout.test.ts` 的 manual 分支。
+- main 的约束「initAutoUpdater 必须显式 setFeedURL、publish.url 不得写 localhost 占位」fork 已满足（fork 同样显式 setFeedURL，坐标由 `update-feed-target.mjs` 构建期注入）；如要吸收其 CI 契约 `desktop-update-contract.yml`，必须改造为按 fork 坐标断言，原样合入会因 provider 与 URL 不同而失败。新文件不产生 git 冲突，此类语义互斥需人工拦截。
+- 直接随 main 合入、无需取舍：#89 SQLite schema 只增契约门禁（`sqlite-schema.yml`、`scripts/sqlite-schema-*`、`verify:pre-push` 追加 `db:schema:check`）、#77 Windows 关窗到托盘（`desktopTrayReady` 能力裁决、`desktopCloseToTrayWiring.test.ts`）、版本号与文档杂项。
