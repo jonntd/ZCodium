@@ -10,6 +10,18 @@ describe("electron-builder Linux 打包目标", () => {
     expect(desktopBuilderConfig.detectUpdateChannel).toBe(false);
   });
 
+  it("更新元数据指向 fork GitHub provider 坐标，而不是 localhost 占位", () => {
+    // #88：打包产物 app-update.yml 的 publish 曾被写成 localhost:8081 generic 占位，
+    // 运行时又漏了 setFeedURL，导致所有打包版无法检查更新。fork 契约（specs/github-updates.md）：
+    // publish 用 GitHub provider，owner/repo 与 update-feed-target.mjs 同源，业务配置不得写 localhost。
+    expect(desktopBuilderConfig.publish).toMatchObject({
+      provider: "github",
+      owner: "jonntd",
+      repo: "ZCodium",
+    });
+    expect(JSON.stringify(desktopBuilderConfig.publish)).not.toContain("localhost");
+  });
+
   it("Linux 同时产出 AppImage、deb、rpm 与 pacman 安装包", () => {
     const targets = desktopBuilderConfig.linux?.target ?? [];
 

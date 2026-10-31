@@ -1,5 +1,9 @@
 # Linux 关闭窗口驻留托盘(close-to-tray)Spec
 
+> 接入状态（#77 / PR #92）：以下为完整 Linux 接入目标，不代表当前 Main 已启用。
+> 本 PR 仅修复 Windows；Linux 的关窗隐藏能力与能力 IPC 均保持 false，不启动 monitor。
+> 默认值迁移、按能力建盘及设置页接入完成并验证后，才能一起启用 Linux 隐藏行为。
+
 ## 背景与目标
 
 Windows 已支持"关闭窗口时隐藏到托盘驻留"(`closeToTrayOnWindows` 设置,默认开)。Linux 现状是关窗即走"确认退出 → `app.quit()`",与 ZCode 长任务后台型应用的产品意图(防误关打断 agent 会话)不符。

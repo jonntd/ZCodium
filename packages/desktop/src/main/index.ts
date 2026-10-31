@@ -255,6 +255,16 @@ const linuxDesktopIntegrationIconPath =
     : iconPath;
 let currentApplicationLocale: Locale = DEFAULT_LOCALE;
 let closeToTrayOnWindows = true;
+// #77：关窗参数需匹配生命周期契约，且托盘创建失败时不能隐藏，否则用户无处找回窗口。
+// #92 只恢复 Windows；Linux 迁移/按能力建盘/UI 尚未完整接入，不能靠单独启用 monitor 打开隐藏。
+let desktopTrayReady = false;
+function getCloseToTrayCapability() {
+  // 关窗与 IPC 共用 Main 的同一能力裁决，Linux 保持不启用，避免对外报告半接线能力。
+  return {
+    supported: process.platform === "win32" && desktopTrayReady,
+    gnomeLikeWithoutTray: false,
+  };
+}
 // keep-awake：全局开关 keepAwakeWhileRunning。打开后主进程持有
 // powerSaveBlocker("prevent-app-suspension")，阻止系统闲置休眠（防不了合盖/手动睡眠）。
 // 不再绑定闲时任务活跃计数——设置页「常规」与 Automations 入口镜像同一配置。
@@ -1719,7 +1729,8 @@ function createWindowInstance(startupBootstrap: StartupWindowBootstrap = {}) {
         platform: process.platform,
         forceQuit: forceQuitRef.current,
         explicitQuitRequested: explicitQuitRef.current,
-        closeToTrayOnWindows,
+        closeToTray: closeToTrayOnWindows,
+        closeToTraySupported: getCloseToTrayCapability().supported,
         isLastWindow: getMainApplicationWindows().length === 1,
         label,
         logger,
@@ -2198,7 +2209,7 @@ app.whenReady().then(async () => {
       ),
     () => showCurrentWindowFromDock(primaryWindowCoordinator),
   );
-  createDesktopTray({
+  const desktopTray = createDesktopTray({
     getLocale: () => currentApplicationLocale,
     showCurrentWindow: () =>
       primaryWindowCoordinator.ensurePrimaryWindow("tray-show-current-window"),
@@ -2209,6 +2220,7 @@ app.whenReady().then(async () => {
     },
     logger,
   });
+  desktopTrayReady = desktopTray !== null;
 
   registerPlatformIpcHandlers({
     fetchHelpConfig: readHelpConfig,
@@ -2304,6 +2316,7 @@ app.whenReady().then(async () => {
     openUpdateStatusWindow,
     getAutoUpdatePreferences,
     setAutoDownloadAndInstallUpdates,
+    refreshCloseToTrayCapability: async () => getCloseToTrayCapability(),
     getDesktopSessionActivity: () => ({
       runningAgentSessionCount: getRunningAgentSessionCount(),
     }),
