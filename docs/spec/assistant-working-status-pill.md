@@ -73,7 +73,7 @@
   得到（root = 滚动容器），**不读滚动几何、不参与跟随判定**，web-remote 恢复链路同样成立；
   吸顶胶囊在本轮内恒可见，因此用户在本轮内部上滚时不会多出第二个同义控件；
 - 收口为 `shouldShowTimelineWorkingPillChip({ showLoading, backToBottomVisible,
-  workingPillInViewport })`（`chatLoadingVisibility.ts`）；
+workingPillInViewport })`（`chatLoadingVisibility.ts`）；
 - 呈现 = composer dock 上方正中一枚圆形按钮（与「回到底部」同壳同款），位置为 dock 的
   `bottom-full` 相邻上方，避开离开挂的贴底 mask 遮罩区；点击 = `handleBackToBottom`
   （回到贴底，吸顶胶囊此时落在视口顶部），**不**新增第三种滚动跳转语义；
@@ -112,19 +112,19 @@ IntersectionObserver(root=滚动容器, target=[data-zcode-working-pill])
 
 ## 4. 验收场景
 
-| 场景                                    | 期望                                       | 测试                                               |
-| --------------------------------------- | ------------------------------------------ | -------------------------------------------------- |
-| 运行中且任一 segment running            | 尾部 ChatLoading 被抑制，不出现双状态      | `packages/ui/test/chatLoadingVisibility.test.ts`   |
-| 运行中但无 segment running（timelineOnly 等） | ChatLoading 兜底照旧                  | 同上                                               |
-| 胶囊模型：duration 存在                 | 状态词 + 用时段 + 动态省略号都渲染         | 同上（pill 纯模型）                                |
-| 胶囊模型：duration 缺失                 | 只渲染状态词 + 动态省略号                  | 同上                                               |
-| 运行中（workStatus=running）            | 胶囊行吸顶，长轮任意滚动位置可见           | 同上（`resolveAssistantHistoryStatusStickyClass`） |
-| 完成 / 中断 / 无 workStatus             | 不吸顶，回归普通文档流                     | 同上                                               |
-| 离底 + 运行中 + 胶囊已滚出视口          | 贴底兜底按钮出现（点击回贴底）             | 同上（`shouldShowTimelineWorkingPillChip`）        |
-| 离底但吸顶胶囊仍在视口内                | 兜底按钮缺席，不重复状态表达               | 同上                                               |
-| 贴底 / 会话已终态                       | 兜底按钮缺席                               | 同上                                               |
-| 尾部落盘槽落盘（ChatLoading 分支 / apiRetry） | 标记随分支出现/缺席                  | `packages/ui/test/v4ConversationTurnGroup.test.ts` |
-| 运行结束                                | 吸顶释放，胶囊消失，回纯文本「已工作 {duration}」 | 既有行为，人工验证                          |
+| 场景                                          | 期望                                              | 测试                                               |
+| --------------------------------------------- | ------------------------------------------------- | -------------------------------------------------- |
+| 运行中且任一 segment running                  | 尾部 ChatLoading 被抑制，不出现双状态             | `packages/ui/test/chatLoadingVisibility.test.ts`   |
+| 运行中但无 segment running（timelineOnly 等） | ChatLoading 兜底照旧                              | 同上                                               |
+| 胶囊模型：duration 存在                       | 状态词 + 用时段 + 动态省略号都渲染                | 同上（pill 纯模型）                                |
+| 胶囊模型：duration 缺失                       | 只渲染状态词 + 动态省略号                         | 同上                                               |
+| 运行中（workStatus=running）                  | 胶囊行吸顶，长轮任意滚动位置可见                  | 同上（`resolveAssistantHistoryStatusStickyClass`） |
+| 完成 / 中断 / 无 workStatus                   | 不吸顶，回归普通文档流                            | 同上                                               |
+| 离底 + 运行中 + 胶囊已滚出视口                | 贴底兜底按钮出现（点击回贴底）                    | 同上（`shouldShowTimelineWorkingPillChip`）        |
+| 离底但吸顶胶囊仍在视口内                      | 兜底按钮缺席，不重复状态表达                      | 同上                                               |
+| 贴底 / 会话已终态                             | 兜底按钮缺席                                      | 同上                                               |
+| 尾部落盘槽落盘（ChatLoading 分支 / apiRetry） | 标记随分支出现/缺席                               | `packages/ui/test/v4ConversationTurnGroup.test.ts` |
+| 运行结束                                      | 吸顶释放，胶囊消失，回纯文本「已工作 {duration}」 | 既有行为，人工验证                                 |
 
 运行：`pnpm --filter @zcode/ui test`（tsx --test，`TSX_TSCONFIG_PATH=tsconfig.json`）。
 注意 `chatLoadingVisibility.test.ts` 登记在 `vitest.config.ts` 的 `nodeRunTestFiles`，
@@ -142,3 +142,21 @@ cd packages/ui && TSX_TSCONFIG_PATH=tsconfig.json node --import tsx --test test/
 后按既有流程转正，本机未跑到该证据）。吸顶的几何断言需要在该用例里补一条：
 本轮高度大于视口时贴底，`[data-zcode-working-pill]` 的 `getBoundingClientRect().top`
 应等于滚动容器可视区顶部（允许 1px 误差）。
+
+## 5. 决策记录：官方 v3.17.2 新加载指示器不跟随（2026-11-03）
+
+用户对照官方 ZCode 桌面版 v3.17.2（`@zcode/desktop`，读 `~/.zcode` 数据的正式版）反馈
+「工作中 + 用时」样式不同。反查官方 app.asar 证实：官方发布版已把运行中状态改为
+**像素九宫格加载行**——3×3 小方块按顺时针错峰闪烁（`data-zcode-chat-loading-animate`）+
+`chat.loading.working`（"工作中"，新 i18n 键，无时长内联）+ 独立等宽 `tabular-nums`
+时长（组件内 `setInterval(100ms)` 自走）。旧键 `chat.history.workingFor` 在官方 locale
+中仍存但运行态不再使用。
+
+关键事实：该 UI **不在公开 origin/main 上**（`chat.loading.working`、
+`zcode-loading-pixel` 在上游公开仓库 0 命中，官方发布版领先公开仓库），无法通过
+merge main 获得。
+
+**决策**：fork 维持本 spec 的胶囊设计（含吸顶 + 离屏兜底增强，官方新版没有这两项），
+不跟进官方视觉；待上游公开仓库同步这份 UI 后，在下次 merge main 时按影响评估流程
+重新对齐——届时需逐项决策本 spec 的吸顶、离屏兜底、`shouldShowTurnChatLoadingWithRunningPill`
+抑制规则是保留还是让位于上游实现，不得静默覆盖。
