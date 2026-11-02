@@ -167,27 +167,27 @@ export const commandPayloadSchemas = {
   compact: z.object({}),
   // running 时对稳定 assistant row 可用。
   forkAssistant: z.object({ target: conversationRowTargetSchema }),
-        // 按文件撤销（docs/spec/per-file-rewind.md）：paths 给出本轮内要撤销的文件路径
-        // （artifact 原始相对路径或绝对路径均可，core 按 workspace root 归一）；缺席 = 整轮撤销。
-        applyFileRewind: z.object({
-          target: conversationRowTargetSchema,
-          paths: z.array(z.string().min(1)).max(500).optional(),
-        }),
-        editUserQuery: z
-          .object({
-            target: conversationRowTargetSchema,
-            newText: z.string(),
-            conversationQuotes: conversationQuotesSchema.optional(),
-            attachments: z.array(attachmentRefSchema).optional(),
-            // 编辑重发按新的主动发送处理：只接受本次重新 prepare 得到的卡与执行材料，
-            // 不从被 rewind 的历史消息复用旧凭据。
-            modelSelection: modelSelectionSchema.optional(),
-            modelExecution: modelExecutionSchema.optional(),
-            highspeedMeta: highspeedMessageMetaSchema.optional(),
-            // 缺省 preserve：仅切 conversation branch；rewind 会先安全恢复该轮文件。
-            workspaceMode: z.enum(["preserve", "rewind"]).optional(),
-          })
-          .superRefine(requireModelSelectionForExecution),
+  // 按文件撤销（docs/spec/per-file-rewind.md）：paths 给出本轮内要撤销的文件路径
+  // （artifact 原始相对路径或绝对路径均可，core 按 workspace root 归一）；缺席 = 整轮撤销。
+  applyFileRewind: z.object({
+    target: conversationRowTargetSchema,
+    paths: z.array(z.string().min(1)).max(500).optional(),
+  }),
+  editUserQuery: z
+    .object({
+      target: conversationRowTargetSchema,
+      newText: z.string(),
+      conversationQuotes: conversationQuotesSchema.optional(),
+      attachments: z.array(attachmentRefSchema).optional(),
+      // 编辑重发按新的主动发送处理：只接受本次重新 prepare 得到的卡与执行材料，
+      // 不从被 rewind 的历史消息复用旧凭据。
+      modelSelection: modelSelectionSchema.optional(),
+      modelExecution: modelExecutionSchema.optional(),
+      highspeedMeta: highspeedMessageMetaSchema.optional(),
+      // 缺省 preserve：仅切 conversation branch；rewind 会先安全恢复该轮文件。
+      workspaceMode: z.enum(["preserve", "rewind"]).optional(),
+    })
+    .superRefine(requireModelSelectionForExecution),
   retryTurn: z.object({ target: conversationRowTargetSchema }),
   // （2026-09-12）：原 setToolWidgetState / setSessionPluginUiState 已删除——插件 UI widgetState
   // 回退为宿主 renderer 内存保存，不再写 CLI 会话存储；模型可见信息改走 ui/update-model-context。
@@ -298,6 +298,12 @@ export const commandPayloadSchemas = {
 } as const;
 
 export type CommandType = keyof typeof commandPayloadSchemas;
+
+/** 仅这两类历史管理可在无可执行模型时启动控制面；其它命令（含新增命令）默认不放行。 */
+export function isSessionHistoryManagementCommand(type: CommandType): boolean {
+  return type === "renameSession" || type === "deleteSession";
+}
+
 export type CommandPayloadMap = {
   [T in CommandType]: T extends "sendText"
     ? z.infer<(typeof commandPayloadSchemas)[T]> &

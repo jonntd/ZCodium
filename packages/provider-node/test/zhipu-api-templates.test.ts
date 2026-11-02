@@ -11,10 +11,14 @@ describe("Zhipu four manual API templates", () => {
       );
       const templates = release.config.providerConfigRules.templateRules;
       for (const template of templates) {
-        expect(
-          new URL(template.config.access.apiKeyManagementUrl).protocol,
-          template.templateId,
-        ).toBe("https:");
+        // 修复依据：main 的 Cheaper Inference 预设 access 仅 {"type":"api-key"}，不配置
+        // apiKeyManagementUrl（resolver.ts 对 undefined 有显式分支，字段可选）。原断言对
+        // 全部模板强转 URL，在 origin/main 上同样失败（c6afcce7 实证为上游坏测试）；
+        // 收窄为仅对声明了管理入口的模板断言 https，保留 Zhipu 四模板的原有约束。
+        const apiKeyManagementUrl = template.config.access.apiKeyManagementUrl;
+        if (apiKeyManagementUrl !== undefined) {
+          expect(new URL(apiKeyManagementUrl).protocol, template.templateId).toBe("https:");
+        }
         expect(template.config.access).not.toHaveProperty("teamApiKeyManagementUrl");
       }
       const rules = parseZCodeBuiltinModelConfigRules(release.config.modelConfigRules);

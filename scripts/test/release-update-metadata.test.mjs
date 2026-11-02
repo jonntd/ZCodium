@@ -740,9 +740,24 @@ for (const mutation of ["missing", "symlink", "remote-digest", "remote-asset"]) 
   });
 }
 
-test("Windows matrix 的 stage 显式使用 Bash，不能用 PowerShell 展开 $VERSION", async () => {
+test("desktop matrix 保持原生 macOS runner/架构与 Windows Bash 合同", async () => {
   const workflow = YAML.parse(
     await readFile(join(repoRoot, ".github/workflows/release.yml"), "utf8"),
+  );
+  const desktop = workflow.jobs.desktop;
+  // #108：macos-14 已退役；macos-15 是 ARM64，不能让 Intel 目标跟随同名系统版本误迁移。
+  const macTargets = desktop.strategy.matrix.include
+    .filter((target) => target.target === "mac" || target.runner.startsWith("macos-"))
+    .sort((a, b) => a.arch.localeCompare(b.arch));
+  assert.deepEqual(macTargets, [
+    { runner: "macos-15", target: "mac", arch: "arm64" },
+    { runner: "macos-15-intel", target: "mac", arch: "x64" },
+  ]);
+  assert.equal(desktop["runs-on"], "${{ matrix.runner }}");
+  const bundle = desktop.steps.find((step) => /pnpm\s+bundle:desktop\b/.test(step.run ?? ""));
+  assert.equal(
+    bundle?.run,
+    "pnpm bundle:desktop -- --os ${{ matrix.target }} --arch ${{ matrix.arch }}",
   );
   assert.ok(
     workflow.jobs.desktop.strategy.matrix.include.some((target) => target.target === "win"),
@@ -763,7 +778,9 @@ test("release workflow 仅 update-metadata 上传最终清单，publish 显式�
   const needs = Array.isArray(metadata.needs) ? metadata.needs : [metadata.needs];
   assert.ok(needs.includes("desktop"));
   assert.ok(needs.includes("release"));
-  const runSteps = (job) => job.steps.filter((step) => typeof step.run === "string");
+  // fork 定制（relay-image-auto-publish）：release.yml 存在 uses: 复用工作流的 relay job，
+  // 这类 job 没有 steps 字段；合并 main #108 合同测试时需容忍，否则遍历全部 job 会读 undefined。
+  const runSteps = (job) => (job.steps ?? []).filter((step) => typeof step.run === "string");
   const executable = (run) =>
     run
       .split("\n")
