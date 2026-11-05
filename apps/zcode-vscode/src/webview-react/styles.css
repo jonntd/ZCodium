@@ -1,0 +1,21 @@
+/**
+ * Webview 样式入口（tailwind v4）。
+ *
+ * - `@source` 仅扫 webview-react 装配闭包（架构 §7.1：tailwind source 限定装配面）；
+ * - 引入 @zcode/ui 的 styles.css 主题层（CSS 变量 + dark/theme-zai-* class），
+ *   与 packages/web 同源。
+ */
+@import "tailwindcss";
+@import "@zcode/ui/styles.css";
+/* 装配闭包内 JS 侧 import 的组件级 css 在此收口（JS 侧不引 css，见 index.tsx 注释）：
+   ConversationComposer（@/v4/composer/composerStats.css）。ui 包 exports 未暴露该子路径，
+   走仓库相对路径。 */
+@import "../../../../packages/ui/src/v4/composer/composerStats.css";
+
+@source "./";
+/* ui 包源码必须纳入扫描：插件组件经 @ 别名（packages/ui/src）大量消费 ui 内部组件，
+   其 className（invisible/absolute/flex/mb-10...）全靠 tailwind 按需生成——只扫本目录时
+   ui 侧类零产出（实测 dist styles.css 中 invisible/absolute 计数 0）：隐身测量串现形
+   （草稿问候语 ×2）、布局失去间距，Antigravity 实测复现。§7.1"限定装配面"的意图是
+   排除桌面壳整树，ui/src 即插件装配闭包的类来源，扫描它是正确口径而非扩大。 */
+@source "../../../../packages/ui/src";

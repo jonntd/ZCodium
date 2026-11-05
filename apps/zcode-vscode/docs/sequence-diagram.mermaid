@@ -1,0 +1,35 @@
+%% 激活 → 探测 CLI → spawn → 握手 → 建会话 → 订阅（来源：docs/architecture.md §4.1）
+sequenceDiagram
+    autonumber
+    participant VS as VS Code (activate)
+    participant CP as ChatPanel/Bridge
+    participant LOC as CliLocator
+    participant SM as SessionManager
+    participant TX as StdioTransport
+    participant PC as ProtocolConnection
+    participant CLI as zcodium app-server --stdio
+
+    VS->>CP: registerWebviewViewProvider + activate
+    CP->>SM: startOrRestore(workspaceFolder)
+    SM->>LOC: locate()
+    alt CLI 未找到
+        LOC-->>SM: null
+        SM->>CP: showWelcomePage(installGuide)
+    else 找到
+        LOC-->>SM: CliInfo{path, version}
+        SM->>TX: spawn(path, ["app-server","--stdio"], cwd=workspacePath)
+        TX->>CLI: 子进程启动
+        SM->>PC: attach(transport)
+        PC->>CLI: request session/create {workspace, mode, model, version}
+        CLI-->>PC: response session/create（含协议版本）
+        PC-->>SM: resolve
+        SM->>SM: VersionGuard：主版本严格匹配，同主版本小版本兼容
+        alt 版本不匹配
+            SM->>CP: banner(版本升级指引) + state=crashed
+        else 通过
+            SM->>PC: request session/subscribe {afterSeq=0, includeSnapshot=true}
+            CLI-->>PC: response + snapshot 事件
+            PC-->>SM: onEvent(snapshot)
+            SM->>CP: sessionState(ready) + 快照投影
+        end
+    end

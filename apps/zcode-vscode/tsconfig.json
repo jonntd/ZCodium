@@ -1,0 +1,27 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2024", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["node", "vscode"],
+    "outDir": "out",
+    "rootDir": ".",
+    "noImplicitOverride": true,
+    "paths": {
+      "@/*": ["../../packages/ui/src/*"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist", "out"],
+  "references": [
+    { "path": "../../packages/rpc" },
+    { "path": "../../packages/provider" },
+    { "path": "../../packages/provider-node" },
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/services" },
+    { "path": "../../packages/client" },
+    { "path": "../../packages/ui" }
+  ]
+}

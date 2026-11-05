@@ -1,0 +1,98 @@
+%% 核心类图（来源：docs/architecture.md §3）
+classDiagram
+    direction LR
+
+    class FrameCodec {
+        -pendingChunks: string[]
+        -decoder: StringDecoder
+        +feed(chunk: string | Buffer): void
+        +flush(): string[]
+        -emitFrame(frame: string): void
+        +onFrame: (frame: string) => void
+        +onFatal: (reason: string) => void
+    }
+
+    class StdioTransport {
+        -child: ChildProcess
+        -codec: FrameCodec
+        -stderrTail: string[]
+        +spawn(command: SpawnRequest): Promise~void~
+        +send(message: ZCodeProtocolMessage): Promise~void~
+        +dispose(): Promise~void~
+        +onMessage: Emitter~ZCodeProtocolMessage~
+        +onClose: Emitter~TransportCloseEvent~
+    }
+
+    class ProtocolConnection {
+        -nextRequestId: number
+        -pending: Map~number, PendingRequest~
+        +request(method: string, params: unknown, timeoutMs?: number): Promise~unknown~
+        +notify(method: string, params: unknown): void
+        +handleMessage(msg: ZCodeProtocolMessage): void
+        +onEvent: Emitter~SessionEventEnvelope~
+        +onClose: Emitter~void~
+    }
+
+    class CliLocator {
+        +locate(): Promise~CliInfo~
+        -probePath(customPath?: string): Promise~CliInfo | null~
+        -readVersion(path: string): Promise~string~
+    }
+
+    class SessionStateMachine {
+        +state: SessionUiState
+        +transition(event: StateEvent): SessionUiState
+        +onTransition: Emitter~StateChange~
+    }
+
+    class SessionManager {
+        -connection: ProtocolConnection
+        -store: ExtensionStore
+        -versionGuard: VersionGuard
+        -restartAttempt: number
+        +start(workspacePath: string): Promise~void~
+        +resumeOrRestore(workspacePath: string): Promise~void~
+        +sendMessage(text: string): Promise~void~
+        +handleSessionEvent(evt: SessionEventEnvelope): void
+        +restart(reason: string): Promise~void~
+        +dispose(): Promise~void~
+        +onSessionEvent: Emitter~SessionEventEnvelope~
+        +onUiState: Emitter~SessionUiState~
+    }
+
+    class ApprovalService {
+        -pending: Map~string, PendingApproval~
+        -sessionAllowlist: Set~string~
+        +handleRequested(req: PermissionRequested): void
+        +resolve(requestId: string, decision: ApprovalDecision): void
+        +markTurnEnded(turnId: string): void
+        +isSessionAllowed(toolKey: string): boolean
+        +onApproval: Emitter~ApprovalUpdate~
+    }
+
+    class ChatPanelBridge {
+        +post(msg: ExtToWebviewMessage): void
+        +onWebviewMessage(handler: (msg: WebviewToExtMessage) => void): void
+        +resolveWebviewSource(): Uri
+    }
+
+    class DiffViewer {
+        +open(requestId: string, file: string, proposed: string): Promise~void~
+        +close(requestId: string): void
+    }
+
+    class ExtensionStore {
+        +getSessionId(scope: "global" | "workspace"): string | undefined
+        +setSessionId(id: string | undefined): void
+    }
+
+    StdioTransport --> FrameCodec : 组合
+    ProtocolConnection --> StdioTransport : 读写帧
+    SessionManager --> ProtocolConnection : 使用
+    SessionManager --> SessionStateMachine : 内部状态
+    SessionManager --> ExtensionStore : 会话 ID 持久化
+    SessionManager --> CliLocator : start 前探测
+    ApprovalService --> ProtocolConnection : 应答 permission.resolved
+    ChatPanelBridge --> SessionManager : sendPrompt/retry
+    ChatPanelBridge --> ApprovalService : resolve/openDiff
+    ChatPanelBridge --> DiffViewer : 打开原生 diff

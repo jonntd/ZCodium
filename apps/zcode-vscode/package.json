@@ -1,0 +1,480 @@
+{
+  "name": "zcode-vscode",
+  "displayName": "ZCodium Agent",
+  "description": "把 ZCodium Agent 接进 VS Code：与桌面端同源的 @zcode/ui 对话界面、流式回复、工具时间线、审批与断线恢复。",
+  "version": "0.2.0",
+  "publisher": "zcodium",
+  "license": "MIT",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "agent",
+    "chat",
+    "zcodium"
+  ],
+  "main": "./dist/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zcodium/zcode",
+    "directory": "apps/zcode-vscode"
+  },
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "zcodium",
+          "title": "ZCodium Agent",
+          "icon": "media/zcodium.svg"
+        }
+      ]
+    },
+    "views": {
+      "zcodium": [
+        {
+          "id": "zcodium.chat",
+          "name": "对话",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "zcodium.openChat",
+        "title": "打开对话",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.openFullUi",
+        "title": "打开完整界面（会话历史 / 模型 / diff / Git）",
+        "category": "ZCodium",
+        "icon": "$(window)"
+      },
+      {
+        "command": "zcodium.onboarding",
+        "title": "上手引导",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.newSession",
+        "title": "新建会话",
+        "category": "ZCodium",
+        "icon": "$(add)"
+      },
+      {
+        "command": "zcodium.restartAgent",
+        "title": "重启 Agent 进程",
+        "category": "ZCodium",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "zcodium.showLogs",
+        "title": "显示 ZCodium 日志",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.checkBundleSize",
+        "title": "检查 Webview/Host 产物体积门禁",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.switchWorkspace",
+        "title": "切换工作区",
+        "category": "ZCodium",
+        "icon": "$(split-horizontal)"
+      },
+      {
+        "command": "zcodium.sendDiagnostics",
+        "title": "发送诊断信息",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.openMcpSettings",
+        "title": "打开 MCP 设置",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.openInstructions",
+        "title": "打开指令配置",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.openSessionParams",
+        "title": "打开会话参数",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.importClaudeSessions",
+        "title": "导入 Claude 会话",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.showSubagents",
+        "title": "查看子代理",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.openUsage",
+        "title": "查看用量",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.quickEdit",
+        "title": "改写选中代码（Quick Edit）",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.sendTerminalSelection",
+        "title": "发送终端选区到 ZCodium",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.generateCommitMessage",
+        "title": "生成提交信息",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.reviewChanges",
+        "title": "审阅当前改动",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.pickSession",
+        "title": "历史会话",
+        "category": "ZCodium",
+        "icon": "$(history)"
+      },
+      {
+        "command": "zcodium.codeAction",
+        "title": "ZCodium 代码操作",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.addRangeToChat",
+        "title": "把选中范围加入对话",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.fixDiagnostics",
+        "title": "用 ZCodium 修复诊断",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.explainSelection",
+        "title": "解释选中的代码",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.fixSelection",
+        "title": "修复选中的代码",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.refactorSelection",
+        "title": "重构选中的代码",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.writeTests",
+        "title": "为选中的代码写测试",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.addToContext",
+        "title": "加入对话上下文",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.showEditorLogs",
+        "title": "显示编辑器功能日志",
+        "category": "ZCodium"
+      },
+      {
+        "command": "zcodium.stop",
+        "title": "停止生成",
+        "category": "ZCodium",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "zcodium.addFileToContext",
+        "title": "加入 ZCodium 对话",
+        "category": "ZCodium"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "zcodium.openFullUi",
+          "when": "view == zcodium.chat",
+          "group": "navigation@0"
+        },
+        {
+          "command": "zcodium.newSession",
+          "when": "view == zcodium.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "zcodium.restartAgent",
+          "when": "view == zcodium.chat",
+          "group": "1_manage@1"
+        },
+        {
+          "command": "zcodium.switchWorkspace",
+          "when": "view == zcodium.chat",
+          "group": "1_manage@2"
+        },
+        {
+          "command": "zcodium.pickSession",
+          "when": "view == zcodium.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "zcodium.stop",
+          "when": "view == zcodium.chat",
+          "group": "1_manage@3"
+        }
+      ],
+      "editor/context": [
+        {
+          "submenu": "zcodium.editorContext",
+          "group": "1_zcodium@1",
+          "when": "editorHasSelection"
+        }
+      ],
+      "zcodium.editorContext": [
+        {
+          "command": "zcodium.explainSelection",
+          "group": "1_assist@1"
+        },
+        {
+          "command": "zcodium.fixSelection",
+          "group": "1_assist@2"
+        },
+        {
+          "command": "zcodium.refactorSelection",
+          "group": "1_assist@3"
+        },
+        {
+          "command": "zcodium.writeTests",
+          "group": "1_assist@4"
+        },
+        {
+          "command": "zcodium.addToContext",
+          "group": "2_context@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "zcodium.codeAction",
+          "when": "false"
+        },
+        {
+          "command": "zcodium.addRangeToChat",
+          "when": "false"
+        },
+        {
+          "command": "zcodium.fixDiagnostics",
+          "when": "false"
+        }
+      ],
+      "scm/title": [
+        {
+          "command": "zcodium.generateCommitMessage",
+          "group": "navigation@10"
+        },
+        {
+          "command": "zcodium.reviewChanges",
+          "group": "navigation@11"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "zcodium.sendTerminalSelection",
+          "group": "1_zcodium@1"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "zcodium.addFileToContext",
+          "group": "7_zcodium@1"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "zcodium.addFileToContext",
+          "group": "1_zcodium@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "ZCodium Agent",
+      "properties": {
+        "zcodium.cliPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "`zcodium` CLI 可执行文件绝对路径。留空时从 `PATH` 探测 `zcodium`。"
+        },
+        "zcodium.mode": {
+          "type": "string",
+          "enum": [
+            "build",
+            "plan",
+            "edit",
+            "guarded",
+            "yolo",
+            "auto"
+          ],
+          "default": "build",
+          "markdownDescription": "Agent 工作模式，经 HostSettingsBridge 归一为 RuntimeController 编排面（恢复/编程式创建）的 `create.config.mode`。侧栏对话区草稿会话走 v4 createSession（模式在会话头部切换），不读取本设置。"
+        },
+        "zcodium.model": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "模型选择，格式 `providerId/modelId`，经 HostSettingsBridge 归一为 RuntimeController 编排面（恢复/编程式创建）的下发参数；留空使用 CLI 默认模型。侧栏对话区草稿会话的模型在会话头部切换，不读取本设置。"
+        },
+        "zcodium.permissions.allowlist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "工具 allowlist 规则（支持 `Tool` 与 `Tool(args)` 形式），随 create/resume 携带（P1-3）。"
+        },
+        "zcodium.permissions.denylist": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "markdownDescription": "工具 denylist 规则，随 create/resume 携带；resume 不带会绕过约束。"
+        },
+        "zcodium.mcp.servers": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "default": [],
+          "markdownDescription": "MCP 服务器配置（stdio/http，字段对齐 zcodeProtocolMcpServerSchema），改动后需重建会话生效（P1-8）。"
+        },
+        "zcodium.context.additionalDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "maxItems": 256,
+          "markdownDescription": "Agent 可访问的附加目录（协议上限 256 个，P1-16.1）。"
+        },
+        "zcodium.autoContext": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "openEditors",
+            "openEditorsAndRecentEdits"
+          ],
+          "enumDescriptions": [
+            "关闭自动上下文",
+            "附加打开中的文件路径与光标行",
+            "再加最近 5 分钟内编辑过的文件"
+          ],
+          "description": "发送消息时自动附加的编辑器上下文（FR-B22）。"
+        },
+        "zcodium.fullUiRepoRoot": {
+          "type": "string",
+          "default": "",
+          "description": "完整界面的 monorepo 根目录（定位 packages/server 与 packages/web 产物）；留空时从工作区向上查找。"
+        },
+        "zcodium.fullUiServerEntry": {
+          "type": "string",
+          "default": "",
+          "description": "完整界面 server 入口（entry-http.js）；留空用 <repoRoot>/packages/server/dist/entry-http.js。"
+        },
+        "zcodium.fullUiStaticRoot": {
+          "type": "string",
+          "default": "",
+          "description": "完整界面前端产物目录；留空用 <repoRoot>/packages/web/dist。"
+        },
+        "zcodium.sidebarUi": {
+          "type": "string",
+          "default": "full",
+          "enum": [
+            "full",
+            "pane"
+          ],
+          "enumDescriptions": [
+            "侧栏直接承载完整界面（packages/web，会话/模型/Git/工作流全功能）",
+            "侧栏承载轻量对话 pane（V4ChatPane，回退档）"
+          ],
+          "description": "侧栏承载的界面形态。切换后侧栏自动重载。"
+        },
+        "zcodium.nodePath": {
+          "type": "string",
+          "default": "",
+          "description": "完整界面 server 拉起 Agent 使用的 Node 可执行文件路径；留空自动解析（homebrew/系统 node）。"
+        }
+      }
+    },
+    "submenus": [
+      {
+        "id": "zcodium.editorContext",
+        "label": "ZCodium"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "zcodium.quickEdit",
+        "key": "ctrl+alt+k",
+        "mac": "cmd+alt+k",
+        "when": "editorHasSelection && editorTextFocus"
+      },
+      {
+        "command": "zcodium.addToContext",
+        "key": "ctrl+alt+a",
+        "mac": "cmd+alt+a",
+        "when": "editorHasSelection"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc -b",
+    "test": "vitest run",
+    "size": "node scripts/check-bundle-size.mjs",
+    "package": "node esbuild.mjs && vsce package --no-dependencies --out dist/ && node scripts/check-bundle-size.mjs"
+  },
+  "dependencies": {
+    "@zcode/client": "workspace:*",
+    "@zcode/rpc": "workspace:*",
+    "@zcode/services": "workspace:*",
+    "@zcode/shared": "workspace:*",
+    "@zcode/ui": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.1.7",
+    "@tailwindcss/node": "^4.1.7",
+    "@types/node": "^25.5.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "0.25.12",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.7",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.1"
+  }
+}

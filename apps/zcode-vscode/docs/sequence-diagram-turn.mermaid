@@ -1,0 +1,37 @@
+%% 激活链路（来源：docs/architecture.md §4.1）
+%% 用户消息 → 流式 → 工具 → diff 审批 → turn.completed（来源：docs/architecture.md §4.2）
+sequenceDiagram
+    autonumber
+    participant U as 用户输入框
+    participant CP as ChatPanelBridge
+    participant SM as SessionManager
+    participant PC as ProtocolConnection
+    participant CLI as Agent (app-server)
+    participant AP as ApprovalService
+    participant DV as DiffViewer
+    participant WV as Webview 渲染
+
+    U->>CP: sendPrompt(text)
+    CP->>SM: sendMessage(text)
+    SM->>PC: notify userInput / request turn（按契约）
+    SM->>WV: turnState(started)
+    CLI-->>PC: event model.streaming{text_delta}
+    PC-->>SM: onEvent
+    SM-->>WV: appendTextDelta → 追加渲染
+    CLI-->>PC: event model.streaming{reasoning_delta}
+    SM-->>WV: appendReasoningDelta → 折叠块
+    CLI-->>PC: event tool.updated{scheduled/started/progress}
+    SM-->>WV: toolTimeline 更新
+    CLI-->>PC: event permission.requested{requestId, kind=file_edit, path, proposed}
+    PC-->>AP: handleRequested
+    AP->>DV: open native diff（当前 vs 提议，标题 [待审批]）
+    AP-->>WV: approvalCard（应用/拒绝按钮，非阻塞）
+    U->>CP: approve(requestId, "allow")
+    CP->>AP: resolve(requestId)
+    AP->>PC: notify permission.resolved{requestId, decision}
+    PC->>CLI: 应答
+    CLI-->>PC: event tool.updated{result}
+    SM-->>WV: 时间线完成 + diff 视图关闭
+    CLI-->>PC: event turn.completed
+    SM-->>WV: turnState(completed)
+    note over AP: turn.failed 或 turn 结束时未应答 → markTurnEnded：请求标 pending，恢复会话后重放
