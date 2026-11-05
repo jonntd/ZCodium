@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createConfig } from "@zcode/adapters/config";
-import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS } from "@zcode/shared";
+import {
+  DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS,
+  setOfficialServiceSwitches,
+} from "@zcode/shared";
 import { ZCODE_PLUGIN_HOST_COMMAND } from "@zcode/contracts";
 import type { Logger } from "@zcode/contracts";
 import { describe, expect, it, vi } from "vitest";
@@ -117,6 +120,10 @@ describe("ZCode plugins", () => {
     const pluginStorageRoot = join(root, "plugins");
     const marketplaceRoot = join(pluginStorageRoot, "marketplaces", "claude-plugins-official");
     try {
+      // 审计 fork 默认关闭官方 marketplace（officialPlatformPolicy），本用例验证的
+      // 图标迁移走 cdn-zcode.z.ai，网络层在开关关闭时短路导致 fetch 桩永不命中。
+      // 上游语义即「开关开启」，就地启用并在 finally 复位，避免影响同文件其他用例。
+      setOfficialServiceSwitches({ marketplace: true });
       await mkdir(marketplaceRoot, { recursive: true });
       await writeFile(
         join(marketplaceRoot, "marketplace.json"),
@@ -160,6 +167,7 @@ describe("ZCode plugins", () => {
         );
       });
     } finally {
+      setOfficialServiceSwitches({});
       vi.unstubAllGlobals();
       await rm(root, { force: true, recursive: true });
     }
@@ -575,6 +583,8 @@ describe("ZCode plugins", () => {
     const documentsId = "documents@zcode-plugins-official";
 
     try {
+      // 同上：官方投影用例需开启 marketplace 开关（bundled 分区经官方记录投影），finally 复位。
+      setOfficialServiceSwitches({ marketplace: true });
       await writeFile(
         userConfigPath,
         JSON.stringify({ plugins: { enabled: true, suppressedBuiltins: [documentsId] } }),
@@ -592,6 +602,7 @@ describe("ZCode plugins", () => {
         overview.restorableBuiltins.find((plugin) => plugin.id === documentsId)?.componentTypes,
       ).toEqual(["ui"]);
     } finally {
+      setOfficialServiceSwitches({});
       await rm(root, { force: true, recursive: true });
     }
   });
@@ -600,6 +611,9 @@ describe("ZCode plugins", () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-bootstrap-default-marketplace-"));
 
     try {
+      // 同上：官方 marketplace 记录由开关过滤（resolveDefaultPluginMarketplaces），
+      // 空存储投影用例需就地开启，finally 复位。
+      setOfficialServiceSwitches({ marketplace: true });
       const pluginStorageRoot = join(root, "plugins");
       const overview = getZCodePluginsOverview({
         env: {},
@@ -645,6 +659,7 @@ describe("ZCode plugins", () => {
         ],
       });
     } finally {
+      setOfficialServiceSwitches({});
       await rm(root, { force: true, recursive: true });
     }
   });
@@ -2372,6 +2387,8 @@ describe("ZCode plugins", () => {
     const pluginStorageRoot = join(root, "plugins");
     const userConfigPath = join(root, "user-config.json");
     try {
+      // 同上：官方投影断言（pluginCount: 14）需官方记录在场，就地开启开关，finally 复位。
+      setOfficialServiceSwitches({ marketplace: true });
       await writeTestFile(
         userConfigPath,
         JSON.stringify({
@@ -2411,6 +2428,7 @@ describe("ZCode plugins", () => {
         ]),
       );
     } finally {
+      setOfficialServiceSwitches({});
       await rm(root, { force: true, recursive: true });
     }
   });
