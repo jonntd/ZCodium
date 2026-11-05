@@ -4,6 +4,15 @@
 > 状态：已实现并验证
 > 关联改动：Computer Use 换成 node_repl SDK 重建，node_repl 宿主从 Browser Use 抽成独立
 > 官方插件 `@zcode/node-repl-host`。
+>
+> **fork 状态（2026-11）**：本文描述的 `check-version-coherence.mjs` / `check-cua-baseline.mjs` /
+> `bump-zcode-cua-producer.mjs` 门禁在本 fork 不可用——它们只随市场发布快照落在
+> `plugins/zcode-cua-plugin/scripts/`，依赖的上游设施（`upstream.json`、pnpm catalog git pin、
+> `.gitlab/ci`、`docs/superpowers` 契约）fork 均不存在，已连同 package.json scripts 块一并移除。
+> fork 内 package / manifest / Bootstrap definition 的版本一致性由
+> `official-definitions-vendored-alignment.test.ts` 与 `plugins.test.ts` 承担；
+> `packages/zcode-cua` producer 源码版本（0.6.3）落后于插件身份版本（0.6.5），
+> 以上游 main 合并为准，不手工追平。
 
 本规格同时覆盖三个包，因为这次它们的版本事实源清单**结构性地变了**：Browser Use 原本的
 五处事实源里，第五处 `NODE_REPL_SERVER_VERSION` 随宿主迁出，成了 node-repl-host 自己的
