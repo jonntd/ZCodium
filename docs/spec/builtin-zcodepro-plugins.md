@@ -44,15 +44,20 @@ Agent storage：<storage>/cli/plugins/marketplaces/zcode-plugins-official/bundle
 
 | definition name | vendored 包 | version | defaultEnabled |
 |---|---|---|---|
-| documents / pdf / presentations / spreadsheets | `*-plugin` | 0.1.7 | true |
+| documents | documents-plugin | 0.2.1 | true |
+| pdf | pdf-plugin | 0.2.2 | true |
+| presentations | presentations-plugin | 0.2.1 | true |
+| spreadsheets | spreadsheets-plugin | 0.2.1 | true |
 | image-search | image-search-plugin | 0.1.1 | true |
 | skill-creator / plugin-creator | `*-plugin` | 0.1.0 / 0.1.1 | true |
 | zcode-guide | zcode-guide-plugin | 0.3.0 | true |
 | restore-legacy-sessions | restore-legacy-sessions-plugin | 0.1.0 | false |
 | android-emulator / ios-simulator | `*-plugin` | 0.1.0 | false |
-| computer-use | zcode-cua-plugin | 0.6.3 | false |
+| computer-use | zcode-cua-plugin | 0.6.5 | false |
 
-（browser-use、node-repl-host 两个原生包不在本 spec 范围，维持既有 staging。）
+（browser-use、node-repl-host、visualize 三个原生包不在本 spec 范围，维持既有 staging——
+包源在 `apps/zcode-cli/packages/` 下，由 prepare-agent-node-bundle.mjs 的 officialPluginPackages 单独 stage。
+版本以 `official-plugin-definitions.ts` 为准，与 vendored manifest 机械对照（alignment 测试）。）
 
 ## 关键处理
 
@@ -61,8 +66,10 @@ Agent storage：<storage>/cli/plugins/marketplaces/zcode-plugins-official/bundle
    插件内 `node_modules` 被有意排除（seed 与 staging 同样跳过，避免 40MB+ 依赖入库产物）。
 2. **MCP 依赖内联**：android-emulator 与 ios-simulator 的 `dist/mcp/server.js` 是 bundle，但上游
    esbuild 把 `ajv`/`ajv-formats` 留作 external；seed 缓存无 node_modules，运行时必然解析失败。
-   staging 时检测 bare import 并用 esbuild（`nodePaths` 指向仓库根 node_modules）重新内联，
-   `node:*` 保持 external。其余 10 个插件无此问题（无 dist/mcp/server.js 或内容纯 markdown）。
+   0.2.0 起文档插件的查看面板 server 构建在 `dist/server.mjs`，同样把 `ajv`/`ajv-formats`、
+   `@modelcontextprotocol/sdk` 留作 external。staging 对两类入口统一检测 bare import 并用 esbuild
+   （`nodePaths` 指向仓库根 node_modules）重新内联，`node:*` 保持 external。
+   其余插件无此问题（无 MCP server bundle 或内容纯 markdown）。
 3. **zcode-guide 0.3.0 形态**：上游 0.3.0 删除了 `commands/`（/workflow 命令）与
    `skills/dynamic-workflows/`，definition 的 requiredSeedPaths 同步改为六个诊断/配置 SKILL.md；
    dynamic-workflows 技能仍由 bundled-skills 包（glm/packages/bundled-skills）提供，不丢失。

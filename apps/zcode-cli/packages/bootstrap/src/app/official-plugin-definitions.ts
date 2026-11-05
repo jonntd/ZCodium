@@ -160,7 +160,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "../../visualize-plugin",
       "../../../visualize-plugin",
     ],
-    version: "0.1.0",
+    version: "0.1.1",
   },
   {
     // 无 listing：宿主不进市场、不对用户露出。它必须始终可用，因为 node_repl 的注册门禁
@@ -225,10 +225,11 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
   ...(
     [
       // 版本按插件各自升：pdf 0.2.1 起面板带中日韩字体回退，换新缓存目录，不复用 0.2.0 的旧缓存。
-      ["documents", "docx", "Documents", "Word文档", "0.2.0"],
-      ["pdf", "pdf", "PDF", "PDF", "0.2.1"],
-      ["presentations", "pptx", "Presentations", "演示文档", "0.2.0"],
-      ["spreadsheets", "xlsx", "Spreadsheets", "电子表格", "0.2.0"],
+      // 0.2.x 为同步本地 ZCode 官方插件集（viewer SKILL 措辞与 dist 更新），同样换缓存目录。
+      ["documents", "docx", "Documents", "Word文档", "0.2.1"],
+      ["pdf", "pdf", "PDF", "PDF", "0.2.2"],
+      ["presentations", "pptx", "Presentations", "演示文档", "0.2.1"],
+      ["spreadsheets", "xlsx", "Spreadsheets", "电子表格", "0.2.1"],
     ] as const
   ).map(
     ([name, skill, displayName, chineseName, version]): OfficialPluginDefinition => ({

@@ -142,9 +142,16 @@ export async function stageVendoredOfficialPlugins({ repoRoot, platformKey, log 
       log,
     });
 
-    const stagedServerPath = resolve(targetRoot, "dist", "mcp", "server.js");
-    if (existsSync(stagedServerPath)) {
-      await inlineMcpServerDependencies(stagedServerPath, repoRoot, log);
+    // 两类 MCP server 入口都要内联：android/ios 是 dist/mcp/server.js；0.2.0 起文档插件的
+    // 查看面板 server 由 office-runtime 构建到 dist/server.mjs，同样把 ajv/ajv-formats、
+    // @modelcontextprotocol/sdk 留成 bare import。seed 有意不拷 node_modules，不内联则一启动就崩。
+    for (const serverPath of [
+      resolve(targetRoot, "dist", "mcp", "server.js"),
+      resolve(targetRoot, "dist", "server.mjs"),
+    ]) {
+      if (existsSync(serverPath)) {
+        await inlineMcpServerDependencies(serverPath, repoRoot, log);
+      }
     }
   }
 }

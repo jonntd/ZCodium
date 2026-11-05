@@ -12,14 +12,14 @@
     },
     {
       "name": "computer-use",
-      "version": "0.6.4",
+      "version": "0.6.5",
       "description": "Computer Use: automate desktop apps with mouse, keyboard, and UI element control.",
       "source": "./zcode-cua-plugin"
     },
     {
       "name": "documents",
-      "version": "0.1.8",
-      "description": "DOCX document production skills, published as an official ZCode plugin.",
+      "version": "0.2.1",
+      "description": "DOCX document production skills and a Word viewer panel, published as an official ZCode plugin.",
       "source": "./documents-plugin"
     },
     {
@@ -36,8 +36,8 @@
     },
     {
       "name": "pdf",
-      "version": "0.1.8",
-      "description": "PDF document production skills, published as an official ZCode plugin.",
+      "version": "0.2.2",
+      "description": "PDF production skills and a PDF viewer panel, published as an official ZCode plugin.",
       "source": "./pdf-plugin"
     },
     {
@@ -48,8 +48,8 @@
     },
     {
       "name": "presentations",
-      "version": "0.1.8",
-      "description": "PPTX presentation production skills, published as an official ZCode plugin.",
+      "version": "0.2.1",
+      "description": "PPTX presentation production skills and a PowerPoint viewer panel, published as an official ZCode plugin.",
       "source": "./presentations-plugin"
     },
     {
@@ -66,14 +66,14 @@
     },
     {
       "name": "spreadsheets",
-      "version": "0.1.8",
-      "description": "XLSX spreadsheet production skills, published as an official ZCode plugin.",
+      "version": "0.2.1",
+      "description": "XLSX spreadsheet production skills and an Excel viewer panel, published as an official ZCode plugin.",
       "source": "./spreadsheets-plugin"
     },
     {
       "name": "visualize",
-      "version": "0.1.0",
-      "description": "Create interactive charts, explainers, and design previews in the conversation.",
+      "version": "0.1.1",
+      "description": "Create interactive explanations, charts and design previews in ZCode conversations.",
       "source": "./visualize-plugin"
     },
     {

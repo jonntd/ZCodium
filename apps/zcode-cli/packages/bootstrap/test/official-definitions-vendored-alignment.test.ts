@@ -17,9 +17,10 @@ import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS, OFFICIAL_PLUGIN_DEFINITIONS } from
 import { VENDORED_OFFICIAL_PLUGINS } from "../../../../../packages/desktop/scripts/stage-vendored-official-plugins.mjs";
 import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS as SHARED_DEFAULT_ENABLED_IDS } from "../../../../../packages/shared/src/plugin-marketplaces.js";
 
-// 这两个插件包源在 apps/zcode-cli/packages/ 下、由 prepare-agent-node-bundle.mjs 的
+// 这三个插件包源在 apps/zcode-cli/packages/ 下、由 prepare-agent-node-bundle.mjs 的
 // officialPluginPackages 单独 staging，不在 vendored 表范围内。
-const NON_VENDORED_DEFINITION_NAMES = new Set(["browser-use", "node-repl-host"]);
+// visualize 随上游 definitions 合入时漏更新本集合，对照测试一直假红；补上。
+const NON_VENDORED_DEFINITION_NAMES = new Set(["browser-use", "node-repl-host", "visualize"]);
 
 function readVendoredManifest(directory: string): { name: string; version: string } {
   const manifestPath = resolve(repoRoot, "plugins", directory, ".zcode-plugin", "plugin.json");
