@@ -27,7 +27,6 @@ import { VscodePlatformService } from "./platform/vscodePlatformService";
 import { mapVscodeLanguage } from "./i18nSetup";
 import type { VscodeThemeKind } from "./themeBridge";
 import { buildDiagnosticsInjection } from "./composer/injection";
-import { SelectionChip } from "./composer/selectionChip";
 import type {
   ComposerInsertHostFramePayload,
   DiagnosticsHostFramePayload,
@@ -127,7 +126,6 @@ async function bootstrap(): Promise<void> {
     <WebviewRoot
       platform={platformService}
       services={connection.services}
-      plat={rpc}
       hostFrames={hostFrames}
       themeKind={bootstrapData.themeKind}
       locale={bootstrapData.locale}
@@ -141,8 +139,6 @@ async function bootstrap(): Promise<void> {
 interface WebviewRootProps {
   platform: IPlatformService;
   services: IServiceAccessor;
-  /** plat 方法调用面（getWorkspaceSettings/updateMcpServers/选区 chip 等）。 */
-  plat: PlatformRpcClient;
   hostFrames: HostFrameBus;
   themeKind: VscodeThemeKind;
   locale: string;
@@ -154,7 +150,6 @@ interface WebviewRootProps {
 function WebviewRoot({
   platform,
   services,
-  plat,
   hostFrames,
   themeKind,
   locale,
@@ -232,21 +227,19 @@ function WebviewRoot({
     setSessionId(next);
   }, []);
 
+  // Root 自带选区侧聊/文件引用 UX，pane 特有的选区 chip 已随装配切换退役；
+  // 编辑器命令（composer-insert/诊断注入）仍经模块级 store 直达 Root composer。
   return (
-    <>
-      {/* P1-4：活动编辑器选区 chip（有非空选区才出现；点击注入选区块到 composer）。 */}
-      <SelectionChip plat={plat} workspacePath={workspacePath} folders={initialFolders} />
-      <App
-        platform={platform}
-        services={services}
-        themeKind={themeKind}
-        locale={locale}
-        workspacePath={workspacePath}
-        sessionId={sessionId}
-        hostFrames={hostFrames}
-        onActiveSessionChange={handleActiveSessionChange}
-      />
-    </>
+    <App
+      platform={platform}
+      services={services}
+      themeKind={themeKind}
+      locale={locale}
+      workspacePath={workspacePath}
+      sessionId={sessionId}
+      hostFrames={hostFrames}
+      onActiveSessionChange={handleActiveSessionChange}
+    />
   );
 }
 

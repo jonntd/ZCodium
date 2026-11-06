@@ -55,12 +55,6 @@
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.openFullUi",
-        "title": "打开完整界面（会话历史 / 模型 / diff / Git）",
-        "category": "ZCodium",
-        "icon": "$(window)"
-      },
-      {
         "command": "zcodium.onboarding",
         "title": "上手引导",
         "category": "ZCodium"
@@ -213,11 +207,6 @@
     ],
     "menus": {
       "view/title": [
-        {
-          "command": "zcodium.openFullUi",
-          "when": "view == zcodium.chat",
-          "group": "navigation@0"
-        },
         {
           "command": "zcodium.newSession",
           "when": "view == zcodium.chat",
@@ -389,39 +378,6 @@
             "再加最近 5 分钟内编辑过的文件"
           ],
           "description": "发送消息时自动附加的编辑器上下文（FR-B22）。"
-        },
-        "zcodium.fullUiRepoRoot": {
-          "type": "string",
-          "default": "",
-          "description": "完整界面的 monorepo 根目录（定位 packages/server 与 packages/web 产物）；留空时从工作区向上查找。"
-        },
-        "zcodium.fullUiServerEntry": {
-          "type": "string",
-          "default": "",
-          "description": "完整界面 server 入口（entry-http.js）；留空用 <repoRoot>/packages/server/dist/entry-http.js。"
-        },
-        "zcodium.fullUiStaticRoot": {
-          "type": "string",
-          "default": "",
-          "description": "完整界面前端产物目录；留空用 <repoRoot>/packages/web/dist。"
-        },
-        "zcodium.sidebarUi": {
-          "type": "string",
-          "default": "pane",
-          "enum": [
-            "pane",
-            "full"
-          ],
-          "enumDescriptions": [
-            "插件原生形态（推荐）：侧栏承载 V4ChatPane 对话面，编辑器命令经 host 帧直接预填 composer，会话绑定当前工程，Agent 由插件进程管理",
-            "实验性：侧栏 iframe 承载完整界面（packages/web，经本地 HTTP server），功能全但编辑器上下文与工程绑定存在架构限制"
-          ],
-          "description": "侧栏承载的界面形态。切换后侧栏自动重载。"
-        },
-        "zcodium.nodePath": {
-          "type": "string",
-          "default": "",
-          "description": "完整界面 server 拉起 Agent 使用的 Node 可执行文件路径；留空自动解析（homebrew/系统 node）。"
         }
       }
     },

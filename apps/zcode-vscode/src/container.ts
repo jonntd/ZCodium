@@ -14,12 +14,8 @@
 
 import type { ExtensionContext } from "vscode";
 import { commands, env, languages, Uri, window, workspace } from "vscode";
-import { uuidv7 } from "@zcode/shared";
-import type { ZCodeSessionMode } from "@zcode/shared";
 import { mkdir, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
-import { existsSync } from "node:fs";
+import { basename, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CliLocator } from "./cli/cliLocator";
 import {
@@ -31,9 +27,6 @@ import { createQuickEditContentProvider } from "./features/quickEdit";
 import { ZcodiumCodeActionProvider } from "./features/codeActions";
 import { setLogSink } from "./features/logger";
 import { primaryWorkspacePath } from "./features/featureConfig";
-import { ServerHost, SERVER_LOG_FILE_NAME } from "./fullui/serverHost";
-import { openFullUi } from "./fullui/openFullUi";
-import { readServerLogTail } from "./fullui/serverLogTail";
 import { buildDiagnosticsExportContent } from "./ui/diagnosticsBuffer";
 import { ChatPanel, CHAT_VIEW_ID } from "./ui/chatPanel";
 import { Diagnostics } from "./ui/diagnostics";
@@ -53,7 +46,6 @@ import {
   IZCodeTaskService,
   type IServiceAccessor,
 } from "@zcode/services";
-import { HostServices } from "./fullui/hostServices";
 import {
   HostSettingsBridge,
   ZCODE_AGENT_SERVER_BASE_ARGS,
@@ -284,164 +276,20 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     });
   if (lifecycleDisposable) context.subscriptions.push(lifecycleDisposable);
 
-  // ── 完整界面共享 server（单例，懒启动；侧栏 full 模式与 openFullUi 命令共用） ──
-  const globalStorageDir = context.globalStorageUri.fsPath;
-  const fullUiConfig = () => workspace.getConfiguration("zcodium");
-  /** 真 Node 解析：设置 zcodium.nodePath → 常见安装位 → 兜底 Electron 二进制（会 SIGTRAP）。 */
-  const resolveAgentNodePath = (): string => {
-    const configured = fullUiConfig().get<string>("nodePath", "").trim();
-    if (configured && existsSync(configured)) return configured;
-    for (const candidate of ["/opt/homebrew/bin/node", "/usr/local/bin/node", "/usr/bin/node"]) {
-      if (existsSync(candidate)) return candidate;
-    }
-    return process.execPath;
-  };
-  // 侧栏承载形态。默认 pane（插件原生形态）：编辑器命令经 host 帧直达 webview
-  // composer，会话绑定 IDE 工程，Agent 由插件进程管理（Claude Code/Augment 同构）。
-  // full（server 形态）保留为实验档：iframe 承载完整界面，但编辑器上下文注入受
-  // 跨源限制（composer-insert/session-switch 帧无法进 iframe，见 2026-11-06 缺陷分析）。
-  const sidebarUiMode = () => fullUiConfig().get<string>("sidebarUi", "pane");
-  const resolveFullUiRepoRoot = (): string => {    const configured = fullUiConfig().get<string>("fullUiRepoRoot", "").trim();
-    if (configured) return configured;
-    if (typeof __ZCODE_REPO_ROOT__ === "string" && __ZCODE_REPO_ROOT__) {
-      return __ZCODE_REPO_ROOT__;
-    }
-    // 工作区向上探测（工作区在 monorepo 内的场景）。
-    for (const folder of workspace.workspaceFolders ?? []) {
-      let dir = folder.uri.fsPath;
-      for (let i = 0; i < 6; i += 1) {
-        if (
-          existsSync(join(dir, "packages/web/dist/index.html")) &&
-          existsSync(join(dir, "packages/server/dist/entry-http.js"))
-        ) {
-          return dir;
-        }
-        const parent = dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-      }
-    }
-    return "";
-  };
-  // 完整界面 server 的默认对话工作区：server 缺省回落 process.cwd()（扩展宿主 spawn
-  // 时是仓库根），iframe 界面以该路径开聊会被 project.remote-project-required 拒发。
-  // 显式指到共享数据根的 default 工作区（预注册项目「默认对话」同一路径）。
-  const conversationWorkspaceDir = join(homedir(), ".zcodium", "workspace", "default");
-  const fullUiServer = new ServerHost({
-    get repoRoot() {
-      return resolveFullUiRepoRoot();
-    },
-    get configuredEntry() {
-      return fullUiConfig().get<string>("fullUiServerEntry", "");
-    },
-    get configuredStaticRoot() {
-      return fullUiConfig().get<string>("fullUiStaticRoot", "");
-    },
-    workspacePath: conversationWorkspaceDir,
-    nodePath: process.execPath,
-    logDir: join(globalStorageDir, "logs"),
-    // agent 不能用 Electron 二进制：server（node 模式 Electron）再 spawn 同一二进制时，
-    // Electron 会剥离 ELECTRON_RUN_AS_NODE（防嵌套逃逸），子进程以 GUI 模式启动 →
-    // 无头环境 SIGTRAP（stderr 零输出，实测）。必须解析真 Node：
-    agentCommand: resolveAgentNodePath(),
-    agentArgs: [
-      join(context.extensionUri.fsPath, "cli-bundle", "zcode.cjs"),
-      "app-server",
-      "--stdio",
-    ],
-  });
-
-  // ── 工作区项目预注册（full 模式）：server 作用域要求会话必须归属项目
-  // （project.remote-project-required），否则用户在完整界面里无法直接发送。
-  // 关键事实：完整界面（iframe web 应用）聊天用的是 server 的**默认对话工作区**
-  // （{dataRoot}/workspace/default，与桌面端共享 ~/.zcodium 数据根），而不是 VS Code
-  // 打开的文件夹——所以默认对话目录必须注册；VS Code 文件夹有则一并注册。
-  // 幂等：同 root 且同 host 作用域已注册则复用。
-  const registerProjectForPath = async (
-    projectService: NonNullable<IServiceAccessor["projectService"]>,
-    projects: Awaited<ReturnType<typeof projectService.readProjects>>,
-    folder: string,
-    name: string,
-  ): Promise<void> => {
-    // 幂等守卫必须按 host 作用域判断：共享存储里同名 root 的 local 项目
-    // （桌面 CLI 写入）对 server 作用域不可见，不能作为跳过依据。
-    // server 作用域的项目 hostId 形如 remote:server:<hostname>。
-    const registeredOnServer = projects.some(
-      (p) =>
-        typeof p.hostId === "string" &&
-        p.hostId.startsWith("remote:server:") &&
-        p.roots?.some((r) => r.rootPath === folder),
-    );
-    if (registeredOnServer) {
-      diagnostics.log(`[full-ui] 项目已注册，跳过：${folder}`);
-      return;
-    }
-    const saved = await projectService.saveProject({
-      name,
-      roots: [folder],
-      primaryRoot: folder,
-    });
-    diagnostics.log(`[full-ui] 工作区已注册为项目：${folder}（${saved.id}）`);
-  };
-  const registerWorkspaceProject = async (): Promise<void> => {
-    try {
-      await hostServices.use(async (accessor) => {
-        const projectService = accessor.projectService;
-        if (!projectService) throw new Error("project service 不可用");
-        const projects = await projectService.readProjects();
-        // 1) 默认对话工作区——完整界面聊天的真实落点，必注册。
-        await registerProjectForPath(
-          projectService,
-          projects,
-          conversationWorkspaceDir,
-          "默认对话",
-        );
-        // 2) VS Code 打开的文件夹（如有）——编辑器能力（quick edit 等）用。
-        const folder = workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (folder && folder !== conversationWorkspaceDir) {
-          await registerProjectForPath(projectService, projects, folder, basename(folder));
-        } else if (!folder) {
-          diagnostics.log("[full-ui] 当前窗口没有打开文件夹，跳过文件夹项目注册");
-        }
-      });
-    } catch (error) {
-      diagnostics.log(
-        `[full-ui] 工作区项目注册失败（不影响 server）：${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-  };
-
+  // ── 侧栏对话面（插件原生形态）：webview 挂载与 full/server 形态同源的桌面 Root， ──
+  // ── 服务走进程内 ServiceCollection（与桌面 host 同一装配入口 createLocalServices）。──
   const chatPanel = new ChatPanel(
     context.extensionUri,
     hostRuntime,
     (folder) => workspaceSessions.get(folderKey(folder)) ?? null,
-    {
-      enabled: () => sidebarUiMode() === "full",
-      ensureUrl: async () => {
-        const url = await fullUiServer.ensureStarted();
-        void registerWorkspaceProject();
-        return url;
-      },
-    },
   );
 
   // ── 服务调用统一路由（PRD §8.5 单通道） ──
-  // full 模式：Agent 归共享 server 所有，宿主编辑器能力经 /ws accessor 调用，
-  // 进程内服务栈绝不 spawn agent（双实例会在 CLI 存储锁上互撞，实测
-  // "ZCode agent stdio transport is closed"）。
-  // pane 模式：进程内 ServiceCollection 直取（结构化子集，命令面只用 agent/task 两服务）。
-  const hostServices = new HostServices({
-    getWsUrl: async () => {
-      const url = await fullUiServer.ensureStarted();
-      return `${url.replace(/^http/, "ws")}/ws`;
-    },
-  });
+  // 进程内 ServiceCollection 直取（命令面只用 agent/task 两服务；编辑器命令与
+  // 一次性生成都走这条通道，无 WS/握手/项目注册面）。
   const runWithServices = <T>(
     run: (accessor: IServiceAccessor) => Promise<T>,
   ): Promise<T> => {
-    if (sidebarUiMode() === "full") {
-      return hostServices.use(run);
-    }
     const paneAccessor = {
       zcodeAgentService: services.services.get(IZCodeAgentService),
       zcodeTaskService: services.services.get(IZCodeTaskService),
@@ -497,19 +345,11 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
       if (event.affectsConfiguration("zcodium.")) {
         hostRuntime.pushHostFrame("workspace", { kind: "settings-changed" });
       }
-      // 侧栏承载模式切换（full ↔ pane）：重建面板 webview。
-      if (event.affectsConfiguration("zcodium.sidebarUi")) {
-        chatPanel.reload();
-      }
     }),
   );
 
   // ── activate 后：per-folder 最近会话恢复（P1-1.5 host 半；resume 恒带约束面） ──
-  // full 模式下跳过：Agent 归共享 server 所有，插件进程内栈不得 spawn（单通道，§8.5）；
-  // 会话恢复由完整界面自身的订阅/续传语义承接。
-  if (sidebarUiMode() !== "full") {
-    void runtimeController.restoreWorkspaceSessions();
-  }
+  void runtimeController.restoreWorkspaceSessions();
 
   // ── P1-10.2：CLI 未找到 → 呈现安装引导与「重新检测」入口（P0-1 引导语义） ──
   if (!cliInfo) void welcomePage.presentCliMissing();
@@ -528,70 +368,14 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     workspace.workspaceFolders?.[0]?.uri.fsPath ?? primaryWorkspacePath() ?? "";
 
   /**
-   * M1「发进对话」的路由：
-   * - full 模式（默认）：侧栏是完整界面 iframe，跨源无法预填其 composer → 直接经
-   *   services 发 v4 sendText 到该 folder 的会话（无会话则先编程式创建）；完整界面
-   *   订阅同一会话，消息实时出现在界面里。
-   * - pane 模式：composer-insert host 帧预填 React composer（P1-5 同通道）。
+   * M1「发进对话」：composer-insert host 帧预填 webview composer（P1-5 同通道）。
+   * 侧栏 Root 与 full 形态同源，composer 可见可编辑，用户在界面里确认发送；
+   * 选区/文件上下文随文本块一起预填，不再有跨源直发隐藏会话的架构断裂。
    */
-  const submitToConversation = async (content: string): Promise<void> => {
-    const folder = editorWorkspacePath();
-    if (!folder) {
-      void window.showInformationMessage("先打开一个工作区文件夹。");
-      return;
-    }
-    let sessionId = workspaceSessions.get(folderKey(folder)) ?? null;
-    if (!sessionId && sidebarUiMode() === "full") {
-      // full 模式：会话必须归属共享 server。经 /ws 通道在 server 侧编程式创建
-      // （参数面与 RuntimeController.createSession 一致）；绝不能走进程内
-      // agentService——那会 spawn 第二个 agent 实例，与 server 在 CLI 存储锁上
-      // 互撞（实测表现 "ZCode agent stdio transport is closed"）。
-      sessionId = await runWithServices(async (accessor) => {
-        const params = settingsBridge.resolveCreateParams(folder);
-        const snapshot = await accessor.zcodeAgentService.createSession({
-          workspacePath: params.workspacePath,
-          mode: params.config.mode as ZCodeSessionMode,
-          ...(params.config.modelSelection ? { model: params.config.modelSelection } : {}),
-          toolAllowlist: params.toolAllowlist,
-          toolDenylist: params.toolDenylist,
-          mcpServers: params.mcpServers as never[],
-          additionalDirectories: params.additionalDirectories,
-        } as Parameters<NonNullable<typeof accessor.zcodeAgentService>["createSession"]>[0]);
-        const created = snapshot.session.sessionId;
-        workspaceSessions.set(folderKey(folder), created);
-        return created;
-      });
-    } else if (!sessionId) {
-      sessionId = (await runtimeController.createSession(folder)).sessionId;
-    }
-    await runWithServices((accessor) =>
-      accessor.zcodeAgentService.sendConversationCommandV4({
-        workspacePath: folder,
-        envelope: {
-          commandId: uuidv7(),
-          clientId: "zcode-vscode-host",
-          sessionId,
-          type: "sendText",
-          payload: { text: content },
-          issuedAt: Date.now(),
-        },
-      }),
-    );
-  };
   const editorPushFrame = (
     kind: "composer-insert" | "session-switch",
     payload: unknown,
   ): void => {
-    if (kind === "composer-insert" && sidebarUiMode() === "full") {
-      const text = (payload as { text?: string } | undefined)?.text ?? "";
-      void submitToConversation(text)
-        .then(() => window.setStatusBarMessage("ZCodium：已发送到对话", 3000))
-        .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error);
-          void window.showErrorMessage(`发送到对话失败：${message}`);
-        });
-      return;
-    }
     hostRuntime.pushHostFrame(kind, payload);
   };
   const editorFeatureDisposables = registerEditorCommands({
@@ -618,16 +402,6 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     ...editorFeatureDisposables,
   );
 
-  // ── 完整界面（fullui，M2）：packages/web 构建产物由共享 server 进程托管，Simple Browser 打开 ──
-  // 与侧边栏共享数据根（services 默认根 $HOME/.zcodium：两侧同回落，docs/architecture.md §7.9）与 Agent（内置 CLI bundle）；
-  // server/web 产物路径按本机 monorepo 布局解析（设置可覆盖，见 zcodium.fullUi*）。
-  context.subscriptions.push(
-    commands.registerCommand("zcodium.openFullUi", async () => {
-      // 共享单例：侧栏 full 模式与 Simple Browser 用同一 server 进程（数据/进程不双份）。
-      await openFullUi(fullUiServer);
-    }),
-  );
-
   return {
     chatPanel,
     hostRuntime,
@@ -643,7 +417,6 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
       runtimeController.dispose();
       hostRuntime.dispose();
       await services.dispose();
-      void fullUiServer.dispose();
       statusBar.dispose();
       diagnostics.dispose();
     },
@@ -737,18 +510,13 @@ function buildPlatformMethods(deps: {
       return true;
     },
     // 诊断/通知/设备。
-    // exportLogs 聚合口径（架构 §7.10，closeout-3）：导出真实诊断面——输出通道内存
-    // 镜像（Diagnostics 环形缓冲）+ fullui server 日志尾部（SERVER_LOG_FILE_NAME，
-    // 有界 ≤256KB）；来源皆空时如实标注「（无记录）」，不再是一行占位文本。
+    // exportLogs 聚合口径（架构 §7.10）：导出真实诊断面——输出通道内存镜像
+    // （Diagnostics 环形缓冲）；为空时如实标注「（无记录）」。
     exportLogs: async () => {
       const logsDir = join(context.globalStorageUri.fsPath, "logs");
       await mkdir(logsDir, { recursive: true });
-      const serverLogPath = join(logsDir, SERVER_LOG_FILE_NAME);
-      const serverLogLines = readServerLogTail(serverLogPath);
       const content = buildDiagnosticsExportContent({
         diagnosticsLines: deps.diagnosticsSnapshot(),
-        serverLogLines,
-        serverLogPath: serverLogLines.length > 0 ? serverLogPath : null,
       });
       const tempPath = join(logsDir, `zcodium-${Date.now()}.log`);
       await writeFile(tempPath, content, "utf8");
