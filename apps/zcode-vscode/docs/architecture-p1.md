@@ -395,6 +395,14 @@ legacy `session/create|resume` 仅作降级路径：`agentV4ConnectionHandshake`
 - **验收**：P1-6 全项（kill 进程→自动重启→自动 resume→横幅→失败降级提示；恢复参数沿用断言）；capabilities 不可用功能有"当前 CLI 版本不支持"标注（P1-10.3）
 - **覆盖**：P1-6、P1-10.3
 
+**T07 capabilities 投影接线后行为（closeout-2 收口；吸收 FR-A13 残余）**——投影必须驱动真实 UI，规则如下：
+
+1. **数据面（host→webview）**：新增 host 帧型 `capabilities`（`wire.ts` 判定 + `hostFrameKinds.ts` 载荷唯一定义）。载荷 `CapabilitiesHostFramePayload = { capabilities: RuntimeCapabilityFlags | null; capabilityMissing: boolean }`：`capabilities` 是 hello.capabilities 经 `capabilitiesFromHello` 的收敛结果；`capabilityMissing=true` 表示已明确识别为能力缺失（-32601 / 无 code 的 "Method not found"），`false` 表示暂时不可得。
+2. **生产（host 装配面，container）**：`onAgentRuntimeLifecycle` 事件 `state="available"`（进程内栈 spawn 后）→ `helloConversationV4()` 探测 → 收敛成帧 `pushHostFrame("capabilities", …)`。hello 失败且非 method-not-found 时，以 `runtime/capabilities?()`（FR-A13 契约：控制面常量应答，`zcodeAgent.ts:655-668`）二次复核，复核再遇 -32601 才判能力缺失。full 模式单通道（§8.5）下进程内栈永不 spawn → 事件不触发 → 恒无帧。
+3. **消费（webview，App）**：订阅 `capabilities` 帧 → `projectCapabilitiesPayload` 投影 → (a) `unsupportedHint`/`binaryFrameHint` 在对话区上方内联真实渲染；(b) `showTerminalEntry=false` 时 `onOpenBackgroundBash` 不传给 V4ChatPane（ui 侧 ConversationStatusPanel 按回调缺席隐藏终端入口）；(c) `showNativeDialogEntry` 当前 pane 无原生对话框入口（VS Code 对话框走 plat-req 白名单），投影落状态保留，为后续入口消费面。
+4. **静默规则（防诬告）**：帧未到（agent 未就绪）或 `capabilityMissing=false` 且 flags 缺失 → App 不渲染任何「不支持」提示；入口默认隐藏。只有明确识别为能力缺失才显示 P1-10.3 降级标注。
+5. **FR-A13 识别面（errors.ts）**：`isCapabilityMissingError` 识别两种上抛形状——带 `code=-32601`（`ZCodeProtocolClientError`，RPC 层 passthrough 透传）与旧 server dist 未重建时无 code 的 `"Method not found"` 文本；识别结果仅用于降级呈现，不伪装成请求失败，不在 services 内静默兜底（services 侧契约不变）。
+
 ### T08 — 权限 allowlist/denylist + MCP 管理【A·P0】
 - **文件**：`src/configSettings.ts`（allowlist/denylist/mcpServers/additionalDirectories 设置项 + 归一化）、`src/host/hostSettingsBridge.ts`（接线完善）、`src/webview-react/settings/McpSettingsPanel.tsx`（ui 表单组件 + `mcp/list` 状态条）、`src/ui/statusBar.ts`（MCP 状态入口）、`test/settingsBridge.test.ts`
 - **依赖**：T05

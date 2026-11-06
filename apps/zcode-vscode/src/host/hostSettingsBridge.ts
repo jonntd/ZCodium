@@ -226,3 +226,91 @@ export function mergeAllowlistRules(
   const merged = normalizeToolRules([...existing, ...appended]);
   return [...new Set(merged)];
 }
+
+// ── FR-A03（M2-1）：pane 内 switchModelConfig 帧回写 zcodium.model（设置项与下拉双向同步） ──
+
+/** v4 switchModelConfig 命令载荷（command.ts:259；三字段均必填字符串）。 */
+export interface SwitchModelConfigPayload {
+  provider: string;
+  model: string;
+  thought: string;
+}
+
+/**
+ * switchModelConfig 载荷 → zcodium.model 设置串（`providerId/modelId`）。
+ *
+ * thought **不入设置**：zcodium.model 的形状被 parseModelSelection（settings→create
+ * 链）锁定为恰好一个 `/`——把 thought 拼进串会被当成 modelId 的一部分、破坏 create
+ * 的 modelSelection；且设置面无思考档承载项，会话档位由 CLI 会话实体自持、resume
+ * 沿用原会话（P1-6.3，runtimeController.readSessionThoughtLevel 同面）。
+ */
+export function modelConfigToSettingValue(payload: SwitchModelConfigPayload): string {
+  return `${payload.provider}/${payload.model}`;
+}
+
+/** 载荷守卫（协议层 zod 之外的双保险）：形状不合法不触发回写，不抛错。 */
+export function isSwitchModelConfigPayload(payload: unknown): payload is SwitchModelConfigPayload {
+  if (typeof payload !== "object" || payload === null) return false;
+  const record = payload as Record<string, unknown>;
+  return (
+    typeof record["provider"] === "string" &&
+    record["provider"].length > 0 &&
+    typeof record["model"] === "string" &&
+    record["model"].length > 0 &&
+    typeof record["thought"] === "string" &&
+    record["thought"].length > 0
+  );
+}
+
+/**
+ * pane 切换帧命中时的回写回调：收到归一后的 zcodium.model 设置串与原始载荷。
+ * 允许返回 Promise（包装器会 await；回调自吞错误亦可，见 container 装配）。
+ */
+export type SwitchModelConfigPersist = (
+  settingValue: string,
+  payload: SwitchModelConfigPayload,
+) => void | Promise<void>;
+
+/**
+ * 包装 agent 服务的 sendConversationCommandV4：switchModelConfig 帧 → 观测回写
+ * （FR-A03 回写半边；切换本体由复用的 V4ChatPane 经同一命令达成）。
+ *
+ * - 命令语义零改动：先透传原调用并原样返回 ACK；回写在 ACK 之前 await（写失败
+ *   不得让命令失败——persist 抛错只交 onError 诊断，ACK 照常返回）。
+ * - 包装经原型链（Object.create）实现：服务实例的其余方法/属性全部保持原引用，
+ *   不做逐成员拷贝（避免大接口漂移）。
+ * - 载荷形状守卫：非 switchModelConfig 帧或形状非法（绕过工厂的裸信封）不触发回写。
+ */
+export function wrapAgentServiceForModelWriteback<T>(
+  agentService: T,
+  persist: SwitchModelConfigPersist,
+  onError?: (error: unknown) => void,
+): T {
+  const source = agentService as {
+    sendConversationCommandV4?: (params: unknown) => Promise<unknown>;
+  };
+  if (typeof source.sendConversationCommandV4 !== "function") {
+    // 防御：服务形状不符时不包装（回写面关闭，服务行为保持原样）。
+    return agentService;
+  }
+  const wrapped = Object.create(agentService) as T & {
+    sendConversationCommandV4: (params: unknown) => Promise<unknown>;
+  };
+  wrapped.sendConversationCommandV4 = async (params: unknown) => {
+    const ack = await source.sendConversationCommandV4.call(agentService, params);
+    try {
+      const envelope = (params as { envelope?: { type?: unknown; payload?: unknown } } | null)
+        ?.envelope;
+      if (envelope && envelope.type === "switchModelConfig") {
+        const payload: unknown = envelope.payload;
+        if (isSwitchModelConfigPayload(payload)) {
+          await persist(modelConfigToSettingValue(payload), payload);
+        }
+      }
+    } catch (error) {
+      onError?.(error);
+    }
+    return ack;
+  };
+  return wrapped;
+}

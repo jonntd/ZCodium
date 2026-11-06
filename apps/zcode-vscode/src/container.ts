@@ -29,8 +29,10 @@ import { createQuickEditContentProvider } from "./features/quickEdit";
 import { ZcodiumCodeActionProvider } from "./features/codeActions";
 import { setLogSink } from "./features/logger";
 import { primaryWorkspacePath } from "./features/featureConfig";
-import { ServerHost } from "./fullui/serverHost";
+import { ServerHost, SERVER_LOG_FILE_NAME } from "./fullui/serverHost";
 import { openFullUi } from "./fullui/openFullUi";
+import { readServerLogTail } from "./fullui/serverLogTail";
+import { buildDiagnosticsExportContent } from "./ui/diagnosticsBuffer";
 import { ChatPanel, CHAT_VIEW_ID } from "./ui/chatPanel";
 import { Diagnostics } from "./ui/diagnostics";
 import { DiffViewer } from "./ui/diffViewer";
@@ -69,6 +71,7 @@ import {
 } from "./host/serviceAssembly";
 import type { PlatformMethodHandler } from "./host/platformRpcHandler";
 import { RuntimeController } from "./runtimeController";
+import { probeCapabilitiesFrame } from "./webview-react/capabilities";
 import { createWorkspaceSessions, folderKey } from "./webview-react/session/workspaceSessions";
 import { sessionAllowlistRule } from "./approvals/approvalService";
 import { normalizeMcpServersForSettings } from "./configSettings";
@@ -192,6 +195,8 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
         sessionsIndex,
         runtimeController: () => runtimeControllerPlaceholder.current,
         primaryFolder: () => listFolders()[0],
+        // exportLogs 聚合源（§7.10）：输出通道内存镜像读取面（Diagnostics 持有）。
+        diagnosticsSnapshot: () => diagnostics.snapshotLines(),
         // P1-1.1 降级列表数据源（M18）：workspaceSessions 键空间的只读投影。
         latestSessionIdByFolder: () => {
           const table: Record<string, string | undefined> = {};
@@ -244,9 +249,37 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   runtimeControllerPlaceholder.current = runtimeController;
 
   // ── 状态栏投影（P0-2/P0-9）：Agent 生命周期事件 → setState（审批角标接 plat 上报面） ──
-  const lifecycleDisposable = hostRuntime.agentService.onAgentRuntimeLifecycle?.((event) => {
-    statusBar.setState(event.state === "available" ? "ready" : "starting");
-  });
+  // capabilities 横切生产面（T07「接线后行为」+ FR-A13 残余吸收，closeout-2）：agent
+  // 就绪即探测能力面（编排见 webview-react/capabilities.ts probeCapabilitiesFrame），
+  // 经 capabilities 帧下发 webview。full 模式单通道（§8.5）下进程内栈永不 spawn →
+  // 本事件不触发 → 恒无帧，App 静默。
+  const pushCapabilitiesFrame = (event: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+  }): void => {
+    void probeCapabilitiesFrame({
+      agentService: hostRuntime.agentService,
+      workspaceTarget: {
+        workspacePath: event.workspacePath,
+        ...(event.workspaceIdentity
+          ? { workspaceIdentity: event.workspaceIdentity }
+          : {}),
+      },
+      log: (message) => diagnostics.log(message),
+    })
+      .then((payload) => hostRuntime.pushHostFrame("capabilities", payload))
+      .catch((error: unknown) => {
+        diagnostics.log(
+          `[capabilities] 能力帧生产异常：${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
+  };
+  const lifecycleDisposable =
+    hostRuntime.agentService.onAgentRuntimeLifecycle?.((event) => {
+      statusBar.setState(event.state === "available" ? "ready" : "starting");
+      // 探测是控制面读（不落盘、不建会话），fire-and-forget：失败已收敛为帧载荷，不外抛。
+      if (event.state === "available") pushCapabilitiesFrame(event);
+    });
   if (lifecycleDisposable) context.subscriptions.push(lifecycleDisposable);
 
   // ── 完整界面共享 server（单例，懒启动；侧栏 full 模式与 openFullUi 命令共用） ──
@@ -530,7 +563,7 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   );
 
   // ── 完整界面（fullui，M2）：packages/web 构建产物由共享 server 进程托管，Simple Browser 打开 ──
-  // 与侧边栏共享数据根（<globalStorage>/.zcodium）与 Agent（内置 CLI bundle）；
+  // 与侧边栏共享数据根（services 默认根 $HOME/.zcodium：两侧同回落，docs/architecture.md §7.9）与 Agent（内置 CLI bundle）；
   // server/web 产物路径按本机 monorepo 布局解析（设置可覆盖，见 zcodium.fullUi*）。
   context.subscriptions.push(
     commands.registerCommand("zcodium.openFullUi", async () => {
@@ -573,6 +606,8 @@ function buildPlatformMethods(deps: {
   primaryFolder: () => string | undefined;
   /** per-folder 最近会话键表（P1-1.1 降级列表数据源；M18）。 */
   latestSessionIdByFolder: () => Record<string, string | undefined>;
+  /** exportLogs 聚合源（§7.10）：输出通道内存镜像快照读取面（Diagnostics 持有）。 */
+  diagnosticsSnapshot: () => string[];
 }): Record<string, PlatformMethodHandler> {
   const { context, diffViewer, store, statusBar, sessionsIndex } = deps;
   const deviceIdKey = "zcodium.deviceId";
@@ -646,10 +681,21 @@ function buildPlatformMethods(deps: {
       return true;
     },
     // 诊断/通知/设备。
+    // exportLogs 聚合口径（架构 §7.10，closeout-3）：导出真实诊断面——输出通道内存
+    // 镜像（Diagnostics 环形缓冲）+ fullui server 日志尾部（SERVER_LOG_FILE_NAME，
+    // 有界 ≤256KB）；来源皆空时如实标注「（无记录）」，不再是一行占位文本。
     exportLogs: async () => {
-      const tempPath = join(context.globalStorageUri.fsPath, "logs", `zcodium-${Date.now()}.log`);
-      await mkdir(join(context.globalStorageUri.fsPath, "logs"), { recursive: true });
-      await writeFile(tempPath, "见 ZCodium 输出通道（ZCodium: 显示日志）", "utf8");
+      const logsDir = join(context.globalStorageUri.fsPath, "logs");
+      await mkdir(logsDir, { recursive: true });
+      const serverLogPath = join(logsDir, SERVER_LOG_FILE_NAME);
+      const serverLogLines = readServerLogTail(serverLogPath);
+      const content = buildDiagnosticsExportContent({
+        diagnosticsLines: deps.diagnosticsSnapshot(),
+        serverLogLines,
+        serverLogPath: serverLogLines.length > 0 ? serverLogPath : null,
+      });
+      const tempPath = join(logsDir, `zcodium-${Date.now()}.log`);
+      await writeFile(tempPath, content, "utf8");
       await window.showTextDocument(Uri.file(tempPath), { preview: true });
       return { success: true, path: tempPath };
     },

@@ -149,7 +149,7 @@
 | `pnpm architecture:check` | ❌ 41 项违规（修订 `src/module.ts` 注释误匹配后由 113 降为 41）；其中 zcode-vscode 域 7 项全部为前序组遗留：缺 `contract.example.ts`（T01 产物面）、5 处 `@zcode/rpc` 直引未登记 policy（修复需改 `module.ts` requires + `CONTRACT.md`，归组1 契约面，本组不改）、组4 `ImportClaudeSessions.tsx` 1 条 lint-disable；其余 34 项在 `packages/ui` 等模块，均为既有状态 |
 | `pnpm --filter zcode-vscode build` | ✅ 三产物齐（extension.js / webview/main.js / webview/styles.css） |
 | `pnpm --filter zcode-vscode size` | ⚠️ 单产物 4 项全过（extension.js 5.02/9 MB、webview main.js 5.65/8 MB、gzip 1.64/2.5 MB、styles.css 132.4/400 KB）；`dist 总量` 38.59 MB 超 25 MB 原始字节近似——为前序组 webview 懒加载 chunk 集所致（esbuild 已按 §7.2 处置顺序完成桩替换/拆分/minify），**实际 vsix 压缩后 10.64 MB，在 §7.2「vsix 总量 ≤25 MB」预算内**（见下行 vsce 实测）；该门禁为 T01 脚本口径，本组不改其语义 |
-| `pnpm --filter zcode-vscode package` | ⚠️ 因上一行 size 门禁非零退出（package 串在 vsce 之前）；vsce 环节直跑 `npx vsce package --no-dependencies --out dist/` 复验：✅ 产出 `dist/zcode-vscode-0.2.0.vsix`（4336 文件 / 10.64 MB / **零 node_modules** / 无 src·test 残留 / package.json 版本 0.2.0、13 条命令与 contributes 一致）。本轮已将 package 脚本的 vsce 段加 `--out dist/`（T14 终稿：产物落 dist/，与 README/本清单路径一致） |
+| `pnpm --filter zcode-vscode package` | ⚠️ 因上一行 size 门禁非零退出（package 串在 vsce 之前）；vsce 环节直跑 `npx vsce package --no-dependencies --out dist/` 复验：✅ 产出 `dist/zcode-vscode-0.2.0.vsix`（4336 文件 / 10.64 MB / **零 node_modules** / 无 src·test 残留 / package.json 版本 0.2.0、13 条命令与 contributes 一致）。本轮已将 package 脚本的 vsce 段加 `--out dist/`（T14 终稿：产物落 dist/，与 README/本清单路径一致）〔历史快照注（2026-11-06）：「13 条命令」为当时 vsce 产物的实测快照，此后 M1 编辑器命令与 fullui 落地使 contributes.commands 增至 31 条；现行权威口径见 `src/CONTRACT.md` 命令面条目——本行数字不回改，仅加注〕 |
 
 > 结论：build→size→vsce 链路 mechanics 复验通过（vsix 本体在预算内且零 node_modules）；
 > 挂点是 T01 的 size 门禁以 dist 原始字节（38.59 MB）近似 vsix 体积，与 §7.2 的
@@ -170,3 +170,49 @@
 | `node scripts/architecture/architecture-check.mjs check` | ✅ zcode-vscode 域 0 项违规（41→34；余 34 项在 packages/ui 等其他模块，非本 app 范围） |
 | `node scripts/check-bundle-size.mjs` | ✅ 单产物 4 项 + 实测 vsix 10.64/25 MB 全过；dist 总量转观测项（不含 vsix） |
 | `node esbuild.mjs` | ✅ 三产物齐（extension.js / webview/main.js / webview/styles.css） |
+
+## 6. 探针（server/stdio API 链路）归位与执行记录（2026-11-06，closeout-4）
+
+> 覆盖面说明：本节记录的是 **server/stdio API 链路探针**——自起/连接 `@zcode/server`
+> 直连服务面，无 VS Code 宿主依赖。§2 A–J 真机清单覆盖的是宿主内交互面，server 链路
+> 在此前从未有成文验收记录（探针脚本曾散落仓库根、结论未回填），本节为该面的落点。
+
+### 6.1 归位（文件移动与产物口径）
+
+- 探针源码入库归位：`e2e-autolink.mjs` / `e2e-fullui.mjs` / `rows-probe.mjs`
+  → `test/e2e-probes/`（git mv，`.vscodeignore` 已排除 `test/**`，不进 vsix）。
+- 三个 ~1.5MB esbuild bundle（`e2e-autolink-bundle.mjs` / `e2e-bundle.mjs` / `rows-bundle.mjs`）
+  退出 git 跟踪，改为**按需生成**（可再生产物；根 `.gitignore` 新增
+  `apps/zcode-vscode/test/e2e-probes/*-bundle.mjs`）。生成命令（在 `apps/zcode-vscode/` 下）：
+
+  ```sh
+  pnpm exec esbuild test/e2e-probes/e2e-autolink.mjs --bundle --platform=node --format=esm --outfile=test/e2e-probes/e2e-autolink-bundle.mjs
+  pnpm exec esbuild test/e2e-probes/rows-probe.mjs   --bundle --platform=node --format=esm --outfile=test/e2e-probes/rows-bundle.mjs
+  pnpm exec esbuild test/e2e-probes/e2e-fullui.mjs   --bundle --platform=node --format=esm --outfile=test/e2e-probes/e2e-fullui-bundle.mjs
+  ```
+
+  （必须经 bundle 运行：`@zcode/rpc`、`@zcode/client` 的 exports default 指向 TS 源，
+  裸 `node` 不可解析；bundle 把依赖内联为自包含 ESM。）
+
+### 6.2 执行记录（2026-11-06，本机 macOS darwin 24.1.0 arm64，无 VS Code 宿主）
+
+| 探针 | 命令 | 结果 |
+|---|---|---|
+| e2e-autolink（无 projectId createSession 自动关联 gate，自起隔离数据根 server） | `env -u ZCODE_DESKTOP_HOME_DIR -u ZCODE_DATA_BASE_DIR node test/e2e-probes/e2e-autolink-bundle.mjs` | ❌ `E2E-RESULT: FAIL — 当前没有可用的模型供应商和模型，请先登录或配置 API Key。`（createSession 被拒 `ZCODE_AGENT_PROVIDER_NOT_READY, providerCount: 0`；隔离 server 正常就绪、项目注册成功 `remote:server:macmini.local`，失败点在 provider 面门禁） |
+| rows-probe（对 live server 按 sessionId 查 conversation rows） | `node test/e2e-probes/rows-bundle.mjs <sessionId>`（需先有 live server） | ⬜ **未跑**：`pgrep -f entry-http.js` 无进程（exit 1），且需要真实 sessionId——本环境无已配置 provider 的 server 可提供会话。 |
+| e2e-fullui（对 live server 全链路：注册项目→prepareSession→createSession→sendText→轮询回复） | `node test/e2e-probes/e2e-fullui-bundle.mjs`（需先打开侧栏） | ⬜ **未跑**：同上，依赖 live server。 |
+
+### 6.3 e2e-autolink FAIL 根因与复跑条件（2026-11-06 现场核查）
+
+- **根因**：探针前提是「隔离数据根复用真实凭据」——从 `$HOME/.zcodium/v2/` 只读拷贝
+  `credentials.json` / `provider_config.json` 等。现场核查 `$HOME/.zcodium/v2/provider_config.json`
+  （mtime 2026-11-05 22:51）的 `config.providers` 为**空数组** → 隔离 server providerCount=0 →
+  createSession 被 provider 门禁拒绝。当前工作态凭据在 zcode-switch 实例的官方 `.zcode/v2`
+  命名空间（与 ZCodium 数据根契约隔离，探针不读、也不应读）。
+- **历史结论**：该探针 2026-11-05 曾 PASS（gate 修复验证，见 `.zcode/plans` 会话快照）；
+  今日 FAIL 是**凭据环境变化**所致，非 gate 回归——失败点在 provider 就绪门禁（早于探针
+  要验证的自动关联逻辑），探针代码未改动。
+- **复跑条件**：任一满足即可——① `$HOME/.zcodium/v2/provider_config.json` 重新配置了
+  可用 provider；② 桌面端打开侧栏产生 live server 后，改跑 rows-probe / e2e-fullui。
+- **诚实声明**：上表 FAIL 为真实输出原样回填；未跑项未编造结果。复跑前本节不构成
+  server 链路的 PASS 证据，仅记录归位事实、命令与当前阻塞。

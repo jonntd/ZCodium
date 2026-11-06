@@ -17,7 +17,10 @@ import {
 import { ServiceCollection, createServiceDescriptor } from "@zcode/services";
 import { HostRuntime } from "../src/host/hostRuntime";
 import { createExposurePolicy } from "../src/host/serviceAssembly";
-import { HostSettingsBridge, normalizeSettingsSnapshot } from "../src/host/hostSettingsBridge";
+import {
+  HostSettingsBridge,
+  normalizeSettingsSnapshot,
+} from "../src/host/hostSettingsBridge";
 import {
   PLATFORM_METHOD_WHITELIST,
   PlatformRpcHandler,
@@ -46,23 +49,22 @@ interface Loopback {
 }
 
 /** 内存双端：HostBridgeProtocol ↔ 内存客户端协议，全链路走 bridge wire 帧编码。 */
-function makeLoopback(extraPlatformMethods?: Record<string, (args: unknown[]) => unknown>): Loopback {
+function makeLoopback(
+  extraPlatformMethods?: Record<string, (args: unknown[]) => unknown>,
+): Loopback {
   const clientEmitter = new Emitter<VSBuffer>();
   const services = new ServiceCollection();
   const calls: string[] = [];
-  services.register(
-    ITestService,
-    {
-      ping: async () => {
-        calls.push("ping");
-        return "pong";
-      },
-      echo: async (value: string) => {
-        calls.push(`echo:${value}`);
-        return value;
-      },
-    } satisfies TestService,
-  );
+  services.register(ITestService, {
+    ping: async () => {
+      calls.push("ping");
+      return "pong";
+    },
+    echo: async (value: string) => {
+      calls.push(`echo:${value}`);
+      return value;
+    },
+  } satisfies TestService);
   const runtime = new HostRuntime({
     services,
     exposurePolicy: createExposurePolicy(["test-channel"]),
@@ -75,7 +77,10 @@ function makeLoopback(extraPlatformMethods?: Record<string, (args: unknown[]) =>
   // webview → host：包装为 {t:"rpc"} 帧（bridge wire）。
   const clientProtocol: IMessagePassingProtocol = {
     send: (buffer) => {
-      runtime.handleWebviewMessage("test", { t: "rpc", b64: bytesToBase64(buffer.buffer) });
+      runtime.handleWebviewMessage("test", {
+        t: "rpc",
+        b64: bytesToBase64(buffer.buffer),
+      });
     },
     onMessage: clientEmitter.event,
   };
@@ -88,7 +93,12 @@ function makeLoopback(extraPlatformMethods?: Record<string, (args: unknown[]) =>
     },
   };
   runtime.attachWebview("test", sender);
-  return { runtime, client: new IPCClient(clientProtocol, "zcode-webview"), calls, sender };
+  return {
+    runtime,
+    client: new IPCClient(clientProtocol, "zcode-webview"),
+    calls,
+    sender,
+  };
 }
 
 /** 收集宿主发给 webview 的帧（挂在 sender 上的探针）。 */
@@ -138,9 +148,9 @@ describe("PlatformRpcHandler（经 HostRuntime 分流）", () => {
       args: [],
     });
     await new Promise((r) => setTimeout(r, 10));
-    const platRes = frames.find((f) => (f as { t?: string }).t === "plat-res") as
-      | { t: string; id: number; ok: boolean; value: string }
-      | undefined;
+    const platRes = frames.find(
+      (f) => (f as { t?: string }).t === "plat-res",
+    ) as { t: string; id: number; ok: boolean; value: string } | undefined;
     expect(platRes).toBeDefined();
     expect(platRes?.ok).toBe(true);
     expect(platRes?.value).toBe("device-1");
@@ -156,9 +166,9 @@ describe("PlatformRpcHandler（经 HostRuntime 分流）", () => {
       args: ["rm -rf /"],
     });
     await new Promise((r) => setTimeout(r, 10));
-    const platRes = frames.find((f) => (f as { t?: string }).t === "plat-res") as
-      | { t: string; id: number; ok: boolean; error: string }
-      | undefined;
+    const platRes = frames.find(
+      (f) => (f as { t?: string }).t === "plat-res",
+    ) as { t: string; id: number; ok: boolean; error: string } | undefined;
     expect(platRes?.ok).toBe(false);
     expect(platRes?.error).toContain("not allowed");
     expect(loopback.calls).toEqual([]);
@@ -167,7 +177,10 @@ describe("PlatformRpcHandler（经 HostRuntime 分流）", () => {
   it("非法帧被丢弃不崩溃", () => {
     const loopback = makeLoopback();
     expect(() =>
-      loopback.runtime.handleWebviewMessage("test", { t: "evil", payload: "x" }),
+      loopback.runtime.handleWebviewMessage("test", {
+        t: "evil",
+        payload: "x",
+      }),
     ).not.toThrow();
   });
 
@@ -184,7 +197,9 @@ describe("PlatformRpcHandler（经 HostRuntime 分流）", () => {
     expect(PLATFORM_METHOD_WHITELIST).toContain("pickWorkspaceFolder");
 
     // 白名单内方法经桥 roundtrip（HostRuntime 分流 → plat-res(ok)）。
-    const loopback = makeLoopback({ reportPendingApprovals: (args) => ({ count: args[0] }) });
+    const loopback = makeLoopback({
+      reportPendingApprovals: (args) => ({ count: args[0] }),
+    });
     const { frames } = tapSender(loopback.sender);
     loopback.runtime.handleWebviewMessage("test", {
       t: "plat-req",
@@ -193,7 +208,9 @@ describe("PlatformRpcHandler（经 HostRuntime 分流）", () => {
       args: [2],
     });
     await new Promise((r) => setTimeout(r, 10));
-    const platRes = frames.find((f) => (f as { t?: string }).t === "plat-res") as
+    const platRes = frames.find(
+      (f) => (f as { t?: string }).t === "plat-res",
+    ) as
       | { t: string; id: number; ok: boolean; value: { count: number } }
       | undefined;
     expect(platRes?.ok).toBe(true);
@@ -226,17 +243,34 @@ describe("host 帧协议（T02/⑤：visibility/diagnostics/restart/open-panel�
       "composer-insert",
       "session-switch",
       "full-ui-url",
+      "capabilities",
     ]);
     for (const kind of HOST_FRAME_KINDS) {
-      expect(parseBridgeEnvelope({ t: "host", kind, payload: {} })).not.toBeNull();
+      expect(
+        parseBridgeEnvelope({ t: "host", kind, payload: {} }),
+      ).not.toBeNull();
     }
-    expect(parseBridgeEnvelope({ t: "host", kind: "evil", payload: {} })).toBeNull();
+    expect(
+      parseBridgeEnvelope({ t: "host", kind: "evil", payload: {} }),
+    ).toBeNull();
   });
 
   it("diagnostics 载荷两档过滤（T09：仅错误/全部）", () => {
     const entries: DiagnosticsSourceEntry[] = [
-      { path: "/a.ts", severity: 0, message: "e1", startLine: 0, startCharacter: 0 },
-      { path: "/b.ts", severity: 1, message: "w1", startLine: 1, startCharacter: 0 },
+      {
+        path: "/a.ts",
+        severity: 0,
+        message: "e1",
+        startLine: 0,
+        startCharacter: 0,
+      },
+      {
+        path: "/b.ts",
+        severity: 1,
+        message: "w1",
+        startLine: 1,
+        startCharacter: 0,
+      },
     ];
     const errorsOnly = buildDiagnosticsFramePayload("errors", entries, 123);
     expect(errorsOnly.tier).toBe("errors");

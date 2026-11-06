@@ -44,6 +44,12 @@ import { setDefaultFileDisplayBasePath } from "@/lib/fileDisplay.js";
 import type { IServiceAccessor } from "@zcode/services";
 import { RuntimeRestartBanner } from "./banners/RuntimeRestartBanner";
 import {
+  gatePaneCallbacksByCapability,
+  projectCapabilitiesPayload,
+  type CapabilityUiProjection,
+} from "./capabilities";
+import type { CapabilitiesHostFramePayload } from "../host/hostFrameKinds";
+import {
   applyThemeClasses,
   followThemeFrames,
   type VscodeThemeKind,
@@ -122,6 +128,23 @@ export function App({
   // 可见性双源 gate：host visibility 帧 + document.visibilitychange 任一隐藏即暂停。
   useRenderPaused(frameBus);
 
+  // capabilities 投影消费（T07「接线后行为」+ FR-A13，closeout-2）：host capabilities 帧
+  // → projectCapabilitiesPayload → (a) unsupportedHint/binaryFrameHint 内联真实渲染；
+  // (b) showTerminalEntry 驱动 onOpenBackgroundBash 门控（ui 按回调缺席隐藏终端入口）；
+  // (c) showNativeDialogEntry 落状态保留（pane 无原生对话框入口，见投影字段注释）。
+  // HostFrameBus.on 对晚订阅回放最近一帧，重挂载不丢能力面。
+  const [capabilityProjection, setCapabilityProjection] =
+    useState<CapabilityUiProjection | null>(null);
+  useEffect(() => {
+    if (!frameBus) return;
+    return frameBus.on<CapabilitiesHostFramePayload>(
+      "capabilities",
+      (payload) => {
+        setCapabilityProjection(projectCapabilitiesPayload(payload));
+      },
+    );
+  }, [frameBus]);
+
   // 会话恢复闭环 webview 半：创建/删除上报 → host 写 ExtensionStore（P1-1.5）。
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
@@ -154,7 +177,11 @@ export function App({
   const handleOpenFileLink = useCallback(
     (target: MessageFileLinkTarget) => {
       // 行级 selection 桥接待 FR 细化；先落「打开文件」主语义（showTextDocument 白名单方法）。
-      void (platform as IPlatformService & { showTextDocument?(path: string): Promise<boolean> })
+      void (
+        platform as IPlatformService & {
+          showTextDocument?(path: string): Promise<boolean>;
+        }
+      )
         .showTextDocument?.(target.path)
         .catch(() => undefined);
     },
@@ -196,6 +223,7 @@ export function App({
                                 onOpenFileLink={handleOpenFileLink}
                                 onOpenBrowserUrl={handleOpenBrowserUrl}
                                 onDegrade={noopCallback}
+                                capabilityProjection={capabilityProjection}
                               />
                             </RemoteConnectionProgressProvider>
                           </CodingPlanUpgradeDialogProvider>
@@ -222,6 +250,7 @@ function PluginInner({
   onOpenFileLink,
   onOpenBrowserUrl,
   onDegrade,
+  capabilityProjection,
 }: {
   frameBus: HostFrameBus | null;
   workspacePath: string;
@@ -231,6 +260,8 @@ function PluginInner({
   onOpenFileLink: (target: MessageFileLinkTarget) => void;
   onOpenBrowserUrl: (url: string) => void;
   onDegrade: () => void;
+  /** capabilities 投影（App 消费帧后下传；null = 帧未到/暂时不可得，静默不诬告）。 */
+  capabilityProjection: CapabilityUiProjection | null;
 }) {
   // —— 最小 Tab 承载面 ——
   // composer 的「管理模型」等设置入口走 tabStore.openSettingsTab()；桌面壳有 Tab 系统渲染
@@ -245,12 +276,37 @@ function PluginInner({
     if (activeTab) closeTab(activeTab.id);
   }, [activeTab, closeTab]);
 
+  // 能力门控（T07 closeout-2）：showTerminalEntry=false → onOpenBackgroundBash 置空，
+  // ui 侧按回调缺席隐藏终端入口（ConversationStatusPanel 条件渲染）；投影未就绪不门控。
+  const paneCallbacks = gatePaneCallbacksByCapability(
+    { onOpenBackgroundBash: onDegrade },
+    capabilityProjection,
+  );
+
   return (
     <div className="flex h-dvh min-h-dvh w-full flex-col bg-background text-foreground">
       <RuntimeRestartBanner
         frameSource={frameBus}
         onRetry={(failure) => onSessionCreated(failure.sessionId)}
       />
+      {capabilityProjection?.unsupportedHint && (
+        <div
+          role="status"
+          data-testid="capability-unsupported-hint"
+          className="flex shrink-0 items-center gap-2 border-b border-card-border bg-card px-3 py-1.5 text-ui-xs text-warning"
+        >
+          {capabilityProjection.unsupportedHint}
+        </div>
+      )}
+      {capabilityProjection?.binaryFrameHint && (
+        <div
+          role="status"
+          data-testid="capability-binary-frame-hint"
+          className="flex shrink-0 items-center gap-2 border-b border-card-border bg-card px-3 py-1.5 text-ui-xs text-foreground-subtle"
+        >
+          {capabilityProjection.binaryFrameHint}
+        </div>
+      )}
       <div className="min-h-0 flex-1">
         {settingsActive ? (
           <SettingsPage
@@ -259,30 +315,30 @@ function PluginInner({
             onBack={handleSettingsBack}
           />
         ) : (
-        <V4ChatPane
-          workspacePath={workspacePath}
-          isDesktop
-          sessionId={sessionId}
-          onSessionCreated={onSessionCreated}
-          onSessionDeleted={onSessionDeleted}
-          onOpenFileLink={onOpenFileLink}
-          onOpenBrowserUrl={onOpenBrowserUrl}
-          onOpenGitReview={onDegrade}
-          onRefreshGit={onDegrade}
-          onOpenAutomationsMain={onDegrade}
-          onOpenCodeViewer={onDegrade}
-          onAutoOpenAssistantPptx={onDegrade}
-          onOpenBackgroundBash={onDegrade}
-          onOpenSubagentSession={onDegrade}
-          onOpenSubagentDirectory={onDegrade}
-          onSyncSubagentSessionTabs={onDegrade}
-          onOpenPlanDetail={onDegrade}
-          onOpenWorkflowRun={onDegrade}
-          onOpenWorkflowArtifact={onDegrade}
-          onOpenWorkflowRunDirectory={onDegrade}
-          onOpenWorkflowActorSession={onDegrade}
-          onOpenWorkflowWorkspace={onDegrade}
-        />
+          <V4ChatPane
+            workspacePath={workspacePath}
+            isDesktop
+            sessionId={sessionId}
+            onSessionCreated={onSessionCreated}
+            onSessionDeleted={onSessionDeleted}
+            onOpenFileLink={onOpenFileLink}
+            onOpenBrowserUrl={onOpenBrowserUrl}
+            onOpenGitReview={onDegrade}
+            onRefreshGit={onDegrade}
+            onOpenAutomationsMain={onDegrade}
+            onOpenCodeViewer={onDegrade}
+            onAutoOpenAssistantPptx={onDegrade}
+            onOpenBackgroundBash={paneCallbacks.onOpenBackgroundBash}
+            onOpenSubagentSession={onDegrade}
+            onOpenSubagentDirectory={onDegrade}
+            onSyncSubagentSessionTabs={onDegrade}
+            onOpenPlanDetail={onDegrade}
+            onOpenWorkflowRun={onDegrade}
+            onOpenWorkflowArtifact={onDegrade}
+            onOpenWorkflowRunDirectory={onDegrade}
+            onOpenWorkflowActorSession={onDegrade}
+            onOpenWorkflowWorkspace={onDegrade}
+          />
         )}
       </div>
     </div>

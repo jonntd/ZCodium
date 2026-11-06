@@ -4,9 +4,12 @@
  * 对照桌面 host 装配范式：`@zcode/services/node` 的 `createLocalServices` 是官方宿主装配入口
  * （desktop host 即此模式）。插件作为 VS Code 扩展宿主进程内的 host：
  *
- * - 数据根（DB / 凭据 / 会话库）经 `setDataRootPathOverride` 指向插件 globalStorage，
- *   与桌面端 ~/.zcode 隔离（§9 核实项 2 的落地结论：createLocalServices 全部持久化
- *   路径经 getZCodeDataRootDir() 解析，override 必须在装配前设置）。
+ * - 数据根（DB / 凭据 / 会话库）最终口径为共享：生产装配不设 override，
+ *   createLocalServices 全部持久化路径经 getZCodeDataRootDir() 回落 services
+ *   默认根 `$HOME/.zcodium`，与桌面端、完整界面 server 同根共享
+ *   （docs/architecture.md §7.9；M2 起退役了早期「隔离到插件 globalStorage」口径）。
+ *   传 `dataRootDir` 时经 `setDataRootPathOverride` 重定向（必须在装配前设置），
+ *   仅供 dev/测试隔离。
  * - Agent 进程命令经 `zcodeAgentCommandResolver` 注入（cliLocator 保留改造：CliInfo → 命令）。
  * - `ServiceExposurePolicy.allowedChannels` 只向 webview 暴露插件用频道白名单（§8 R3），
  *   杜绝 webview 侧触达终端/进程采样等高危服务面。
@@ -66,8 +69,12 @@ export function createExposurePolicy(
 
 export interface PluginServiceAssemblyOptions {
   /**
-   * 数据根目录（DB/凭据/会话库落盘位置）。必须指向插件 globalStorage，
-   * 缺省时回落 services 默认数据根（仅测试场景允许）。
+   * 数据根目录（DB/凭据/会话库落盘位置）。
+   *
+   * 最终口径（docs/architecture.md §7.9）：生产装配**不传**——回落 services 默认
+   * 数据根 `$HOME/.zcodium`，与桌面端、完整界面 server 共享（container.ts 服务装配
+   * 注释为现场记录）。传入时经 `setDataRootPathOverride` 重定向（必须先于装配），
+   * 仅供 dev/测试隔离场景。
    */
   dataRootDir?: string;
   /** Agent 进程命令解析器（cliLocator → CliInfo → spawn 命令）。 */

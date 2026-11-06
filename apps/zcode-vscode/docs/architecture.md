@@ -451,6 +451,18 @@ sequenceDiagram
 6. **存储**：globalState 存跨窗口会话 ID（按 workspace folder 键控）；workspaceState 备用。除会话 ID 与 UI 偏好（reasoning 开关）外不持久化任何业务数据。
 7. **文件行数**：任何文件 ≤800 行（maxFileLines）；types.ts 若接近上限按域拆分（`types/frames.ts`、`types/session.ts`）。
 8. **中文注释**：bug 修复、状态所有权、时序关键点必须用中文注释说明原因（AGENTS.md 要求）。
+9. **数据根口径（最终口径：共享 `$HOME/.zcodium`，不隔离到插件 globalStorage）**：
+   - 解析链（所有者）：数据根由 `@zcode/services` 解析——`getZCodeDataRootDir() = join(getDataBaseDir(), ".zcodium")`（`packages/services/src/paths.ts`；`.zcodium` 常量见 `packages/shared/src/data-root.ts`）。`getDataBaseDir()` 优先级：`setDataBaseDir()` > env `ZCODE_DATA_BASE_DIR` > `$HOME`。
+   - 装配口径（三方同根）：桌面端、插件进程内服务栈（侧边栏）、完整界面 server 进程共用同一份会话/模型/凭据存储。生产装配两侧都不设重定向：`createPluginServices` 不传 `dataRootDir`（不触发 `setDataRootPathOverride`），`new ServerHost` 不传 `dataBaseDir`（server 子进程 env 不含 `ZCODE_DATA_BASE_DIR`），同回落默认根。
+   - 历史决策：v0.2.0 早期曾把数据根隔离到 `<globalStorage>/.zcodium`（连带 provider 空 Release 种子）；M2 起两者均退役，改为共享 `~/.zcodium` + CLI 完整内置目录（现场记录见 container.ts 服务装配注释）。代码注释与 `PluginServiceAssemblyOptions.dataRootDir` 契约以本条为准。
+   - 已知取舍：共享根下桌面端与插件并发运行时可能争用 CLI 存储锁（`agents-state.json.lock`）；桌面端的存储冲突门（decideAgentStorageConflict）不在插件内复刻（openFullUi.ts 注释）。
+   - dev/测试隔离出口：services 栈显式传 `dataRootDir`（经 `setDataRootPathOverride`，必须先于装配）、server 显式传 `dataBaseDir`（env `ZCODE_DATA_BASE_DIR`）；env 生效时 `setDataBaseDir` 为 no-op（隔离硬边界，paths.ts）。
+   - 锁定测试：`test/dataRoot.test.ts`（container 装配面源码断言 + ServerHost env 组装 + services 默认根解析）。
+10. **exportLogs 聚合口径（closeout-3：导出真实诊断面，不再是一行占位文本）**：
+   - 内容 = 两个真实源聚合：① 输出通道内存镜像——`Diagnostics` 每条 appendLine 同步镜像到环形缓冲（容量 500 行，activation 起有效；完整历史仍只在 OutputChannel「ZCodium Agent」，镜像不替代它）；② 完整界面 server 日志尾部——`globalStorage/logs/fullui-server.log`（serverHost teeServerLog 落盘面）读尾部 ≤256KB，截断边界的不完整首行丢弃。
+   - 空边界：某来源无记录（镜像空 / 日志文件不存在或为空）时，导出文件在该段如实标注「（无记录）」，不虚构、不降级为占位文本。
+   - 导出语义不变：写 `globalStorage/logs/zcodium-<ts>.log` → `showTextDocument` → `success:true`；诊断红线照旧——镜像与导出面只承载诊断行，不写凭据与真实用户数据（AGENTS.md）。
+   - 实现分层（可测性）：环形缓冲与导出内容组装（`src/ui/diagnosticsBuffer.ts`）与日志尾部读取（`src/fullui/serverLogTail.ts`）均为零 vscode 依赖纯层，vitest 直测（`test/diagnosticsExport.test.ts`）；`Diagnostics`/`ServerHost` 只做 vscode 侧薄接线。server 日志文件名常量（`SERVER_LOG_FILE_NAME`）由 serverHost 单一持有，container 与读取面复用，不重复字面量。
 
 ---
 

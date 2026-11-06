@@ -13,8 +13,9 @@ import { log } from "../features/logger";
  * 且天然支持新标签页、前进后退与刷新。
  */
 export async function openFullUi(server: ServerHost): Promise<void> {
-  // 存储锁门（源实现的 decideAgentStorageConflict）在本插件不适用：数据根已隔离到
-  // 插件 globalStorage（不与桌面端共享 ~/.zcode），不存在 agents-state.json.lock 争用。
+  // 存储锁门（源实现的 decideAgentStorageConflict）不在插件内复刻：数据根为共享口径
+  // （$HOME/.zcodium，与桌面端/侧栏服务栈同根，docs/architecture.md §7.9），并发运行时
+  // 存在 agents-state.json.lock 争用可能，属共享模式的已知取舍（container.ts 服务装配注释）。
 
   let url: string;
   try {

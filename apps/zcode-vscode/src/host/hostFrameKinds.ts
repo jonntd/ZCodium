@@ -17,7 +17,8 @@ export type HostFrameKindValue =
   | "open-panel"
   | "composer-insert"
   | "session-switch"
-  | "full-ui-url";
+  | "full-ui-url"
+  | "capabilities";
 
 /** host 帧型全集（与 src/bridge/wire.ts 的 HostFrameKind 判定一字不差；测试锁定）。 */
 export const HOST_FRAME_KINDS: readonly HostFrameKindValue[] = [
@@ -31,6 +32,7 @@ export const HOST_FRAME_KINDS: readonly HostFrameKindValue[] = [
   "composer-insert",
   "session-switch",
   "full-ui-url",
+  "capabilities",
 ];
 
 /** visibility 帧：chatPanel onDidChangeVisibility 生产（webview 隐藏时暂停渲染）。 */
@@ -62,7 +64,11 @@ export interface DiagnosticsHostFramePayload {
 export type WorkspaceHostFramePayload =
   | { kind: "new-session" }
   | { kind: "workspace-focused"; folder: string }
-  | { kind: "workspace-changed"; folders: string[]; activeFolder: string | null }
+  | {
+      kind: "workspace-changed";
+      folders: string[];
+      activeFolder: string | null;
+    }
   | { kind: "settings-changed" };
 
 /** restart 帧：进程换代编排横幅（P1-6：换代→横幅→自动恢复→失败降级）。 */
@@ -107,17 +113,17 @@ export function buildDiagnosticsFramePayload(
   generatedAt: number = Date.now(),
 ): DiagnosticsHostFramePayload {
   const items = entries
-    .filter(
-      (entry) =>
-        tier === "errors"
-          ? entry.severity === DIAGNOSTIC_SEVERITY_ERROR
-          : entry.severity <= DIAGNOSTIC_SEVERITY_WARNING,
+    .filter((entry) =>
+      tier === "errors"
+        ? entry.severity === DIAGNOSTIC_SEVERITY_ERROR
+        : entry.severity <= DIAGNOSTIC_SEVERITY_WARNING,
     )
     .map((entry) => ({ ...entry }));
   return {
     tier,
     items,
-    errorCount: entries.filter((e) => e.severity === DIAGNOSTIC_SEVERITY_ERROR).length,
+    errorCount: entries.filter((e) => e.severity === DIAGNOSTIC_SEVERITY_ERROR)
+      .length,
     generatedAt,
   };
 }
@@ -138,4 +144,38 @@ export interface FullUiUrlHostFramePayload {
   /** server base URL；"" = 启动失败（error 携带原因）。 */
   url: string;
   error?: string;
+}
+
+// ── capabilities 帧（T07 capabilities 横切 + FR-A13 残余吸收，closeout-2） ──
+
+/**
+ * v4 hello.capabilities 的投影子面（helloMessageSchema hostCapabilitiesSchema 同形子集；
+ * wire 数据，故定义在 host 侧载荷唯一定义处，webview 投影层经此消费）。
+ */
+export interface RuntimeCapabilityFlags {
+  /** 原生对话框（桌面 shell 专用；VS Code webview 场景恒 false → 入口隐藏）。 */
+  nativeDialogs: boolean;
+  /** 本机终端面板。 */
+  localTerminal: boolean;
+  /** 二进制帧传输（false → base64 文本帧退化链路）。 */
+  binaryFrames: boolean;
+  /** 压缩协商（none 之外的值表示链路已压缩）。 */
+  compression: string;
+}
+
+/**
+ * capabilities 帧：agent 就绪后 host 探测能力面（helloConversationV4 + 必要时
+ * runtime/capabilities 复核）下发的投影数据（架构 architecture-p1.md T07「接线后行为」）。
+ */
+export interface CapabilitiesHostFramePayload {
+  /**
+   * hello.capabilities 收敛结果（webview 侧 capabilitiesFromHello 产物）；null = 能力面
+   * 整体缺失（旧 CLI / 形状非法），配合 capabilityMissing 决定 UI 降级呈现。
+   */
+  capabilities: RuntimeCapabilityFlags | null;
+  /**
+   * true = 已明确识别为能力缺失（-32601 / 无 code 的 "Method not found"，FR-A13 口径），
+   * UI 据此显示「当前 CLI 版本不支持」；false = 暂时不可得（transient），UI 静默不诬告。
+   */
+  capabilityMissing: boolean;
 }

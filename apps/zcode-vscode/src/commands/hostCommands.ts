@@ -1,8 +1,9 @@
 /**
  * Host 命令注册（T09 host 半；架构 §命令面）。
  *
- * contributes.commands 的 14 条命令 id（与 src/CONTRACT.md 一字不差）在
- * container.registerCommands 集中注册，实现体归本文件：
+ * contributes.commands 全量 31 条中的 14 条宿主命令 id（本文件子集；全量按注册来源的
+ * 分布见 src/CONTRACT.md 命令面条目）在 container.registerCommands 集中注册，
+ * 实现体归本文件：
  * - 组1 登记的面板/设置命令 → open-panel host 帧（组3/4 消费）或设置 UI；
  * - zcodium.sendDiagnostics → 当前文件 languages.getDiagnostics 两档（仅错误/错误+警告）→
  *   pushHostFrame("diagnostics")（载荷形状见 src/host/hostFrameKinds.ts）；
@@ -87,7 +88,12 @@ export async function sendDiagnosticsCommand(deps: HostCommandDeps): Promise<voi
   deps.chatPanel.reveal();
 }
 
-/** 命令注册（container.registerCommands 委托；id 与 package.json contributes 一字不差）。 */
+/**
+ * 命令注册（container.registerCommands 委托）：本文件注册 14 条宿主命令（id 与
+ * package.json contributes 的宿主子集一致）。全量 31 条按注册来源分布（hostCommands
+ * 14 + editorCommands 16 + container 直注 openFullUi 1）见 src/CONTRACT.md 命令面条目；
+ * 勿再宣称「与 contributes 一字不差」——那曾造成 14↔31 的契约漂移（2026-11-06 修正）。
+ */
 export function registerHostCommands(deps: HostCommandDeps): void {
   void commands.registerCommand("zcodium.openChat", () => deps.chatPanel.reveal());
   void commands.registerCommand("zcodium.onboarding", () => deps.presentOnboarding());

@@ -64,11 +64,20 @@ webview-react(React 装配) → 桥 shim → 同一 wire 协议 → host
   （与 `@zcode/shared` 的锁定关系与桥 wire schema 见 `docs/contract-check.md`）。
 - 会话/审批/时间线状态由 `@zcode/ui` 承接；VS Code 原生面（diff/通知）经
   `PlatformRpcHandler` 白名单方法落地。
-- VS Code 命令面（`contributes.commands`，14 条，id 与 `container.registerCommands`
-  一字不差）：`openChat` / `onboarding` / `newSession` / `restartAgent` / `showLogs` /
-  `checkBundleSize` / `switchWorkspace` / `sendDiagnostics` / `openMcpSettings` /
-  `openInstructions` / `openSessionParams` / `importClaudeSessions` / `showSubagents` /
-  `openUsage`，均 category `ZCodium`。
+- VS Code 命令面（`contributes.commands` 共 **31 条**，均 category `ZCodium`）。注册按
+  来源分三处，与 package.json 逐一相等（2026-11-06 脚本化比对核实；曾漂移为 14 并宣称
+  与 registerCommands 一字不差——M1 编辑器命令与 fullui 落地后未同步，已修正）：
+  - `container.registerCommands` → `registerHostCommands`（`commands/hostCommands.ts`，
+    14 条）：`openChat` / `onboarding` / `newSession` / `restartAgent` / `showLogs` /
+    `checkBundleSize` / `switchWorkspace` / `sendDiagnostics` / `openMcpSettings` /
+    `openInstructions` / `openSessionParams` / `importClaudeSessions` / `showSubagents` /
+    `openUsage`；
+  - `registerEditorCommands`（`features/editorCommands.ts`，16 条，M1 编辑器功能）：
+    `quickEdit` / `sendTerminalSelection` / `generateCommitMessage` / `reviewChanges` /
+    `pickSession` / `codeAction` / `addRangeToChat` / `fixDiagnostics` / `explainSelection` /
+    `fixSelection` / `refactorSelection` / `writeTests` / `addToContext` / `showEditorLogs` /
+    `addFileToContext` / `stop`；
+  - `container` 装配直接注册 1 条：`openFullUi`（完整界面，fullui/M2）。
 
 ## 关键语义（实测自契约，勿凭记忆改动）
 

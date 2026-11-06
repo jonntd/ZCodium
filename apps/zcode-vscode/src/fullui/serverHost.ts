@@ -3,14 +3,24 @@ import { createServer } from "node:net";
 import { existsSync } from "node:fs";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { buildServerEnvOverrides } from "./serverEnv";
 import { log } from "../features/logger";
+
+/**
+ * fullui server 落盘日志文件名（teeServerLog 写入、container exportLogs 尾部读取
+ * 共用；单一字面量来源，防两处漂移——架构 §7.10「exportLogs 聚合口径」）。
+ */
+export const SERVER_LOG_FILE_NAME = "fullui-server.log";
 
 /** server 进程 stdout/stderr 落盘（OutputChannel 之外的可持久诊断面；排障用）。 */
 function teeServerLog(logDir: string | undefined, line: string): void {
   if (!logDir) return;
   try {
     mkdirSync(logDir, { recursive: true });
-    appendFileSync(join(logDir, "fullui-server.log"), `[${new Date().toISOString()}] ${line}\n`);
+    appendFileSync(
+      join(logDir, SERVER_LOG_FILE_NAME),
+      `[${new Date().toISOString()}] ${line}\n`,
+    );
   } catch {
     // 日志失败不影响服务。
   }
@@ -28,11 +38,11 @@ export interface ServerHostOptions {
   /**
    * 数据基目录（`ZCODE_DATA_BASE_DIR`）。
    *
-   * 完整界面是独立 server 进程，services 的数据根解析走 env 优先级：
-   * root = join(ZCODE_DATA_BASE_DIR, ".zcodium")。插件侧把 dataRoot 设为
-   * `<globalStorage>/.zcodium`，这里传 `<globalStorage>` 即可与侧边栏共享
-   * 同一份会话/模型/凭据存储（PRD §8.1「侧边栏与完整界面共用 server 进程」的
-   * 数据面等价物）。
+   * 最终口径（docs/architecture.md §7.9「数据根」）：生产装配**不传**——完整界面
+   * server 与侧边栏进程内服务栈同回落 services 默认数据根 `$HOME/.zcodium`
+   * （paths.ts：root = join(getDataBaseDir(), ".zcodium")，无 env/override 时
+   * base = $HOME），与桌面端三方共享同一份会话/模型/凭据存储。该选项仅供
+   * dev/测试隔离场景显式注入，与 `PluginServiceAssemblyOptions.dataRootDir` 对应。
    */
   readonly dataBaseDir?: string;
   /**
@@ -88,7 +98,9 @@ export class ServerHost {
    * 懒启动语义仍由 `ensureStarted` 的调用方决定。M2-10 偏好下发（FR-A17）据此在
    * 服务每次就绪后同步一次快照：重启后新进程的偏好缓存为空，必须重新下发。
    */
-  readonly onStarted = (listener: (url: string) => void): { dispose(): void } => {
+  readonly onStarted = (
+    listener: (url: string) => void,
+  ): { dispose(): void } => {
     this.startedListeners.add(listener);
     return { dispose: () => this.startedListeners.delete(listener) };
   };
@@ -141,26 +153,14 @@ export class ServerHost {
       stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        // nodePath 在扩展宿主内是 Electron 二进制：以 Node 模式运行 server 入口。
-        ELECTRON_RUN_AS_NODE: "1",
-        // 只监听回环，且不设 authToken：webview/浏览器与插件同机，走本地信任。
-        HOST: "127.0.0.1",
-        ZCODE_SERVER_HOST: "127.0.0.1",
-        PORT: String(port),
-        ZCODE_WEB_STATIC_ROOT: staticRoot,
-        // 数据根与侧边栏同源（见 options.dataBaseDir 注释）。
-        ...(this.options.dataBaseDir
-          ? { ZCODE_DATA_BASE_DIR: this.options.dataBaseDir }
-          : {}),
-        // 显式告诉 server 用哪个 CLI：否则安装态下它找不到（见 PRD §7.16）。
-        ...(this.options.agentCommand
-          ? {
-              ZCODE_AGENT_SERVER_COMMAND: this.options.agentCommand,
-              ...(this.options.agentArgs
-                ? { ZCODE_AGENT_SERVER_ARGS_JSON: JSON.stringify(this.options.agentArgs) }
-                : {}),
-            }
-          : {}),
+        // 确定性覆盖段（含数据根口径：缺省不注入 ZCODE_DATA_BASE_DIR）见 serverEnv.ts。
+        ...buildServerEnvOverrides({
+          port,
+          staticRoot,
+          dataBaseDir: this.options.dataBaseDir,
+          agentCommand: this.options.agentCommand,
+          agentArgs: this.options.agentArgs,
+        }),
       },
       windowsHide: true,
     });
@@ -213,7 +213,10 @@ export class ServerHost {
   private resolveEntry(): string {
     const configured = this.options.configuredEntry.trim();
     if (configured) return resolve(this.options.repoRoot, configured);
-    const fallback = join(this.options.repoRoot, "packages/server/dist/entry-http.js");
+    const fallback = join(
+      this.options.repoRoot,
+      "packages/server/dist/entry-http.js",
+    );
     if (!existsSync(fallback)) {
       throw new Error(
         `找不到 server 产物：${fallback}。请执行 \`pnpm --filter @zcode/server build\`。`,
@@ -227,7 +230,9 @@ export class ServerHost {
     if (configured) return resolve(this.options.repoRoot, configured);
     const fallback = join(this.options.repoRoot, "packages/web/dist");
     if (!existsSync(fallback)) {
-      throw new Error(`找不到前端产物：${fallback}。请执行 \`pnpm --filter @zcode/web build\`。`);
+      throw new Error(
+        `找不到前端产物：${fallback}。请执行 \`pnpm --filter @zcode/web build\`。`,
+      );
     }
     return fallback;
   }
@@ -242,7 +247,9 @@ function findFreePort(): Promise<number> {
     server.listen(0, "127.0.0.1", () => {
       const address = server.address();
       const port = typeof address === "object" && address ? address.port : 0;
-      server.close(() => (port > 0 ? resolvePort(port) : rejectPort(new Error("端口分配失败"))));
+      server.close(() =>
+        port > 0 ? resolvePort(port) : rejectPort(new Error("端口分配失败")),
+      );
     });
   });
 }
@@ -259,7 +266,9 @@ async function waitForReady(url: string): Promise<ServerInfo | undefined> {
     } catch {
       // 服务还没监听，继续等。
     }
-    await new Promise((resolveWait) => setTimeout(resolveWait, READY_POLL_INTERVAL_MS));
+    await new Promise((resolveWait) =>
+      setTimeout(resolveWait, READY_POLL_INTERVAL_MS),
+    );
   }
   return undefined;
 }

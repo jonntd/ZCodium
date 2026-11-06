@@ -39,9 +39,14 @@ import { PLATFORM_METHOD_WHITELIST } from "../src/host/platformRpcHandler";
 import {
   CAPABILITY_BINARY_FRAME_HINT,
   CAPABILITY_UNSUPPORTED_HINT,
+  capabilitiesFrameFromProbe,
   capabilitiesFromHello,
+  gatePaneCallbacksByCapability,
+  probeCapabilitiesFrame,
   projectCapabilities,
+  projectCapabilitiesPayload,
 } from "../src/webview-react/capabilities";
+import { isCapabilityMissingError, JSON_RPC_ERROR_CODES } from "../src/errors";
 import { projectRestartBanner } from "../src/webview-react/banners/RuntimeRestartBanner";
 
 // ── fixture：合法 ConversationSnapshot（conversationSnapshotSchema 校验通过） ──
@@ -76,10 +81,20 @@ function baseSnapshot(rows: unknown[] = [], seq = 0): Record<string, unknown> {
       resumeGoal: { allowed: true },
     },
     inputRouting: { mode: "startNow" },
-    config: { provider: "glm", model: "glm-5.3", thought: "off", followupMode: "queue" },
+    config: {
+      provider: "glm",
+      model: "glm-5.3",
+      thought: "off",
+      followupMode: "queue",
+    },
     usage: {
       contextWindow: null,
-      cumulative: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
+      cumulative: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
     },
     queue: { items: [], autoDrain: true },
     pendingInteractions: [],
@@ -87,7 +102,11 @@ function baseSnapshot(rows: unknown[] = [], seq = 0): Record<string, unknown> {
     backgroundWorks: [],
     goal: null,
     plan: null,
-    rows: { window: rows, totalCount: rows.length, firstRowId: rows.length > 0 ? 1 : null },
+    rows: {
+      window: rows,
+      totalCount: rows.length,
+      firstRowId: rows.length > 0 ? 1 : null,
+    },
   };
 }
 
@@ -105,7 +124,9 @@ function userInputRow(commandId: string): Record<string, unknown> {
   };
 }
 
-function turnHeaderRow(state: "running" | "completedSuccess" | "failed"): Record<string, unknown> {
+function turnHeaderRow(
+  state: "running" | "completedSuccess" | "failed",
+): Record<string, unknown> {
   return {
     ...rowBase(2),
     kind: "turnHeader",
@@ -156,23 +177,39 @@ class StubConversationTransport {
   readonly frameListeners = new Set<
     (frame: ConversationTopicFrame, context?: { deliveryKind: string }) => void
   >();
-  readonly restartListeners = new Set<(reason?: "runtimeRestart" | "transportReplaced") => void>();
+  readonly restartListeners = new Set<
+    (reason?: "runtimeRestart" | "transportReplaced") => void
+  >();
   subscribeImpl: (() => Promise<unknown>) | null = null;
 
   async subscribe(): Promise<unknown> {
     if (this.subscribeImpl) return this.subscribeImpl();
     return {
-      ack: { subscriptionId: SUBSCRIPTION_ID, mode: "snapshot", logEpoch: "epoch-0" },
+      ack: {
+        subscriptionId: SUBSCRIPTION_ID,
+        mode: "snapshot",
+        logEpoch: "epoch-0",
+      },
     };
   }
   activate(_subscriptionId: string): void {}
   async resync(): Promise<unknown> {
     // v4ConversationResyncResultSchema：{ ack } strict（same-sub recovery ACK 形状）。
-    return { ack: { subscriptionId: SUBSCRIPTION_ID, mode: "snapshot", logEpoch: "epoch-0" } };
+    return {
+      ack: {
+        subscriptionId: SUBSCRIPTION_ID,
+        mode: "snapshot",
+        logEpoch: "epoch-0",
+      },
+    };
   }
   async unsubscribe(_subscriptionId: string): Promise<void> {}
   async sendCommand(_envelope: CommandEnvelope): Promise<unknown> {
-    return { commandId: _envelope.commandId, status: "accepted", revisionAtDecision: 1 };
+    return {
+      commandId: _envelope.commandId,
+      status: "accepted",
+      revisionAtDecision: 1,
+    };
   }
   async queryCommands(): Promise<unknown> {
     return { commands: [] };
@@ -217,9 +254,19 @@ class StubConversationTransport {
     return { bytes: new Uint8Array(), mediaType: "text/plain" };
   }
   async attachmentReadRange(): Promise<unknown> {
-    return { bytes: new Uint8Array(), mediaType: "text/plain", totalBytes: 0, nextOffset: null };
+    return {
+      bytes: new Uint8Array(),
+      mediaType: "text/plain",
+      totalBytes: 0,
+      nextOffset: null,
+    };
   }
-  onFrame(listener: (frame: ConversationTopicFrame, context?: { deliveryKind: string }) => void): () => void {
+  onFrame(
+    listener: (
+      frame: ConversationTopicFrame,
+      context?: { deliveryKind: string },
+    ) => void,
+  ): () => void {
     this.frameListeners.add(listener);
     return () => this.frameListeners.delete(listener);
   }
@@ -251,7 +298,10 @@ async function makeLiveStore(
   return store;
 }
 
-function snapshotFrame(seq: number, snapshot: Record<string, unknown>): ConversationTopicFrame {
+function snapshotFrame(
+  seq: number,
+  snapshot: Record<string, unknown>,
+): ConversationTopicFrame {
   return conversationTopicFrameSchema.parse({
     topic: `conversation/${SESSION_ID}`,
     subscriptionId: SUBSCRIPTION_ID,
@@ -306,12 +356,22 @@ describe("P0 投影清单：流式/推理/工具/审批/turn（P0-3..P0-9 主链
         { op: "row.appended", row: userInputRow(envelope.commandId) },
         {
           op: "row.appended",
-          row: { ...rowBase(4), kind: "assistantText", text: "你", state: "streaming" },
+          row: {
+            ...rowBase(4),
+            kind: "assistantText",
+            text: "你",
+            state: "streaming",
+          },
         },
         { op: "row.delta", rowId: 4, path: "text", append: "好" },
         {
           op: "row.appended",
-          row: { ...rowBase(5), kind: "reasoning", text: "先看失败用例", state: "streaming" },
+          row: {
+            ...rowBase(5),
+            kind: "reasoning",
+            text: "先看失败用例",
+            state: "streaming",
+          },
         },
       ]),
       "online",
@@ -321,19 +381,35 @@ describe("P0 投影清单：流式/推理/工具/审批/turn（P0-3..P0-9 主链
     expect(snapshot).not.toBeNull();
     expect(store.getState().status).toBe("live");
     // P0-3：sendText 信封 → 投影行按 sourceCommandId 关联（发送链路对账锚点）。
-    const userInput = snapshot?.rows.window.find((row) => row.kind === "userInput");
-    expect(userInput && "sourceCommandId" in userInput ? userInput.sourceCommandId : undefined).toBe(
-      envelope.commandId,
+    const userInput = snapshot?.rows.window.find(
+      (row) => row.kind === "userInput",
     );
+    expect(
+      userInput && "sourceCommandId" in userInput
+        ? userInput.sourceCommandId
+        : undefined,
+    ).toBe(envelope.commandId);
     // P0-4：聊天流投影含 realUser 输入行。
-    expect(userInput && "origin" in userInput ? userInput.origin : undefined).toBe("realUser");
+    expect(
+      userInput && "origin" in userInput ? userInput.origin : undefined,
+    ).toBe("realUser");
     // P0-5：text_delta 流式追加（你 + 好 → 你好）。
-    const assistant = snapshot?.rows.window.find((row) => row.kind === "assistantText");
-    expect(assistant && "text" in assistant ? assistant.text : undefined).toBe("你好");
-    expect(assistant && "state" in assistant ? assistant.state : undefined).toBe("streaming");
+    const assistant = snapshot?.rows.window.find(
+      (row) => row.kind === "assistantText",
+    );
+    expect(assistant && "text" in assistant ? assistant.text : undefined).toBe(
+      "你好",
+    );
+    expect(
+      assistant && "state" in assistant ? assistant.state : undefined,
+    ).toBe("streaming");
     // P0-5：reasoning 行进窗（折叠块数据源）。
-    const reasoning = snapshot?.rows.window.find((row) => row.kind === "reasoning");
-    expect(reasoning && "text" in reasoning ? reasoning.text : undefined).toBe("先看失败用例");
+    const reasoning = snapshot?.rows.window.find(
+      (row) => row.kind === "reasoning",
+    );
+    expect(reasoning && "text" in reasoning ? reasoning.text : undefined).toBe(
+      "先看失败用例",
+    );
   });
 
   it("P0-6：工具时间线投影（pendingApproval → running(progress) → success+output）", async () => {
@@ -347,16 +423,23 @@ describe("P0 投影清单：流式/推理/工具/审批/turn（P0-3..P0-9 主链
         { op: "row.upserted", row: toolCallRow("running") },
         {
           op: "row.upserted",
-          row: { ...toolCallRow("running"), progress: { message: "running tests", updatedAt: 1_800 } },
+          row: {
+            ...toolCallRow("running"),
+            progress: { message: "running tests", updatedAt: 1_800 },
+          },
         },
         { op: "row.upserted", row: toolCallRow("success") },
       ]),
       "online",
     );
-    const tool = store.getState().snapshot?.rows.window.find((row) => row.kind === "toolCall");
+    const tool = store
+      .getState()
+      .snapshot?.rows.window.find((row) => row.kind === "toolCall");
     expect(tool && "status" in tool ? tool.status : undefined).toBe("success");
     expect(
-      tool && "output" in tool ? (tool.output as { text?: string } | undefined)?.text : undefined,
+      tool && "output" in tool
+        ? (tool.output as { text?: string } | undefined)?.text
+        : undefined,
     ).toBe("all tests passed");
   });
 
@@ -368,7 +451,10 @@ describe("P0 投影清单：流式/推理/工具/审批/turn（P0-3..P0-9 主链
       store,
       deltasFrame(0, [
         { op: "row.appended", row: toolCallRow("pendingApproval") },
-        { op: "state.updated", patch: { pendingInteractions: [permissionInteraction] } },
+        {
+          op: "state.updated",
+          patch: { pendingInteractions: [permissionInteraction] },
+        },
       ]),
       "online",
     );
@@ -393,7 +479,9 @@ describe("P0 投影清单：流式/推理/工具/审批/turn（P0-3..P0-9 主链
       "deny",
     ]);
     // P0-8：「本次会话允许」选项应答 → allowlist 写回面（plat 白名单承载）。
-    const allowSession = props.options.find((option) => option.optionId === "allowSession");
+    const allowSession = props.options.find(
+      (option) => option.optionId === "allowSession",
+    );
     expect(allowSession?.response).toMatchObject({ decision: "allow" });
     expect(PLATFORM_METHOD_WHITELIST).toContain("appendSessionAllowlist");
   });
@@ -419,16 +507,26 @@ describe("P0 投影清单：流式/推理/工具/审批/turn（P0-3..P0-9 主链
   it("P0-9：turn 生命周期投影（running → completedSuccess；failed + retryTurn 重试信封）", async () => {
     const transport = new StubConversationTransport();
     const store = await makeLiveStore(transport);
-    deliver(store, snapshotFrame(0, baseSnapshot([turnHeaderRow("running")], 2)), "initial");
+    deliver(
+      store,
+      snapshotFrame(0, baseSnapshot([turnHeaderRow("running")], 2)),
+      "initial",
+    );
     expect(
-      store.getState().snapshot?.rows.window.find((row) => row.kind === "turnHeader")?.state,
+      store
+        .getState()
+        .snapshot?.rows.window.find((row) => row.kind === "turnHeader")?.state,
     ).toBe("running");
     deliver(
       store,
-      deltasFrame(2, [{ op: "row.upserted", row: turnHeaderRow("completedSuccess") }]),
+      deltasFrame(2, [
+        { op: "row.upserted", row: turnHeaderRow("completedSuccess") },
+      ]),
       "online",
     );
-    const turn = store.getState().snapshot?.rows.window.find((row) => row.kind === "turnHeader");
+    const turn = store
+      .getState()
+      .snapshot?.rows.window.find((row) => row.kind === "turnHeader");
     expect(turn?.state).toBe("completedSuccess");
     expect("endedAt" in turn! && turn.endedAt).toBe(2_000);
 
@@ -462,7 +560,9 @@ describe("P0 投影清单：流式/推理/工具/审批/turn（P0-3..P0-9 主链
       "online",
     );
     const failed = store.getState().snapshot;
-    expect(failed?.rows.window.find((row) => row.kind === "turnHeader")?.state).toBe("failed");
+    expect(
+      failed?.rows.window.find((row) => row.kind === "turnHeader")?.state,
+    ).toBe("failed");
     expect(failed?.control.lastError?.message).toBe("上游超时");
     const retry = createCommandEnvelope({
       type: "retryTurn",
@@ -510,7 +610,8 @@ describe("P0 投影清单：流式/推理/工具/审批/turn（P0-3..P0-9 主链
 describe("P0 投影清单：生命周期守卫（P0-1/P0-2/P0-10）", () => {
   it("P0-1：握手/CLI 缺失 → store 明确 error 态（不静默）", async () => {
     const transport = new StubConversationTransport();
-    transport.subscribeImpl = () => Promise.reject(new Error("method not found: helloConversationV4"));
+    transport.subscribeImpl = () =>
+      Promise.reject(new Error("method not found: helloConversationV4"));
     const store = new ConversationProjectionStore(
       `conversation/${SESSION_ID}`,
       transport as unknown as ConversationTransport,
@@ -552,7 +653,10 @@ describe("P0 投影清单：生命周期守卫（P0-1/P0-2/P0-10）", () => {
     expect(helloMessageSchema.safeParse(stale).success).toBe(false);
     // 当前版本 hello 通过（正样本）。
     expect(
-      helloMessageSchema.safeParse({ ...stale, protocolVersion: V4_WIRE_PROTOCOL_VERSION }).success,
+      helloMessageSchema.safeParse({
+        ...stale,
+        protocolVersion: V4_WIRE_PROTOCOL_VERSION,
+      }).success,
     ).toBe(true);
   });
 
@@ -573,7 +677,11 @@ describe("P0 投影清单：生命周期守卫（P0-1/P0-2/P0-10）", () => {
 describe("T07 投影：restart 横幅与 capabilities 显隐（P1-6/P1-10.3）", () => {
   it("restart 帧投影：全部恢复 → info；部分失败 → warn + 失败明细；空载荷不呈现", () => {
     expect(projectRestartBanner(null).visible).toBe(false);
-    const restored = projectRestartBanner({ workspaceKey: "/repo", restored: ["s-1"], failures: [] });
+    const restored = projectRestartBanner({
+      workspaceKey: "/repo",
+      restored: ["s-1"],
+      failures: [],
+    });
     expect(restored.visible).toBe(true);
     expect(restored.tone).toBe("info");
     expect(restored.message).toContain("已恢复");
@@ -615,10 +723,302 @@ describe("T07 投影：restart 横幅与 capabilities 显隐（P1-6/P1-10.3）",
     // capabilitiesFromHello：hello 载荷收敛（integration fake hello 同形）。
     expect(
       capabilitiesFromHello({
-        capabilities: { nativeDialogs: false, localTerminal: false, binaryFrames: true, compression: "none" },
+        capabilities: {
+          nativeDialogs: false,
+          localTerminal: false,
+          binaryFrames: true,
+          compression: "none",
+        },
       }),
     ).toMatchObject({ binaryFrames: true });
     expect(capabilitiesFromHello({ capabilities: null })).toBeNull();
     expect(capabilitiesFromHello(null)).toBeNull();
+  });
+});
+
+// ── capabilities 投影接线（closeout-2：T07「接线后行为」+ FR-A13 残余吸收） ──
+// 链路：host 探测（hello / runtime/capabilities 复核）→ capabilitiesFrameFromProbe
+// → capabilities 帧（wire "capabilities"）→ projectCapabilitiesPayload → App 消费
+// （降级提示渲染 + showTerminalEntry 门控 onOpenBackgroundBash）。
+
+const HELLO_ALL_ON = {
+  kind: "hello",
+  capabilities: {
+    nativeDialogs: true,
+    localTerminal: true,
+    binaryFrames: true,
+    compression: "none",
+  },
+};
+
+describe("capabilitiesFrameFromProbe：host 探测结果 → 帧载荷", () => {
+  it("hello 成功 → capabilitiesFromHello 收敛，capabilityMissing=false", () => {
+    expect(
+      capabilitiesFrameFromProbe({ ok: true, hello: HELLO_ALL_ON }),
+    ).toEqual({
+      capabilities: {
+        nativeDialogs: true,
+        localTerminal: true,
+        binaryFrames: true,
+        compression: "none",
+      },
+      capabilityMissing: false,
+    });
+  });
+
+  it("hello 失败且 -32601（ZCodeProtocolClientError 带 code，RPC passthrough 形状）→ 能力缺失", () => {
+    const frame = capabilitiesFrameFromProbe({
+      ok: false,
+      error: Object.assign(
+        new Error("method not found: runtime/capabilities"),
+        { code: -32601 },
+      ),
+    });
+    expect(frame.capabilities).toBeNull();
+    expect(frame.capabilityMissing).toBe(true);
+  });
+
+  it("hello 失败且无 code 的 'Method not found'（旧 server dist 未重建形状）→ 同判能力缺失", () => {
+    expect(
+      capabilitiesFrameFromProbe({
+        ok: false,
+        error: new Error("Method not found"),
+      }),
+    ).toEqual({
+      capabilities: null,
+      capabilityMissing: true,
+    });
+    expect(
+      capabilitiesFrameFromProbe({ ok: false, error: "Method not found" }),
+    ).toEqual({
+      capabilities: null,
+      capabilityMissing: true,
+    });
+  });
+
+  it("hello 失败为暂时性错误 + runtime/capabilities 复核再失败且 -32601 → 能力缺失（FR-A13 复核）", () => {
+    const frame = capabilitiesFrameFromProbe({
+      ok: false,
+      error: new Error("ZCode agent stdio transport is closed"),
+      runtimeProbeError: Object.assign(new Error("no such method"), {
+        code: -32601,
+      }),
+    });
+    expect(frame).toEqual({ capabilities: null, capabilityMissing: true });
+  });
+
+  it("hello 暂时性失败 + 复核可达（不抛）→ capabilityMissing=false（UI 静默不诬告）", () => {
+    expect(
+      capabilitiesFrameFromProbe({
+        ok: false,
+        error: new Error("ZCode agent stdio transport is closed"),
+      }),
+    ).toEqual({ capabilities: null, capabilityMissing: false });
+  });
+
+  it("hello 到了但 capabilities 面缺失/形状非法 → 整体降级（P1-10.3 不做部分猜测）", () => {
+    expect(
+      capabilitiesFrameFromProbe({ ok: true, hello: { kind: "hello" } }),
+    ).toEqual({
+      capabilities: null,
+      capabilityMissing: true,
+    });
+  });
+});
+
+describe("projectCapabilitiesPayload：capabilities 帧 → App 投影（静默规则）", () => {
+  it("帧未到（undefined）→ null：App 不渲染任何提示、不门控", () => {
+    expect(projectCapabilitiesPayload(undefined)).toBeNull();
+  });
+
+  it("hello 帧 → 入口显隐按位投影（App 消费 showTerminalEntry/showNativeDialogEntry/binaryFrameHint）", () => {
+    const projection = projectCapabilitiesPayload({
+      capabilities: {
+        nativeDialogs: true,
+        localTerminal: true,
+        binaryFrames: false,
+        compression: "none",
+      },
+      capabilityMissing: false,
+    });
+    expect(projection).toEqual({
+      showTerminalEntry: true,
+      showNativeDialogEntry: true,
+      binaryFrameHint: CAPABILITY_BINARY_FRAME_HINT,
+      unsupportedHint: null,
+    });
+  });
+
+  it("{null, capabilityMissing:true} → 整体降级 + unsupportedHint（P1-10.3 标注）", () => {
+    expect(
+      projectCapabilitiesPayload({
+        capabilities: null,
+        capabilityMissing: true,
+      }),
+    ).toEqual({
+      showTerminalEntry: false,
+      showNativeDialogEntry: false,
+      binaryFrameHint: null,
+      unsupportedHint: CAPABILITY_UNSUPPORTED_HINT,
+    });
+  });
+
+  it("{null, capabilityMissing:false}（暂时不可得）→ null：静默，不诬告「不支持」", () => {
+    expect(
+      projectCapabilitiesPayload({
+        capabilities: null,
+        capabilityMissing: false,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("gatePaneCallbacksByCapability：投影 → pane 回调门控（真实入口显隐）", () => {
+  const callbacks = { onOpenBackgroundBash: () => undefined };
+
+  it("showTerminalEntry=false → onOpenBackgroundBash 置空（ui 按回调缺席隐藏终端入口）", () => {
+    const gated = gatePaneCallbacksByCapability(
+      callbacks,
+      projectCapabilities(null),
+    );
+    expect(gated.onOpenBackgroundBash).toBeUndefined();
+  });
+
+  it("showTerminalEntry=true → 回调保留（入口可见）", () => {
+    const gated = gatePaneCallbacksByCapability(
+      callbacks,
+      projectCapabilities({
+        nativeDialogs: false,
+        localTerminal: true,
+        binaryFrames: true,
+        compression: "none",
+      }),
+    );
+    expect(gated.onOpenBackgroundBash).toBe(callbacks.onOpenBackgroundBash);
+  });
+
+  it("投影未就绪（帧未到/暂时不可得）→ 不门控，维持现状回调", () => {
+    expect(
+      gatePaneCallbacksByCapability(callbacks, null).onOpenBackgroundBash,
+    ).toBe(callbacks.onOpenBackgroundBash);
+  });
+});
+
+describe("isCapabilityMissingError：-32601 / Method not found 双形状识别（FR-A13）", () => {
+  it("带 code=-32601 的错误对象识别为能力缺失；其余 code 不误判", () => {
+    expect(
+      isCapabilityMissingError(
+        Object.assign(new Error("x"), {
+          code: JSON_RPC_ERROR_CODES.methodNotFound,
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isCapabilityMissingError(Object.assign(new Error("x"), { code: -32603 })),
+    ).toBe(false);
+  });
+
+  it("无 code 的 'Method not found' 文本（Error/string）同判；普通错误不误判", () => {
+    expect(
+      isCapabilityMissingError(
+        new Error("Method not found: runtime/capabilities"),
+      ),
+    ).toBe(true);
+    expect(isCapabilityMissingError("Method not found")).toBe(true);
+    expect(
+      isCapabilityMissingError(
+        new Error("ZCode agent stdio transport is closed"),
+      ),
+    ).toBe(false);
+    expect(isCapabilityMissingError(undefined)).toBe(false);
+    expect(isCapabilityMissingError(null)).toBe(false);
+  });
+});
+
+describe("probeCapabilitiesFrame：host 探测编排（fake agent service，hello/错误帧 → 帧载荷）", () => {
+  const TARGET = { workspacePath: "/repo" };
+  const okService = (overrides: {
+    hello?: () => Promise<unknown>;
+    runtimeCapabilities?: () => Promise<unknown>;
+  }) =>
+    ({
+      helloConversationV4: overrides.hello ?? (async () => HELLO_ALL_ON),
+      ...(overrides.runtimeCapabilities
+        ? { runtimeCapabilities: overrides.runtimeCapabilities }
+        : {}),
+    }) as Parameters<typeof probeCapabilitiesFrame>[0]["agentService"];
+
+  it("hello 成功 → 帧载荷取 hello 收敛（不触发 runtime/capabilities 复核）", async () => {
+    let probeCalls = 0;
+    const frame = await probeCapabilitiesFrame({
+      agentService: okService({
+        runtimeCapabilities: async () => {
+          probeCalls += 1;
+          return {};
+        },
+      }),
+      workspaceTarget: TARGET,
+    });
+    expect(frame.capabilityMissing).toBe(false);
+    expect(frame.capabilities).toMatchObject({ localTerminal: true });
+    expect(probeCalls).toBe(0);
+  });
+
+  it("hello 抛 -32601 → 直接判能力缺失（跳过复核）", async () => {
+    const frame = await probeCapabilitiesFrame({
+      agentService: okService({
+        hello: async () => {
+          throw Object.assign(new Error("method not found"), { code: -32601 });
+        },
+      }),
+      workspaceTarget: TARGET,
+    });
+    expect(frame).toEqual({ capabilities: null, capabilityMissing: true });
+  });
+
+  it("hello 暂时性失败 + 复核可达 → 静默帧（capabilityMissing=false）", async () => {
+    const logs: string[] = [];
+    const frame = await probeCapabilitiesFrame({
+      agentService: okService({
+        hello: async () => {
+          throw new Error("ZCode agent stdio transport is closed");
+        },
+        runtimeCapabilities: async () => ({}),
+      }),
+      workspaceTarget: TARGET,
+      log: (message) => logs.push(message),
+    });
+    expect(frame).toEqual({ capabilities: null, capabilityMissing: false });
+    expect(logs.some((line) => line.includes("暂不判能力缺失"))).toBe(true);
+  });
+
+  it("hello 暂时性失败 + 复核遇 -32601 → 能力缺失（FR-A13 复核收敛）", async () => {
+    const logs: string[] = [];
+    const frame = await probeCapabilitiesFrame({
+      agentService: okService({
+        hello: async () => {
+          throw new Error("ZCode agent stdio transport is closed");
+        },
+        runtimeCapabilities: async () => {
+          throw Object.assign(new Error("no such method"), { code: -32601 });
+        },
+      }),
+      workspaceTarget: TARGET,
+      log: (message) => logs.push(message),
+    });
+    expect(frame).toEqual({ capabilities: null, capabilityMissing: true });
+    expect(logs.some((line) => line.includes("均失败"))).toBe(true);
+  });
+
+  it("旧 CLI 无 runtimeCapabilities 方法（optional 缺席）→ 复核按可达处理 → 静默帧", async () => {
+    const frame = await probeCapabilitiesFrame({
+      agentService: okService({
+        hello: async () => {
+          throw new Error("ZCode agent stdio transport is closed");
+        },
+      }),
+      workspaceTarget: TARGET,
+    });
+    expect(frame).toEqual({ capabilities: null, capabilityMissing: false });
   });
 });

@@ -44,7 +44,8 @@ export interface PlatformEventFrame {
  * host 帧型全集（T02/⑤ + M1 编辑器功能：帧协议集中定义）。
  * theme/locale/workspace/visibility 为既有面；diagnostics/restart/open-panel 为
  * v0.2.0 新增（诊断下发、进程换代横幅、面板打开指令）；composer-insert/session-switch
- * 为 M1 编辑器功能新增（编辑器命令 → 对话 composer 预填 / 历史会话切换），消费面见
+ * 为 M1 编辑器功能新增（编辑器命令 → 对话 composer 预填 / 历史会话切换）；
+ * capabilities 为 T07 capabilities 横切新增（agent 就绪后的能力面投影数据，消费面见
  * src/host/hostFrameKinds.ts（载荷形状的唯一 host 侧定义处）。
  */
 export type HostFrameKind =
@@ -57,7 +58,8 @@ export type HostFrameKind =
   | "open-panel"
   | "composer-insert"
   | "session-switch"
-  | "full-ui-url";
+  | "full-ui-url"
+  | "capabilities";
 
 export interface HostFrame {
   t: "host";
@@ -80,7 +82,11 @@ export type BridgeEnvelope =
 /** 字节 → base64。webview（browser）与 node 双端可用。 */
 export function bytesToBase64(bytes: Uint8Array): string {
   if (typeof Buffer !== "undefined" && typeof Buffer.from === "function") {
-    return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
+    return Buffer.from(
+      bytes.buffer,
+      bytes.byteOffset,
+      bytes.byteLength,
+    ).toString("base64");
   }
   let binary = "";
   const CHUNK = 0x8000;
@@ -114,7 +120,9 @@ export function parseBridgeEnvelope(data: unknown): BridgeEnvelope | null {
   if (!isRecord(data)) return null;
   switch (data["t"]) {
     case "rpc":
-      return typeof data["b64"] === "string" ? (data as unknown as RpcFrame) : null;
+      return typeof data["b64"] === "string"
+        ? (data as unknown as RpcFrame)
+        : null;
     case "flow":
       return data["state"] === "saturated" || data["state"] === "drained"
         ? (data as unknown as FlowFrame)
@@ -136,7 +144,7 @@ export function parseBridgeEnvelope(data: unknown): BridgeEnvelope | null {
         : null;
     case "host": {
       const kind = data["kind"];
-      return (kind === "theme" ||
+      return kind === "theme" ||
         kind === "locale" ||
         kind === "workspace" ||
         kind === "visibility" ||
@@ -145,7 +153,8 @@ export function parseBridgeEnvelope(data: unknown): BridgeEnvelope | null {
         kind === "open-panel" ||
         kind === "composer-insert" ||
         kind === "session-switch" ||
-        kind === "full-ui-url")
+        kind === "full-ui-url" ||
+        kind === "capabilities"
         ? (data as unknown as HostFrame)
         : null;
     }

@@ -52,7 +52,9 @@ export async function writeZcodiumSetting(
     | "permissions.allowlist"
     | "permissions.denylist"
     | "mcp.servers"
-    | "context.additionalDirectories",
+    | "context.additionalDirectories"
+    // FR-A03（M2-1）：pane 内 switchModelConfig 帧的回写面（值 = providerId/modelId）。
+    | "model",
   value: unknown,
 ): Promise<void> {
   const hasFolders = (workspace.workspaceFolders ?? []).length > 0;

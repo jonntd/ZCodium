@@ -83,7 +83,7 @@ schema 唯一事实：`packages/shared/src/zcode-protocol-v4/command.ts`（行�
 | `createSession` | `command.ts:54` | `sessionId?`/`workspaceId`/`additionalDirectories?`(≤256)/`firstInput?`/`config?`/`mcpServers?`/`offPeakToolEnabled?`/`dynamicWorkflow*?`；MCP 必须随 create 一次性下发 | 新会话创建（ACK `type:"createSession"` 返回 `sessionId`） |
 | `sendText` | `command.ts:95` | `text`/`attachments?`/`requestedDelivery?`(startNow/queue/guide)/`modelSelection?`/`mode?`/`planEnabled?`/`modelExecution?` 等；与 `editUserQuery`/`sendQueuedNow` 共用执行材料不变量（`command.ts:36`） | 用户文本输入主路径 |
 | `resolveInteraction` | `command.ts:227` | `interactionId` + `answer{ optionId?, freeText?, action?(accept/decline/cancel), content? }`；先到先得，迟到 noop（`proto.alreadyResolved`） | 审批/交互卡回执 |
-| `switchModelConfig` | `command.ts:259` | `{ provider, model, thought }` | 模型/思考档切换；**不登记 contributes.commands** |
+| `switchModelConfig` | `command.ts:259` | `{ provider, model, thought }` | 模型/思考档切换；**pane 内切换即回写设置**（FR-A03 双向同步）：host 在 `sendConversationCommandV4` 命令路径观测本帧，经 `HostSettingsBridge.modelConfigToSettingValue` 持久化 `zcodium.model` = `provider/model`（thought **不入设置**——该设置形状被 `parseModelSelection` 锁定为恰好一个 `/`，拼入 thought 会破坏 create 的 modelId；会话档位由 CLI 会话实体自持、resume 沿用原会话，P1-6.3）；回写失败不使命令失败（切换本体已受理，仅诊断）；**不登记 contributes.commands** |
 | `switchCollaborationMode` | `command.ts:266` | `{ mode: build\|edit\|plan\|yolo\|guarded }`（auto 非用户可切，不进命令面） | 协作模式切换；**不登记 contributes.commands** |
 | `compact` | `command.ts:167` | `{}`；输入型维护命令：idle 立即执行，busy/held 进 FIFO，不走 CAS（`sourceCommandId` 幂等） | 上下文压缩；**不登记 contributes.commands** |
 | `deleteSession` | `command.ts:296` | `{}`；与 `renameSession` 同属无会话目标命令族（`command.ts:304`） | 会话删除 |
