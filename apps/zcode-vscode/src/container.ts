@@ -296,7 +296,11 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     }
     return process.execPath;
   };
-  const sidebarUiMode = () => fullUiConfig().get<string>("sidebarUi", "full");
+  // 侧栏承载形态。默认 pane（插件原生形态）：编辑器命令经 host 帧直达 webview
+  // composer，会话绑定 IDE 工程，Agent 由插件进程管理（Claude Code/Augment 同构）。
+  // full（server 形态）保留为实验档：iframe 承载完整界面，但编辑器上下文注入受
+  // 跨源限制（composer-insert/session-switch 帧无法进 iframe，见 2026-11-06 缺陷分析）。
+  const sidebarUiMode = () => fullUiConfig().get<string>("sidebarUi", "pane");
   const resolveFullUiRepoRoot = (): string => {    const configured = fullUiConfig().get<string>("fullUiRepoRoot", "").trim();
     if (configured) return configured;
     if (typeof __ZCODE_REPO_ROOT__ === "string" && __ZCODE_REPO_ROOT__) {

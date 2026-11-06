@@ -407,14 +407,14 @@
         },
         "zcodium.sidebarUi": {
           "type": "string",
-          "default": "full",
+          "default": "pane",
           "enum": [
-            "full",
-            "pane"
+            "pane",
+            "full"
           ],
           "enumDescriptions": [
-            "侧栏直接承载完整界面（packages/web，会话/模型/Git/工作流全功能）",
-            "侧栏承载轻量对话 pane（V4ChatPane，回退档）"
+            "插件原生形态（推荐）：侧栏承载 V4ChatPane 对话面，编辑器命令经 host 帧直接预填 composer，会话绑定当前工程，Agent 由插件进程管理",
+            "实验性：侧栏 iframe 承载完整界面（packages/web，经本地 HTTP server），功能全但编辑器上下文与工程绑定存在架构限制"
           ],
           "description": "侧栏承载的界面形态。切换后侧栏自动重载。"
         },

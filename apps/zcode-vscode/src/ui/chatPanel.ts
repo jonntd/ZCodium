@@ -1,7 +1,7 @@
 /**
  * ChatPanel — 侧栏 WebviewViewProvider。
  *
- * 双模式（设置 `zcodium.sidebarUi`，默认 full）：
+ * 双模式（设置 `zcodium.sidebarUi`，默认 pane）：
  * - **full**（默认）：侧栏直接内嵌完整界面（fullui server 的 packages/web 页面，iframe 承载）
  *   ——用户口径「聊天窗口直接就用完整界面」。server 懒启动（首次面板可见时拉起），
  *   就绪后经 `full-ui-url` host 帧把地址推给 webview 设置 iframe.src。
