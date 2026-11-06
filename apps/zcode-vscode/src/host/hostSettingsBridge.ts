@@ -281,7 +281,7 @@ export type SwitchModelConfigPersist = (
  *   不做逐成员拷贝（避免大接口漂移）。
  * - 载荷形状守卫：非 switchModelConfig 帧或形状非法（绕过工厂的裸信封）不触发回写。
  */
-export function wrapAgentServiceForModelWriteback<T>(
+export function wrapAgentServiceForModelWriteback<T extends object>(
   agentService: T,
   persist: SwitchModelConfigPersist,
   onError?: (error: unknown) => void,
@@ -289,7 +289,8 @@ export function wrapAgentServiceForModelWriteback<T>(
   const source = agentService as {
     sendConversationCommandV4?: (params: unknown) => Promise<unknown>;
   };
-  if (typeof source.sendConversationCommandV4 !== "function") {
+  const originalSend = source.sendConversationCommandV4;
+  if (typeof originalSend !== "function") {
     // 防御：服务形状不符时不包装（回写面关闭，服务行为保持原样）。
     return agentService;
   }
@@ -297,7 +298,7 @@ export function wrapAgentServiceForModelWriteback<T>(
     sendConversationCommandV4: (params: unknown) => Promise<unknown>;
   };
   wrapped.sendConversationCommandV4 = async (params: unknown) => {
-    const ack = await source.sendConversationCommandV4.call(agentService, params);
+    const ack = await originalSend.call(agentService, params);
     try {
       const envelope = (params as { envelope?: { type?: unknown; payload?: unknown } } | null)
         ?.envelope;
