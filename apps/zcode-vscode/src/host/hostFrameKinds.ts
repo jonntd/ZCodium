@@ -40,7 +40,7 @@ export interface VisibilityHostFramePayload {
   visible: boolean;
 }
 
-/** diagnostics 帧：zcodium.sendDiagnostics 两档下发（T09 host 半）。 */
+/** diagnostics 帧：zcagent.sendDiagnostics 两档下发（T09 host 半）。 */
 export interface DiagnosticsHostFramePayload {
   /** 两档：仅错误 / 错误+警告（与 QuickPick 文案、composer 预填标题一字一致）。 */
   tier: "errors" | "all";
@@ -130,8 +130,26 @@ export function buildDiagnosticsFramePayload(
 
 /** composer-insert 帧：M1 编辑器命令（终端送入/审阅改动/Code Action 等）→ composer 预填。 */
 export interface ComposerInsertHostFramePayload {
-  /** 已拼好上下文块的完整待发送文本（编辑器命令侧用 buildPrompt 同款格式拼装）。 */
+  /** 预填文本；携带 mention 时首段须为 mention.markdown（webview setMention 依赖）。 */
   text: string;
+  /**
+   * 结构化 mention pill（Claude Code/Augment 口径）：干净文件引用，正文不再塞 XML 块。
+   * 形状与 ui ComposerMentionPrefill 结构兼容（postMessage JSON 传输）。
+   */
+  mention?: {
+    id: string;
+    category: "files";
+    label: string;
+    value: string;
+    markdown: string;
+    description?: string;
+    data?: { kind: "file" | "directory"; path: string; relativePath: string };
+  };
+  /**
+   * replace（默认）：指令类命令整体预填；prepend-if-missing：加入上下文 pill
+   * 前置且按 mention.id 去重，不覆盖用户正在编辑的草稿。
+   */
+  mode?: "replace" | "prepend-if-missing";
 }
 
 /** session-switch 帧：历史会话命令（pickSession）→ webview 重绑 sessionId（resume）。 */

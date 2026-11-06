@@ -23,6 +23,7 @@ import { App } from "./App";
 import { HostFrameBus } from "./bridge/hostFrames";
 import { PlatformRpcClient } from "./bridge/platformRpcClient";
 import { WebviewMessagePortLike, sendClientContext } from "./bridge/webviewMessagePort";
+import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { VscodePlatformService } from "./platform/vscodePlatformService";
 import { mapVscodeLanguage } from "./i18nSetup";
 import type { VscodeThemeKind } from "./themeBridge";
@@ -199,17 +200,22 @@ function WebviewRoot({
   );
 
   // M1 编辑器功能：composer-insert 帧（终端送入/审阅改动/Code Action 等）→ composer 预填。
+  // mention + prepend-if-missing = Claude Code/Augment 式干净上下文 pill（不覆盖草稿）。
   useEffect(
     () =>
       hostFrames.on<ComposerInsertHostFramePayload>("composer-insert", (payload) => {
         const activeWorkspace = foldersRef.current.includes(workspaceRef.current)
           ? workspaceRef.current
           : (foldersRef.current[0] ?? workspaceRef.current);
-        import("@/store/zcodeSessionStore.js").then(({ useZCodeSessionStore }) => {
-          useZCodeSessionStore
-            .getState()
-            .requestComposerTextInsert(activeWorkspace, payload.text);
-        });
+        useZCodeSessionStore
+          .getState()
+          .requestComposerTextInsert(
+            activeWorkspace,
+            payload.text,
+            undefined,
+            payload.mention,
+            payload.mode,
+          );
       }),
     [hostFrames],
   );

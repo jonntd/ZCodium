@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import type { PendingContext } from "./contextCollector";
+import { fileMentionRef, type PendingContext } from "./contextCollector";
 
 const MAX_FILE_LINES = 400;
 const MAX_FILE_BYTES = 256 * 1024;
@@ -12,10 +12,12 @@ function fenced(languageId: string, content: string): string {
 /** 读一个文件作为上下文，超出上限就截断 —— 宁可少给，也不要把上下文一次打满。 */
 export async function readFileContext(uri: vscode.Uri): Promise<PendingContext | undefined> {
   const stat = await vscode.workspace.fs.stat(uri);
+  const relativeLabel = vscode.workspace.asRelativePath(uri);
   if (stat.size > MAX_FILE_BYTES) {
-    const label = vscode.workspace.asRelativePath(uri);
+    const label = relativeLabel;
     return {
       chip: { id: `file-${uri.toString()}`, label: `${label}（过大，仅路径）` },
+      mention: fileMentionRef(uri.fsPath, label, label),
       text: `<file path="${label}" note="文件过大，未附带内容" />`,
     };
   }
@@ -25,11 +27,12 @@ export async function readFileContext(uri: vscode.Uri): Promise<PendingContext |
   const lines = text.split("\n");
   const clipped = lines.length > MAX_FILE_LINES ? lines.slice(0, MAX_FILE_LINES) : lines;
   const suffix = lines.length > MAX_FILE_LINES ? "\n…（文件过长，已截断）" : "";
-  const label = vscode.workspace.asRelativePath(uri);
+  const label = relativeLabel;
   const languageId = guessLanguageId(label);
 
   return {
     chip: { id: `file-${uri.toString()}`, label },
+    mention: fileMentionRef(uri.fsPath, label, label),
     text: `<file path="${label}">\n${fenced(languageId, clipped.join("\n") + suffix)}\n</file>`,
   };
 }
@@ -48,6 +51,7 @@ export async function readDirectoryContext(
 
   return {
     chip: { id: `dir-${uri.toString()}`, label: `${label}/` },
+    mention: fileMentionRef(uri.fsPath, label, `${label}/`, "directory"),
     text: `<directory path="${label}">\n${lines.join("\n")}${suffix}\n</directory>`,
   };
 }

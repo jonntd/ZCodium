@@ -10,6 +10,43 @@ export interface PendingContext {
   readonly text: string;
   /** 本块覆盖的文件路径（相对工作区），供发送时避免同一文件以其他形式重复出现。 */
   readonly paths?: readonly string[];
+  /**
+   * 结构化 mention pill（Claude Code/Augment 口径）：composer 侧以 `prepend-if-missing`
+   * 预填干净引用（如 `client.js:9-10`），内容不塞输入框正文，模型按引用读文件。
+   * 缺省 = 无 mention 面（纯文本块，仅 buildPrompt 直发链路消费）。
+   */
+  readonly mention?: PendingContextMention;
+}
+
+/** composer mention pill 的最小结构面（与 ui ComposerMentionPrefill 结构兼容）。 */
+export interface PendingContextMention {
+  /** 去重身份：同 id 重复"加入上下文"不再产生第二个 pill。 */
+  readonly id: string;
+  readonly category: "files";
+  readonly label: string;
+  readonly value: string;
+  readonly markdown: string;
+  readonly data: { kind: "file" | "directory"; path: string; relativePath: string };
+}
+
+/** 文件引用 mention 工厂：label/转义与 ui mentionMarkdown 同口径（editorContextFiles 共用）。 */
+export function fileMentionRef(
+  fsPath: string,
+  relativePath: string,
+  label: string,
+  kind: "file" | "directory" = "file",
+  idSuffix = "",
+): PendingContextMention {
+  const normalizedPath = relativePath.replaceAll("\\", "/");
+  const escapedLabel = label.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
+  return {
+    id: `file:${fsPath}${idSuffix}`,
+    category: "files",
+    label,
+    value: kind === "directory" ? `${normalizedPath}/` : normalizedPath,
+    markdown: `[${escapedLabel}](./${normalizedPath})`,
+    data: { kind, path: fsPath, relativePath: normalizedPath },
+  };
 }
 
 const MAX_SELECTION_LINES = 400;
@@ -54,6 +91,7 @@ export function contextFromRange(
 
   return {
     chip: { id: randomUUID(), label },
+    mention: fileMentionRef(document.uri.fsPath, path, label, "file", `:${startLine}-${endLine}`),
     text: `<selection path="${path}" lines="${startLine}-${endLine}">\n${fenced(
       document.languageId,
       clipped.join("\n") + suffix,
@@ -68,7 +106,9 @@ export function contextFromActiveFile(editor: vscode.TextEditor): PendingContext
   const path = workspaceRelative(document.uri.fsPath);
   const cursor = editor.selection.active;
   return {
+    // id 不含光标行：同一文件重复"加入上下文"按 path 去重（光标移动不产生第二个 pill）。
     chip: { id: randomUUID(), label: `${path}:${cursor.line + 1}` },
+    mention: fileMentionRef(document.uri.fsPath, path, `${path}:${cursor.line + 1}`),
     text: `<active-file path="${path}" cursor-line="${cursor.line + 1}" />`,
   };
 }
@@ -88,6 +128,8 @@ export function contextFromDiagnostics(editor: vscode.TextEditor): PendingContex
   const path = workspaceRelative(document.uri.fsPath);
   return {
     chip: { id: randomUUID(), label: `诊断 ${diagnostics.length} 条` },
+    // 文件 pill（path 级 id，与 active-file pill 去重）；诊断明细走 compactContextText 压缩正文。
+    mention: fileMentionRef(document.uri.fsPath, path, path),
     text: `<diagnostics path="${path}">\n${diagnostics.join("\n")}\n</diagnostics>`,
   };
 }
