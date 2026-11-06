@@ -15,7 +15,9 @@
 import type { ExtensionContext } from "vscode";
 import { commands, env, languages, Uri, window, workspace } from "vscode";
 import { uuidv7 } from "@zcode/shared";
+import type { ZCodeSessionMode } from "@zcode/shared";
 import { mkdir, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
@@ -342,31 +344,57 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
 
   // ── 工作区项目预注册（full 模式）：server 作用域要求会话必须归属项目
   // （project.remote-project-required），否则用户在完整界面里无法直接发送。
-  // server 就绪后把活动工作区注册为项目（幂等：同 root 已注册则复用）。
+  // 关键事实：完整界面（iframe web 应用）聊天用的是 server 的**默认对话工作区**
+  // （{dataRoot}/workspace/default，与桌面端共享 ~/.zcodium 数据根），而不是 VS Code
+  // 打开的文件夹——所以默认对话目录必须注册；VS Code 文件夹有则一并注册。
+  // 幂等：同 root 且同 host 作用域已注册则复用。
+  const conversationWorkspaceDir = join(homedir(), ".zcodium", "workspace", "default");
+  const registerProjectForPath = async (
+    projectService: NonNullable<IServiceAccessor["projectService"]>,
+    projects: Awaited<ReturnType<typeof projectService.readProjects>>,
+    folder: string,
+    name: string,
+  ): Promise<void> => {
+    // 幂等守卫必须按 host 作用域判断：共享存储里同名 root 的 local 项目
+    // （桌面 CLI 写入）对 server 作用域不可见，不能作为跳过依据。
+    // server 作用域的项目 hostId 形如 remote:server:<hostname>。
+    const registeredOnServer = projects.some(
+      (p) =>
+        typeof p.hostId === "string" &&
+        p.hostId.startsWith("remote:server:") &&
+        p.roots?.some((r) => r.rootPath === folder),
+    );
+    if (registeredOnServer) {
+      diagnostics.log(`[full-ui] 项目已注册，跳过：${folder}`);
+      return;
+    }
+    const saved = await projectService.saveProject({
+      name,
+      roots: [folder],
+      primaryRoot: folder,
+    });
+    diagnostics.log(`[full-ui] 工作区已注册为项目：${folder}（${saved.id}）`);
+  };
   const registerWorkspaceProject = async (): Promise<void> => {
-    const folder = workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!folder) return;
     try {
       await hostServices.use(async (accessor) => {
         const projectService = accessor.projectService;
         if (!projectService) throw new Error("project service 不可用");
         const projects = await projectService.readProjects();
-        // 幂等守卫必须按 host 作用域判断：共享存储里同名 root 的 local 项目
-        // （桌面 CLI 写入）对 server 作用域不可见，不能作为跳过依据。
-        // server 作用域的项目 hostId 形如 remote:server:<hostname>。
-        const registeredOnServer = projects.some(
-          (p) =>
-            typeof p.hostId === "string" &&
-            p.hostId.startsWith("remote:server:") &&
-            p.roots?.some((r) => r.rootPath === folder),
+        // 1) 默认对话工作区——完整界面聊天的真实落点，必注册。
+        await registerProjectForPath(
+          projectService,
+          projects,
+          conversationWorkspaceDir,
+          "默认对话",
         );
-        if (registeredOnServer) return;
-        const saved = await projectService.saveProject({
-          name: basename(folder),
-          roots: [folder],
-          primaryRoot: folder,
-        });
-        diagnostics.log(`[full-ui] 工作区已注册为项目：${folder}（${saved.id}）`);
+        // 2) VS Code 打开的文件夹（如有）——编辑器能力（quick edit 等）用。
+        const folder = workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (folder && folder !== conversationWorkspaceDir) {
+          await registerProjectForPath(projectService, projects, folder, basename(folder));
+        } else if (!folder) {
+          diagnostics.log("[full-ui] 当前窗口没有打开文件夹，跳过文件夹项目注册");
+        }
       });
     } catch (error) {
       diagnostics.log(
@@ -505,7 +533,27 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
       return;
     }
     let sessionId = workspaceSessions.get(folderKey(folder)) ?? null;
-    if (!sessionId) {
+    if (!sessionId && sidebarUiMode() === "full") {
+      // full 模式：会话必须归属共享 server。经 /ws 通道在 server 侧编程式创建
+      // （参数面与 RuntimeController.createSession 一致）；绝不能走进程内
+      // agentService——那会 spawn 第二个 agent 实例，与 server 在 CLI 存储锁上
+      // 互撞（实测表现 "ZCode agent stdio transport is closed"）。
+      sessionId = await runWithServices(async (accessor) => {
+        const params = settingsBridge.resolveCreateParams(folder);
+        const snapshot = await accessor.zcodeAgentService.createSession({
+          workspacePath: params.workspacePath,
+          mode: params.config.mode as ZCodeSessionMode,
+          ...(params.config.modelSelection ? { model: params.config.modelSelection } : {}),
+          toolAllowlist: params.toolAllowlist,
+          toolDenylist: params.toolDenylist,
+          mcpServers: params.mcpServers as never[],
+          additionalDirectories: params.additionalDirectories,
+        } as Parameters<NonNullable<typeof accessor.zcodeAgentService>["createSession"]>[0]);
+        const created = snapshot.session.sessionId;
+        workspaceSessions.set(folderKey(folder), created);
+        return created;
+      });
+    } else if (!sessionId) {
       sessionId = (await runtimeController.createSession(folder)).sessionId;
     }
     await runWithServices((accessor) =>
