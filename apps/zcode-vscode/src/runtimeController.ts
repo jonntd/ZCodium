@@ -43,6 +43,13 @@ export interface RuntimeControllerEvents {
   onStateChange?(state: RuntimeUiState): void;
   /** 进程换代编排结果（横幅帧生产 + 失败降级提示，P1-6）。 */
   onRuntimeRestart?(outcome: RuntimeRestartOutcome): void;
+  /**
+   * per-folder 会话恢复失败（启动恢复/换代自动恢复共用）。恢复失败说明持久化键已悬空
+   * （如 Session not found）：控制器会清理内存与持久化映射，宿主可据此向 webview 推
+   * 纠正帧（session-switch null → 回草稿），否则 UI 按 bootstrap 旧 ID 订阅会报
+   * fault.subscribe.sessionNotFound。
+   */
+  onSessionRestoreFailure?(failure: RuntimeResumeFailure): void;
 }
 
 export interface RuntimeControllerOptions {
@@ -232,11 +239,18 @@ export class RuntimeController {
         await this.resumeSession(sessionId, folder);
         restored.push(sessionId);
       } catch (error) {
-        failures.push({
+        const failure: RuntimeResumeFailure = {
           folder,
           sessionId,
           error: error instanceof Error ? error.message : String(error),
-        });
+        };
+        // 失效映射清理：resume 失败（Session not found 等）说明持久化键悬空——不清则
+        // 每次 activate 都会复活失效会话，webview 亦按旧 ID 订阅报 sessionNotFound。
+        const key = folderKey(folder);
+        this.activeSessions.delete(key);
+        this.options.workspaceSessions?.set(key, undefined);
+        this.options.events?.onSessionRestoreFailure?.(failure);
+        failures.push(failure);
       }
     }
     return { restored, failures };

@@ -136,7 +136,8 @@ export interface ComposerInsertHostFramePayload {
 
 /** session-switch 帧：历史会话命令（pickSession）→ webview 重绑 sessionId（resume）。 */
 export interface SessionSwitchHostFramePayload {
-  sessionId: string;
+  /** 目标会话；null = 回草稿态（持久化会话恢复失败时的纠正帧：UI 订阅失效会话会报 fault.subscribe.sessionNotFound）。 */
+  sessionId: string | null;
 }
 
 /** full-ui-url 帧：chatPanel full 模式下共享 server 就绪（或失败）后推送 iframe 地址。 */

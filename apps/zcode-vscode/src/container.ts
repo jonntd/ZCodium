@@ -238,6 +238,15 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
         // 横幅帧（P1-6：换代→横幅→自动恢复→失败降级）；载荷形状见 hostFrameKinds.ts。
         hostRuntime.pushHostFrame("restart", outcome);
       },
+      onSessionRestoreFailure: (failure) => {
+        // 纠正帧：webview 可能已按 bootstrap data-session-id 订阅失效会话（HTML 构建
+        // 早于恢复完成，竞态固有）→ session-switch null 拉回草稿态，避免
+        // fault.subscribe.sessionNotFound 错误卡住对话区。
+        diagnostics.log(
+          `[runtime] 恢复失败纠正：folder=${failure.folder} → webview 回草稿态`,
+        );
+        hostRuntime.pushHostFrame("session-switch", { sessionId: null });
+      },
     },
   });
   runtimeControllerPlaceholder.current = runtimeController;
@@ -281,7 +290,12 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   const chatPanel = new ChatPanel(
     context.extensionUri,
     hostRuntime,
-    (folder) => workspaceSessions.get(folderKey(folder)) ?? null,
+    // bootstrap data-session-id：优先运行时已验证（activeSessions = restore 成功面），
+    // 恢复尚未完成时乐观回落持久化键（失败由 onSessionRestoreFailure 纠正帧兜底）。
+    (folder) =>
+      runtimeController.activeSession(folder) ??
+      workspaceSessions.get(folderKey(folder)) ??
+      null,
   );
 
   // ── 服务调用统一路由（PRD §8.5 单通道） ──
