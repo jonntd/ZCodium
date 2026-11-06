@@ -6,15 +6,22 @@
 #   - rsync --delete 整体同步 dist（含 webview/）与 package.json 到目标扩展目录；
 #   - 同步后复跑依赖闭包校验，任一 import 缺失即失败退出。
 #
-# 目标目录（按存在性自动选择，可用 ZCODE_DEPLOY_DIR 覆盖）：
-#   ~/.antigravity-ide/extensions/zcodium.zcode-vscode-<version>
-#   ~/.vscode/extensions/zcodium.zcode-vscode-<version>
+# 目标目录（按扩展 ID 动态解析，可用 ZCODE_DEPLOY_DIR 覆盖）：
+#   ~/.antigravity-ide/extensions/<publisher>.<name>-<version>
+#   ~/.vscode/extensions/<publisher>.<name>-<version>
+# 同名多目录时跳过 .obsolete 标记的（IDE 已判定废弃，部署了也不会被加载）。
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=$(node -p "require('./package.json').version")
+EXT_ID=$(node -p "const p = require('./package.json'); p.publisher + '.' + p.name")
 SRC_DIST="$PWD/dist"
+
+# .obsolete 里的废弃标记（IDE 判定不再加载的扩展目录）。
+obsolete_entries() {
+  [ -f "$1/.obsolete" ] && node -e "console.log(Object.keys(require('$1/.obsolete')).join('\n'))" 2>/dev/null || true
+}
 
 if [ ! -f "$SRC_DIST/extension.js" ] || [ ! -f "$SRC_DIST/webview/main.js" ]; then
   echo "[deploy] dist 产物缺失，请先构建：pnpm --filter @zcode/zcode-vscode build" >&2
@@ -54,13 +61,24 @@ if [ -n "${ZCODE_DEPLOY_DIR:-}" ]; then
 else
   DEST=""
   for base in "$HOME/.antigravity-ide/extensions" "$HOME/.vscode/extensions"; do
-    if [ -d "$base" ]; then
-      cand="$base/zcodium.zcode-vscode-$VERSION"
-      [ -d "$cand" ] && DEST="$cand" && break
-    fi
+    [ -d "$base" ] || continue
+    obsolete=$(obsolete_entries "$base")
+    # 按修改时间倒序遍历同 ID 扩展目录（扩展改名迁移时取最新注册面）。
+    while IFS= read -r cand; do
+      [ -d "$cand" ] || continue
+      # 跳过被 .obsolete 标记的目录：部署进去 IDE 也不会加载，纯属无效功。
+      rel=$(basename "$cand")
+      if printf '%s\n' "$obsolete" | grep -qxF "$rel"; then
+        echo "[deploy] 跳过已废弃标记目录：$cand"
+        continue
+      fi
+      DEST="$cand"
+      break
+    done < <(ls -dt "$base/$EXT_ID-"* 2>/dev/null)
+    [ -n "$DEST" ] && break
   done
   if [ -z "$DEST" ]; then
-    echo "[deploy] 未找到目标扩展目录（zcodium.zcode-vscode-$VERSION），可用 ZCODE_DEPLOY_DIR 指定" >&2
+    echo "[deploy] 未找到目标扩展目录（$EXT_ID-$VERSION），可用 ZCODE_DEPLOY_DIR 指定" >&2
     exit 1
   fi
 fi
