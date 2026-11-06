@@ -14,9 +14,12 @@
 import { ChannelClient, Emitter, SocketProtocol, VSBuffer, type ISocket } from "@zcode/rpc";
 import { RemoteServiceAccess } from "@zcode/client";
 import type { IServiceAccessor } from "@zcode/services";
+import { V4_WIRE_PROTOCOL_VERSION } from "@zcode/shared/zcode-protocol-v4";
 import { log } from "../features/logger";
 
 const CONNECT_TIMEOUT_MS = 20_000;
+const HOST_CLIENT_ID = "zcode-vscode-host";
+const HOST_CLIENT_VERSION = "0.2.0";
 
 /** Node 原生 WebSocket → @zcode/rpc ISocket 适配。 */
 function wrapNativeWebSocket(ws: WebSocket): ISocket {
@@ -145,8 +148,31 @@ export class HostServices {
       const client = new ChannelClient(protocol);
       const closeListener = socket.onClose(() => fail(new Error("共享服务通道在 Initialize 前断开")));
       const initializeListener = client.onDidInitialize(() => {
-        cleanup();
-        resolve(new RemoteServiceAccess(client));
+        closeListener.dispose();
+        initializeListener.dispose();
+        const accessor = new RemoteServiceAccess(client);
+        // 会话协议握手（hello → clientHello）：server 按连接校验会话类命令的握手
+        // 状态，缺省拒所有 sendConversationCommandV4（fault.connection.handshakeRequired）。
+        // 与 iframe 完整界面的 web 传输保持同一握手契约；超时定时器覆盖到握手完成。
+        accessor.zcodeAgentService
+          .helloConversationV4()
+          .then(() =>
+            accessor.zcodeAgentService.initializeConversationV4({
+              kind: "clientHello",
+              protocolVersion: V4_WIRE_PROTOCOL_VERSION,
+              clientId: HOST_CLIENT_ID,
+              clientKind: "web",
+              appVersion: HOST_CLIENT_VERSION,
+              capabilities: { historyFirst: true },
+            }),
+          )
+          .then(() => {
+            clearTimeout(timer);
+            resolve(accessor);
+          })
+          .catch((error: unknown) => {
+            fail(new Error(`会话协议握手失败：${String(error)}`));
+          });
       });
 
       function cleanup(): void {
