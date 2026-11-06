@@ -21,6 +21,16 @@ export interface ServerEnvOverridesInput {
   readonly agentCommand?: string;
   /** 与 agentCommand 配套的参数（JSON 序列化为 ZCODE_AGENT_SERVER_ARGS_JSON）。 */
   readonly agentArgs?: readonly string[];
+  /**
+   * server 默认对话工作区（ZCODE_SERVER_WORKSPACE）。
+   *
+   * 必须注入：server 缺省回落 process.cwd()（http.ts「ZCODE_SERVER_WORKSPACE ||
+   * process.cwd()」），而插件 spawn 时 cwd 是仓库根/扩展宿主目录——iframe 完整界面
+   * 以该目录开聊，会话归属校验（project.remote-project-required）要求工作区已注册
+   * 为项目，未注册路径直接拒发。指向已预注册的默认对话工作区（~/.zcodium/workspace/
+   * default）后，UI 默认工作区与注册面一致。
+   */
+  readonly workspacePath?: string;
 }
 
 /**
@@ -50,5 +60,8 @@ export function buildServerEnvOverrides(
             : {}),
         }
       : {}),
+    // server 默认对话工作区：缺省回落 process.cwd()（spawn 时是仓库根），iframe
+    // 界面在该路径开聊会被 project.remote-project-required 拒发（见上注释）。
+    ...(input.workspacePath ? { ZCODE_SERVER_WORKSPACE: input.workspacePath } : {}),
   };
 }

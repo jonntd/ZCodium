@@ -55,6 +55,14 @@ export interface ServerHostOptions {
   readonly agentCommand?: string;
   /** 与 `agentCommand` 配套的参数（如 `["<zcode.cjs>", "app-server", "--stdio"]`）。 */
   readonly agentArgs?: readonly string[];
+  /**
+   * server 默认对话工作区（`ZCODE_SERVER_WORKSPACE`，可选）。
+   *
+   * 缺省 server 回落 process.cwd()——插件 spawn 时那是仓库根/扩展宿主目录，iframe
+   * 完整界面以它开聊会被 project.remote-project-required 拒发（工作区未注册为项目）。
+   * 生产装配传已预注册的默认对话工作区（~/.zcodium/workspace/default）。
+   */
+  readonly workspacePath?: string;
   /** server 进程日志落盘目录（globalStorage/logs；缺省不落盘）。 */
   readonly logDir?: string;
 }
@@ -160,6 +168,7 @@ export class ServerHost {
           dataBaseDir: this.options.dataBaseDir,
           agentCommand: this.options.agentCommand,
           agentArgs: this.options.agentArgs,
+          workspacePath: this.options.workspacePath,
         }),
       },
       windowsHide: true,

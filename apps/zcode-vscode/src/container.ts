@@ -319,6 +319,10 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     }
     return "";
   };
+  // 完整界面 server 的默认对话工作区：server 缺省回落 process.cwd()（扩展宿主 spawn
+  // 时是仓库根），iframe 界面以该路径开聊会被 project.remote-project-required 拒发。
+  // 显式指到共享数据根的 default 工作区（预注册项目「默认对话」同一路径）。
+  const conversationWorkspaceDir = join(homedir(), ".zcodium", "workspace", "default");
   const fullUiServer = new ServerHost({
     get repoRoot() {
       return resolveFullUiRepoRoot();
@@ -329,6 +333,7 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     get configuredStaticRoot() {
       return fullUiConfig().get<string>("fullUiStaticRoot", "");
     },
+    workspacePath: conversationWorkspaceDir,
     nodePath: process.execPath,
     logDir: join(globalStorageDir, "logs"),
     // agent 不能用 Electron 二进制：server（node 模式 Electron）再 spawn 同一二进制时，
@@ -348,7 +353,6 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   // （{dataRoot}/workspace/default，与桌面端共享 ~/.zcodium 数据根），而不是 VS Code
   // 打开的文件夹——所以默认对话目录必须注册；VS Code 文件夹有则一并注册。
   // 幂等：同 root 且同 host 作用域已注册则复用。
-  const conversationWorkspaceDir = join(homedir(), ".zcodium", "workspace", "default");
   const registerProjectForPath = async (
     projectService: NonNullable<IServiceAccessor["projectService"]>,
     projects: Awaited<ReturnType<typeof projectService.readProjects>>,
