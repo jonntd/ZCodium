@@ -2901,6 +2901,12 @@ export async function generateWorkspaceText(
       eventStore: context.deps.createSessionEventStore("workspace-generate-text"),
       runtimeConfig: {
         workingDirectory: params.workspace.workspacePath,
+        // 冷装配必须绑定调用方 selection：默认模型选择可能缺档位，而 NCc 的装配校验
+        // （Cpe）不带 allowMissingReasoning，缺档位会在 Model 创建前直接抛
+        // "Reasoning level is required"，调用方传了完整档位也白搭。把 selection 传进
+        // runtimeConfig 后装配按它校验（档位齐全即通过），generateWorkspaceText 内部
+        // 的 Model 工厂也用同一 selection，两处契约一致。
+        modelSelection: params.selection,
       },
       sessionStore: context.deps.sessionStore,
       version: context.deps.version,
