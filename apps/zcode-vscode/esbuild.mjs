@@ -76,11 +76,30 @@ const webviewOptions = {
     // Vite 环境面（ui/web 源码散读 DEV/PROD/BASE_URL/MODE；esbuild 不做 Vite 的
     // import.meta.env 注入，缺了就是 "Cannot read properties of undefined (reading 'DEV')"
     // ——Antigravity 实测崩溃）。生产构建固定生产值。
+    // 注意：本对象是 webviewOptions 唯一的 define 键——历史上曾在此下方再写一个只含
+    // __ZCODE_REPO_ROOT__ 的同名 define 键，对象字面量重复键后者胜出，整块注入被
+    // 静默丢弃（运行时 reading 'PROD' 崩溃，2026-11-06 实测）。合并为一处。
     "import.meta.env.DEV": "false",
     "import.meta.env.PROD": "true",
     "import.meta.env.MODE": JSON.stringify("production"),
     "import.meta.env.BASE_URL": '"/"',
     "import.meta.env.SSR": "false",
+    // 整对象兜底：`const env = import.meta.env`（RewardsWebview 等）整体读取的路径。
+    // esbuild 更具体的子路径 define（上方）优先于本整体 define。
+    "import.meta.env": JSON.stringify({
+      DEV: false,
+      PROD: true,
+      MODE: "production",
+      BASE_URL: "/",
+      SSR: false,
+      VITE_ZCODE_BASE_URL: "",
+      VITE_ZCODE_ENDPOINT_ORIGIN: "",
+      VITE_ZAI_OAUTH_CLIENT_ID: "",
+      VITE_ZAI_OAUTH_ORIGIN: "",
+    }),
+    // 构建期烙入 monorepo 根：fullui（完整界面）需要定位 packages/server|web 的本机构建产物。
+    // 发行版打包时若产物策略变化，可改由此 define 注入其他路径。
+    __ZCODE_REPO_ROOT__: JSON.stringify(resolve(here, "../..")),
   },
   alias: {
     // ui 包内部 `@/...` 别名（与 packages/web/vite.config.ts 同款消费方别名）。
@@ -101,11 +120,6 @@ const webviewOptions = {
     // 装配闭包内 JS 侧最后的 css side-effect 导入重定向为空模块：样式统一走 tailwind
     // 入口 styles.css，JS 构建面不再产出孤儿 main.css（样式已在 styles.css @import 收口）。
     "@/v4/composer/composerStats.css": resolve(here, "src/webview-react/emptyCssStub.ts"),
-  },
-  define: {
-    // 构建期烙入 monorepo 根：fullui（完整界面）需要定位 packages/server|web 的本机构建产物。
-    // 发行版打包时若产物策略变化，可改由此 define 注入其他路径。
-    __ZCODE_REPO_ROOT__: JSON.stringify(resolve(here, "../..")),
   },
   // react/react-dom 解析到仓库根部 19.x（webview 侧必需）。
   resolveExtensions: [".tsx", ".ts", ".jsx", ".js", ".css", ".json"],

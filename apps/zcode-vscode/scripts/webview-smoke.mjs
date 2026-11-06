@@ -89,8 +89,12 @@ console.log("[smoke] React mounted into #app:", mounted ? "YES" : "NO",
   `(children=${app?.childElementCount ?? 0})`);
 if (capturedError) console.log("[smoke] window error:", String(capturedError).slice(0, 300));
 
-if (!readyProbe || !mounted) {
-  console.error("[smoke] FAIL — webview 产物未完成启动序列");
+if (!readyProbe || !mounted || capturedError) {
+  console.error("[smoke] FAIL — webview 产物未完成启动序列",
+    !readyProbe ? "｜缺就绪探针" : "",
+    !mounted ? "｜React 未挂载" : "",
+    capturedError ? "｜运行时错误" : "");
+  if (capturedError && capturedError.stack) console.error(capturedError.stack.split("\n").slice(0, 6).join("\n"));
   process.exit(1);
 }
 console.log("[smoke] PASS — 部署面 webview 产物加载、探针与 React 挂载全部通过");
