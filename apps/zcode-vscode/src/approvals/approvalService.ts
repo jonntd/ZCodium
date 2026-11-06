@@ -90,7 +90,7 @@ export function allowlistKey(toolName: string, input: unknown): string {
  * 「本次会话允许」的 settings 写回规则（P0-8 写回面，v0.2.0 起取代 host 内存缓存）：
  * 产出 `Tool` / `Tool(args)` 形式（与 CLI --disallowed-tools 同一规则语言，
  * 见 hostSettingsBridge.ts 头部语义），由 appendSessionAllowlist 落
- * zcodium.permissions.allowlist workspace scope。
+ * code.permissions.allowlist workspace scope。
  */
 export function sessionAllowlistRule(toolName: string, input: unknown): string {
   const name = toolName.trim();

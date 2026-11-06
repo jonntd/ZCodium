@@ -1,5 +1,5 @@
 /**
- * CLI 探测（P0-1）：settings `zcodium.cliPath` 优先 → PATH 探测 `zcodium` → 内置 bundle
+ * CLI 探测（P0-1）：settings `code.cliPath` 优先 → PATH 探测 `zcodium` → 内置 bundle
  * （`cli-bundle/zcode.cjs`，随 vsix 分发、与 monorepo 同 commit 构建的对齐版 CLI）→ null。
  * 找到后额外读取 `--version` 输出用于诊断展示（读取失败不影响可用性）。
  *

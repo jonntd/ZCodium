@@ -5,10 +5,10 @@
  * 分布见 src/CONTRACT.md 命令面条目）在 container.registerCommands 集中注册，
  * 实现体归本文件：
  * - 组1 登记的面板/设置命令 → open-panel host 帧（组3/4 消费）或设置 UI；
- * - zcodium.sendDiagnostics → 当前文件 languages.getDiagnostics 两档（仅错误/错误+警告）→
+ * - code.sendDiagnostics → 当前文件 languages.getDiagnostics 两档（仅错误/错误+警告）→
  *   pushHostFrame("diagnostics")（载荷形状见 src/host/hostFrameKinds.ts）；
- * - zcodium.switchWorkspace → 多根 QuickPick（T06 host 半，经 SessionsIndexBridge）；
- * - zcodium.onboarding → welcomePage 3 步上手卡（P1-10.2 随时可看入口）。
+ * - code.switchWorkspace → 多根 QuickPick（T06 host 半，经 SessionsIndexBridge）；
+ * - code.onboarding → welcomePage 3 步上手卡（P1-10.2 随时可看入口）。
  *
  * 本文件在 vscode 层（import vscode），vitest 不直测；可测的纯逻辑
  * （诊断两档过滤/载荷形状）在 src/host/hostFrameKinds.ts。
@@ -95,25 +95,25 @@ export async function sendDiagnosticsCommand(deps: HostCommandDeps): Promise<voi
  * 勿再宣称「与 contributes 一字不差」——那曾造成 14↔31 的契约漂移（2026-11-06 修正）。
  */
 export function registerHostCommands(deps: HostCommandDeps): void {
-  void commands.registerCommand("zcodium.openChat", () => deps.chatPanel.reveal());
-  void commands.registerCommand("zcodium.onboarding", () => deps.presentOnboarding());
-  void commands.registerCommand("zcodium.showLogs", () => deps.diagnostics.show());
-  void commands.registerCommand("zcodium.restartAgent", () => {
+  void commands.registerCommand("code.openChat", () => deps.chatPanel.reveal());
+  void commands.registerCommand("code.onboarding", () => deps.presentOnboarding());
+  void commands.registerCommand("code.showLogs", () => deps.diagnostics.show());
+  void commands.registerCommand("code.restartAgent", () => {
     // Agent 进程生命周期归 @zcode/services 进程管理；命令面释放全部 workspace 运行时，
     // 下次对话自动重新拉起（崩溃重建编排的对手面）。
     deps.agentService.disposeAll();
   });
-  void commands.registerCommand("zcodium.newSession", () => {
+  void commands.registerCommand("code.newSession", () => {
     // 新会话 = webview 侧回到草稿态（V4WorkspaceChatArea draft）；会话数据保留在会话库。
     const payload: WorkspaceHostFramePayload = { kind: "new-session" };
     deps.hostRuntime.pushHostFrame("workspace", payload);
     deps.chatPanel.reveal();
   });
-  void commands.registerCommand("zcodium.checkBundleSize", () => {
+  void commands.registerCommand("code.checkBundleSize", () => {
     void window.showInformationMessage("体积门禁在构建脚本中执行：pnpm --filter zcode-vscode size");
   });
   // ── 组1 登记命令的 host 半（T06/T09） ──
-  void commands.registerCommand("zcodium.switchWorkspace", async () => {
+  void commands.registerCommand("code.switchWorkspace", async () => {
     const picked = await deps.sessionsIndex.pickWorkspaceFolder();
     if (picked === null) return; // 取消/无 folder：不发帧
     deps.diagnostics.log(`[workspace] 聚焦 folder：${picked}`);
@@ -121,18 +121,18 @@ export function registerHostCommands(deps: HostCommandDeps): void {
     deps.hostRuntime.pushHostFrame("workspace", payload);
     deps.chatPanel.reveal();
   });
-  void commands.registerCommand("zcodium.sendDiagnostics", () => {
+  void commands.registerCommand("code.sendDiagnostics", () => {
     void sendDiagnosticsCommand(deps);
   });
-  void commands.registerCommand("zcodium.openMcpSettings", () => {
+  void commands.registerCommand("code.openMcpSettings", () => {
     // MCP 写回仅落 settings（PRD 降级口径：改动后需重建会话生效），入口直达设置面。
-    void commands.executeCommand("workbench.action.openSettings", "zcodium.mcp.servers");
+    void commands.executeCommand("workbench.action.openSettings", "code.mcp.servers");
   });
-  void commands.registerCommand("zcodium.openInstructions", () => pushOpenPanel(deps, "instructions"));
-  void commands.registerCommand("zcodium.openSessionParams", () => pushOpenPanel(deps, "session-params"));
-  void commands.registerCommand("zcodium.importClaudeSessions", () =>
+  void commands.registerCommand("code.openInstructions", () => pushOpenPanel(deps, "instructions"));
+  void commands.registerCommand("code.openSessionParams", () => pushOpenPanel(deps, "session-params"));
+  void commands.registerCommand("code.importClaudeSessions", () =>
     pushOpenPanel(deps, "import-claude-sessions"),
   );
-  void commands.registerCommand("zcodium.showSubagents", () => pushOpenPanel(deps, "subagents"));
-  void commands.registerCommand("zcodium.openUsage", () => pushOpenPanel(deps, "usage"));
+  void commands.registerCommand("code.showSubagents", () => pushOpenPanel(deps, "subagents"));
+  void commands.registerCommand("code.openUsage", () => pushOpenPanel(deps, "usage"));
 }

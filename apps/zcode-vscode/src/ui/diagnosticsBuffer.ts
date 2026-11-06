@@ -70,7 +70,7 @@ export function buildDiagnosticsExportContent(
     `ZCodium 诊断导出（${exportedAt}）`,
     "由「ZCodium: 显示日志」命令聚合生成；诊断面不写凭据与真实用户数据。",
     renderSection(
-      `ZCodium 输出通道镜像（最近 ≤${capacity} 行，自激活起；完整历史见 OutputChannel「ZCodium Agent」）`,
+      `ZCodium 输出通道镜像（最近 ≤${capacity} 行，自激活起；完整历史见 OutputChannel「Gode Agent」）`,
       input.diagnosticsLines,
     ),
     "",

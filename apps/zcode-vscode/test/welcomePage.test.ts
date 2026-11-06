@@ -4,7 +4,7 @@
  * - 3 步上手卡内容模型与引导态投影（CLI 未找到 → 安装引导 + 「重新检测」项）；
  * - capabilities 降级说明成文进引导面（P1-10.3，文案源复用 webview 侧
  *   CAPABILITY_UNSUPPORTED_HINT，杜绝两处标注漂移）；
- * - Claude 导入入口引用组4 面板（import-claude-sessions 词 + zcodium.importClaudeSessions
+ * - Claude 导入入口引用组4 面板（import-claude-sessions 词 + code.importClaudeSessions
  *   命令面，不改组4 文件）；
  * - WelcomePage 呈现器端口分发（纯层，vscode 端口注入 fake）。
  *
@@ -39,7 +39,7 @@ describe("3 步上手卡（P1-10.2）", () => {
   });
 
   it("第 1 步指向 CLI 安装（cliPath / app-server 事实），第 3 步指向配置与导入", () => {
-    expect(ONBOARDING_STEPS[0]!.detail).toContain("zcodium.cliPath");
+    expect(ONBOARDING_STEPS[0]!.detail).toContain("code.cliPath");
     expect(ONBOARDING_STEPS[0]!.detail).toContain("app-server --stdio");
     expect(ONBOARDING_STEPS[2]!.detail).toContain("allowlist");
     expect(ONBOARDING_STEPS[2]!.detail).toContain("~/.claude/projects");
@@ -60,7 +60,7 @@ describe("projectOnboardingState（CLI 探测结果 → 引导态）", () => {
     const state = projectOnboardingState({ cli: null });
     expect(state.cliMissing).toBe(true);
     expect(state.cliGuidance).toBe(CLI_NOT_FOUND_GUIDANCE);
-    expect(state.cliGuidance).toContain("zcodium.cliPath");
+    expect(state.cliGuidance).toContain("code.cliPath");
     expect(state.cliGuidance).toContain("重新检测");
     const recheck = state.card.find((item) => item.action === WELCOME_CARD_ACTIONS.recheckCli);
     expect(recheck?.label).toContain("重新检测");
@@ -92,7 +92,7 @@ describe("projectOnboardingState（CLI 探测结果 → 引导态）", () => {
 describe("引导面引用事实（不改被引用文件）", () => {
   it("Claude 导入入口对齐组4 面板 open-panel 词与命令面", () => {
     expect(CLAUDE_IMPORT_ENTRY.panel).toBe("import-claude-sessions");
-    expect(CLAUDE_IMPORT_ENTRY.commandId).toBe("zcodium.importClaudeSessions");
+    expect(CLAUDE_IMPORT_ENTRY.commandId).toBe("code.importClaudeSessions");
     expect(CLAUDE_IMPORT_ENTRY.note).toContain("原文件不删除");
   });
 
@@ -273,7 +273,7 @@ describe("recheck 诊断行", () => {
     missing.state.recheckResult = false;
     await new WelcomePage(missing.ports).recheck();
     expect(missing.calls.logs).toEqual([
-      "[cli] 重新检测：仍未找到 zcodium CLI（检查 PATH 或设置 zcodium.cliPath）",
+      "[cli] 重新检测：仍未找到 zcodium CLI（检查 PATH 或设置 code.cliPath）",
     ]);
   });
 });

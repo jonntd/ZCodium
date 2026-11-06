@@ -27,7 +27,7 @@ export const EXTENSION_ERROR_CODES = {
 /** 用户可读的插件侧错误信息（中文，供 UI 呈现）。 */
 export const EXTENSION_ERROR_MESSAGES: Record<number, string> = {
   [EXTENSION_ERROR_CODES.E_CLI_NOT_FOUND]:
-    "未找到 zcodium CLI。请安装后重试，或在设置中配置 zcodium.cliPath。",
+    "未找到 zcodium CLI。请安装后重试，或在设置中配置 code.cliPath。",
   [EXTENSION_ERROR_CODES.E_PROTOCOL_VERSION_MISMATCH]:
     "ZCode Protocol 版本不匹配，请升级 zcodium CLI 后重试。",
   [EXTENSION_ERROR_CODES.E_PROTOCOL_PARSE]:

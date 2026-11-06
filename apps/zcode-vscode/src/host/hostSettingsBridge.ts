@@ -1,5 +1,5 @@
 /**
- * HostSettingsBridge — zcodium.* settings → 会话 create/resume 参数（架构 §2.1 / P1-3）。
+ * HostSettingsBridge — code.* settings → 会话 create/resume 参数（架构 §2.1 / P1-3）。
  *
  * 纯模块（无 vscode import）：设置快照由注入的读取函数提供，便于 vitest 直测。
  *
@@ -227,7 +227,7 @@ export function mergeAllowlistRules(
   return [...new Set(merged)];
 }
 
-// ── FR-A03（M2-1）：pane 内 switchModelConfig 帧回写 zcodium.model（设置项与下拉双向同步） ──
+// ── FR-A03（M2-1）：pane 内 switchModelConfig 帧回写 code.model（设置项与下拉双向同步） ──
 
 /** v4 switchModelConfig 命令载荷（command.ts:259；三字段均必填字符串）。 */
 export interface SwitchModelConfigPayload {
@@ -237,9 +237,9 @@ export interface SwitchModelConfigPayload {
 }
 
 /**
- * switchModelConfig 载荷 → zcodium.model 设置串（`providerId/modelId`）。
+ * switchModelConfig 载荷 → code.model 设置串（`providerId/modelId`）。
  *
- * thought **不入设置**：zcodium.model 的形状被 parseModelSelection（settings→create
+ * thought **不入设置**：code.model 的形状被 parseModelSelection（settings→create
  * 链）锁定为恰好一个 `/`——把 thought 拼进串会被当成 modelId 的一部分、破坏 create
  * 的 modelSelection；且设置面无思考档承载项，会话档位由 CLI 会话实体自持、resume
  * 沿用原会话（P1-6.3，runtimeController.readSessionThoughtLevel 同面）。
@@ -263,7 +263,7 @@ export function isSwitchModelConfigPayload(payload: unknown): payload is SwitchM
 }
 
 /**
- * pane 切换帧命中时的回写回调：收到归一后的 zcodium.model 设置串与原始载荷。
+ * pane 切换帧命中时的回写回调：收到归一后的 code.model 设置串与原始载荷。
  * 允许返回 Promise（包装器会 await；回调自吞错误亦可，见 container 装配）。
  */
 export type SwitchModelConfigPersist = (

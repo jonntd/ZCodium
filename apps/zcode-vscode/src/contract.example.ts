@@ -52,7 +52,7 @@ export function exampleRpcFrameRoundtrip(payload: Uint8Array) {
   return [...base64ToBytes(decoded.b64)];
 }
 
-/** 示例 5：zcodium.* 设置 → create/resume 参数归一（HostSettingsBridge 消费面）。 */
+/** 示例 5：code.* 设置 → create/resume 参数归一（HostSettingsBridge 消费面）。 */
 export function exampleResolveSessionParams(snapshot: HostSettingsSnapshot) {
   const bridge = new HostSettingsBridge(() => snapshot);
   return {

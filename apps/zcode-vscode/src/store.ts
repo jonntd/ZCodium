@@ -7,7 +7,7 @@
 
 import type { ExtensionContext, Memento } from "vscode";
 
-const SESSION_ID_PREFIX = "zcodium.sessionId.";
+const SESSION_ID_PREFIX = "code.sessionId.";
 
 /** 会话 ID 存储接口（测试用内存实现替换）。 */
 export interface SessionIdStore {

@@ -2,7 +2,7 @@
  * settings/McpSettingsPanel.tsx — MCP 设置面板（T08，P1-8/P1-3）。
  *
  * - MCP servers CRUD（读：plat getWorkspaceSettings；写：plat updateMcpServers，
- *   写回仅落 zcodium.mcp.servers，PRD 降级口径提示一字不差呈现）；
+ *   写回仅落 zcagent.mcp.servers，PRD 降级口径提示一字不差呈现）；
  * - mcp/list 运行状态：services zcode-agent 频道 listMcpServerStatuses（mode:"status"，
  *   mcp-status lane，与主 agent 进程隔离），手动刷新（P1-8.2）；
  * - 权限规则编辑：plat updatePermissionRules（allowlist/denylist 整体写回）；

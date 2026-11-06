@@ -1,6 +1,6 @@
 /**
  * Diagnostics — OutputChannel 诊断（P0-2）：stderr 尾部、帧错误、状态机变更、
- * 协议生命周期事件都落到 "ZCodium Agent" 输出通道。
+ * 协议生命周期事件都落到 "Gode Agent" 输出通道。
  *
  * closeout-3（架构 §7.10）：每条 appendLine 同步镜像到内存环形缓冲
  * （src/ui/diagnosticsBuffer.ts，零 vscode 依赖可直测），供 exportLogs 聚合
@@ -19,7 +19,7 @@ export class Diagnostics {
   private readonly buffer = new BoundedLineBuffer(DIAGNOSTICS_BUFFER_CAPACITY);
 
   constructor() {
-    this.channel = window.createOutputChannel("ZCodium Agent");
+    this.channel = window.createOutputChannel("Gode Agent");
   }
 
   show(): void {

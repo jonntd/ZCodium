@@ -103,7 +103,7 @@ export function App({
     });
   }, [frameBus, onActiveSessionChange]);
 
-  // session-switch 帧（zcodium.pickSession 历史会话命令）→ Root 重挂载到目标会话。
+  // session-switch 帧（zcagent.pickSession 历史会话命令）→ Root 重挂载到目标会话。
   useEffect(() => {
     if (!frameBus) return;
     return frameBus.on<SessionSwitchHostFramePayload>("session-switch", (payload) => {

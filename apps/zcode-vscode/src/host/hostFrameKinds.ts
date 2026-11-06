@@ -40,7 +40,7 @@ export interface VisibilityHostFramePayload {
   visible: boolean;
 }
 
-/** diagnostics 帧：zcagent.sendDiagnostics 两档下发（T09 host 半）。 */
+/** diagnostics 帧：code.sendDiagnostics 两档下发（T09 host 半）。 */
 export interface DiagnosticsHostFramePayload {
   /** 两档：仅错误 / 错误+警告（与 QuickPick 文案、composer 预填标题一字一致）。 */
   tier: "errors" | "all";

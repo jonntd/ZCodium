@@ -80,14 +80,14 @@ export function createCodeActionEntry(pushFrame: EditorCommandDependencies["push
         ? `${prefix}${instruction}\n\n${extraBlocks.join("\n\n")}`
         : `${prefix}${instruction}`;
     pushFrame("composer-insert", mention ? { text, mention, mode: "replace" } : { text });
-    await vscode.commands.executeCommand("zcagent.openChat");
+    await vscode.commands.executeCommand("code.openChat");
   };
   const addContext = async (items: readonly PendingContext[]): Promise<void> => {
     const withMention = items.filter((item) => item.mention);
     if (withMention.length === 0) {
       // 兜底：无 mention 面（现有入口都带文件引用，理论不可达）→ 退回纯文本预填。
       pushFrame("composer-insert", { text: items.map((item) => item.text).join("\n") });
-      await vscode.commands.executeCommand("zcagent.openChat");
+      await vscode.commands.executeCommand("code.openChat");
       return;
     }
     // 每条一个 prepend-if-missing 帧：pill 前置、按 id 去重，不覆盖用户草稿。
@@ -100,7 +100,7 @@ export function createCodeActionEntry(pushFrame: EditorCommandDependencies["push
         mode: "prepend-if-missing",
       });
     }
-    await vscode.commands.executeCommand("zcagent.openChat");
+    await vscode.commands.executeCommand("code.openChat");
   };
   return { submit, addContext };
 }
@@ -118,34 +118,34 @@ export function registerEditorCommands(deps: EditorCommandDependencies): vscode.
   const submitViaComposer = codeActionEntry.submit;
   const addContextViaComposer = codeActionEntry.addContext;
 
-  register("zcagent.quickEdit", async () => {
+  register("code.quickEdit", async () => {
     await runQuickEdit({
       generateText: deps.generateText,
       contentProvider: deps.quickEditProvider,
     });
   });
 
-  register("zcagent.sendTerminalSelection", async () => {
+  register("code.sendTerminalSelection", async () => {
     await sendTerminalSelection(submitViaComposer);
   });
 
-  register("zcagent.generateCommitMessage", async () => {
+  register("code.generateCommitMessage", async () => {
     await generateCommitMessage(deps.generateText);
   });
 
-  register("zcagent.reviewChanges", async () => {
+  register("code.reviewChanges", async () => {
     await reviewChanges(submitViaComposer);
   });
 
-  register("zcagent.pickSession", async () => {
+  register("code.pickSession", async () => {
     const sessionId = await pickSession(() => listSessions(deps));
     if (!sessionId) return;
     deps.pushFrame("session-switch", { sessionId });
-    await vscode.commands.executeCommand("zcagent.openChat");
+    await vscode.commands.executeCommand("code.openChat");
   });
 
   // Code Action 的三种落点：带指令提交、只加上下文、按诊断修复。
-  register("zcagent.codeAction", async (args?: unknown) => {
+  register("code.codeAction", async (args?: unknown) => {
     const payload = args as
       | { document: vscode.TextDocument; range: vscode.Range; instruction: string }
       | undefined;
@@ -154,7 +154,7 @@ export function registerEditorCommands(deps: EditorCommandDependencies): vscode.
     await submitViaComposer(payload.instruction, context ? [context] : []);
   });
 
-  register("zcagent.addRangeToChat", async (args?: unknown) => {
+  register("code.addRangeToChat", async (args?: unknown) => {
     const payload = args as
       | { document: vscode.TextDocument; range: vscode.Range }
       | undefined;
@@ -165,7 +165,7 @@ export function registerEditorCommands(deps: EditorCommandDependencies): vscode.
   });
 
   register(
-    "zcagent.fixDiagnostics",
+    "code.fixDiagnostics",
     async (uri?: unknown, range?: unknown, diagnostics?: unknown) => {
       if (!(uri instanceof vscode.Uri) || !(range instanceof vscode.Range)) return;
       const list = Array.isArray(diagnostics) ? diagnostics.map(String) : [];
@@ -173,23 +173,23 @@ export function registerEditorCommands(deps: EditorCommandDependencies): vscode.
     },
   );
 
-  register("zcagent.explainSelection", async () => {
+  register("code.explainSelection", async () => {
     await runOnSelection(codeActionEntry, INSTRUCTIONS.explain, false);
   });
 
-  register("zcagent.fixSelection", async () => {
+  register("code.fixSelection", async () => {
     await runOnSelection(codeActionEntry, INSTRUCTIONS.fix, true);
   });
 
-  register("zcagent.refactorSelection", async () => {
+  register("code.refactorSelection", async () => {
     await runOnSelection(codeActionEntry, INSTRUCTIONS.refactor, true);
   });
 
-  register("zcagent.writeTests", async () => {
+  register("code.writeTests", async () => {
     await runOnSelection(codeActionEntry, INSTRUCTIONS.tests, true);
   });
 
-  register("zcagent.addToContext", async () => {
+  register("code.addToContext", async () => {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
       void vscode.window.showInformationMessage("先打开一个文件。");
@@ -212,12 +212,12 @@ export function registerEditorCommands(deps: EditorCommandDependencies): vscode.
     );
   });
 
-  register("zcagent.showEditorLogs", () => {
+  register("code.showEditorLogs", () => {
     showLogs();
   });
 
   // 停止生成：会话态经 task 包装面停止当前回合；草稿态没有可停的回合。
-  register("zcagent.stop", async () => {
+  register("code.stop", async () => {
     const sessionId = deps.currentSessionId();
     if (!sessionId) {
       void vscode.window.showInformationMessage("当前没有正在执行的会话。");
@@ -238,7 +238,7 @@ export function registerEditorCommands(deps: EditorCommandDependencies): vscode.
   });
 
   // 资源管理器/编辑器标题：把文件（或目录结构）加入对话上下文（FR-B12 配套入口）。
-  register("zcagent.addFileToContext", async (uri?: unknown) => {
+  register("code.addFileToContext", async (uri?: unknown) => {
     const target = uri instanceof vscode.Uri ? uri : vscode.window.activeTextEditor?.document.uri;
     if (!target) {
       void vscode.window.showInformationMessage("先选中一个文件或文件夹。");

@@ -1,5 +1,5 @@
 /**
- * 设置读取（zcodium.cliPath / mode / model / permissions.* / mcp / context.*）。
+ * 设置读取（code.cliPath / mode / model / permissions.* / mcp / context.*）。
  * 只做读取与归一化，不持有 vscode 之外的状态。
  * 纯类型与解析函数在 configSettings.ts / hostSettingsBridge.ts（无 vscode 依赖）。
  */
@@ -17,7 +17,7 @@ export { parseModelSelection, DEFAULT_ZCODIUM_CONFIG } from "./configSettings";
 export type { ZcodiumConfig, ZCodeSessionMode } from "./configSettings";
 
 export function readConfig(): ZcodiumConfig {
-  const section = workspace.getConfiguration("zcodium");
+  const section = workspace.getConfiguration("code");
   return {
     cliPath: section.get<string>("cliPath", "").trim(),
     mode: normalizeMode(section.get<string>("mode")),
@@ -27,7 +27,7 @@ export function readConfig(): ZcodiumConfig {
 
 /** HostSettingsBridge 的 settings 快照读取（P1-3/P1-8/P1-16 参数面）。 */
 export function readHostSettingsSnapshot(): HostSettingsSnapshot {
-  const section: WorkspaceConfiguration = workspace.getConfiguration("zcodium");
+  const section: WorkspaceConfiguration = workspace.getConfiguration("code");
   return {
     toolAllowlist: section.get<string[]>("permissions.allowlist", []),
     toolDenylist: section.get<string[]>("permissions.denylist", []),
@@ -44,7 +44,7 @@ export function readHostSettingsSnapshot(): HostSettingsSnapshot {
  * 无 folder 时退回 global scope；改动后需重建会话/下次 spawn 生效（PRD 降级口径）。
  */
 export function readZcodiumSetting(key: string): unknown {
-  return workspace.getConfiguration("zcodium").get(key);
+  return workspace.getConfiguration("code").get(key);
 }
 
 export async function writeZcodiumSetting(
@@ -59,6 +59,6 @@ export async function writeZcodiumSetting(
 ): Promise<void> {
   const hasFolders = (workspace.workspaceFolders ?? []).length > 0;
   await workspace
-    .getConfiguration("zcodium")
+    .getConfiguration("code")
     .update(key, value, hasFolders ? ConfigurationTarget.Workspace : ConfigurationTarget.Global);
 }

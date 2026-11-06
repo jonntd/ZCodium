@@ -1,5 +1,5 @@
 /**
- * ZCodium Agent 扩展入口（薄壳，<80 行）。
+ * Gode Agent 扩展入口（薄壳，<80 行）。
  * activate：装配 Container → 注册 WebviewViewProvider 与命令。
  * deactivate：dispose（hostRuntime + services 串行释放）。
  */
@@ -17,7 +17,7 @@ export async function activate(context: ExtensionContext): Promise<void> {
   } catch (error) {
     // §8 R3：服务装配失败必须明确呈现（不静默）。
     void window.showErrorMessage(
-      `ZCodium Agent 服务装配失败，请查看诊断输出（ZCodium: 显示日志）：${
+      `Gode Agent 服务装配失败，请查看诊断输出（ZCodium: 显示日志）：${
         error instanceof Error ? error.message : String(error)
       }`,
     );

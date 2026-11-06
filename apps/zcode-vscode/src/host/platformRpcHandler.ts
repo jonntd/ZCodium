@@ -65,7 +65,7 @@ export const PLATFORM_METHOD_WHITELIST: readonly string[] = [
   "getActiveEditorSelection",
   "importWorkspaceInstructions",
   "pickWorkspaceFolder",
-  // 设置读面（T08/T12 面板：MCP CRUD/权限规则/附加目录展示需要读当前 zcodium.* 值；
+  // 设置读面（T08/T12 面板：MCP CRUD/权限规则/附加目录展示需要读当前 code.* 值；
   // 只读投影，不含 cliPath/model 等无关面）。
   "getWorkspaceSettings",
 ];

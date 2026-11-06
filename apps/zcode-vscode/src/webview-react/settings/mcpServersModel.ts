@@ -1,7 +1,7 @@
 /**
  * settings/mcpServersModel.ts — MCP 设置面板的纯模型（T08，P1-8）。
  *
- * - settings 形状：`zcodium.mcp.servers: object[]`，字段对齐
+ * - settings 形状：`code.mcp.servers: object[]`，字段对齐
  *   @zcode/shared 的 zcodeProtocolMcpServerSchema（stdio: name/command/args/env；
  *   http/sse: name/type/url/headers）——字段级校验在会话参数面（CLI），settings 面
  *   只做结构归一（与 host normalizeMcpServersForSettings 同口径）；
@@ -150,7 +150,7 @@ export function summarizeStatuses(
 export const MCP_SESSION_REBUILD_HINT =
   "MCP 运行中不可动态增删，改动后需重建会话生效";
 
-/** zcodium.* 设置读面（getWorkspaceSettings plat 方法）的形状。 */
+/** code.* 设置读面（getWorkspaceSettings plat 方法）的形状。 */
 export interface WorkspaceSettingsSnapshot {
   mcpServers: unknown[];
   toolAllowlist: string[];

@@ -53,7 +53,7 @@ export class ZcodiumCodeActionProvider implements vscode.CodeActionProvider {
       action.diagnostics = [...context.diagnostics];
       action.isPreferred = true;
       action.command = {
-        command: "zcodium.fixDiagnostics",
+        command: "code.fixDiagnostics",
         title: "用 Zcodium 修复此问题",
         arguments: [document.uri, range, context.diagnostics.map(describeDiagnostic)],
       };
@@ -64,22 +64,22 @@ export class ZcodiumCodeActionProvider implements vscode.CodeActionProvider {
     if (!selectionContext) return actions;
 
     actions.push(
-      this.createAction("用 Zcodium 解释选中代码", "zcodium.codeAction", vscode.CodeActionKind.RefactorRewrite, {
+      this.createAction("用 Zcodium 解释选中代码", "code.codeAction", vscode.CodeActionKind.RefactorRewrite, {
         document,
         range,
         instruction: INSTRUCTIONS.explain,
       }),
-      this.createAction("用 Zcodium 重构选中代码", "zcodium.codeAction", vscode.CodeActionKind.RefactorRewrite, {
+      this.createAction("用 Zcodium 重构选中代码", "code.codeAction", vscode.CodeActionKind.RefactorRewrite, {
         document,
         range,
         instruction: INSTRUCTIONS.refactor,
       }),
-      this.createAction("用 Zcodium 写测试", "zcodium.codeAction", vscode.CodeActionKind.RefactorRewrite, {
+      this.createAction("用 Zcodium 写测试", "code.codeAction", vscode.CodeActionKind.RefactorRewrite, {
         document,
         range,
         instruction: INSTRUCTIONS.tests,
       }),
-      this.createAction("加入 Zcodium 对话", "zcodium.addRangeToChat", vscode.CodeActionKind.RefactorRewrite, {
+      this.createAction("加入 Zcodium 对话", "code.addRangeToChat", vscode.CodeActionKind.RefactorRewrite, {
         document,
         range,
       }),

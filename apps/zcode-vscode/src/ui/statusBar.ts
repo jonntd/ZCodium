@@ -17,21 +17,21 @@ export type ZcodiumUiState =
   | "restarting";
 
 const STATE_META: Record<ZcodiumUiState, { text: string; color?: ThemeColor; tooltip: string }> = {
-  inactive: { text: "$(circle-slash) ZCodium", tooltip: "ZCodium Agent：未运行" },
+  inactive: { text: "$(circle-slash) Gode", tooltip: "Gode Agent：未运行" },
   starting: { text: "$(sync~spin) ZCodium 启动中", tooltip: "正在启动 Agent…" },
   ready: {
     text: "$(circle-filled) ZCodium 运行中",
-    tooltip: "ZCodium Agent：就绪",
+    tooltip: "Gode Agent：就绪",
     // ThemeColor token ID 必须经 new ThemeColor(id) 包装；string 形态会被按 CSS 颜色解释。
     color: new ThemeColor("statusBarItem.prominentBackground"),
   },
-  busy: { text: "$(loading~spin) ZCodium 执行中", tooltip: "ZCodium Agent：任务执行中" },
+  busy: { text: "$(loading~spin) Gode 执行中", tooltip: "Gode Agent：任务执行中" },
   crashed: {
     text: "$(error) ZCodium 已崩溃",
-    tooltip: "ZCodium Agent：进程异常，正在恢复",
+    tooltip: "Gode Agent：进程异常，正在恢复",
     color: new ThemeColor("editorError.foreground"),
   },
-  restarting: { text: "$(sync~spin) ZCodium 恢复中", tooltip: "ZCodium Agent：自动重启中" },
+  restarting: { text: "$(sync~spin) Gode 恢复中", tooltip: "Gode Agent：自动重启中" },
 };
 
 export class StatusBar {
@@ -41,8 +41,8 @@ export class StatusBar {
 
   constructor() {
     this.item = window.createStatusBarItem(StatusBarAlignment.Left, 100);
-    this.item.name = "ZCodium Agent";
-    this.item.command = { command: "zcodium.openChat", title: "打开 ZCodium 对话" };
+    this.item.name = "Gode Agent";
+    this.item.command = { command: "code.openChat", title: "打开 ZCodium 对话" };
     this.render();
     this.item.show();
   }

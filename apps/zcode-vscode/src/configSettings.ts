@@ -53,7 +53,7 @@ export function normalizeMode(raw: string | undefined): ZCodeSessionMode {
 
 /**
  * MCP servers 的 settings 写回归一化（updateMcpServers，P1-8 写回面）：
- * 只保留数组内的对象条目（settings schema `zcodium.mcp.servers: object[]`），
+ * 只保留数组内的对象条目（settings schema `code.mcp.servers: object[]`），
  * 字段级校验归 @zcode/shared 的 zcodeProtocolMcpServerSchema（会话参数面时校验）。
  */
 export function normalizeMcpServersForSettings(servers: readonly unknown[]): unknown[] {

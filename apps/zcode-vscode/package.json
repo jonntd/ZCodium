@@ -1,7 +1,7 @@
 {
-  "name": "zcode-vscode",
-  "displayName": "ZCodium Agent",
-  "description": "把 ZCodium Agent 接进 VS Code：与桌面端同源的 @zcode/ui 对话界面、流式回复、工具时间线、审批与断线恢复。",
+  "name": "code",
+  "displayName": "Code",
+  "description": "把 Code 接进 VS Code：与桌面端同源的 @zcode/ui 对话界面、流式回复、工具时间线、审批与断线恢复。",
   "version": "0.2.0",
   "publisher": "zcodium",
   "license": "MIT",
@@ -18,7 +18,7 @@
     "ai",
     "agent",
     "chat",
-    "zcodium"
+    "code"
   ],
   "main": "./dist/extension.js",
   "repository": {
@@ -33,16 +33,16 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "zcodium",
-          "title": "ZCodium Agent",
+          "id": "code",
+          "title": "Code",
           "icon": "media/zcodium.svg"
         }
       ]
     },
     "views": {
-      "zcodium": [
+      "code": [
         {
-          "id": "zcodium.chat",
+          "id": "code.chat",
           "name": "对话",
           "type": "webview"
         }
@@ -50,157 +50,157 @@
     },
     "commands": [
       {
-        "command": "zcodium.openChat",
+        "command": "code.openChat",
         "title": "打开对话",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.onboarding",
+        "command": "code.onboarding",
         "title": "上手引导",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.newSession",
+        "command": "code.newSession",
         "title": "新建会话",
         "category": "ZCodium",
         "icon": "$(add)"
       },
       {
-        "command": "zcodium.restartAgent",
+        "command": "code.restartAgent",
         "title": "重启 Agent 进程",
         "category": "ZCodium",
         "icon": "$(refresh)"
       },
       {
-        "command": "zcodium.showLogs",
+        "command": "code.showLogs",
         "title": "显示 ZCodium 日志",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.checkBundleSize",
+        "command": "code.checkBundleSize",
         "title": "检查 Webview/Host 产物体积门禁",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.switchWorkspace",
+        "command": "code.switchWorkspace",
         "title": "切换工作区",
         "category": "ZCodium",
         "icon": "$(split-horizontal)"
       },
       {
-        "command": "zcodium.sendDiagnostics",
+        "command": "code.sendDiagnostics",
         "title": "发送诊断信息",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.openMcpSettings",
+        "command": "code.openMcpSettings",
         "title": "打开 MCP 设置",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.openInstructions",
+        "command": "code.openInstructions",
         "title": "打开指令配置",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.openSessionParams",
+        "command": "code.openSessionParams",
         "title": "打开会话参数",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.importClaudeSessions",
+        "command": "code.importClaudeSessions",
         "title": "导入 Claude 会话",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.showSubagents",
+        "command": "code.showSubagents",
         "title": "查看子代理",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.openUsage",
+        "command": "code.openUsage",
         "title": "查看用量",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.quickEdit",
+        "command": "code.quickEdit",
         "title": "改写选中代码（Quick Edit）",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.sendTerminalSelection",
+        "command": "code.sendTerminalSelection",
         "title": "发送终端选区到 ZCodium",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.generateCommitMessage",
+        "command": "code.generateCommitMessage",
         "title": "生成提交信息",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.reviewChanges",
+        "command": "code.reviewChanges",
         "title": "审阅当前改动",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.pickSession",
+        "command": "code.pickSession",
         "title": "历史会话",
         "category": "ZCodium",
         "icon": "$(history)"
       },
       {
-        "command": "zcodium.codeAction",
+        "command": "code.codeAction",
         "title": "ZCodium 代码操作",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.addRangeToChat",
+        "command": "code.addRangeToChat",
         "title": "把选中范围加入对话",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.fixDiagnostics",
+        "command": "code.fixDiagnostics",
         "title": "用 ZCodium 修复诊断",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.explainSelection",
+        "command": "code.explainSelection",
         "title": "解释选中的代码",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.fixSelection",
+        "command": "code.fixSelection",
         "title": "修复选中的代码",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.refactorSelection",
+        "command": "code.refactorSelection",
         "title": "重构选中的代码",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.writeTests",
+        "command": "code.writeTests",
         "title": "为选中的代码写测试",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.addToContext",
+        "command": "code.addToContext",
         "title": "加入对话上下文",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.showEditorLogs",
+        "command": "code.showEditorLogs",
         "title": "显示编辑器功能日志",
         "category": "ZCodium"
       },
       {
-        "command": "zcodium.stop",
+        "command": "code.stop",
         "title": "停止生成",
         "category": "ZCodium",
         "icon": "$(debug-stop)"
       },
       {
-        "command": "zcodium.addFileToContext",
+        "command": "code.addFileToContext",
         "title": "加入 ZCodium 对话",
         "category": "ZCodium"
       }
@@ -208,112 +208,112 @@
     "menus": {
       "view/title": [
         {
-          "command": "zcodium.newSession",
-          "when": "view == zcodium.chat",
+          "command": "code.newSession",
+          "when": "view == code.chat",
           "group": "navigation@1"
         },
         {
-          "command": "zcodium.restartAgent",
-          "when": "view == zcodium.chat",
+          "command": "code.restartAgent",
+          "when": "view == code.chat",
           "group": "1_manage@1"
         },
         {
-          "command": "zcodium.switchWorkspace",
-          "when": "view == zcodium.chat",
+          "command": "code.switchWorkspace",
+          "when": "view == code.chat",
           "group": "1_manage@2"
         },
         {
-          "command": "zcodium.pickSession",
-          "when": "view == zcodium.chat",
+          "command": "code.pickSession",
+          "when": "view == code.chat",
           "group": "navigation@2"
         },
         {
-          "command": "zcodium.stop",
-          "when": "view == zcodium.chat",
+          "command": "code.stop",
+          "when": "view == code.chat",
           "group": "1_manage@3"
         }
       ],
       "editor/context": [
         {
-          "submenu": "zcodium.editorContext",
-          "group": "1_zcodium@1",
+          "submenu": "code.editorContext",
+          "group": "1_code@1",
           "when": "editorHasSelection"
         }
       ],
-      "zcodium.editorContext": [
+      "code.editorContext": [
         {
-          "command": "zcodium.explainSelection",
+          "command": "code.explainSelection",
           "group": "1_assist@1"
         },
         {
-          "command": "zcodium.fixSelection",
+          "command": "code.fixSelection",
           "group": "1_assist@2"
         },
         {
-          "command": "zcodium.refactorSelection",
+          "command": "code.refactorSelection",
           "group": "1_assist@3"
         },
         {
-          "command": "zcodium.writeTests",
+          "command": "code.writeTests",
           "group": "1_assist@4"
         },
         {
-          "command": "zcodium.addToContext",
+          "command": "code.addToContext",
           "group": "2_context@1"
         }
       ],
       "commandPalette": [
         {
-          "command": "zcodium.codeAction",
+          "command": "code.codeAction",
           "when": "false"
         },
         {
-          "command": "zcodium.addRangeToChat",
+          "command": "code.addRangeToChat",
           "when": "false"
         },
         {
-          "command": "zcodium.fixDiagnostics",
+          "command": "code.fixDiagnostics",
           "when": "false"
         }
       ],
       "scm/title": [
         {
-          "command": "zcodium.generateCommitMessage",
+          "command": "code.generateCommitMessage",
           "group": "navigation@10"
         },
         {
-          "command": "zcodium.reviewChanges",
+          "command": "code.reviewChanges",
           "group": "navigation@11"
         }
       ],
       "terminal/context": [
         {
-          "command": "zcodium.sendTerminalSelection",
-          "group": "1_zcodium@1"
+          "command": "code.sendTerminalSelection",
+          "group": "1_code@1"
         }
       ],
       "explorer/context": [
         {
-          "command": "zcodium.addFileToContext",
-          "group": "7_zcodium@1"
+          "command": "code.addFileToContext",
+          "group": "7_gode@1"
         }
       ],
       "editor/title/context": [
         {
-          "command": "zcodium.addFileToContext",
-          "group": "1_zcodium@1"
+          "command": "code.addFileToContext",
+          "group": "1_code@1"
         }
       ]
     },
     "configuration": {
-      "title": "ZCodium Agent",
+      "title": "Code",
       "properties": {
-        "zcodium.cliPath": {
+        "code.cliPath": {
           "type": "string",
           "default": "",
           "markdownDescription": "`zcodium` CLI 可执行文件绝对路径。留空时从 `PATH` 探测 `zcodium`。"
         },
-        "zcodium.mode": {
+        "code.mode": {
           "type": "string",
           "enum": [
             "build",
@@ -326,12 +326,12 @@
           "default": "build",
           "markdownDescription": "Agent 工作模式，经 HostSettingsBridge 归一为 RuntimeController 编排面（恢复/编程式创建）的 `create.config.mode`。侧栏对话区草稿会话走 v4 createSession（模式在会话头部切换），不读取本设置。"
         },
-        "zcodium.model": {
+        "code.model": {
           "type": "string",
           "default": "",
           "markdownDescription": "模型选择，格式 `providerId/modelId`，经 HostSettingsBridge 归一为 RuntimeController 编排面（恢复/编程式创建）的下发参数；留空使用 CLI 默认模型。侧栏对话区草稿会话的模型在会话头部切换，不读取本设置。"
         },
-        "zcodium.permissions.allowlist": {
+        "code.permissions.allowlist": {
           "type": "array",
           "items": {
             "type": "string"
@@ -339,7 +339,7 @@
           "default": [],
           "markdownDescription": "工具 allowlist 规则（支持 `Tool` 与 `Tool(args)` 形式），随 create/resume 携带（P1-3）。"
         },
-        "zcodium.permissions.denylist": {
+        "code.permissions.denylist": {
           "type": "array",
           "items": {
             "type": "string"
@@ -347,7 +347,7 @@
           "default": [],
           "markdownDescription": "工具 denylist 规则，随 create/resume 携带；resume 不带会绕过约束。"
         },
-        "zcodium.mcp.servers": {
+        "code.mcp.servers": {
           "type": "array",
           "items": {
             "type": "object"
@@ -355,7 +355,7 @@
           "default": [],
           "markdownDescription": "MCP 服务器配置（stdio/http，字段对齐 zcodeProtocolMcpServerSchema），改动后需重建会话生效（P1-8）。"
         },
-        "zcodium.context.additionalDirectories": {
+        "code.context.additionalDirectories": {
           "type": "array",
           "items": {
             "type": "string"
@@ -364,7 +364,7 @@
           "maxItems": 256,
           "markdownDescription": "Agent 可访问的附加目录（协议上限 256 个，P1-16.1）。"
         },
-        "zcodium.autoContext": {
+        "code.autoContext": {
           "type": "string",
           "default": "off",
           "enum": [
@@ -383,19 +383,19 @@
     },
     "submenus": [
       {
-        "id": "zcodium.editorContext",
+        "id": "code.editorContext",
         "label": "ZCodium"
       }
     ],
     "keybindings": [
       {
-        "command": "zcodium.quickEdit",
+        "command": "code.quickEdit",
         "key": "ctrl+alt+k",
         "mac": "cmd+alt+k",
         "when": "editorHasSelection && editorTextFocus"
       },
       {
-        "command": "zcodium.addToContext",
+        "command": "code.addToContext",
         "key": "ctrl+alt+a",
         "mac": "cmd+alt+a",
         "when": "editorHasSelection"

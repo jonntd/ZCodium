@@ -101,10 +101,10 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   const workspaceSessions = createWorkspaceSessions(store);
   const listFolders = () => (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
 
-  // ── 设置桥（zcodium.* → create/resume/spawn 参数；先于 services 装配） ──
+  // ── 设置桥（code.* → create/resume/spawn 参数；先于 services 装配） ──
   const settingsBridge = new HostSettingsBridge(readHostSettingsSnapshot, (handler) =>
     workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("zcodium.")) handler();
+      if (event.affectsConfiguration("code.")) handler();
     }),
   );
 
@@ -321,7 +321,7 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
       Promise.resolve(window.showInformationMessage(message, ...actions)),
     showCard: async (items: readonly WelcomeCardItem[]) => {
       const picked = await window.showQuickPick([...items], {
-        placeHolder: "ZCodium Agent：3 步上手",
+        placeHolder: "Gode Agent：3 步上手",
         canPickMany: false,
       });
       return picked?.action;
@@ -356,7 +356,7 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
       });
     }),
     workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("zcodium.")) {
+      if (event.affectsConfiguration("code.")) {
         hostRuntime.pushHostFrame("workspace", { kind: "settings-changed" });
       }
     }),
@@ -375,7 +375,7 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   setLogSink((line) => diagnostics.log(line));
   const quickEditProvider = createQuickEditContentProvider();
   const quickEditDisposable = workspace.registerTextDocumentContentProvider(
-    "zcodium-quick-edit",
+    "gode-quick-edit",
     quickEditProvider,
   );
   const editorWorkspacePath = () =>
@@ -453,7 +453,7 @@ function buildPlatformMethods(deps: {
   diagnosticsSnapshot: () => string[];
 }): Record<string, PlatformMethodHandler> {
   const { context, diffViewer, store, statusBar, sessionsIndex } = deps;
-  const deviceIdKey = "zcodium.deviceId";
+  const deviceIdKey = "code.deviceId";
   const getDeviceId = (): string => {
     const existing = context.globalState.get<string>(deviceIdKey);
     if (existing) return existing;
@@ -557,7 +557,7 @@ function buildPlatformMethods(deps: {
     loadMcpFromUserDirectory: async () => ({ servers: [] }),
     saveMcpToUserDirectory: async () => ({
       success: false,
-      error: "请在插件设置 zcodium.mcp.servers 中配置（改动后需重建会话生效）",
+      error: "请在插件设置 code.mcp.servers 中配置（改动后需重建会话生效）",
     }),
     migrateLegacyCommonMcp: async () => ({ servers: {}, totalCount: 0, importedCount: 0, skippedCount: 0 }),
     // 同步面（未读投影归 webview 本地，P0-9：host 不再写 __unread__ 键槽）。
@@ -644,7 +644,7 @@ function buildPlatformMethods(deps: {
       statusBar.setPendingApprovals(count);
       return { count };
     },
-    /** 「本次会话允许」settings 写回（P0-8 写回面）：zcodium.permissions.allowlist。 */
+    /** 「本次会话允许」settings 写回（P0-8 写回面）：code.permissions.allowlist。 */
     appendSessionAllowlist: async (args) => {
       const toolName = args[0];
       if (typeof toolName !== "string" || !toolName.trim()) {
@@ -755,7 +755,7 @@ function buildPlatformMethods(deps: {
     pickWorkspaceFolder: async () => sessionsIndex.pickWorkspaceFolder(),
     /** per-folder 最近会话键表（P1-1.1 降级列表数据源；M18 修复：原生产装配恒为空）。 */
     getLatestSessionIdByFolder: async () => deps.latestSessionIdByFolder(),
-    /** 设置读面（T08/T12 面板 CRUD 的 R）：归一化后的 zcodium.* 可编辑快照（只读投影）。 */
+    /** 设置读面（T08/T12 面板 CRUD 的 R）：归一化后的 code.* 可编辑快照（只读投影）。 */
     getWorkspaceSettings: async () =>
       normalizeSettingsSnapshot(readHostSettingsSnapshot()),
   };

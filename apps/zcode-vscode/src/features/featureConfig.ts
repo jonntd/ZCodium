@@ -1,9 +1,9 @@
 /**
  * 编辑器功能模块的设置读面（M1 移植；设置项与 zcodium-vscode 同名，口径一致）。
  *
- * - `zcodium.model`：`providerId/modelId[$reasoningLevel]`，一次性文本生成（Quick Edit /
+ * - `code.model`：`providerId/modelId[$reasoningLevel]`，一次性文本生成（Quick Edit /
  *   生成提交信息）的模型选择；未配置时由调用方给出可读错误；
- * - `zcodium.autoContext`：FR-B22 自动上下文档位（off / openEditors / openEditorsAndRecentEdits）。
+ * - `code.autoContext`：FR-B22 自动上下文档位（off / openEditors / openEditorsAndRecentEdits）。
  */
 
 import * as vscode from "vscode";
@@ -41,7 +41,7 @@ export function parseModelSelection(value: string): ModelSelectionInput | undefi
 
 export function readModelSelection(): ModelSelectionInput | undefined {
   const configured = vscode.workspace
-    .getConfiguration("zcodium")
+    .getConfiguration("code")
     .get<string>("model");
   return configured ? parseModelSelection(configured) : undefined;
 }
@@ -54,7 +54,7 @@ const AUTO_CONTEXT_MODES: readonly AutoContextMode[] = [
 
 export function readAutoContextMode(): AutoContextMode {
   const value = vscode.workspace
-    .getConfiguration("zcodium")
+    .getConfiguration("code")
     .get<string>("autoContext", "off");
   return AUTO_CONTEXT_MODES.includes(value as AutoContextMode)
     ? (value as AutoContextMode)

@@ -14,7 +14,7 @@ let sink: ((line: string) => void) | null = null;
 
 function ensureChannel(): vscode.OutputChannel {
   if (!channel) {
-    channel = vscode.window.createOutputChannel("ZCodium Editor Features");
+    channel = vscode.window.createOutputChannel("Gode Editor Features");
   }
   return channel;
 }

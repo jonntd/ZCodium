@@ -12,7 +12,7 @@ import type { Webview, WebviewView, WebviewViewProvider } from "vscode";
 import { Uri, env, window, workspace } from "vscode";
 import type { HostRuntime } from "../host/hostRuntime";
 
-export const CHAT_VIEW_ID = "zcodium.chat";
+export const CHAT_VIEW_ID = "code.chat";
 
 export class ChatPanel implements WebviewViewProvider {
   public static readonly viewId = CHAT_VIEW_ID;
@@ -77,7 +77,7 @@ export class ChatPanel implements WebviewViewProvider {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="${styleUri}">
-  <title>ZCodium Agent</title>
+  <title>Gode Agent</title>
 </head>
 <body>
   <div id="app"></div>

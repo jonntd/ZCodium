@@ -395,7 +395,7 @@ export class VscodePlatformService implements IPlatformService {
   // ── host 帧驱动的监听（settings/locale/theme 变化） ──
 
   onSettingsChanged(callback: () => void): () => void {
-    // host 在 zcodium.* settings 变更时推送 workspace 帧（载荷 {kind:"settings-changed"}）。
+    // host 在 code.* settings 变更时推送 workspace 帧（载荷 {kind:"settings-changed"}）。
     return (
       this.hostFrames?.on("workspace", (payload: unknown) => {
         const record = payload as { kind?: string } | null;

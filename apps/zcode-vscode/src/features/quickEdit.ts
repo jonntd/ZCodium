@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import type { OneShotTextOptions } from "./oneShotText";
 import { log } from "./logger";
 
-const SCHEME = "zcodium-quick-edit";
+const SCHEME = "gode-quick-edit";
 
 /** 虚拟文档内容：diff 两侧都通过它渲染，避免为了预览而临时落盘。 */
 export class QuickEditContentProvider implements vscode.TextDocumentContentProvider {
