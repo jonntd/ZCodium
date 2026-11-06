@@ -87,6 +87,10 @@ echo "[deploy] 同步 $SRC_DIST -> $DEST"
 mkdir -p "$DEST/dist"
 rsync -a --delete "$SRC_DIST/" "$DEST/dist/"
 rsync -a "$PWD/package.json" "$DEST/package.json"
+# manifest 引用的静态资产：media/（活动栏图标等，缺了图标不渲染）、cli-bundle（CLI 本地产物）。
+for asset in media cli-bundle; do
+  [ -d "$PWD/$asset" ] && rsync -a --delete "$PWD/$asset/" "$DEST/$asset/"
+done
 # .vsixmanifest 存在时同步（IDE 版本识别用）。
 [ -f "$PWD/.vsixmanifest" ] && rsync -a "$PWD/.vsixmanifest" "$DEST/.vsixmanifest" || true
 
