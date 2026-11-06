@@ -42,6 +42,22 @@ export const DEFAULT_EXPOSED_CHANNELS: readonly string[] = [
   // 模型 / provider 面（模型切换 P1-11）
   "model-selection",
   "provider-settings",
+  // 首启迁移向导 / 设置同步（Root 迁移向导全步骤走 settings-sync；漏放行即 1000ms 超时，
+  // 与桌面 windowHostAttachmentRpcPolicy 的历史教训同型）
+  "settings-sync",
+  "skill-sync",
+  "mcp-sync",
+  "plugin-sync",
+  // 登录 / 凭据 / 分享 / 订阅 / 反馈（Root UI 装配面）
+  "oauth",
+  "credential",
+  "conversation-share",
+  "coding-plan-subscription",
+  "feedback",
+  "bots",
+  "off-peak-task",
+  "project",
+  "remote-projects",
   // 工作流 / 技能 / 命令（UI 装配面按需）
   "commands",
   "hooks",
