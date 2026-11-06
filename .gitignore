@@ -85,3 +85,11 @@ __pycache__/
 # OrcaRouter GUI 证据产物：由 `pnpm orca:evidence` 在本地渲染真实组件后生成，
 # 属于可再生的验证输出，随环境变化且不应入库。
 /orca-evidence/
+
+# zcode-vscode E2E 探针的 esbuild bundle（test/e2e-probes/*.mjs 的自包含产物：
+# @zcode/* 的 exports default 指向 TS 源，裸 node 不可解析，按需 esbuild 生成、可再生
+# 不入库；生成与运行命令见 apps/zcode-vscode/test/e2e.checklist.md §6）。
+apps/zcode-vscode/test/e2e-probes/*-bundle.mjs
+# e2e/ 目录同理：脚本源码入库，esbuild bundle 与运行日志可再生不入库。
+apps/zcode-vscode/e2e/*-bundle.mjs
+apps/zcode-vscode/e2e/last-run.log

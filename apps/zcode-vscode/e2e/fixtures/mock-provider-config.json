@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 1,
+  "config": {
+    "providerOrder": ["mock:local-e2e"],
+    "providerConfigRules": {
+      "providerRules": [
+        {
+          "providerId": "mock:local-e2e",
+          "providerName": "MockLocal",
+          "config": {
+            "group": "standard-personal",
+            "access": { "type": "api-key", "apiKey": "mock-key-e2e" },
+            "api": { "type": "anthropic-messages", "baseUrl": "http://127.0.0.1:18101" },
+            "personalModelIds": ["mock-flash"],
+            "modelOrder": ["mock-flash"]
+          }
+        }
+      ]
+    },
+    "modelConfigRules": {
+      "providerModelRules": [
+        {
+          "providerId": "mock:local-e2e",
+          "modelId": "mock-flash",
+          "config": { "enabled": true }
+        }
+      ],
+      "manualProviderModelRules": []
+    }
+  }
+}

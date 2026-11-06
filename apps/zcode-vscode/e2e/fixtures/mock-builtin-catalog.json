@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "revision": 1,
+  "config": {
+    "providerConfigRules": {
+      "templateRules": [],
+      "providerRules": [
+        {
+          "providerId": "mock:local-e2e",
+          "providerName": "MockLocal",
+          "config": {
+            "group": "standard-personal",
+            "builtinModelIds": ["mock-flash"],
+            "access": { "type": "api-key", "apiKey": "mock-key-e2e" },
+            "api": { "type": "anthropic-messages", "baseUrl": "http://127.0.0.1:18101" }
+          }
+        }
+      ]
+    },
+    "modelConfigRules": {
+      "modelRules": [
+        {
+          "modelMatch": ".*",
+          "config": {
+            "enabled": true,
+            "properties": {
+              "contextWindow": 200000,
+              "inputFormat": {
+                "supportsText": true,
+                "supportsImage": false,
+                "supportsVideo": false,
+                "supportsAudio": false,
+                "supportsPdf": false
+              },
+              "outputFormat": { "supportsText": true },
+              "supportsToolCall": true,
+              "supportsJsonSchemaOutput": false,
+              "supportsNativeWebSearch": false,
+              "supportsMidConversationSystem": true,
+              "requiresMfjsToolSchema": false
+            },
+            "optionSpecs": {
+              "maxOutputTokens": { "max": 32000 },
+              "reasoningLevel": { "values": ["disabled", "enabled"], "map": "{}" }
+            }
+          }
+        }
+      ]
+    }
+  }
+}
