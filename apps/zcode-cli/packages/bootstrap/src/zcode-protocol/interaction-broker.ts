@@ -194,7 +194,9 @@ async function requestPermission(
  * CreateWorkflow 工具伪造该 optionId，都落到既有 deny 兜底且不带 reasonSource——
  * 反馈升级为 user message 的通道必须只对真实用户输入开放。
  */
-function v4AnswerToPermissionResponse(
+// 导出仅为协议面校验（zcodium-vscode 的 permission-passthrough-check 直接驱动权威实现，
+// 断言「宿主只回 optionId 也能原样回映 response」），运行时调用方仍只有本文件。
+export function v4AnswerToPermissionResponse(
   answer: V4InteractionAnswer,
   permissionOptions: ZCodePermissionOption[],
   toolName: string,
