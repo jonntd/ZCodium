@@ -15,16 +15,17 @@
 import type { ExtensionContext } from "vscode";
 import { commands, env, languages, Uri, window, workspace } from "vscode";
 import { mkdir, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CliLocator } from "./cli/cliLocator";
+import { createResolveFileDropPathsMethod } from "./host/fileDropPlatformMethod";
 import {
   createCodeActionEntry,
   registerEditorCommands,
 } from "./features/editorCommands";
 import { createGenerateText } from "./features/oneShotText";
 import { createQuickEditContentProvider } from "./features/quickEdit";
-import { ZcodiumCodeActionProvider } from "./features/codeActions";
+import { GodeCodeActionProvider } from "./features/codeActions";
 import { setLogSink } from "./features/logger";
 import { primaryWorkspacePath } from "./features/featureConfig";
 import { buildDiagnosticsExportContent } from "./ui/diagnosticsBuffer";
@@ -32,23 +33,28 @@ import { ChatPanel, CHAT_VIEW_ID } from "./ui/chatPanel";
 import { Diagnostics } from "./ui/diagnostics";
 import { DiffViewer } from "./ui/diffViewer";
 import { StatusBar } from "./ui/statusBar";
-import { CLI_NOT_FOUND_LOG, WelcomePage, type WelcomeCardItem } from "./ui/welcomePage";
+import {
+  CLI_NOT_FOUND_LOG,
+  WelcomePage,
+  type WelcomeCardItem,
+} from "./ui/welcomePage";
 import { ExtensionStore } from "./store";
 import {
   readConfig,
   readHostSettingsSnapshot,
-  readZcodiumSetting,
-  writeZcodiumSetting,
+  readGodeSetting,
+  writeGodeSetting,
 } from "./config";
 import {
+  IProjectService,
   IZCodeAgentService,
   IZCodeSessionService,
   IZCodeTaskService,
   type IServiceAccessor,
 } from "@zcode/services";
+import { ensureWorkspaceProjectBinding } from "./features/workspaceProjectBinding";
 import {
   HostSettingsBridge,
-  ZCODE_AGENT_SERVER_BASE_ARGS,
   mergeAllowlistRules,
   normalizeAdditionalDirectories,
   normalizeSettingsSnapshot,
@@ -66,11 +72,17 @@ import {
 import type { PlatformMethodHandler } from "./host/platformRpcHandler";
 import { RuntimeController } from "./runtimeController";
 import { probeCapabilitiesFrame } from "./webview-react/capabilities";
-import { createWorkspaceSessions, folderKey } from "./webview-react/session/workspaceSessions";
+import {
+  createWorkspaceSessions,
+  folderKey,
+} from "./webview-react/session/workspaceSessions";
 import { sessionAllowlistRule } from "./approvals/approvalService";
 import { normalizeMcpServersForSettings } from "./configSettings";
 import type { WorkspaceHostFramePayload } from "./host/hostFrameKinds";
 import { registerHostCommands } from "./commands/hostCommands";
+import { wirePendingChanges, type PendingChangesWire } from "./host/pendingChanges/assembly";
+import type { ChangesDiffOpener } from "./host/pendingChanges/diffOpener";
+import type { ChangesService } from "./host/pendingChanges/changesService";
 
 /** 指令导入的单文件内容上限（importWorkspaceInstructions，组4 一次性导入面）。 */
 const INSTRUCTION_IMPORT_LIMIT_BYTES = 512 * 1024;
@@ -83,6 +95,8 @@ export interface Container {
   statusBar: StatusBar;
   diagnostics: Diagnostics;
   diffViewer: DiffViewer;
+  /** 文件改动审查编排面（spec: docs/spec/vscode-pending-changes.md）。 */
+  changesService: ChangesService;
   /** onboarding 引导面（P1-10.2/P1-10.3；CLI 未找到时自动呈现，T13）。 */
   welcomePage: WelcomePage;
   /** 3 步上手卡命令面（P1-10.2「随时可看」入口；CLI 实况由容器闭包读取）。 */
@@ -91,7 +105,9 @@ export interface Container {
   dispose(): Promise<void>;
 }
 
-export async function createContainer(context: ExtensionContext): Promise<Container> {
+export async function createContainer(
+  context: ExtensionContext,
+): Promise<Container> {
   const diagnostics = new Diagnostics();
   const statusBar = new StatusBar();
   const store = ExtensionStore.fromContext(context);
@@ -99,13 +115,23 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   // per-folder 会话键控（P1-1.5/P1-2 host 半）：webview 侧 workspaceSessions 与
   // host 编排共用同一 ExtensionStore 键空间（只读复用 + 编排层写穿透）。
   const workspaceSessions = createWorkspaceSessions(store);
-  const listFolders = () => (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+  const listFolders = () =>
+    (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+
+  /** chat 侧文件路径（绝对为主）→ 工作区根解析兜底的 Uri（编辑器直开路由用）。 */
+  const resolveWorkspaceUri = (path: string): Uri => {
+    if (isAbsolute(path)) return Uri.file(path);
+    const root = listFolders()[0];
+    return Uri.file(root ? join(root, path) : path);
+  };
 
   // ── 设置桥（code.* → create/resume/spawn 参数；先于 services 装配） ──
-  const settingsBridge = new HostSettingsBridge(readHostSettingsSnapshot, (handler) =>
-    workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("code.")) handler();
-    }),
+  const settingsBridge = new HostSettingsBridge(
+    readHostSettingsSnapshot,
+    (handler) =>
+      workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration("gode.")) handler();
+      }),
   );
 
   // ── Agent 命令解析：cliLocator（保留改造）→ zcodeAgentCommandResolver ──
@@ -146,21 +172,28 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     ),
     zcodeAgentCommandResolver: (spawnContext) => {
       if (!cliInfo) return null;
-      const flags = settingsBridge.resolveSpawnToolFlags();
-      const spawn = resolveZcodeAgentSpawnCommand(cliInfo.path, flags, {
+      // spawn argv 只含协议服务参数；工具规则经 createSession/resumeSession 协议参数下发
+      // （真机教训：--allowed-tools 等 TUI 旗标不被 app-server 接受，会引发崩溃风暴）。
+      const spawn = resolveZcodeAgentSpawnCommand(cliInfo.path, {
         nodeScript: cliInfo.nodeScript === true,
       });
-      if (spawn.args.length > ZCODE_AGENT_SERVER_BASE_ARGS.length) {
-        diagnostics.log(
-          `[agent-spawn] 工具面旗标（settings 快照，workspace=${spawnContext.workspacePath}）：` +
-            `allowed=${flags.toolAllowlist.length} disallowed=${flags.toolDenylist.length}`,
-        );
-      }
-      // services 对 resolver 产物原样使用（args 不合并），必须自带 app-server 协议服务模式基底。
+      diagnostics.log(`[agent-spawn] spawn（workspace=${spawnContext.workspacePath}）`);
       return spawn;
     },
-    zcodeAgentSpawnFallbackCwd: workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
+    zcodeAgentSpawnFallbackCwd:
+      workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd(),
   });
+
+  // ── IDE 工程绑定（spec: ide-workspace-project-binding） ──
+  // 新建任务要落进 IDE 当前工程的分组：先把打开的 folder 幂等注册为本地工程
+  // （已有声明该根目录的工程则复用）；失败降级为任务未归类，不阻断对话面。
+  const bindWorkspaceProjects = (): void => {
+    void ensureWorkspaceProjectBinding({
+      listFolders,
+      getProjectService: () => services.services.get(IProjectService),
+    });
+  };
+  bindWorkspaceProjects();
 
   // ── per-folder 会话索引桥（T06/T09 host 半：zcode-session 频道聚合 + 多根 QuickPick） ──
   const sessionsIndex = new SessionsIndexBridge({
@@ -169,7 +202,8 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     listFolders,
     pickFolder: async (folders) =>
       (await window.showQuickPick(folders, {
-        placeHolder: "选择 ZCodium 会话归属的 workspace folder（P1-2：会话按 folder 独立）",
+        placeHolder:
+          "选择 Gode 会话归属的 workspace folder（P1-2：会话按 folder 独立）",
         canPickMany: false,
       })) ?? null,
     log: (message) => diagnostics.log(message),
@@ -178,6 +212,10 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   // ── 平台方法实现（host 端 VS Code API 落地面） ──
   // runtimeController 双向依赖（plat 写会话键 ↔ controller 持 agentService）：经占位解环。
   const runtimeControllerPlaceholder: { current?: RuntimeController } = {};
+  // changesService 装配晚于平台方法表（需要 runtimeController 就绪），同法懒解引用。
+  const changesServicePlaceholder: { current?: ChangesService } = {};
+  // pendingChanges wire（diffOpener）同样晚于平台方法表，占位懒解。
+  const pendingChangesPlaceholder: { current?: PendingChangesWire } = {};
   const platformMethods = new Map<string, PlatformMethodHandler>(
     Object.entries(
       buildPlatformMethods({
@@ -188,6 +226,9 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
         statusBar,
         sessionsIndex,
         runtimeController: () => runtimeControllerPlaceholder.current,
+        changesService: () => changesServicePlaceholder.current,
+        resolveWorkspaceUri,
+        diffOpener: () => pendingChangesPlaceholder.current?.diffOpener,
         primaryFolder: () => listFolders()[0],
         // exportLogs 聚合源（§7.10）：输出通道内存镜像读取面（Diagnostics 持有）。
         diagnosticsSnapshot: () => diagnostics.snapshotLines(),
@@ -250,6 +291,21 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     },
   });
   runtimeControllerPlaceholder.current = runtimeController;
+
+  // ── 文件改动审查（spec: docs/spec/vscode-pending-changes.md；装配收口在 pendingChanges/assembly.ts）──
+  const pendingChanges = wirePendingChanges({
+    context,
+    hostRuntime,
+    runtimeController,
+    store,
+    workspaceSessions,
+    statusBar,
+    log: (message) => diagnostics.log(message),
+    primaryFolder: () => listFolders()[0] ?? null,
+  });
+  const changesService = pendingChanges.service;
+  changesServicePlaceholder.current = changesService;
+  pendingChangesPlaceholder.current = pendingChanges;
 
   // ── 状态栏投影（P0-2/P0-9）：Agent 生命周期事件 → setState（审批角标接 plat 上报面） ──
   // capabilities 横切生产面（T07「接线后行为」+ FR-A13 残余吸收，closeout-2）：agent
@@ -328,7 +384,9 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     },
     revealChat: () => chatPanel.reveal(),
     revealClaudeImportPanel: () => {
-      hostRuntime.pushHostFrame("open-panel", { panel: "import-claude-sessions" });
+      hostRuntime.pushHostFrame("open-panel", {
+        panel: "import-claude-sessions",
+      });
       chatPanel.reveal();
     },
     showLogs: () => diagnostics.show(),
@@ -349,6 +407,9 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
       hostRuntime.pushHostFrame("theme", theme.kind);
     }),
     workspace.onDidChangeWorkspaceFolders(() => {
+      bindWorkspaceProjects();
+      // 主 folder 变化 → pending-changes 换 workspaceRoot 重订（spec §6）。
+      changesService.syncSession();
       hostRuntime.pushHostFrame("workspace", {
         folders: (workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
         activeFolder: workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
@@ -356,14 +417,23 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
       });
     }),
     workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("code.")) {
+      if (event.affectsConfiguration("gode.")) {
         hostRuntime.pushHostFrame("workspace", { kind: "settings-changed" });
       }
     }),
   );
 
   // ── activate 后：per-folder 最近会话恢复（P1-1.5 host 半；resume 恒带约束面） ──
-  void runtimeController.restoreWorkspaceSessions();
+  // 恢复完成后同步 pending-changes 订阅（spec §8：restore 是会话真相就绪点）。
+  void runtimeController
+    .restoreWorkspaceSessions()
+    .then((restored) => {
+      // restore 恢复的会话显式直传（folder=主 folder），无会话则保持空态等通知。
+      const folder = listFolders()[0] ?? null;
+      const sessionId = folder ? restored.restored.at(-1) ?? workspaceSessions.get(folderKey(folder)) ?? null : null;
+      changesService.setSession(sessionId ?? undefined, folder);
+    })
+    .catch(() => changesService.setSession(undefined, null));
 
   // ── P1-10.2：CLI 未找到 → 呈现安装引导与「重新检测」入口（P0-1 引导语义） ──
   if (!cliInfo) void welcomePage.presentCliMissing();
@@ -407,8 +477,8 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
   const codeActionEntry = createCodeActionEntry(editorPushFrame);
   const codeActionDisposable = languages.registerCodeActionsProvider(
     { scheme: "file" },
-    new ZcodiumCodeActionProvider(codeActionEntry),
-    ZcodiumCodeActionProvider.metadata,
+    new GodeCodeActionProvider(codeActionEntry),
+    GodeCodeActionProvider.metadata,
   );
   context.subscriptions.push(
     quickEditDisposable,
@@ -424,10 +494,13 @@ export async function createContainer(context: ExtensionContext): Promise<Contai
     statusBar,
     diagnostics,
     diffViewer,
+    changesService,
     welcomePage,
     presentOnboarding: () => welcomePage.presentOnboarding({ cli: cliInfo }),
     services,
     async dispose(): Promise<void> {
+      changesService.dispose();
+      pendingChanges.dispose();
       runtimeController.dispose();
       hostRuntime.dispose();
       await services.dispose();
@@ -446,14 +519,21 @@ function buildPlatformMethods(deps: {
   statusBar: StatusBar;
   sessionsIndex: SessionsIndexBridge;
   runtimeController: () => RuntimeController | undefined;
+  /** pending-changes 服务懒访问（装配顺序晚于本表，闭包延迟解引用）。 */
+  changesService: () => ChangesService | undefined;
+  /** chat 路径 → 工作区根解析兜底的 Uri（编辑器直开路由）。 */
+  resolveWorkspaceUri: (path: string) => Uri;
+  /** pending-changes diffOpener 懒访问（原生双栏 diff；装配顺序晚于本表）。 */
+  diffOpener: () => ChangesDiffOpener | undefined;
   primaryFolder: () => string | undefined;
   /** per-folder 最近会话键表（P1-1.1 降级列表数据源；M18）。 */
   latestSessionIdByFolder: () => Record<string, string | undefined>;
   /** exportLogs 聚合源（§7.10）：输出通道内存镜像快照读取面（Diagnostics 持有）。 */
   diagnosticsSnapshot: () => string[];
 }): Record<string, PlatformMethodHandler> {
-  const { context, diffViewer, store, statusBar, sessionsIndex } = deps;
-  const deviceIdKey = "code.deviceId";
+  const { context, diffViewer, store, statusBar, sessionsIndex, resolveWorkspaceUri, diffOpener } =
+    deps;
+  const deviceIdKey = "gode.deviceId";
   const getDeviceId = (): string => {
     const existing = context.globalState.get<string>(deviceIdKey);
     if (existing) return existing;
@@ -465,40 +545,70 @@ function buildPlatformMethods(deps: {
   return {
     // 文件/目录选择（QuickPick / showOpenDialog）。
     selectDirectory: async () => {
-      const uris = await window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: false });
+      const uris = await window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: false,
+      });
       return uris?.[0]?.fsPath ?? null;
     },
     selectDirectories: async () => {
-      const uris = await window.showOpenDialog({ canSelectFolders: true, canSelectFiles: false, canSelectMany: true });
+      const uris = await window.showOpenDialog({
+        canSelectFolders: true,
+        canSelectFiles: false,
+        canSelectMany: true,
+      });
       return (uris ?? []).map((uri) => uri.fsPath);
     },
     selectFile: async () => {
-      const uris = await window.showOpenDialog({ canSelectFolders: false, canSelectFiles: true, canSelectMany: false });
+      const uris = await window.showOpenDialog({
+        canSelectFolders: false,
+        canSelectFiles: true,
+        canSelectMany: false,
+      });
       return uris?.[0]?.fsPath ?? null;
     },
     selectFiles: async () => {
-      const uris = await window.showOpenDialog({ canSelectFolders: false, canSelectFiles: true, canSelectMany: true });
+      const uris = await window.showOpenDialog({
+        canSelectFolders: false,
+        canSelectFiles: true,
+        canSelectMany: true,
+      });
       return (uris ?? []).map((uri) => uri.fsPath);
     },
     // 打开/跳转。
     openExternal: async (args) => {
       const url = args[0];
-      if (typeof url !== "string") throw new Error("openExternal: url 必须为字符串");
+      if (typeof url !== "string")
+        throw new Error("openExternal: url 必须为字符串");
       const parsed = Uri.parse(url);
       // scheme 白名单：杜绝 webview 侧借 openExternal 触发任意 scheme（command:/javascript: 等）。
-      if (!["http", "https", "mailto", "file", "vscode", "vscode-insiders"].includes(parsed.scheme)) {
+      if (
+        ![
+          "http",
+          "https",
+          "mailto",
+          "file",
+          "vscode",
+          "vscode-insiders",
+        ].includes(parsed.scheme)
+      ) {
         throw new Error(`openExternal: 不支持的 scheme「${parsed.scheme}」`);
       }
       await env.openExternal(parsed);
     },
     openInFileManager: async (args) => {
       const path = args[0];
-      if (typeof path !== "string") throw new Error("openInFileManager: path 必须为字符串");
+      if (typeof path !== "string")
+        throw new Error("openInFileManager: path 必须为字符串");
       // stable API 无 revealIfVisible 选项：打开文件所在目录。
       await env.openExternal(Uri.file(path));
       return { success: true };
     },
-    openExternalFile: async () => ({ success: false, error: "由 VS Code 打开文件语义承担" }),
+    openExternalFile: async () => ({
+      success: false,
+      error: "由 VS Code 打开文件语义承担",
+    }),
     openFeedback: async () => {
       await env.openExternal(Uri.parse("https://zcode.dev/feedback"));
     },
@@ -510,13 +620,45 @@ function buildPlatformMethods(deps: {
     showDiff: async (args) => {
       const path = args[0];
       const proposed = typeof args[1] === "string" ? args[1] : undefined;
-      if (typeof path !== "string") throw new Error("showDiff: path 必须为字符串");
+      if (typeof path !== "string")
+        throw new Error("showDiff: path 必须为字符串");
       return diffViewer.open(`plat-${Date.now()}`, path, proposed);
     },
     showTextDocument: async (args) => {
       const path = args[0];
-      if (typeof path !== "string") throw new Error("showTextDocument: path 必须为字符串");
+      if (typeof path !== "string")
+        throw new Error("showTextDocument: path 必须为字符串");
       await window.showTextDocument(Uri.file(path), { preview: true });
+      return true;
+    },
+    // code viewer 打开意图 → 宿主编辑器（webview 侧宽度过窄时的编辑器直开路由）。
+    openFileInEditor: async (args) => {
+      const path = args[0];
+      if (typeof path !== "string")
+        throw new Error("openFileInEditor: path 必须为字符串");
+      await commands.executeCommand("vscode.open", resolveWorkspaceUri(path), {
+        preview: true,
+      });
+      return true;
+    },
+    openPatchDiffInEditor: async (args) => {
+      const request = args[0] as
+        | {
+            resolvedPath?: unknown;
+            patches?: unknown;
+          }
+        | undefined;
+      const resolvedPath =
+        typeof request?.resolvedPath === "string" ? request.resolvedPath : undefined;
+      if (!resolvedPath || !Array.isArray(request?.patches))
+        throw new Error("openPatchDiffInEditor: resolvedPath/patches 必须提供");
+      const opener = diffOpener();
+      if (!opener) throw new Error("openPatchDiffInEditor: diffOpener 未就绪");
+      // 复用 pendingChanges 的原生双栏 diff（zcode-before 反向应用管线）。
+      await opener.openPendingDiff({
+        resolvedPath,
+        patches: request.patches as Parameters<typeof opener.openPendingDiff>[0]["patches"],
+      });
       return true;
     },
     revealWorkspace: async () => {
@@ -532,34 +674,47 @@ function buildPlatformMethods(deps: {
       const content = buildDiagnosticsExportContent({
         diagnosticsLines: deps.diagnosticsSnapshot(),
       });
-      const tempPath = join(logsDir, `zcodium-${Date.now()}.log`);
+      const tempPath = join(logsDir, `gode-${Date.now()}.log`);
       await writeFile(tempPath, content, "utf8");
       await window.showTextDocument(Uri.file(tempPath), { preview: true });
       return { success: true, path: tempPath };
     },
     showTaskNotification: async (args) => {
       const payload = args[0] as { title?: string; body?: string } | undefined;
-      const choice = await window.showInformationMessage(payload?.title ?? "ZCodium", "打开");
-      if (choice === "打开") await commands.executeCommand(`${CHAT_VIEW_ID}.focus`);
+      const choice = await window.showInformationMessage(
+        payload?.title ?? "Gode",
+        "打开",
+      );
+      if (choice === "打开")
+        await commands.executeCommand(`${CHAT_VIEW_ID}.focus`);
     },
     getDeviceId: async () => getDeviceId(),
     activateOrSetWorkspace: async (args) => {
       // 多根工作区聚焦对应 folder（P1-2 的 host 半；完整切换在 T06）。
       const path = args[0];
-      const folder = (workspace.workspaceFolders ?? []).find((f) => f.uri.fsPath === path);
+      const folder = (workspace.workspaceFolders ?? []).find(
+        (f) => f.uri.fsPath === path,
+      );
       return { activated: folder !== undefined };
     },
     openDataRootImport: async () => {
-      void window.showInformationMessage("数据目录导入：请使用桌面端完成（插件侧无需迁移）");
+      void window.showInformationMessage(
+        "数据目录导入：请使用桌面端完成（插件侧无需迁移）",
+      );
     },
     getSystemLocale: async () => env.language,
     // MCP 本机目录（桌面 ~/.zcode mcp.json；插件场景读宿主默认路径，P1-8）。
     loadMcpFromUserDirectory: async () => ({ servers: [] }),
     saveMcpToUserDirectory: async () => ({
       success: false,
-      error: "请在插件设置 code.mcp.servers 中配置（改动后需重建会话生效）",
+      error: "请在插件设置 gode.mcp.servers 中配置（改动后需重建会话生效）",
     }),
-    migrateLegacyCommonMcp: async () => ({ servers: {}, totalCount: 0, importedCount: 0, skippedCount: 0 }),
+    migrateLegacyCommonMcp: async () => ({
+      servers: {},
+      totalCount: 0,
+      importedCount: 0,
+      skippedCount: 0,
+    }),
     // 同步面（未读投影归 webview 本地，P0-9：host 不再写 __unread__ 键槽）。
     syncWindowUnreadCount: async () => undefined,
     syncWindowTabs: async () => undefined,
@@ -569,31 +724,50 @@ function buildPlatformMethods(deps: {
     // webview 传 dataB64（ArrayBuffer 过 postMessage 的 base64 形态）或 sourceUrl（host 侧拉取），
     // 弹 VS Code 保存对话框后写盘；两者皆缺时返回可读错误（数据面由附件上传链路承担）。
     saveFile: async (args) => {
-      const payload = args[0] as { dataB64?: string; sourceUrl?: string; suggestedName?: string } | undefined;
+      const payload = args[0] as
+        | { dataB64?: string; sourceUrl?: string; suggestedName?: string }
+        | undefined;
       const suggested =
-        typeof payload?.suggestedName === "string" && payload.suggestedName.trim().length > 0
+        typeof payload?.suggestedName === "string" &&
+        payload.suggestedName.trim().length > 0
           ? basename(payload.suggestedName.trim())
           : "download";
-      const target = await window.showSaveDialog({ defaultUri: Uri.file(suggested) });
+      const target = await window.showSaveDialog({
+        defaultUri: Uri.file(suggested),
+      });
       if (!target) return { success: false, canceled: true };
       let bytes: Uint8Array;
       if (typeof payload?.dataB64 === "string" && payload.dataB64.length > 0) {
         bytes = new Uint8Array(Buffer.from(payload.dataB64, "base64"));
-      } else if (typeof payload?.sourceUrl === "string" && payload.sourceUrl.length > 0) {
+      } else if (
+        typeof payload?.sourceUrl === "string" &&
+        payload.sourceUrl.length > 0
+      ) {
         const res = await fetch(payload.sourceUrl);
-        if (!res.ok) return { success: false, error: `saveFile: sourceUrl 拉取失败（HTTP ${res.status}）` };
+        if (!res.ok)
+          return {
+            success: false,
+            error: `saveFile: sourceUrl 拉取失败（HTTP ${res.status}）`,
+          };
         bytes = new Uint8Array(await res.arrayBuffer());
       } else {
-        return { success: false, error: "saveFile: 缺少 dataB64/sourceUrl（数据面由附件上传链路承担）" };
+        return {
+          success: false,
+          error: "saveFile: 缺少 dataB64/sourceUrl（数据面由附件上传链路承担）",
+        };
       }
       await writeFile(target.fsPath, bytes);
       return { success: true, path: target.fsPath };
     },
     // 附件（审批/引用场景的临时文本文件，落 globalStorage/tmp）。
     createTempTextAttachment: async (args) => {
-      const payload = args[0] as { text: string; filename?: string } | undefined;
+      const payload = args[0] as
+        | { text: string; filename?: string }
+        | undefined;
       // filename 收敛为 basename：杜绝 webview 侧借路径分隔符写穿 tmp 目录（path traversal）。
-      const filename = basename(payload?.filename ?? `attachment-${Date.now()}.txt`);
+      const filename = basename(
+        payload?.filename ?? `attachment-${Date.now()}.txt`,
+      );
       if (!filename || filename === "." || filename === "..") {
         throw new Error("createTempTextAttachment: filename 非法");
       }
@@ -608,6 +782,9 @@ function buildPlatformMethods(deps: {
         sizeBytes: (payload?.text ?? "").length,
       };
     },
+    // 资源管理器拖拽 URI 解析（spec: composer-explorer-file-drop）；vscode/fs 接线在
+    // fileDropPlatformMethod.ts，container 只保留装配入口（max-file-lines 门禁）。
+    resolveFileDropPaths: createResolveFileDropPathsMethod(),
     // ── 会话/编排接线（T02/T06：host 侧先行定义，组3/4 消费） ──
     /** 会话创建上报：写穿透 per-folder 键空间（P1-1.5），下次 activate 可恢复。 */
     notifySessionCreated: async (args) => {
@@ -619,8 +796,12 @@ function buildPlatformMethods(deps: {
         typeof args[1] === "string" && args[1].trim()
           ? args[1]
           : deps.primaryFolder();
-      if (!folder) throw new Error("notifySessionCreated: 无 workspace folder 可归属");
+      if (!folder)
+        throw new Error("notifySessionCreated: 无 workspace folder 可归属");
       deps.runtimeController()?.setActiveSession(folder, sessionId);
+      // 会话通知直传 folder+sessionId（共享 ext host 多窗口下主 folder 推断不可靠，
+      // 真机教训 2026-11-07）：pending-changes 按显式目标重订。
+      deps.changesService()?.setSession(sessionId, folder);
       return { folder: folderKey(folder), sessionId };
     },
     /** 会话删除上报：反查持有该会话的 folder 并清键。 */
@@ -634,13 +815,17 @@ function buildPlatformMethods(deps: {
         store.setSessionId(folder, undefined);
         deps.runtimeController()?.setActiveSession(folder, undefined);
       }
+      // 会话删除 → pending-changes 回草稿态订阅（该会话的 pending 由 CLI 侧失效兜底）。
+      deps.changesService()?.setSession(undefined, null);
       return { sessionId, folders };
     },
     /** 审批角标上报面（P0-9：数据源尽力面，缺上报时状态栏保持状态机部分）。 */
     reportPendingApprovals: async (args) => {
       const raw = args[0];
       const count =
-        typeof raw === "number" && Number.isFinite(raw) ? Math.max(0, Math.trunc(raw)) : 0;
+        typeof raw === "number" && Number.isFinite(raw)
+          ? Math.max(0, Math.trunc(raw))
+          : 0;
       statusBar.setPendingApprovals(count);
       return { count };
     },
@@ -651,12 +836,12 @@ function buildPlatformMethods(deps: {
         throw new Error("appendSessionAllowlist: toolName 必须为非空字符串");
       }
       const rule = sessionAllowlistRule(toolName, args[1]);
-      const existing = readZcodiumSetting("permissions.allowlist");
+      const existing = readGodeSetting("permissions.allowlist");
       const rules = mergeAllowlistRules(
         Array.isArray(existing) ? existing : [],
         [rule],
       );
-      await writeZcodiumSetting("permissions.allowlist", rules);
+      await writeGodeSetting("permissions.allowlist", rules);
       deps.log(`[permissions] 会话允许写回：${rule}（workspace scope）`);
       return {
         rule,
@@ -669,11 +854,18 @@ function buildPlatformMethods(deps: {
     updatePermissionRules: async (args) => {
       const kind = args[0];
       if (kind !== "allowlist" && kind !== "denylist") {
-        throw new Error("updatePermissionRules: kind 必须为 allowlist|denylist");
+        throw new Error(
+          "updatePermissionRules: kind 必须为 allowlist|denylist",
+        );
       }
       const rules = normalizeToolRules(Array.isArray(args[1]) ? args[1] : []);
-      await writeZcodiumSetting(kind === "allowlist" ? "permissions.allowlist" : "permissions.denylist", rules);
-      deps.log(`[permissions] ${kind} 写回：${rules.length} 条（workspace scope）`);
+      await writeGodeSetting(
+        kind === "allowlist" ? "permissions.allowlist" : "permissions.denylist",
+        rules,
+      );
+      deps.log(
+        `[permissions] ${kind} 写回：${rules.length} 条（workspace scope）`,
+      );
       return {
         kind,
         rules,
@@ -683,9 +875,13 @@ function buildPlatformMethods(deps: {
     },
     /** MCP servers 写回。PRD 降级口径：运行中不可动态增删，仅落 settings + 提示重建。 */
     updateMcpServers: async (args) => {
-      const servers = normalizeMcpServersForSettings(Array.isArray(args[0]) ? args[0] : []);
-      await writeZcodiumSetting("mcp.servers", servers);
-      deps.log(`[mcp] servers 写回：${servers.length} 个（改动后需重建会话生效）`);
+      const servers = normalizeMcpServersForSettings(
+        Array.isArray(args[0]) ? args[0] : [],
+      );
+      await writeGodeSetting("mcp.servers", servers);
+      deps.log(
+        `[mcp] servers 写回：${servers.length} 个（改动后需重建会话生效）`,
+      );
       return {
         count: servers.length,
         requiresSessionRebuild: true,
@@ -694,8 +890,10 @@ function buildPlatformMethods(deps: {
     },
     /** 附加目录写回（协议上限 256）。 */
     updateAdditionalDirectories: async (args) => {
-      const directories = normalizeAdditionalDirectories(Array.isArray(args[0]) ? args[0] : []);
-      await writeZcodiumSetting("context.additionalDirectories", directories);
+      const directories = normalizeAdditionalDirectories(
+        Array.isArray(args[0]) ? args[0] : [],
+      );
+      await writeGodeSetting("context.additionalDirectories", directories);
       deps.log(`[context] 附加目录写回：${directories.length} 个`);
       return {
         directories,
@@ -718,7 +916,7 @@ function buildPlatformMethods(deps: {
         text: isEmpty ? "" : editor.document.getText(editor.selection),
       };
     },
-    /** workspace 指令文件一次性导入（组4）：读 ZCODIUM.md / CLAUDE.md（每 folder 取首个命中）。 */
+    /** workspace 指令文件一次性导入（组4）：读 GODE.md / CLAUDE.md（每 folder 取首个命中）。 */
     importWorkspaceInstructions: async () => {
       const files: Array<{
         folder: string;
@@ -729,12 +927,14 @@ function buildPlatformMethods(deps: {
         truncated: boolean;
       }> = [];
       for (const folder of workspace.workspaceFolders ?? []) {
-        for (const name of ["ZCODIUM.md", "CLAUDE.md"]) {
+        for (const name of ["GODE.md", "CLAUDE.md"]) {
           const uri = Uri.joinPath(folder.uri, name);
           try {
             const bytes = await workspace.fs.readFile(uri);
             const truncated = bytes.length > INSTRUCTION_IMPORT_LIMIT_BYTES;
-            const slice = truncated ? bytes.subarray(0, INSTRUCTION_IMPORT_LIMIT_BYTES) : bytes;
+            const slice = truncated
+              ? bytes.subarray(0, INSTRUCTION_IMPORT_LIMIT_BYTES)
+              : bytes;
             files.push({
               folder: folder.uri.fsPath,
               name,
@@ -743,7 +943,7 @@ function buildPlatformMethods(deps: {
               sizeBytes: bytes.length,
               truncated,
             });
-            break; // ZCODIUM.md 优先，命中即止
+            break; // GODE.md 优先，命中即止
           } catch {
             // 文件不存在：尝试下一个候选名。
           }
@@ -769,7 +969,7 @@ export function registerCommands(container: Container): void {
     diagnostics: container.diagnostics,
     sessionsIndex: container.sessionsIndex,
     agentService: container.services.services.get(IZCodeAgentService),
-    // P1-10.2：3 步上手卡命令面（ZCodium: 上手引导）；CLI 实况由容器闭包读取。
+    // P1-10.2：3 步上手卡命令面（Gode: 上手引导）；CLI 实况由容器闭包读取。
     presentOnboarding: () => container.presentOnboarding(),
   });
 }

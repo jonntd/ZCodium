@@ -8,7 +8,9 @@
 
 import type { BridgeEnvelope, PlatformResponseFrame } from "../bridge/wire";
 
-export type PlatformMethodHandler = (args: unknown[]) => unknown | Promise<unknown>;
+export type PlatformMethodHandler = (
+  args: unknown[],
+) => unknown | Promise<unknown>;
 
 /**
  * 平台方法白名单（§2.4 矩阵的可代理面）。
@@ -23,6 +25,8 @@ export const PLATFORM_METHOD_WHITELIST: readonly string[] = [
   "saveFile",
   "getPathForFile",
   "createTempTextAttachment",
+  // 资源管理器拖拽 URI → 本地文件解析（spec: composer-explorer-file-drop）
+  "resolveFileDropPaths",
   // 打开/跳转
   "openExternal",
   "openInFileManager",
@@ -34,6 +38,9 @@ export const PLATFORM_METHOD_WHITELIST: readonly string[] = [
   "showDiff",
   "showTextDocument",
   "revealWorkspace",
+  // code viewer 打开意图 → 宿主编辑器（侧栏 webview 放不下应用内预览面板）
+  "openFileInEditor",
+  "openPatchDiffInEditor",
   // 诊断/通知
   "exportLogs",
   "showTaskNotification",
@@ -90,7 +97,11 @@ export class PlatformRpcHandler {
   }
 
   /** 处理一条 plat-req；总是回 plat-res（成功或失败），不抛出到调用栈外。 */
-  async handleRequest(id: number, method: string, args: unknown[]): Promise<void> {
+  async handleRequest(
+    id: number,
+    method: string,
+    args: unknown[],
+  ): Promise<void> {
     const response = await this.invoke(id, method, args);
     this.options.post(response);
   }
@@ -113,11 +124,21 @@ export class PlatformRpcHandler {
   ): Promise<PlatformResponseFrame> {
     if (!this.whitelist.has(method)) {
       this.options.warn?.(`[platform-rpc] 白名单外方法被拒绝：${method}`);
-      return { t: "plat-res", id, ok: false, error: `method not allowed: ${method}` };
+      return {
+        t: "plat-res",
+        id,
+        ok: false,
+        error: `method not allowed: ${method}`,
+      };
     }
     const handler = this.options.methods.get(method);
     if (!handler) {
-      return { t: "plat-res", id, ok: false, error: `method not implemented: ${method}` };
+      return {
+        t: "plat-res",
+        id,
+        ok: false,
+        error: `method not implemented: ${method}`,
+      };
     }
     try {
       const value = await handler(args);

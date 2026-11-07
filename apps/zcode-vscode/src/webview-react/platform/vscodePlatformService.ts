@@ -28,7 +28,10 @@ import type { PlatformRpcClient } from "../bridge/platformRpcClient";
 import type { VscodeThemeKind } from "../themeBridge";
 
 /** 不支持能力的安全返回值集中定义（矩阵 §2.4）。 */
-const UNSUPPORTED_OPEN_RESULT = { success: false, error: "Not supported in VS Code webview" } as const;
+const UNSUPPORTED_OPEN_RESULT = {
+  success: false,
+  error: "Not supported in VS Code webview",
+} as const;
 
 export interface VscodePlatformServiceOptions {
   rpc: PlatformRpcClient;
@@ -77,10 +80,17 @@ export class VscodePlatformService implements IPlatformService {
     data?: ArrayBuffer;
     sourceUrl?: string;
     suggestedName: string;
-  }): Promise<{ success: boolean; canceled?: boolean; error?: string; path?: string }> {
+  }): Promise<{
+    success: boolean;
+    canceled?: boolean;
+    error?: string;
+    path?: string;
+  }> {
     // ArrayBuffer 过 postMessage 需 base64：data 编为 dataB64；sourceUrl 交给宿主侧拉取。
     // 两者皆缺时宿主返回可读错误（附件上传链路另行承担大文件面）。
-    const dataB64 = payload.data ? arrayBufferToBase64(payload.data) : undefined;
+    const dataB64 = payload.data
+      ? arrayBufferToBase64(payload.data)
+      : undefined;
     return this.rpc.call("saveFile", {
       dataB64,
       sourceUrl: payload.sourceUrl,
@@ -93,10 +103,23 @@ export class VscodePlatformService implements IPlatformService {
     return null;
   }
 
+  /** 资源管理器拖拽 file:// URI → 本地文件条目（host 过滤目录/缺失；spec: composer-explorer-file-drop）。 */
+  resolveFileDropPaths(
+    uris: readonly string[],
+  ): Promise<{ path: string; sizeBytes: number }[] | null> {
+    return this.rpc.call("resolveFileDropPaths", uris);
+  }
+
+
   createTempTextAttachment(payload: {
     text: string;
     filename?: string;
-  }): Promise<{ filename: string; localPath: string; mimeType: "text/plain"; sizeBytes: number }> {
+  }): Promise<{
+    filename: string;
+    localPath: string;
+    mimeType: "text/plain";
+    sizeBytes: number;
+  }> {
     return this.rpc.call("createTempTextAttachment", payload);
   }
 
@@ -106,12 +129,45 @@ export class VscodePlatformService implements IPlatformService {
     void this.rpc.call("openExternal", url);
   }
 
-  openInFileManager(path: string): Promise<{ success: boolean; error?: string }> {
+  openInFileManager(
+    path: string,
+  ): Promise<{ success: boolean; error?: string }> {
     return this.rpc.call("openInFileManager", path);
   }
 
-  openExternalFile(path: string): Promise<{ success: boolean; error?: string }> {
+  openExternalFile(
+    path: string,
+  ): Promise<{ success: boolean; error?: string }> {
     return this.rpc.call("openExternalFile", path);
+  }
+
+  /**
+   * code viewer 打开意图 → 宿主编辑器（IPlatformService.openCodeViewerInEditor 实现）。
+   *
+   * 侧栏 webview 放不下应用内右侧预览面板：patch 来源走宿主原生双栏 diff
+   * （复用 pendingChanges 的 zcode-before 反向应用管线），file 来源直接
+   * vscode.open。解析失败/无路径时返回 false，调用方落回应用内面板。
+   */
+  async openCodeViewerInEditor(source: {
+    type: "file" | "patch";
+    path?: string;
+    patch?: string;
+    title?: string;
+  }): Promise<boolean> {
+    if (source.type === "patch" && source.path && source.patch) {
+      const patches = parseUnifiedPatch(source.patch);
+      if (patches.length === 0) return false;
+      await this.rpc.call("openPatchDiffInEditor", {
+        resolvedPath: source.path,
+        patches,
+      });
+      return true;
+    }
+    if (source.path) {
+      await this.rpc.call("openFileInEditor", source.path);
+      return true;
+    }
+    return false;
   }
 
   async openFeedback(): Promise<void> {
@@ -140,7 +196,9 @@ export class VscodePlatformService implements IPlatformService {
   }
 
   /** 会话删除上报：host 侧反查持有该会话的 folder 并清键（P1-1.4 从列表移除的写回面）。 */
-  notifySessionDeleted(sessionId: string): Promise<{ sessionId: string; folders: string[] }> {
+  notifySessionDeleted(
+    sessionId: string,
+  ): Promise<{ sessionId: string; folders: string[] }> {
     return this.rpc.call("notifySessionDeleted", sessionId);
   }
 
@@ -149,7 +207,9 @@ export class VscodePlatformService implements IPlatformService {
    * zcode-session 频道失败时的降级列表数据源（P1-1.1）。
    */
   getLatestSessionIdByFolder(): Promise<Record<string, string | undefined>> {
-    return this.rpc.call<Record<string, string | undefined>>("getLatestSessionIdByFolder");
+    return this.rpc.call<Record<string, string | undefined>>(
+      "getLatestSessionIdByFolder",
+    );
   }
 
   /** 多根 folder QuickPick（P1-2 host 半经组2 SessionsIndexBridge；单 folder 直接命中）。 */
@@ -204,15 +264,23 @@ export class VscodePlatformService implements IPlatformService {
     return this.rpc.call<Locale>("getSystemLocale");
   }
 
-  getInstalledEditors(): Promise<{ id: string; name: string; iconDataUrl: string }[]> {
+  getInstalledEditors(): Promise<
+    { id: string; name: string; iconDataUrl: string }[]
+  > {
     // 矩阵：返回当前 VS Code。
-    return Promise.resolve([{ id: "vscode", name: "Visual Studio Code", iconDataUrl: "" }]);
+    return Promise.resolve([
+      { id: "vscode", name: "Visual Studio Code", iconDataUrl: "" },
+    ]);
   }
 
   async openInEditor(
     _editorId: string,
     _path: string,
-    _options?: { remoteTarget?: unknown; workspaceIdentity?: string; pathKind?: "file" | "directory" },
+    _options?: {
+      remoteTarget?: unknown;
+      workspaceIdentity?: string;
+      pathKind?: "file" | "directory";
+    },
   ): Promise<{ success: boolean; error?: string }> {
     return UNSUPPORTED_OPEN_RESULT;
   }
@@ -225,11 +293,15 @@ export class VscodePlatformService implements IPlatformService {
     return this.rpc.call("loadMcpFromUserDirectory", payload);
   }
 
-  saveMcpToUserDirectory(payload: unknown): Promise<{ success: boolean; error?: string }> {
+  saveMcpToUserDirectory(
+    payload: unknown,
+  ): Promise<{ success: boolean; error?: string }> {
     return this.rpc.call("saveMcpToUserDirectory", payload);
   }
 
-  migrateLegacyCommonMcp(payload?: unknown): Promise<MigrateLegacyCommonMcpResult> {
+  migrateLegacyCommonMcp(
+    payload?: unknown,
+  ): Promise<MigrateLegacyCommonMcpResult> {
     return this.rpc.call("migrateLegacyCommonMcp", payload);
   }
 
@@ -267,15 +339,21 @@ export class VscodePlatformService implements IPlatformService {
 
   // ── 监听族：返回真实 unsubscribe 的空监听（no-op，矩阵 §2.4） ──
 
-  onRemoteConnectionLog(_handler: (entry: RemoteConnectionRuntimeLog) => void): () => void {
+  onRemoteConnectionLog(
+    _handler: (entry: RemoteConnectionRuntimeLog) => void,
+  ): () => void {
     return () => {};
   }
 
-  onRemoteSessionClosed(_handler: (event: RemoteSessionClosedEvent) => void): () => void {
+  onRemoteSessionClosed(
+    _handler: (event: RemoteSessionClosedEvent) => void,
+  ): () => void {
     return () => {};
   }
 
-  onBotRemoteWorkspaceReconnected(_callback: (event: BotRemoteWorkspaceReconnectedEvent) => void): () => void {
+  onBotRemoteWorkspaceReconnected(
+    _callback: (event: BotRemoteWorkspaceReconnectedEvent) => void,
+  ): () => void {
     return () => {};
   }
 
@@ -295,7 +373,9 @@ export class VscodePlatformService implements IPlatformService {
     return () => {};
   }
 
-  onWindowFullscreenChanged(_handler: (isFullscreen: boolean) => void): () => void {
+  onWindowFullscreenChanged(
+    _handler: (isFullscreen: boolean) => void,
+  ): () => void {
     return () => {};
   }
 
@@ -307,11 +387,15 @@ export class VscodePlatformService implements IPlatformService {
     return () => {};
   }
 
-  onUpdateCheckResult(_callback: (payload: UpdateCheckResultPayload) => void): () => void {
+  onUpdateCheckResult(
+    _callback: (payload: UpdateCheckResultPayload) => void,
+  ): () => void {
     return () => {};
   }
 
-  onPostUpdateReleaseNotes(_callback: (payload: PostUpdateReleaseNotesPayload) => void): () => void {
+  onPostUpdateReleaseNotes(
+    _callback: (payload: PostUpdateReleaseNotesPayload) => void,
+  ): () => void {
     return () => {};
   }
 
@@ -413,7 +497,9 @@ export class VscodePlatformService implements IPlatformService {
    * host 在 onDidChangeActiveColorTheme 时推送 theme 帧（payload = ColorThemeKind）。
    */
   onThemeChanged(callback: (kind: VscodeThemeKind) => void): () => void {
-    return this.hostFrames?.on<VscodeThemeKind>("theme", callback) ?? (() => {});
+    return (
+      this.hostFrames?.on<VscodeThemeKind>("theme", callback) ?? (() => {})
+    );
   }
 }
 
@@ -425,4 +511,51 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(bytes[i]!);
   }
   return btoa(binary);
+}
+
+/** 与宿主 ChangesDiffOpener.openPendingDiff 对齐的结构化 hunk。 */
+export interface ParsedPatchHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: string[];
+}
+
+/**
+ * 反解析 unified diff 文本（conversationFileChangeDiff.formatPatch 的产出）为
+ * 结构化 hunk。`@@ -a,b +c,d @@` 头 + 保留 +/-/ 前缀的行；`\ No newline` 元
+ * 标记跳过。解析不出任何 hunk 时返回空数组（调用方落回应用内面板）。
+ */
+export function parseUnifiedPatch(patch: string): ParsedPatchHunk[] {
+  const hunks: ParsedPatchHunk[] = [];
+  let current: ParsedPatchHunk | null = null;
+  for (const rawLine of patch.split("\n")) {
+    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(rawLine);
+    if (header) {
+      current = {
+        oldStart: Number(header[1]),
+        oldLines: header[2] === undefined ? 1 : Number(header[2]),
+        newStart: Number(header[3]),
+        newLines: header[4] === undefined ? 1 : Number(header[4]),
+        lines: [],
+      };
+      hunks.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (rawLine.startsWith("\\")) continue; // "\ No newline at end of file"
+    if (
+      rawLine.startsWith("diff ") ||
+      rawLine.startsWith("index ") ||
+      rawLine.startsWith("--- ") ||
+      rawLine.startsWith("+++ ")
+    ) {
+      continue; // 相邻 hunk 之间的文件头残片
+    }
+    if (rawLine.startsWith("+") || rawLine.startsWith("-") || rawLine.startsWith(" ")) {
+      current.lines.push(rawLine);
+    }
+  }
+  return hunks;
 }

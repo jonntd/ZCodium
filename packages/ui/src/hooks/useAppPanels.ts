@@ -166,6 +166,7 @@ export function useAppPanels(options: {
     | "onBrowserViewRestore"
     | "browserViewCloseTab"
     | "browserViewEnsureResident"
+    | "openCodeViewerInEditor"
   >;
 }) {
   const {
@@ -400,6 +401,25 @@ export function useAppPanels(options: {
 
   const handleOpenCodeViewer = useCallback(
     (source: CodeViewerSource, options?: { intent?: CodeViewerOpenIntent }) => {
+      // VS Code 插件侧栏 webview：宽度放不下应用内右侧预览面板（自动收起阈值 480px
+      // 恒触发），file/patch 类来源改为在宿主编辑器直接打开（Claude Code/Augment 同款）。
+      // 平台未实现该能力（桌面端）或缺文件路径（text/code-review 等应用内专属来源）时
+      // 落回应用内面板，桌面行为不变。
+      if (
+        (source.type === "file" || source.type === "patch") &&
+        source.path &&
+        platform?.openCodeViewerInEditor
+      ) {
+        void Promise.resolve(
+          platform.openCodeViewerInEditor({
+            type: source.type,
+            path: source.path,
+            ...(source.type === "patch" ? { patch: source.patch } : {}),
+            title: source.title,
+          }),
+        ).catch(() => undefined);
+        return;
+      }
       revealSidePaneForCurrentOwner();
       commitOpenedSidePaneState((current) => {
         const next = openCodeViewerSidePane(
@@ -417,7 +437,7 @@ export function useAppPanels(options: {
         return next;
       });
     },
-    [commitOpenedSidePaneState, revealSidePaneForCurrentOwner, workspaceAbsPath],
+    [commitOpenedSidePaneState, revealSidePaneForCurrentOwner, workspaceAbsPath, platform],
   );
 
   // 预览标签钉住（tab 条双击/右键菜单）：只改标签身份，不动文件内容与只读门槛。
