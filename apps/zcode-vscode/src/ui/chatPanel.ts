@@ -35,11 +35,6 @@ export class ChatPanel implements WebviewViewProvider {
     private readonly hostRuntime: HostRuntime,
     /** per-folder 最近会话解析（P1-1.5：bootstrap data-session-id 注入）。 */
     private readonly resolveInitialSessionId: (folder: string) => string | null = () => null,
-    /**
-     * 侧栏可见跳板（Claude Code 点击体验）：webview view 无法拖进编辑器标签行，
-     * 用户点活动栏图标 → 侧栏可见 → 宿主回调（container）弹出可拖动的编辑器标签。
-     */
-    private readonly onVisible?: () => void,
   ) {}
 
   resolveWebviewView(view: WebviewView): void {
@@ -63,15 +58,15 @@ export class ChatPanel implements WebviewViewProvider {
       }),
     );
     this.hostRuntime.attachWebview(CHAT_VIEW_ID, view.webview);
-    // 跳板：resolve 即首次可见；onDidChangeVisibility 覆盖后续每次展开。
-    // 注意：visibility 不再经 pushHostFrame 广播——编辑器标签形态并存后，A 页的
-    // 可见性帧会广播到 B 页把对方渲染面错误暂停/恢复（跨页状态污染的根源）；
-    // 各 webview 的 document.visibilitychange 自证源已足够感知自身可见性。
-    if (view.visible) this.onVisible?.();
+    // 视图可见性不再引发任何跳转/收栏（缺陷修复 2026-11-08）：原「侧栏可见跳板」
+    // 在视图可见时去 reveal 编辑器标签，而 reveal() 内部会多点延迟收起侧栏——于是
+    // **用户自己点活动栏图标打开的对话面板，350ms 后被我们自己的收栏逻辑关掉**，
+    // 表现是「弹出个窗口然后秒关」（用户实测截图）。活动栏图标语义应当就是「打开
+    // 这个视图」：视图留下，跳转交给命令/标题栏按钮/状态栏这些显式入口。
+    // （可见性也不经 pushHostFrame 广播：编辑器标签形态并存后，A 页的可见性帧会
+    // 广播到 B 页把对方渲染面错误暂停/恢复；各 webview 的 document.visibilitychange
+    // 自证源已足够感知自身可见性。）
     this.resolveSubscriptions.push(
-      view.onDidChangeVisibility(() => {
-        if (view.visible) this.onVisible?.();
-      }),
       view.onDidDispose(() => {
         for (const disposable of this.resolveSubscriptions) disposable.dispose();
         this.resolveSubscriptions = [];

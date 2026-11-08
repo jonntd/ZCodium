@@ -364,8 +364,8 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(container).toContain("new ChatEditorPanel(");
     expect(container).toContain("chatEditorPanel: container.chatEditorPanel");
     expect(container).toContain("chatEditorPanel.dispose()");
-    // 侧栏跳板：视图可见 → 聚焦编辑器标签（收栏逻辑内聚在 ChatEditorPanel.reveal）。
-    expect(container).toContain("chatEditorPanel.reveal();");
+    // 侧栏可见性不再跳转编辑器标签（只在 Claude 导入等显式入口 reveal）。
+    expect(container).toContain("revealChat: () => chatEditorPanel.reveal()");
     expect(container).toContain("new ChatPanel(");
     // 编辑器标签 UI 上行接线 + 会话标签共享持久化（workspaceState 适配）。
     expect(container).toContain("onEditorTabUi: (connectionId, payload)");
@@ -423,10 +423,17 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(editorPanel).toContain('startsWith(CHAT_EDITOR_BRIDGE_ID)');
   });
 
-  it("侧栏视图内置可见跳板（webview view 无法拖进编辑器标签行的补偿）", () => {
+  it("侧栏可见性不跳转、不自关（修「点活动栏图标弹出面板后秒关」）", () => {
     const chatPanel = readSource("src/ui/chatPanel.ts");
-    expect(chatPanel).toContain("private readonly onVisible?: () => void");
-    expect(chatPanel).toContain("if (view.visible) this.onVisible?.()");
+    // 原「侧栏可见跳板」在视图可见时 reveal 编辑器标签，而 reveal() 内有延迟收栏
+    // （对抗 IDE 对 agent webview 的自动展开）→ 把用户自己点开的面板 350ms 后关掉。
+    // 活动栏图标的语义是「打开这个视图」，视图应留下。
+    expect(chatPanel).not.toContain("onVisible");
+    expect(chatPanel).not.toContain("onDidChangeVisibility");
+    expect(chatPanel).not.toContain("scheduleSidePanelsCollapse");
+    // 收栏兜底仍挂在编辑器标签的显式打开路径上（命令/状态栏/标题栏按钮）。
+    const container = readSource("src/container.ts");
+    expect(container).not.toContain("new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId, () => {");
   });
 
   it("X4：无界内存面收敛（审批登记与 quick-edit 快照均有上限）", () => {

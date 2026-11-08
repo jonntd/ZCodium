@@ -383,12 +383,12 @@ export async function createContainer(
     hostRuntime,
     resolveInitialSessionId,
   );
-  // 侧栏跳板 + 侧栏自动展开兜底：视图变为可见（无论触发源——点活动栏图标、IDE
-  // 恢复布局、还是任意代码/命令把它展开）→ 聚焦编辑器标签。收栏逻辑内聚在
-  // ChatEditorPanel.reveal()（延迟收起，赢过 IDE 对 agent webview 聚焦的自动展开）。
-  const chatPanel = new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId, () => {
-    chatEditorPanel.reveal();
-  });
+  // 侧栏版对话是**独立可用面**，不再做「可见即跳编辑器标签」：那条跳板会连带触发
+  // reveal() 里的延迟收栏，把用户刚点开的侧栏面板关掉（「弹出个窗口然后秒关」缺陷）。
+  // 标签页形态的入口全部显式：标题栏 + / 历史会话、状态栏新建页签、gode.openChat
+  // 命令与通知动作按钮——这些路径里的收栏兜底（对抗 IDE 对 agent webview 的自动
+  // 展开）保持原样。
+  const chatPanel = new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId);
 
   // ── 服务调用统一路由（PRD §8.5 单通道） ──
   // 进程内 ServiceCollection 直取（命令面只用 agent/task 两服务；编辑器命令与
