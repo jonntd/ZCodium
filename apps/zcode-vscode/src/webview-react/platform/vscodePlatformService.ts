@@ -60,6 +60,17 @@ export class VscodePlatformService implements IPlatformService {
     this.hostFrames = options.hostFrames;
   }
 
+  /**
+   * fire-and-forget 调用（X2 配套）：超时/dispose reject 时静默吞掉——单向通知
+   * （打开外部/任务通知/计数同步）失败无 UI 可呈现，且无人 await 的 reject 会
+   * 变成 unhandledRejection（真机冒烟实测：webview-smoke 因此退出 1）。
+   */
+  private fireAndForget(method: string, ...args: unknown[]): void {
+    void this.rpc.call(method, ...args).catch(() => {
+      // 单向通知失败静默；需要用户可见错误的面走有返回值的 call。
+    });
+  }
+
   // ── 文件/目录选择（host showOpenDialog / QuickPick） ──
 
   selectDirectory(): Promise<string | null> {
@@ -128,7 +139,7 @@ export class VscodePlatformService implements IPlatformService {
   // ── 打开/跳转（env.openExternal 等） ──
 
   openExternal(url: string): void {
-    void this.rpc.call("openExternal", url);
+    this.fireAndForget("openExternal", url);
   }
 
   openInFileManager(
@@ -238,7 +249,7 @@ export class VscodePlatformService implements IPlatformService {
   }
 
   showTaskNotification(payload: TaskNotificationPayload): void {
-    void this.rpc.call("showTaskNotification", payload);
+    this.fireAndForget("showTaskNotification", payload);
   }
 
   getDeviceId(): string {
@@ -259,7 +270,7 @@ export class VscodePlatformService implements IPlatformService {
   }
 
   openDataRootImport(): void {
-    void this.rpc.call("openDataRootImport");
+    this.fireAndForget("openDataRootImport");
   }
 
   async getSystemLocale(): Promise<Locale> {
@@ -320,7 +331,7 @@ export class VscodePlatformService implements IPlatformService {
 
   syncWindowUnreadCount(count: number): void {
     // unread → 状态栏角标（经 host 帧；host 端映射到 StatusBar.setPendingApprovals 类似面）。
-    void this.rpc.call("syncWindowUnreadCount", count);
+    this.fireAndForget("syncWindowUnreadCount", count);
   }
 
   syncActiveTaskSession(_sessionId: string | null): void {

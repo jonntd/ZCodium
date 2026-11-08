@@ -11,7 +11,13 @@ import type { VscodeApi } from "./webviewMessagePort";
 interface PendingCall {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
 }
+
+/** 调用超时（增量审查 X2）：host 不回（handler 卡死/帧丢失）时 pending Map
+ *  无限累积 + Promise 永挂。30s 宽于最慢白名单方法（exportLogs 写盘 + 打开
+ *  编辑器），超时视为通道异常。 */
+export const DEFAULT_RPC_TIMEOUT_MS = 30_000;
 
 export type PlatformEventHandler = (event: string, payload: unknown) => void;
 
@@ -20,7 +26,10 @@ export class PlatformRpcClient {
   private readonly pending = new Map<number, PendingCall>();
   private readonly eventHandlers = new Set<PlatformEventHandler>();
 
-  constructor(private readonly vscode: VscodeApi) {}
+  constructor(
+    private readonly vscode: VscodeApi,
+    private readonly timeoutMs = DEFAULT_RPC_TIMEOUT_MS,
+  ) {}
 
   /** index.tsx 把 webview 收到的原始消息转发到这里（先于 port 分流亦可）。 */
   handleMessageData(data: unknown): void {
@@ -42,12 +51,27 @@ export class PlatformRpcClient {
     }
   }
 
-  /** 调用平台方法（host 白名单外会以 reject 返回 "method not allowed"）。 */
+  /** 调用平台方法（host 白名单外会以 reject 返回 "method not allowed"）。
+   *  超时 reject 并从 pending 移除（X2：防 host 不回导致永挂 + 泄漏）。 */
   call<T>(method: string, ...args: unknown[]): Promise<T> {
     this.seq += 1;
     const id = this.seq;
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
+      const timer = setTimeout(() => {
+        if (this.pending.delete(id)) {
+          reject(new Error(`plat-req 超时（${this.timeoutMs}ms）：${method}`));
+        }
+      }, this.timeoutMs);
+      const settle = (fn: () => void): void => {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        fn();
+      };
+      this.pending.set(id, {
+        timer,
+        resolve: (value) => settle(() => resolve(value as T)),
+        reject: (error) => settle(() => reject(error)),
+      });
       this.vscode.postMessage({ t: "plat-req", id, method, args });
     });
   }
@@ -65,9 +89,10 @@ export class PlatformRpcClient {
     };
   }
 
-  /** 丢弃全部挂起调用（webview dispose 时防泄漏）。 */
+  /** 丢弃全部挂起调用（webview dispose 时防泄漏；超时定时器一并清）。 */
   dispose(): void {
     for (const pendingCall of this.pending.values()) {
+      clearTimeout(pendingCall.timer);
       pendingCall.reject(new Error("platform rpc client disposed"));
     }
     this.pending.clear();

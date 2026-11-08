@@ -37,20 +37,44 @@ export const MAX_CHAT_EDITOR_TABS = 4;
  * 窗口收窄到 1.5s：IDE 自动展开集中在 webview 激活后的瞬间；再往后的重试只会
  * 误伤用户在打开对话后手动展开的侧栏（无法与自动展开区分，只能限长）。
  */
+/**
+ * 在途收栏调度（增量审查 X1）：模块级单飞——一轮窗口（1.5s）内重复调用不叠加
+ * timer（连续点按钮 N 次原实现会堆 3N 个回调）；保留 id 以便 dispose 取消，
+ * 防扩展宿主收尾后回调仍 fire 误伤用户侧栏。
+ */
+let sidePanelsCollapseTimers: ReturnType<typeof setTimeout>[] = [];
+
 function scheduleSidePanelsCollapse(): void {
-  const close = (): void => {
-    for (const closeCommand of [
-      "workbench.action.closeAuxiliaryBar",
-      "workbench.action.closeSidebar",
-    ]) {
-      void commands.executeCommand(closeCommand).then(
-        undefined,
-        () => {}, // 旧版 IDE 无此命令时静默忽略（该栏保留，不影响功能）
-      );
-    }
-  };
-  for (const delay of [350, 800, 1_500]) {
-    globalThis.setTimeout(close, delay);
+  if (sidePanelsCollapseTimers.length > 0) return;
+  const delays = [350, 800, 1_500];
+  sidePanelsCollapseTimers = delays.map((delay, index) =>
+    globalThis.setTimeout(
+      () => {
+        if (index === delays.length - 1) sidePanelsCollapseTimers = []; // 窗口收口
+        closeSidePanels();
+      },
+      delay,
+    ),
+  );
+}
+
+/** 取消在途收栏调度（ChatEditorPanel.dispose 调用）。 */
+export function cancelSidePanelsCollapse(): void {
+  for (const timer of sidePanelsCollapseTimers) {
+    globalThis.clearTimeout(timer);
+  }
+  sidePanelsCollapseTimers = [];
+}
+
+function closeSidePanels(): void {
+  for (const closeCommand of [
+    "workbench.action.closeAuxiliaryBar",
+    "workbench.action.closeSidebar",
+  ]) {
+    void commands.executeCommand(closeCommand).then(
+      undefined,
+      () => {}, // 旧版 IDE 无此命令时静默忽略（该栏保留，不影响功能）
+    );
   }
 }
 
@@ -181,6 +205,7 @@ export class ChatEditorPanel {
   }
 
   dispose(): void {
+    cancelSidePanelsCollapse();
     for (const panel of this.panels.values()) {
       panel.dispose();
     }

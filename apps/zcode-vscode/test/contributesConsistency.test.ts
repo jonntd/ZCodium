@@ -392,7 +392,10 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(editorPanel).toContain("workbench.action.closeSidebar");
     // 窗口收窄到 1.5s：IDE 自动展开集中在激活后瞬间，更晚的重试只会误伤
     // 用户手动展开的侧栏（与自动展开无法区分，只能限长）。
-    expect(editorPanel).toContain("for (const delay of [350, 800, 1_500])");
+    expect(editorPanel).toContain("const delays = [350, 800, 1_500];");
+    // X1：单飞去重（一轮窗口重复调用不叠加 timer）+ dispose 取消在途调度。
+    expect(editorPanel).toContain("if (sidePanelsCollapseTimers.length > 0) return;");
+    expect(editorPanel).toContain("cancelSidePanelsCollapse();");
     // reveal 入口统一调度收栏（命令与侧栏跳板共用同一份逻辑）。
     expect(editorPanel).toContain("scheduleSidePanelsCollapse();");
     // 已可见面板优先聚焦（不做冗余 focus——editor/title 的 + 按钮 when 门控保证
