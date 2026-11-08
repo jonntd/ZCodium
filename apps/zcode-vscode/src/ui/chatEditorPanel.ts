@@ -46,7 +46,7 @@ let sidePanelsCollapseTimers: ReturnType<typeof setTimeout>[] = [];
 
 function scheduleSidePanelsCollapse(): void {
   if (sidePanelsCollapseTimers.length > 0) return;
-  const delays = [350, 800, 1_500];
+  const delays = [350, 800, 1_500, 3_000];
   sidePanelsCollapseTimers = delays.map((delay, index) =>
     globalThis.setTimeout(
       () => {
@@ -169,8 +169,21 @@ export class ChatEditorPanel {
       this.extensionUri,
       resolveSessionId,
     );
+    // 收栏锚点跟随真实聚焦：IDE 对 agent webview **聚焦**才自动展开侧栏，而聚焦
+    // 不只发生在创建瞬间——webview 渲染器加载完（bundle 大、可达数秒）真正拿到
+    // 焦点时会再触发一次，远晚于按钮点击时的收栏窗口（用户实测侧栏「死而复生」）。
+    // 因此除点击时刻外，再以两类聚焦事件为锚各挂一轮收栏（单飞去重）：
+    // 1) 渲染器首帧上行（webview 活起来即将持焦点）；2) 页签变为可见（切换/聚焦）。
+    let armedOnFirstFrame = false;
     panel.webview.onDidReceiveMessage((message: unknown) => {
+      if (!armedOnFirstFrame) {
+        armedOnFirstFrame = true;
+        scheduleSidePanelsCollapse();
+      }
       this.hostRuntime.handleWebviewMessage(bridgeId, message);
+    });
+    panel.onDidChangeViewState(({ webviewPanel }) => {
+      if (webviewPanel.visible) scheduleSidePanelsCollapse();
     });
     this.hostRuntime.attachWebview(bridgeId, panel.webview);
     panel.onDidDispose(() => {

@@ -389,14 +389,19 @@ describe("可拖动的编辑器标签页形态", () => {
     const editorPanel = readSource("src/ui/chatEditorPanel.ts");
     expect(editorPanel).toContain("workbench.action.closeAuxiliaryBar");
     expect(editorPanel).toContain("workbench.action.closeSidebar");
-    // 窗口收窄到 1.5s：IDE 自动展开集中在激活后瞬间，更晚的重试只会误伤
-    // 用户手动展开的侧栏（与自动展开无法区分，只能限长）。
-    expect(editorPanel).toContain("const delays = [350, 800, 1_500];");
+    // 收栏窗口 [350, 800, 1500, 3000]：多点重试覆盖 IDE 展开时点不固定的竞争；
+    // 窗口锚定在聚焦事件上（见下），加长尾重试不会误伤用户手动展开的侧栏。
+    expect(editorPanel).toContain("const delays = [350, 800, 1_500, 3_000];");
     // X1：单飞去重（一轮窗口重复调用不叠加 timer）+ dispose 取消在途调度。
     expect(editorPanel).toContain("if (sidePanelsCollapseTimers.length > 0) return;");
     expect(editorPanel).toContain("cancelSidePanelsCollapse();");
     // reveal 入口统一调度收栏（命令与侧栏跳板共用同一份逻辑）。
     expect(editorPanel).toContain("scheduleSidePanelsCollapse();");
+    // 收栏锚点跟随真实聚焦：渲染器首帧上行 + 页签变为可见——IDE 对 agent webview
+    // 的聚焦自动展开可迟到数秒（渲染器加载完才持焦点），仅锚按钮点击会输掉竞争
+    // （用户实测：点 + 后侧栏在收栏窗口关闭后才被 IDE 展开、开着不走）。
+    expect(editorPanel).toContain("armedOnFirstFrame");
+    expect(editorPanel).toContain("onDidChangeViewState");
     // 已可见面板优先聚焦（不做冗余 focus——editor/title 的 + 按钮 when 门控保证
     // 点击时面板已激活，冗余 focus 会触发 IDE agent 侧栏联动「点新建会话侧栏被打开」）。
     expect(editorPanel).toContain("find((panel) => panel.visible)");
