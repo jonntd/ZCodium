@@ -10,7 +10,7 @@
  */
 
 import type { WebviewPanel } from "vscode";
-import { Uri, ViewColumn, window } from "vscode";
+import { Uri, ViewColumn, window, workspace } from "vscode";
 import type { HostRuntime } from "../host/hostRuntime";
 import {
   composeEditorTabTitle,
@@ -154,6 +154,24 @@ export class ChatEditorPanel {
     return /^\d+$/.test(connectionId.slice(prefix.length));
   }
 
+  /**
+   * 新页签落在哪个编辑器组（**不改动用户已有布局**）。
+   *
+   * 历史缺陷：这里硬编码 `ViewColumn.Beside`——首次打开对话**必然 split 出一个新组**，
+   * 用户原本的单组布局被永久改成两组，与"不碰用户布局"的原则自相矛盾。
+   * 现在的口径：
+   *   1. 已有对话页签 → 落在它所在的组（用户拖动/拆分过的位置就是他定的，尊重）；
+   *   2. 否则看 `gode.chat.openBeside`（默认 false）→ false 时用 `ViewColumn.Active`
+   *      （同组新开页签，不 split），true 时才恢复"右侧新组"。
+   */
+  private nextViewColumn(): ViewColumn {
+    const existing = this.resolveTargetPanel()?.panel.viewColumn;
+    if (typeof existing === "number" && existing > 0) return existing as ViewColumn;
+    const openBeside =
+      workspace.getConfiguration?.("gode.chat")?.get?.<boolean>("openBeside", false) ?? false;
+    return openBeside ? ViewColumn.Beside : ViewColumn.Active;
+  }
+
   private create(
     mode: "resume" | "draft" = "resume",
     reason = "unknown",
@@ -167,10 +185,11 @@ export class ChatEditorPanel {
       "layout",
       `新建对话页签：${bridgeId}（reason=${reason}，存活=${this.panels.size}）`,
     );
+    const viewColumn = this.nextViewColumn();
     const panel = window.createWebviewPanel(
       CHAT_EDITOR_VIEW_TYPE,
       CHAT_EDITOR_TITLE,
-      { viewColumn: ViewColumn.Beside, preserveFocus: false },
+      { viewColumn, preserveFocus: false },
       {
         enableScripts: true,
         retainContextWhenHidden: true,

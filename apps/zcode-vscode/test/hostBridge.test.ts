@@ -550,6 +550,22 @@ describe("编辑器标签 UI 上行 + 会话标签中继（多页签共享）", 
     expect(composed.endsWith("…")).toBe(true);
   });
 
+  it("composeEditorTabTitle：控制字符/零宽字符被清洗，emoji 不按 UTF-16 切半", () => {
+    const base = "Gode 对话";
+    // 换行/制表/零宽/双向覆盖符会把标签挤成空白或视觉倒序（标题来自不可信文本）。
+    expect(
+      composeEditorTabTitle(base, { title: "修复\n登录\tbug\u0000", busy: false }),
+    ).toBe("修复 登录 bug");
+    expect(
+      composeEditorTabTitle(base, { title: "\u202Eabc\u200Bdef", busy: false }),
+    ).toBe("abc def");
+    // emoji 是代理对：按 UTF-16 slice 会在中间切断，显示为 �。
+    const emojis = "🚀".repeat(50);
+    const title = composeEditorTabTitle(base, { title: emojis, busy: false });
+    expect(title).toBe(`${"🚀".repeat(40)}…`);
+    expect(title).not.toContain("\uFFFD");
+  });
+
   it("parseEditorTabUiPayload：宽松收窄，非对象/空串标题归 null", () => {
     expect(parseEditorTabUiPayload(null)).toBeNull();
     expect(parseEditorTabUiPayload("x")).toBeNull();
@@ -574,12 +590,14 @@ describe("编辑器标签 UI 上行 + 会话标签中继（多页签共享）", 
   function makeRelayRuntime(persisted: unknown = null) {
     const writes: unknown[] = [];
     const tabUiCalls: Array<{ id: string; payload: unknown }> = [];
+    const sidebarVisibleCalls: boolean[] = [];
     const runtime = new HostRuntime({
       services: new ServiceCollection(),
       exposurePolicy: createExposurePolicy([]),
       platformMethods: new Map(),
       settingsBridge: new HostSettingsBridge(() => normalizeSettingsSnapshot({})),
       onEditorTabUi: (id, payload) => tabUiCalls.push({ id, payload }),
+      onWorkspaceSidebarVisible: (visible) => sidebarVisibleCalls.push(visible),
       sessionTabsPersistence: {
         read: () => persisted,
         write: (value) => writes.push(value),
@@ -604,8 +622,37 @@ describe("编辑器标签 UI 上行 + 会话标签中继（多页签共享）", 
         .map((frame) => frame as { t?: string; kind?: string; payload?: unknown })
         .filter((frame) => frame.t === "host" && frame.kind === "session-tabs")
         .map((frame) => frame.payload);
-    return { runtime, writes, tabUiCalls, makeCapture, sessionTabsFrames };
+    return { runtime, writes, tabUiCalls, sidebarVisibleCalls, makeCapture, sessionTabsFrames };
   }
+
+  it("notifyWorkspaceSidebarVisible 只接受布尔值，落宿主持久化面", () => {
+    const { runtime, sidebarVisibleCalls } = makeRelayRuntime();
+    runtime.attachWebview("gode.chat", { postMessage: () => {} });
+
+    runtime.handleWebviewMessage("gode.chat", {
+      t: "plat-evt",
+      event: "notifyWorkspaceSidebarVisible",
+      payload: { visible: true },
+    });
+    runtime.handleWebviewMessage("gode.chat", {
+      t: "plat-evt",
+      event: "notifyWorkspaceSidebarVisible",
+      payload: { visible: false },
+    });
+    // 脏载荷（非布尔 / 缺字段 / 非对象）一律丢弃，不能把 undefined 写进 globalState。
+    runtime.handleWebviewMessage("gode.chat", {
+      t: "plat-evt",
+      event: "notifyWorkspaceSidebarVisible",
+      payload: { visible: "yes" },
+    });
+    runtime.handleWebviewMessage("gode.chat", {
+      t: "plat-evt",
+      event: "notifyWorkspaceSidebarVisible",
+      payload: null,
+    });
+
+    expect(sidebarVisibleCalls).toEqual([true, false]);
+  });
 
   it("notifyEditorTabUi 携带连接 id 路由到 onEditorTabUi", () => {
     const { runtime, tabUiCalls } = makeRelayRuntime();

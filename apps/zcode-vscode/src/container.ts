@@ -30,7 +30,7 @@ import { GodeCodeActionProvider } from "./features/codeActions";
 import { setLogSink } from "./features/logger";
 import { primaryWorkspacePath } from "./features/featureConfig";
 import { buildDiagnosticsExportContent } from "./ui/diagnosticsBuffer";
-import { ChatPanel, CHAT_VIEW_ID } from "./ui/chatPanel";
+import { ChatPanel, CHAT_VIEW_ID, setSidebarVisibleSeedProvider } from "./ui/chatPanel";
 import { ChatEditorPanel } from "./ui/chatEditorPanel";
 import { Diagnostics } from "./ui/diagnostics";
 import { DiffViewer } from "./ui/diffViewer";
@@ -99,6 +99,13 @@ const SAVE_FILE_SOURCE_SCHEMES = ["http", "https", "data"];
 
 /** 会话标签共享态的 workspaceState 键（多页签/多对话页同步的 host 侧存储）。 */
 const SESSION_TABS_HOST_KEY = "gode.sessionTabs.host";
+/**
+ * 工作区侧栏显隐偏好的 globalState 键。
+ *
+ * 用 globalState（跨工作区）而不是 workspaceState：这是"用户怎么用界面"的偏好，
+ * 与具体工程无关；用户在一个窗口收起侧栏，不该在另一个工程里又弹回来。
+ */
+const WORKSPACE_SIDEBAR_VISIBLE_KEY = "gode.workspaceShell.sidebarVisible";
 
 export interface Container {
   chatPanel: ChatPanel;
@@ -295,6 +302,11 @@ export async function createContainer(
         void context.workspaceState.update(SESSION_TABS_HOST_KEY, value);
       },
     },
+    // 侧栏显隐偏好上行 → globalState。webview 的 localStorage 按 origin 隔离（每个
+    // 页签一个），跨页签/重启只能走这条；bootstrap 注入见 setSidebarVisibleSeedProvider。
+    onWorkspaceSidebarVisible: (visible) => {
+      void context.globalState.update(WORKSPACE_SIDEBAR_VISIBLE_KEY, visible);
+    },
     // 空态「历史会话」CTA 已移除（与 IDE 原生标签视觉重复）；历史入口保留
     // 编辑器 title 按钮 + gode.pickSession 命令面板。
     log: (message) => diagnostics.log(message),
@@ -381,6 +393,12 @@ export async function createContainer(
   // 编辑器面板的收栏副作用，把用户刚点开的侧栏面板关掉（「弹出个窗口然后秒关」缺陷）。
   // 标签页形态的入口全部显式：标题栏 + / 历史会话、状态栏新建页签、gode.openChat
   // 命令与通知动作按钮。
+  // 侧栏显隐偏好的宿主侧读取面：注入 globalState 投影，供 webview HTML 骨架
+  // （data-sidebar-visible）在**渲染前**拿到真实偏好——localStorage 跨 webview 不共享。
+  setSidebarVisibleSeedProvider(() => {
+    const stored = context.globalState.get<unknown>(WORKSPACE_SIDEBAR_VISIBLE_KEY);
+    return typeof stored === "boolean" ? stored : null;
+  });
   const chatPanel = new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId);
   // 编辑器标签页形态（可拖动/拆分/移动）：与侧栏共用同一 Root 与 hostRuntime 多连接桥。
   // 这里**不再注入「收栏让位谓词」**：收栏兜底整体删除（它会关掉承载自身面板的辅助栏，

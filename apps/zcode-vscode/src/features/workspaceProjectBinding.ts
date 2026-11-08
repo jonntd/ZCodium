@@ -8,7 +8,7 @@
  * 注册失败只记诊断日志——绑定缺失降级为现状（任务未归类），不阻断对话面。
  */
 
-import { normalize } from "node:path";
+import { resolve } from "node:path";
 import type { IProjectService } from "@zcode/services";
 import { log } from "./logger";
 import { isTransientWorkspacePath } from "./transientWorkspacePath";
@@ -18,6 +18,19 @@ export interface WorkspaceProjectBindingDeps {
   readonly listFolders: () => readonly string[];
   /** 工程服务（未装配完成/不可用时返回 undefined，绑定静默跳过）。 */
   readonly getProjectService: () => IProjectService | undefined;
+}
+
+/**
+ * 根目录比对键（**唯一口径**）。
+ *
+ * 不能用 `normalize`：`normalize("/a/b/") === "/a/b/"`、`normalize("/a/b") === "/a/b"`
+ * ——尾斜杠不归一（已实测），同一工程用两种写法就会各注册一次，产出 ws(1)/ws(2) 这类
+ * 空工程（与"任务列表无限创建 ws (N)"同一类数据污染）。
+ * `resolve` 会补全绝对路径、折叠 `.`/`..` 并**去掉尾斜杠**，是稳定的比对键。
+ * 注意它不解析 symlink（与现实路径语义一致：VS Code 给的 folder 已是 realpath）。
+ */
+function rootKey(rootPath: string): string {
+  return resolve(rootPath);
 }
 
 /**
@@ -40,16 +53,19 @@ export async function ensureWorkspaceProjectBinding(
   if (folders.length === 0) return;
   try {
     const tree = await service.readTree({ includeDeleted: false });
-    // saveProject 会 normalize roots；比对必须在同一口径下做，否则 symlink 等路径形态差异会重复注册。
+    // saveProject 会 normalize roots；比对必须在同一口径下做（见 rootKey 注释）。
     const claimedRoots = new Set(
       tree.projects
         .filter((project) => !project.deleted)
-        .flatMap((project) => project.roots.map((root) => normalize(root.rootPath))),
+        .flatMap((project) => project.roots.map((root) => rootKey(root.rootPath))),
     );
     for (const folder of folders) {
-      const normalized = normalize(folder);
-      if (claimedRoots.has(normalized)) continue;
+      const key = rootKey(folder);
+      if (claimedRoots.has(key)) continue;
       await service.saveProject({ roots: [folder], primaryRoot: folder });
+      // **必须回写**：同一批 folders 里若有两个等价写法（尾斜杠/相对段），
+      // 不回写就会各自再注册一次，产出重复空工程。
+      claimedRoots.add(key);
       log.debug("project-binding", `已注册 IDE 工程：${folder}`);
     }
   } catch (error) {

@@ -417,6 +417,11 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "禁用 Gode 的全部默认快捷键（打开对话 / 新建会话）。"
+        },
+        "gode.chat.openBeside": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "首次打开对话页签时在**右侧新建编辑器组**（split）。默认关闭：对话页签落在当前激活的编辑器组里，不改变用户已有布局。已有对话页签时始终跟随该页签所在的组。"
         }
       }
     },

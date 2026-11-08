@@ -354,6 +354,15 @@ export class VscodePlatformService implements IPlatformService {
     this.rpc.sendEvent("syncSessionTabs", tabs);
   }
 
+  /**
+   * 工作区侧栏显隐偏好上行 → host 写 globalState，下次任何 webview
+   * （新页签/重建/重启）经 bootstrap data-sidebar-visible 注入回来。
+   * localStorage 在 VS Code 里按 webview origin 隔离，这是唯一跨页签通道。
+   */
+  notifyWorkspaceSidebarVisible(visible: boolean): void {
+    this.rpc.sendEvent("notifyWorkspaceSidebarVisible", { visible });
+  }
+
   registerOAuthState(_payload: unknown): void {
     // OAuth deep link 由 VS Code URI handler 承担（下期）。
   }

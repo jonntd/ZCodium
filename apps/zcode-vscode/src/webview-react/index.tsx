@@ -27,6 +27,10 @@ import {
   sendClientContext,
 } from "./bridge/webviewMessagePort";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import {
+  setWorkspaceSidebarVisibleReporter,
+  setWorkspaceSidebarVisibleSeed,
+} from "@/hooks/useAppPanels.js";
 import { VscodePlatformService } from "./platform/vscodePlatformService";
 import { mapVscodeLanguage } from "./i18nSetup";
 import type { VscodeThemeKind } from "./themeBridge";
@@ -50,6 +54,11 @@ interface BootstrapData {
   themeKind: VscodeThemeKind;
   locale: string;
   sessionId: string | null;
+  /**
+   * 侧栏显隐偏好（宿主 globalState 投影）：null = 从未设置过。
+   * 必须由宿主注入——webview 的 localStorage 按 origin 隔离，跨页签读不到。
+   */
+  sidebarVisible: boolean | null;
 }
 
 function readBootstrapData(): BootstrapData {
@@ -65,6 +74,12 @@ function readBootstrapData(): BootstrapData {
       data?.locale ??
       (typeof navigator !== "undefined" ? navigator.language : "en"),
     sessionId: data?.sessionId ? data.sessionId : null,
+    sidebarVisible:
+      data?.sidebarVisible === "1"
+        ? true
+        : data?.sidebarVisible === "0"
+          ? false
+          : null,
   };
 }
 
@@ -125,6 +140,13 @@ async function bootstrap(): Promise<void> {
   // 3. 平台服务 + renderer 就绪信号（host 据此下发初始 host 帧）。
   const platformService = new VscodePlatformService({ rpc, hostFrames });
   platformService.notifyRendererReady();
+
+  // 侧栏显隐偏好：宿主注入的种子（跨 webview 生效）与变更回传。
+  // 必须**在首次渲染前**注入 seed，否则 useState 初值会先落到"默认收起"。
+  setWorkspaceSidebarVisibleSeed(bootstrapData.sidebarVisible);
+  setWorkspaceSidebarVisibleReporter((visible) =>
+    platformService.notifyWorkspaceSidebarVisible(visible),
+  );
 
   // 4. React 装配树（App 内先同步应用主题 class，避免首帧闪白）。
   const container = document.getElementById("app");

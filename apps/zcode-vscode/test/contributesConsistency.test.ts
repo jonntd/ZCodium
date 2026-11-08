@@ -446,9 +446,13 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(chatPanel).not.toContain("onVisible");
     expect(chatPanel).not.toContain("scheduleSidePanelsCollapse");
     expect(chatPanel).not.toContain("closeAuxiliaryBar");
-    // 可见性只做状态自证（给编辑器标签的收栏兜底做避让判断），不执行任何命令。
-    expect(chatPanel).toContain("isViewVisible()");
-    expect(chatPanel).toContain("this.viewVisible = view.visible");
+    // 可见性连「状态自证」都不再保留：收栏兜底已整体删除，isViewVisible 没有消费者，
+    // 留着它只会让后人以为可见性还在起作用（死代码被契约测试保护）。
+    expect(chatPanel).not.toContain("isViewVisible");
+    expect(chatPanel).not.toContain("viewVisible");
+    // 侧栏显隐偏好改由宿主 bootstrap 注入（localStorage 跨 webview 不共享）。
+    expect(chatPanel).toContain("data-sidebar-visible");
+    expect(chatPanel).toContain("sidebarVisibleSeedProvider");
     // 收栏兜底仍挂在编辑器标签的显式打开路径上（命令/状态栏/标题栏按钮）。
     const container = readSource("src/container.ts");
     expect(container).not.toContain("new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId, () => {");
@@ -558,8 +562,13 @@ describe("IDE 内核 agent 侧栏自动展开根断（用户反馈：聚焦即�
     expect(script).toContain("gode: agent sidebar startup restore disabled");
   });
 
-  it("deploy.sh 部署后自动重打补丁（IDE 更新覆盖内核后保持默认关）", () => {
+  it("deploy.sh 部署后自动重打补丁，且补丁失败**不允许被吞**", () => {
     const deploy = readSource("scripts/deploy.sh");
-    expect(deploy).toContain("node scripts/disable-ide-agent-sidebar.mjs || true");
+    expect(deploy).toContain("node scripts/disable-ide-agent-sidebar.mjs");
+    // 曾经是 `... || true`：IDE 升级导致片段失配时补丁静默失效，
+    // 而部署仍报"完成"——"侧栏又自己弹出来"无声复发且无任何告警。
+    expect(deploy).not.toContain("disable-ide-agent-sidebar.mjs || true");
+    expect(deploy).toContain("patch_rc=$?");
+    expect(deploy).toContain('exit "$patch_rc"');
   });
 });

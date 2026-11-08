@@ -246,20 +246,42 @@ export function parseEditorTabUiPayload(payload: unknown): EditorTabUiPayload | 
 }
 
 /**
- * 合成编辑器标签标题：忙态前缀 + 会话标题（截断）或默认标题。
+ * 标题清洗：控制字符 / 零宽字符 / 双向文本控制符 → 空白。
+ *
+ * 这些字符进 IDE 标签会：把标题挤成一行空白（\n、\t）、让前后片段视觉消失
+ * （零宽），或用 RTL override 把标签显示顺序倒过来（U+202A-E / U+2066-9）。
+ * 标题来自会话首条消息（用户输入或模型输出），必须按不可信文本处理。
+ */
+function sanitizeTabTitle(raw: string): string {
+  return raw
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, " ")
+    .replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * 按**码点**截断：`slice()` 按 UTF-16 单元切，会把 emoji / 代理对切成半个字符
+ * （标签里显示成 �）。会话标题里 emoji 很常见，必须按码点计数。
+ */
+function truncateByCodePoints(text: string, max: number): string {
+  const codePoints = [...text];
+  return codePoints.length > max
+    ? `${codePoints.slice(0, max).join("")}…`
+    : text;
+}
+
+/**
+ * 合成编辑器标签标题：忙态前缀 + 会话标题（清洗 + 截断）或默认标题。
  * 纯函数（vitest 直测）；chatEditorPanel 拿结果直接写 panel.title。
  */
 export function composeEditorTabTitle(
   baseTitle: string,
   payload: EditorTabUiPayload,
 ): string {
-  const trimmed = payload.title?.trim() ?? "";
+  const trimmed = sanitizeTabTitle(payload.title ?? "");
   const body =
-    trimmed.length > 0
-      ? trimmed.length > EDITOR_TAB_TITLE_MAX_LENGTH
-        ? `${trimmed.slice(0, EDITOR_TAB_TITLE_MAX_LENGTH)}…`
-        : trimmed
-      : baseTitle;
+    trimmed.length > 0 ? truncateByCodePoints(trimmed, EDITOR_TAB_TITLE_MAX_LENGTH) : baseTitle;
   return payload.busy ? `${EDITOR_TAB_BUSY_PREFIX}${body}` : body;
 }
 

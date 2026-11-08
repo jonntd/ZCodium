@@ -103,8 +103,8 @@ describe("侧栏视图可见性：不跳转、不自关、不关资源管理器"
     expect(hostRuntime.attachWebview).toHaveBeenCalledWith(CHAT_VIEW_ID, view.webview);
     // HTML 已注入（视图真的是可用对话面，而不是被跳转顶掉的空壳）。
     expect(view.webview.html).toContain("zcode-bootstrap");
-    // 可见性状态自证（只给收栏兜底做避让判断，不产生命令）。
-    expect(panel.isViewVisible()).toBe(true);
+    // 侧栏显隐偏好由宿主 bootstrap 注入（localStorage 跨 webview 不共享）。
+    expect(view.webview.html).toContain("data-sidebar-visible");
   });
 
   it("视图隐藏 / 后续可见性变化同样不触发命令", () => {
@@ -113,28 +113,26 @@ describe("侧栏视图可见性：不跳转、不自关、不关资源管理器"
     const panel = new ChatPanel(extensionUri, hostRuntime as never, () => null);
     const view = makeView(false);
     panel.resolveWebviewView(view as never);
-    expect(panel.isViewVisible()).toBe(false);
 
     view.visible = true;
     view.fireVisibility();
-    expect(panel.isViewVisible()).toBe(true);
 
     view.visible = false;
     view.fireVisibility();
-    expect(panel.isViewVisible()).toBe(false);
 
     expect(executeCommand).not.toHaveBeenCalled();
   });
 
-  it("dispose 后可见性回落（避免收栏兜底读到过期状态）", () => {
+  it("dispose 后断开桥（可见性不再被任何决策消费，因此也不维护状态）", () => {
     const hostRuntime = makeHostRuntime();
     const panel = new ChatPanel(extensionUri, hostRuntime as never, () => null);
     const view = makeView(true);
     panel.resolveWebviewView(view as never);
-    expect(panel.isViewVisible()).toBe(true);
     view.fireDispose();
-    expect(panel.isViewVisible()).toBe(false);
     expect(hostRuntime.detachWebview).toHaveBeenCalledWith(CHAT_VIEW_ID);
+    // 视图已销毁：reveal() 不能静默 no-op，必须回报失败（旧实现 void this.view?.show
+    // 让调用方以为打开了）。
+    expect(panel.reveal()).toBe(false);
   });
 
   it("源码不再保留可见性跳板，编辑器面板也不执行任何布局命令", () => {

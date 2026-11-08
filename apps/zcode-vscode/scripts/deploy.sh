@@ -110,4 +110,27 @@ echo "[deploy] 完成：$DEST"
 echo "[deploy] 提示：如 IDE 正在运行，请 Reload Window（或重启 IDE）加载新产物。"
 
 # IDE 内核 agent 侧栏自动展开根断（幂等）：IDE 更新会覆盖内核 bundle，部署后重打。
-node scripts/disable-ide-agent-sidebar.mjs || true
+#
+# 失败**绝不能吞**（2026-11-08 审核修复）：旧版是 `... || true`，补丁在内核升级后必然
+# 失配退出 1，而部署仍打印"完成"。结果是最关键的修复静默失效、"侧栏又自己弹出来"
+# 无声复发，且没有任何告警——这正是最难排查的一类问题。
+set +e
+node scripts/disable-ide-agent-sidebar.mjs
+patch_rc=$?
+set -e
+if [ "$patch_rc" -ne 0 ]; then
+  cat >&2 <<'WARN'
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║ ⚠  内核补丁未应用：IDE 自动展开 agent 侧栏的根断已失效                    ║
+║                                                                          ║
+║  扩展产物已同步完成，但内核 bundle 片段与脚本不匹配（多为 IDE 升级所致）。║
+║  症状：对话页签获得焦点时 agent 侧栏重新自动弹出。                        ║
+║                                                                          ║
+║  下一步：                                                                 ║
+║    node apps/zcode-vscode/scripts/disable-ide-agent-sidebar.mjs --status  ║
+║  按输出更新脚本里的 ORIGINAL/PATCHED 片段后重跑部署。                     ║
+╚══════════════════════════════════════════════════════════════════════════╝
+WARN
+  exit "$patch_rc"
+fi

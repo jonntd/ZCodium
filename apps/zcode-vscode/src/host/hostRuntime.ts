@@ -63,6 +63,13 @@ export interface HostRuntimeOptions {
    */
   onEditorTabUi?: (connectionId: string, payload: unknown) => void;
   /**
+   * webview → host 的「工作区侧栏显隐」偏好上行（plat-evt
+   * "notifyWorkspaceSidebarVisible"）：extension 层落 `globalState`，下次打开任何
+   * webview（新页签/重建/重启）经 bootstrap 注入回去。
+   * 为什么不能只靠 webview 的 localStorage：每个 webview 有独立 origin，跨页签不共享。
+   */
+  onWorkspaceSidebarVisible?: (visible: boolean) => void;
+  /**
    * 会话标签共享态的持久化出口（webview 上行 syncSessionTabs 时写；读面用于
    * 晚启动连接补发）。extension 层注入 workspaceState 适配；缺省仅内存中继。
    */
@@ -320,6 +327,14 @@ export class HostRuntime {
       // 编辑器标签 UI 上行（会话标题/忙态）→ 定向回写该连接的 WebviewPanel 标题。
       if (frame.event === "notifyEditorTabUi") {
         this.options.onEditorTabUi?.(id, frame.payload);
+        return;
+      }
+      // 工作区侧栏显隐偏好上行 → 落 globalState（跨 webview 的唯一可靠通道）。
+      if (frame.event === "notifyWorkspaceSidebarVisible") {
+        const payload = frame.payload as { visible?: unknown } | null | undefined;
+        if (typeof payload?.visible === "boolean") {
+          this.options.onWorkspaceSidebarVisible?.(payload.visible);
+        }
         return;
       }
       // 会话标签全集上行 → 持久化 + 中继给其他就绪连接（多页签共享，回声由

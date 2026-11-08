@@ -34,7 +34,11 @@ vi.mock("vscode", () => ({
     createOutputChannel: () => ({ appendLine: () => {}, show: () => {} }),
     createWebviewPanel,
   },
-  workspace: { workspaceFolders: undefined },
+  workspace: {
+    workspaceFolders: undefined,
+    // gode.chat.openBeside 默认 false（= 首次打开不 split）。
+    getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }),
+  },
   commands: { executeCommand },
 }));
 
@@ -220,6 +224,31 @@ describe("对话编辑器面板：零布局副作用 + 不重复建标签", () =
     created[0]!.fireActive();
     expect(panel.activeConnectionId()).toBe("gode.chat.editor");
     expect(panel.reveal().created).toBe(false);
+  });
+
+  it("首次打开不新建编辑器组（不把用户单组布局改成两组）", () => {
+    const { panel } = newPanel();
+    createWebviewPanel.mockImplementation(() => makePanel());
+
+    panel.openNew();
+    // 第三参 = showOptions：viewColumn 必须是 Active（-1），不是 Beside（-2）。
+    expect(createWebviewPanel.mock.calls[0]![2]).toMatchObject({ viewColumn: -1 });
+  });
+
+  it("已有页签时新页签跟随它所在的组（尊重用户拖动/拆分后的位置）", () => {
+    const { panel } = newPanel();
+    const created: FakePanel[] = [];
+    createWebviewPanel.mockImplementation(() => {
+      const fake = makePanel();
+      created.push(fake);
+      return fake;
+    });
+
+    panel.openNew();
+    // 用户把第一页拖到第 2 组。
+    created[0]!.viewColumn = 2;
+    panel.openNew();
+    expect(createWebviewPanel.mock.calls[1]![2]).toMatchObject({ viewColumn: 2 });
   });
 
   it("标签 UI 上行只认编辑器页签连接（相似 id 不被误当成页签）", () => {

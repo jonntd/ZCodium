@@ -142,31 +142,59 @@ function createTerminalSidePaneTitle(
  * 背景（用户反馈：点「+」新建会话/新建页签时侧栏总自动展开）：该状态原本是纯内存
  * `useState(true)`——每个 webview 实例（IDE 编辑器页签重建、点「+」新建页签、
  * 重启 IDE）都从「展开」重新开始，用户收起过的选择完全丢失。
- * 现在落盘到 localStorage（同源 webview 共享、可跨会话），并用模块级变量兜住
- * localStorage 不可用（隐私模式/沙箱）时的同上下文记忆。
+ *
+ * **真实生效链（2026-11-08 审核订正）**：VS Code webview 按 WebviewPanel 隔离
+ * origin，`localStorage` 并不能跨页签共享——只靠 localStorage 时，新页签拿不到
+ * 用户在旧页签里的选择。所以三层：
+ *   1. 宿主持久化（扩展侧 `globalState`）→ bootstrap 注入 seed（`setWorkspaceSidebarVisibleSeed`）；
+ *   2. localStorage：同 origin 内的快速读取 / 宿主不可用时的降级；
+ *   3. 模块级记忆：localStorage 写入被拒（隐私模式/配额）时的同上下文兜底。
+ * 写入侧同时回传宿主（`setWorkspaceSidebarVisibleReporter`），否则层 1 永远是旧值。
  */
 const WORKSPACE_SIDEBAR_VISIBLE_STORAGE_KEY = "zcode:workspace-shell:sidebar-visible";
 
 /** 同 JS 上下文内的记忆（localStorage 不可用时仍能跨重挂载保持）。 */
 let workspaceSidebarVisibleMemory: boolean | null = null;
 
+/** 宿主注入的跨 webview 种子（扩展侧 globalState 投影；桌面形态为 null）。 */
+let workspaceSidebarVisibleSeed: boolean | null = null;
+
+/** 偏好变更上报面（webview 侧注入 → 回传宿主落盘；桌面形态不注入）。 */
+let workspaceSidebarVisibleReporter: ((visible: boolean) => void) | null = null;
+
+/** 宿主 bootstrap 时注入偏好种子（必须在首次渲染前调用）。 */
+export function setWorkspaceSidebarVisibleSeed(visible: boolean | null): void {
+  workspaceSidebarVisibleSeed = visible;
+}
+
+/** 注入偏好上报面（webview 挂桥后调用；传 null 解除）。 */
+export function setWorkspaceSidebarVisibleReporter(
+  next: ((visible: boolean) => void) | null,
+): void {
+  workspaceSidebarVisibleReporter = next;
+}
+
 /**
  * 读取侧栏显隐偏好。
  *
  * 默认值 = **收起**（用户明确诉求：侧边开关默认关，别再自动展开）。
- * 注意不能用 isDesktop 分支：IDE 插件宿主的 vscodePlatformService.isDesktop 也是
- * true（桌面能力位），按宿主区分会把 IDE 里的默认值又翻回展开。
+ * 各形态口径统一：不使用 isDesktop 分支——IDE 插件宿主的
+ * vscodePlatformService.isDesktop 也是 true（桌面能力位），按宿主区分会把 IDE 里的
+ * 默认值又翻回展开，正是"注释说桌面端展开、实际全收起"那类无声行为变更的来源。
+ *
+ * **每次真读 localStorage**，不用模块级记忆做短路：短路会让「落盘 → 重挂载读回」
+ * 这条回归永远测不出来（测试假绿），也让同上下文的其他写盘入口失效。
  */
 export function readWorkspaceSidebarVisible(): boolean {
-  if (workspaceSidebarVisibleMemory !== null) return workspaceSidebarVisibleMemory;
   try {
     const raw = globalThis.localStorage?.getItem(WORKSPACE_SIDEBAR_VISIBLE_STORAGE_KEY);
     if (raw === "1") return (workspaceSidebarVisibleMemory = true);
     if (raw === "0") return (workspaceSidebarVisibleMemory = false);
   } catch {
-    // localStorage 不可用：落回默认值（不抛，侧栏功能不受影响）
+    // localStorage 不可用：落到同上下文记忆 / 宿主种子
+    return workspaceSidebarVisibleMemory ?? workspaceSidebarVisibleSeed ?? false;
   }
-  return (workspaceSidebarVisibleMemory = false);
+  return workspaceSidebarVisibleMemory ?? workspaceSidebarVisibleSeed ?? false;
 }
 
 export function persistWorkspaceSidebarVisible(visible: boolean): void {
@@ -178,6 +206,13 @@ export function persistWorkspaceSidebarVisible(visible: boolean): void {
     );
   } catch {
     // 写入失败仅失去跨会话记忆，不影响本次交互
+  }
+  // 回传宿主：webview origin 隔离，localStorage 带不到别的页签/下次启动，
+  // 只有宿主 globalState 才是真正跨 webview 的存储。
+  try {
+    workspaceSidebarVisibleReporter?.(visible);
+  } catch {
+    // 上报失败不影响本地交互
   }
 }
 
@@ -257,7 +292,8 @@ export function useAppPanels(options: {
   // 这样即使侧栏被隐藏，入口也仍然留在左上角，不会出现"收起后没有地方再展开"的问题；
   // 同时这里统一处理 macOS 红绿灯安全区，避免按钮和系统窗口控件重叠。
   // 初值来自落盘偏好（见 readWorkspaceSidebarVisible 注释）：IDE 里新开页签/重建
-  // webview 不再无条件展开侧栏；从未设置过时 IDE 内默认收起、桌面端默认展开。
+  // webview 不再无条件展开侧栏。优先级 = localStorage → 宿主 globalState 种子 →
+  // 默认收起（各形态统一，**没有**"桌面端默认展开"的分支）。
   const [isSidebarVisible, setIsSidebarVisible] = useState(() =>
     readWorkspaceSidebarVisible(),
   );
