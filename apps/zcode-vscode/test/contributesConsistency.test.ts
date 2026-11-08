@@ -242,31 +242,25 @@ describe("VS Code 宿主：去掉与 IDE 原生能力重复的 UI", () => {
   });
 });
 
-describe("webview 内会话标签栏（可拖动 / 可锁定）", () => {
-  it("App 渲染标签栏并接通选择/新建/关闭/锁定/重排", () => {
+describe("webview 内会话标签栏（已按用户反馈移除 UI）", () => {
+  it("App 不再渲染 SessionTabBar 与空态「历史会话」CTA（与 IDE 原生编辑器标签视觉重复）", () => {
     const app = readSource("src/webview-react/App.tsx");
-    expect(app).toContain("<SessionTabBar");
-    // 单会话不渲染标签栏（与外层 IDE 编辑器标签视觉重复）。
-    expect(app).toContain("tabState.tabs.length > 1 ? (");
-    for (const handler of [
-      "onSelect={handleSelectTab}",
-      "onNew={handleNewTab}",
-      "onClose={handleCloseTab}",
-      "onTogglePin={handleTogglePin}",
-      "onReorder={handleReorder}",
-    ]) {
-      expect(app).toContain(handler);
-    }
+    expect(app).not.toContain("<SessionTabBar");
+    // CTA 特有标识（注释里的「历史会话」字样合法保留，只锁 UI/链路面）。
+    expect(app).not.toContain("isDraftActive");
+    expect(app).not.toContain("requestSessionPicker");
+    expect(app).not.toContain("<Button");
+    // 底层标签状态机保留：会话绑定 / 本地持久化 / 跨页共享仍由它驱动。
     expect(app).toContain("SESSION_TAB_STORAGE_KEY");
+    expect(app).toContain("bindActiveSession(");
   });
 
-  it("组件提供原生拖拽与锁定/关闭入口", () => {
-    const bar = readSource("src/webview-react/SessionTabBar.tsx");
-    expect(bar).toContain("draggable={!tab.pinned}");
-    expect(bar).toContain("onDragStart");
-    expect(bar).toContain("onDrop");
-    expect(bar).toContain("onTogglePin(tab.id)");
-    expect(bar).toContain("tab.pinned ? null");
+  it("SessionTabBar 组件文件已删除", () => {
+    const { existsSync } = require("node:fs");
+    const { join } = require("node:path");
+    expect(
+      existsSync(join(__dirname, "..", "src", "webview-react", "SessionTabBar.tsx")),
+    ).toBe(false);
   });
 
   it("状态机纯函数覆盖重排/锁定/关闭", () => {
@@ -294,10 +288,6 @@ describe("webview 内会话标签栏（可拖动 / 可锁定）", () => {
     expect(app).toContain('window.addEventListener("focus", focusComposer)');
     // 选中标签本地持久化（各编辑器页签独立选会话，不跨页中继）。
     expect(app).toContain("SESSION_TAB_ACTIVE_STORAGE_KEY");
-    // 空态主按钮（Claude 同款 CTA）：草稿态常显「历史会话」，经 plat-evt 上行
-    // 复用 gode.pickSession 全链（title 按钮在标签多/窗口窄时会被折叠，此为保底）。
-    expect(app).toContain("const isDraftActive");
-    expect(app).toContain("requestSessionPicker?.()");
   });
 });
 
@@ -373,9 +363,9 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(container).toContain("onEditorTabUi: (connectionId, payload)");
     expect(container).toContain("sessionTabsPersistence:");
     expect(container).toContain('SESSION_TABS_HOST_KEY = "gode.sessionTabs.host"');
-    // 空态「历史会话」上行 → 复用 gode.pickSession 全链（快捷选择 + session-switch + reveal）。
-    expect(container).toContain('onRequestSessionPicker: () => {');
-    expect(container).toContain('commands.executeCommand("gode.pickSession")');
+    // 空态「历史会话」上行链已随 CTA 移除；历史入口 = 编辑器 title 按钮 + gode.pickSession。
+    expect(container).not.toContain("onRequestSessionPicker");
+    expect(container).not.toContain("requestSessionPicker");
     // 一次性上手卡：首次打开对话自动呈现（globalState 标记持久化）。
     expect(container).toContain("presentOnboardingOnce(): void");
     expect(container).toContain('"gode.onboarding.autoPresented"');

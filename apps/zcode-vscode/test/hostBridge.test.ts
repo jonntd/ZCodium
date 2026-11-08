@@ -649,33 +649,23 @@ describe("编辑器标签 UI 上行 + 会话标签中继（多页签共享）", 
     ).toEqual([{ id: "ok", title: "t", sessionId: "s", pinned: true }]);
   });
 
-  it("requestSessionPicker 上行路由到 onRequestSessionPicker（空态历史入口）", () => {
+  it("requestSessionPicker 上行已移除：未知 plat-evt 静默忽略（空态 CTA 已删）", () => {
     const calls: number[] = [];
     const runtime = new HostRuntime({
       services: new ServiceCollection(),
       exposurePolicy: createExposurePolicy([]),
       platformMethods: new Map(),
       settingsBridge: new HostSettingsBridge(() => normalizeSettingsSnapshot({})),
-      onRequestSessionPicker: () => calls.push(1),
     });
     runtime.attachWebview("gode.chat.editor", { postMessage: () => {} });
-    runtime.handleWebviewMessage("gode.chat.editor", {
-      t: "plat-evt",
-      event: "requestSessionPicker",
-    });
-    expect(calls).toEqual([1]);
-    // 未注入回调时静默忽略（不崩）。
-    const bare = new HostRuntime({
-      services: new ServiceCollection(),
-      exposurePolicy: createExposurePolicy([]),
-      platformMethods: new Map(),
-      settingsBridge: new HostSettingsBridge(() => normalizeSettingsSnapshot({})),
-    });
-    bare.attachWebview("gode.chat.editor", { postMessage: () => {} });
-    bare.handleWebviewMessage("gode.chat.editor", {
-      t: "plat-evt",
-      event: "requestSessionPicker",
-    });
+    // 移除后该事件不再有宿主处理器：静默忽略、不崩、不投递。
+    expect(() =>
+      runtime.handleWebviewMessage("gode.chat.editor", {
+        t: "plat-evt",
+        event: "requestSessionPicker",
+      }),
+    ).not.toThrow();
+    expect(calls).toEqual([]);
   });
 });
 

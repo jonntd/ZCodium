@@ -290,10 +290,8 @@ export async function createContainer(
         void context.workspaceState.update(SESSION_TABS_HOST_KEY, value);
       },
     },
-    // 空态「历史会话」主按钮 → 复用 gode.pickSession 全链（快捷选择 + session-switch + reveal）。
-    onRequestSessionPicker: () => {
-      void commands.executeCommand("gode.pickSession");
-    },
+    // 空态「历史会话」CTA 已移除（与 IDE 原生标签视觉重复）；历史入口保留
+    // 编辑器 title 按钮 + gode.pickSession 命令面板。
     log: (message) => diagnostics.log(message),
   });
 

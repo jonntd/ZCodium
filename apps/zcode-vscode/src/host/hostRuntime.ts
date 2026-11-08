@@ -70,11 +70,6 @@ export interface HostRuntimeOptions {
     read(): unknown;
     write(value: unknown): void;
   };
-  /**
-   * webview 空态「历史会话」主按钮上行（plat-evt requestSessionPicker）。
-   * extension 层注入为执行 gode.pickSession 命令（含 session-switch 帧 + reveal 全链）。
-   */
-  onRequestSessionPicker?: () => void;
   /** 诊断出口。 */
   log?: (message: string) => void;
 }
@@ -278,11 +273,6 @@ export class HostRuntime {
       // webview 侧 JSON 快照比对抑制）。
       if (frame.event === "syncSessionTabs") {
         this.syncSessionTabsFrom(id, frame.payload);
-        return;
-      }
-      // 空态「历史会话」主按钮 → host 快捷选择器（复用 gode.pickSession 全链）。
-      if (frame.event === "requestSessionPicker") {
-        this.options.onRequestSessionPicker?.();
         return;
       }
       // 桥层未知帧观测（webview 探针回传；外部宿主注入流量哨兵，有界 20 条/视图）。

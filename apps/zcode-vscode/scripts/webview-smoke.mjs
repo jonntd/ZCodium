@@ -81,25 +81,25 @@ const readyProbe = posted.some(
   (m) => m && m.t === "plat-evt" && m.event === "__debug-webview-ready",
 );
 const ctxSent = posted.some((m) => m && typeof m === "object" && m.t !== undefined);
-// 会话标签栏（Claude「Untitled」同款）只在多会话时渲染：单会话时与外层 IDE
-// 编辑器标签视觉重复，隐藏是预期。断言「标签数 ↔ 标签栏可见性」自洽。
-const tabBar = window.document.querySelector('[data-testid="session-tab-bar"]');
-const tabCount = window.document.querySelectorAll("[data-tab-id]").length;
-const tabConsistent = tabBar ? tabCount > 1 : tabCount <= 1;
+// 会话标签栏与空态「历史会话」CTA 已按用户反馈移除（与 IDE 原生编辑器标签视觉重复）：
+// 断言 DOM 中不再出现两排已删 UI 的痕迹。
+const removedUiProbe =
+  window.document.querySelector('[data-testid="session-tab-bar"]') === null &&
+  window.document.querySelectorAll("[data-tab-id]").length === 0;
 
 console.log("[smoke] posted frames:", posted.length,
   "first:", JSON.stringify(posted[0])?.slice(0, 160));
 console.log("[smoke] __debug-webview-ready:", readyProbe ? "SENT" : "NOT SENT");
 console.log("[smoke] React mounted into #app:", mounted ? "YES" : "NO",
   `(children=${app?.childElementCount ?? 0})`);
-console.log("[smoke] 会话标签栏:", tabBar ? `YES（${tabCount} 个标签）` : `隐藏（${tabCount} 个标签，单会话预期）`);
+console.log("[smoke] 已删 UI（会话标签栏/空态 CTA）无残留:", removedUiProbe ? "YES" : "NO");
 if (capturedError) console.log("[smoke] window error:", String(capturedError).slice(0, 300));
 
-if (!readyProbe || !mounted || capturedError || !tabConsistent) {
+if (!readyProbe || !mounted || capturedError || !removedUiProbe) {
   console.error("[smoke] FAIL — webview 产物未完成启动序列",
     !readyProbe ? "｜缺就绪探针" : "",
     !mounted ? "｜React 未挂载" : "",
-    !tabConsistent ? "｜会话标签数与标签栏可见性不一致" : "",
+    !removedUiProbe ? "｜已删 UI 仍渲染" : "",
     capturedError ? "｜运行时错误" : "");
   if (capturedError && capturedError.stack) console.error(capturedError.stack.split("\n").slice(0, 6).join("\n"));
   process.exit(1);

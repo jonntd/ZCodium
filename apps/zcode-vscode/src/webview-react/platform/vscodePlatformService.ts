@@ -354,11 +354,6 @@ export class VscodePlatformService implements IPlatformService {
     this.rpc.sendEvent("syncSessionTabs", tabs);
   }
 
-  /** 空态「历史会话」主按钮上行 → host 打开历史会话快捷选择器（gode.pickSession）。 */
-  requestSessionPicker(): void {
-    this.rpc.sendEvent("requestSessionPicker");
-  }
-
   registerOAuthState(_payload: unknown): void {
     // OAuth deep link 由 VS Code URI handler 承担（下期）。
   }

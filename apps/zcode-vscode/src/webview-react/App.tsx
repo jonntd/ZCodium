@@ -17,24 +17,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AppErrorBoundary, Root, ZCodeIntlProvider } from "@zcode/ui";
-import { Button } from "@/components/ui/button.js";
 import type { IPlatformService } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 // 模块级 zustand 单例（Root 内部消费同一实例）：观察 activeTaskId 变化承接 P1-1.5 上报。
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { useWorkspaceHeaderHintStore } from "@/store/workspaceHeaderHintStore.js";
 import { RuntimeRestartBanner } from "./banners/RuntimeRestartBanner";
-import { SessionTabBar } from "./SessionTabBar";
 import {
   SESSION_TAB_ACTIVE_STORAGE_KEY,
   SESSION_TAB_DEFAULT_TITLE,
   SESSION_TAB_STORAGE_KEY,
   bindActiveSession,
-  closeSessionTab,
   createSessionTab,
   parseStoredSessionTabs,
-  reorderSessionTabs,
-  toggleSessionTabPinned,
   type SessionTab,
 } from "./sessionTabs";
 import {
@@ -74,11 +69,6 @@ export interface EditorTabUiReportingPort {
 /** 会话标签共享上行面（plat-evt syncSessionTabs；host 持久化 + 中继给其他对话页）。 */
 export interface SessionTabsSyncPort {
   syncSessionTabs?(tabs: unknown): void;
-}
-
-/** 空态历史入口上行面（plat-evt requestSessionPicker；host 复用 gode.pickSession 全链）。 */
-export interface SessionPickerRequestPort {
-  requestSessionPicker?(): void;
 }
 
 export interface WebviewAppProps {
@@ -339,66 +329,9 @@ export function App({
     });
   }, [frameBus]);
 
-  const switchToTab = (tab: SessionTab): void => {
-    setSessionId(tab.sessionId);
-    onActiveSessionChange?.(tab.sessionId);
-    // 与 session-switch 帧同款路径：重挂载 Root 并精确 initialTaskId。
-    setSwitchTarget((prev) => ({ taskId: tab.sessionId, seq: prev.seq + 1 }));
-  };
-
-  const handleSelectTab = (id: string): void => {
-    const tab = tabState.tabs.find((candidate) => candidate.id === id);
-    if (!tab || id === tabState.activeId) return;
-    setTabState((current) => ({ ...current, activeId: id }));
-    switchToTab(tab);
-  };
-
-  const handleNewTab = (): void => {
-    const tab = createSessionTab();
-    setTabState((current) => ({ tabs: [...current.tabs, tab], activeId: tab.id }));
-    switchToTab(tab);
-  };
-
-  const handleCloseTab = (id: string): void => {
-    const result = closeSessionTab(tabState.tabs, id);
-    if (result.tabs.length === tabState.tabs.length) return; // 锁定标签不可关
-    if (result.tabs.length === 0) {
-      const fresh = createSessionTab();
-      setTabState({ tabs: [fresh], activeId: fresh.id });
-      switchToTab(fresh);
-      return;
-    }
-    const closingActive = id === tabState.activeId;
-    const nextActiveId = closingActive
-      ? (result.nextActiveId ?? result.tabs[0]!.id)
-      : tabState.activeId;
-    setTabState({ tabs: result.tabs, activeId: nextActiveId });
-    if (closingActive) {
-      const next = result.tabs.find((candidate) => candidate.id === nextActiveId);
-      if (next) switchToTab(next);
-    }
-  };
-
-  const handleTogglePin = (id: string): void => {
-    setTabState((current) => ({
-      ...current,
-      tabs: toggleSessionTabPinned(current.tabs, id),
-    }));
-  };
-
-  const handleReorder = (fromId: string, toId: string): void => {
-    setTabState((current) => {
-      const next = reorderSessionTabs(current.tabs, fromId, toId);
-      return next === current.tabs ? current : { ...current, tabs: [...next] };
-    });
-  };
-
-  // 空态判定：活动页签尚未绑定会话（草稿态）。Root 内首条消息创建会话后
-  // onActiveSessionChange 回写页签 → 立即消失，不会与进行中会话并存。
-  const activeTab =
-    tabState.tabs.find((tab) => tab.id === tabState.activeId) ?? null;
-  const isDraftActive = activeTab !== null && activeTab.sessionId === null;
-
+  // 空态判定（草稿态）由 Root 内部自管；webview 顶层不再渲染会话标签栏与
+  // 空态历史入口按钮——两者与 IDE 原生编辑器标签视觉重复，已按用户反馈移除
+  // （历史入口保留：编辑器 title 按钮 + gode.pickSession 命令面板）。
   return (
     <AppErrorBoundary>
       {/* 与 web 入口同款包装：AppErrorBoundary + ZCodeIntlProvider + Root。
@@ -425,36 +358,6 @@ export function App({
           />
           {/* 能力提示横幅行已移除（spec: workspace-header-status-hint）：
               文案经 workspaceHeaderHintStore 并入 WorkspaceHeader 单排 chip。 */}
-          {/* 会话标签栏仅在多会话时渲染：单会话时与外层 IDE 编辑器标签视觉重复。 */}
-          {tabState.tabs.length > 1 ? (
-            <SessionTabBar
-              tabs={tabState.tabs}
-              activeId={tabState.activeId}
-              onSelect={handleSelectTab}
-              onNew={handleNewTab}
-              onClose={handleCloseTab}
-              onTogglePin={handleTogglePin}
-              onReorder={handleReorder}
-            />
-          ) : null}
-          {/* 空态主按钮（Claude 同款 CTA）：草稿态下唯一显性的历史入口——
-              编辑器 title 按钮在标签多/窗口窄时会被折叠，这里保底常显。
-              非 draft（会话进行中）不渲染，避免与顶栏历史入口重复。 */}
-          {isDraftActive ? (
-            <div className="flex shrink-0 items-center justify-center gap-2 pb-0.5">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-6 px-2 text-foreground-subtle enabled:cursor-pointer"
-                onClick={() => {
-                  (platform as SessionPickerRequestPort).requestSessionPicker?.();
-                }}
-              >
-                历史会话
-              </Button>
-            </div>
-          ) : null}
           <div className="min-h-0 flex-1">
             <Root
               key={switchTarget.seq}
