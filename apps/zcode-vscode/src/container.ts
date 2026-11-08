@@ -19,6 +19,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CliLocator } from "./cli/cliLocator";
 import { createResolveFileDropPathsMethod } from "./host/fileDropPlatformMethod";
+import { isPathInsideWorkspace } from "./host/pathContainment";
 import {
   createCodeActionEntry,
   registerEditorCommands,
@@ -82,6 +83,7 @@ import { normalizeMcpServersForSettings } from "./configSettings";
 import type { WorkspaceHostFramePayload } from "./host/hostFrameKinds";
 import { registerHostCommands } from "./commands/hostCommands";
 import { ChangesDiffOpener } from "./host/pendingChanges/diffOpener";
+import { parsePatchHunks } from "./host/pendingChanges/beforeContent";
 
 /** 指令导入的单文件内容上限（importWorkspaceInstructions，组4 一次性导入面）。 */
 const INSTRUCTION_IMPORT_LIMIT_BYTES = 512 * 1024;
@@ -676,13 +678,21 @@ function buildPlatformMethods(deps: {
         typeof request?.resolvedPath === "string" ? request.resolvedPath : undefined;
       if (!resolvedPath || !Array.isArray(request?.patches))
         throw new Error("openPatchDiffInEditor: resolvedPath/patches 必须提供");
+      // 安全审查 S1：webview 传任意路径 = 任意文件读取 oracle（文件内容进 diff
+      // 面板）。路径必须落在 workspace folder 内（fail-closed：无工作区一律拒绝）。
+      const folders = (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+      if (!isPathInsideWorkspace(resolvedPath, folders)) {
+        throw new Error("openPatchDiffInEditor: resolvedPath 不在 workspace 内，已拒绝");
+      }
+      // 安全审查 S4：patches 形状宽松解析，畸形输入报参数错误而非未捕获异常。
+      const patches = parsePatchHunks(request.patches);
+      if (patches === null) {
+        throw new Error("openPatchDiffInEditor: patches 形状非法（须为 hunk 数组）");
+      }
       const opener = diffOpener();
       if (!opener) throw new Error("openPatchDiffInEditor: diffOpener 未就绪");
       // 复用 pendingChanges 的原生双栏 diff（zcode-before 反向应用管线）。
-      await opener.openPendingDiff({
-        resolvedPath,
-        patches: request.patches as Parameters<typeof opener.openPendingDiff>[0]["patches"],
-      });
+      await opener.openPendingDiff({ resolvedPath, patches });
       return true;
     },
     revealWorkspace: async () => {

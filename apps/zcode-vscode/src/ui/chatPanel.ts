@@ -8,6 +8,7 @@
  * （server/iframe 形态已退役：跨源上下文断裂，见 2026-11-06 缺陷分析。）
  */
 
+import { randomBytes } from "node:crypto";
 import type { Webview, WebviewView, WebviewViewProvider } from "vscode";
 import { Uri, env, window, workspace } from "vscode";
 import type { HostRuntime } from "../host/hostRuntime";
@@ -76,7 +77,9 @@ export function buildChatWebviewHtml(
   extensionUri: Uri,
   resolveInitialSessionId: (folder: string) => string | null,
 ): string {
-  const nonce = Array.from({ length: 32 }, () => Math.random().toString(36).slice(2)).join("");
+  // CSP nonce 用密码学随机（安全审查 S3）：Math.random 可预测，nonce 是 CSP
+  // 唯一脚本信凭，不该依赖其不可猜测性。
+  const nonce = randomBytes(16).toString("hex");
   const scriptUri = webview.asWebviewUri(
     Uri.joinPath(extensionUri, "dist", "webview", "main.js"),
   );

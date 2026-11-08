@@ -9,7 +9,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { reverseApplyPatches } from "../src/host/pendingChanges/beforeContent";
+import {
+  parsePatchHunks,
+  reverseApplyPatches,
+} from "../src/host/pendingChanges/beforeContent";
 import type { ChangeHunk } from "../src/host/pendingChanges/types";
 
 function hunk(
@@ -138,5 +141,34 @@ describe("reverseApplyPatches", () => {
     const after = "brand new content\n";
     const patches = [hunk(1, 0, 1, 1, ["+brand new content"])];
     expect(reverseApplyPatches(after, patches)).toBe("");
+  });
+});
+
+describe("parsePatchHunks（安全审查 S4：RPC 面宽松解析，畸形整体拒绝）", () => {
+  it("合法 hunk 数组解析为 ChangeHunk[]", () => {
+    expect(
+      parsePatchHunks([
+        { oldStart: 1, oldLines: 2, newStart: 1, newLines: 3, lines: [" a", "+b"] },
+      ]),
+    ).toEqual([
+      { oldStart: 1, oldLines: 2, newStart: 1, newLines: 3, lines: [" a", "+b"] },
+    ]);
+    expect(parsePatchHunks([])).toEqual([]);
+  });
+
+  it("非数组 / 脏条目 / 缺字段 / 非有限数字 / lines 非字符串数组 → null", () => {
+    expect(parsePatchHunks("x")).toBeNull();
+    expect(parsePatchHunks([null])).toBeNull();
+    expect(parsePatchHunks([{ oldStart: 1 }])).toBeNull();
+    expect(
+      parsePatchHunks([
+        { oldStart: Number.NaN, oldLines: 0, newStart: 1, newLines: 0, lines: [] },
+      ]),
+    ).toBeNull();
+    expect(
+      parsePatchHunks([
+        { oldStart: 1, oldLines: 0, newStart: 1, newLines: 0, lines: [1] },
+      ]),
+    ).toBeNull();
   });
 });

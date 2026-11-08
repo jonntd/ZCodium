@@ -10,7 +10,7 @@
  * 纯 headless（fs + JSON + 源码正则），不需要 vscode 运行时。
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -131,6 +131,33 @@ describe("聊天卡片「审查 / 打开」保留能力", () => {
     expect(container).toContain("new ChangesDiffOpener()");
     expect(container).toContain("opener.openPendingDiff(");
     expect(container).toContain('executeCommand("vscode.open"');
+    // 安全审查 S1：文件内容读面收敛到 workspace 内（fail-closed），不做任意读。
+    expect(container).toContain("isPathInsideWorkspace(resolvedPath, folders)");
+    expect(container).toContain(
+      '"openPatchDiffInEditor: resolvedPath 不在 workspace 内，已拒绝"',
+    );
+    // 安全审查 S4：patches 形状宽松解析（RPC 面不做 as 断言）。
+    expect(container).toContain("parsePatchHunks(request.patches)");
+    // 性能审查 P3：diff 内容缓存 LRU 有界（8 条），不做无界 Map。
+    const diffOpener = readSource("src/host/pendingChanges/diffOpener.ts");
+    expect(diffOpener).toContain("MAX_DIFF_CACHE_ENTRIES = 8");
+    expect(diffOpener).toContain("cacheSet(");
+    expect(diffOpener).not.toContain("Date.now().toString(36)");
+  });
+
+  it("安全加固：webview CSP nonce 密码学随机 + fileDrop 附件大小上限", () => {
+    // 安全审查 S3：Math.random 可预测，nonce 是 CSP 唯一脚本信凭。
+    const chatPanel = readSource("src/ui/chatPanel.ts");
+    expect(chatPanel).toContain("randomBytes(16).toString(\"hex\")");
+    expect(chatPanel).not.toContain("Math.random().toString(36)");
+    // 性能审查 P4：fileDrop 超 20MB 静默过滤，边界值放行。
+    const resolver = readSource("src/host/fileDropResolver.ts");
+    expect(resolver).toContain("MAX_FILE_DROP_BYTES = 20 * 1024 * 1024");
+    expect(resolver).toContain("stat.sizeBytes > maxFileBytes");
+    // 纯层校验器存在且有单测（S1 的可测核心）。
+    const containment = readSource("src/host/pathContainment.ts");
+    expect(containment).toContain("export function isPathInsideWorkspace");
+    expect(existsSync(resolve(ROOT, "test/pathContainment.test.ts"))).toBe(true);
   });
 });
 

@@ -18,6 +18,37 @@
 
 import type { ChangeHunk } from "./types";
 
+/**
+ * 宽松解析 webview 上行的 patches（安全审查 S4）：RPC 面不做 `as` 断言，
+ * 脏数据整体拒绝返回 null（调用方报参数错误），不抛未捕获异常。
+ * 最小形状：hunks 数组，每项含有限数字字段与字符串数组 lines。
+ */
+export function parsePatchHunks(input: unknown): ChangeHunk[] | null {
+  if (!Array.isArray(input)) return null;
+  const hunks: ChangeHunk[] = [];
+  for (const raw of input) {
+    if (typeof raw !== "object" || raw === null) return null;
+    const record = raw as Record<string, unknown>;
+    const numeric = (key: string): number | null => {
+      const value = record[key];
+      return typeof value === "number" && Number.isFinite(value) ? value : null;
+    };
+    const oldStart = numeric("oldStart");
+    const oldLines = numeric("oldLines");
+    const newStart = numeric("newStart");
+    const newLines = numeric("newLines");
+    if (oldStart === null || oldLines === null || newStart === null || newLines === null) {
+      return null;
+    }
+    const lines = record.lines;
+    if (!Array.isArray(lines) || lines.some((line) => typeof line !== "string")) {
+      return null;
+    }
+    hunks.push({ oldStart, oldLines, newStart, newLines, lines: [...lines] });
+  }
+  return hunks;
+}
+
 type HunkLineKind = "context" | "old" | "new" | "meta";
 
 function classifyHunkLine(line: string): { kind: HunkLineKind; text: string } {

@@ -102,4 +102,31 @@ describe("resolveFileDropUris（spec: composer-explorer-file-drop）", () => {
     ]);
     await expect(resolveFileDropUris([], io)).resolves.toEqual([]);
   });
+
+  it("超限文件静默过滤（P4：附件面不进超大文件），边界值放行", async () => {
+    const io = createIo({
+      "/w/huge.bin": { isFile: true, sizeBytes: 100 * 1024 * 1024 },
+      "/w/edge.md": { isFile: true, sizeBytes: 20 * 1024 * 1024 },
+      "/w/over.md": { isFile: true, sizeBytes: 20 * 1024 * 1024 + 1 },
+      "/w/ok.md": { isFile: true, sizeBytes: 12 },
+    });
+    await expect(
+      resolveFileDropUris(
+        ["file:///w/huge.bin", "file:///w/over.md", "file:///w/edge.md", "file:///w/ok.md"],
+        io,
+      ),
+    ).resolves.toEqual([
+      { path: "/w/edge.md", sizeBytes: 20 * 1024 * 1024 },
+      { path: "/w/ok.md", sizeBytes: 12 },
+    ]);
+  });
+
+  it("自定义 maxFileBytes 生效", async () => {
+    const io = createIo({
+      "/w/a.md": { isFile: true, sizeBytes: 100 },
+    });
+    await expect(
+      resolveFileDropUris(["file:///w/a.md"], io, { maxFileBytes: 50 }),
+    ).resolves.toEqual([]);
+  });
 });
