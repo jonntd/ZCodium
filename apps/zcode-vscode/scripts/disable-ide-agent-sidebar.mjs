@@ -18,6 +18,15 @@
  * 这条路径完全绕过 openPanel，补丁 1 拦不住（用户实测重启后侧栏仍然自动出现）。
  * 本补丁将其翻转为默认隐藏：HIDDEN,!1 → HIDDEN,!0 且恢复容器置 void 0。
  *
+ * 【补丁 3】「最大化辅助侧栏」原版语义是**独占窗口**：setAuxiliaryBarMaximized(true)
+ * 记下四块区域的可见性后，把资源管理器（sidebar）、面板（panel）、编辑器（editor）
+ * 全部隐藏，辅助栏吃掉整块窗口 —— 用户点一下最大化，正在写的标签页和文件树一起消失，
+ * 再点回来虽然会恢复，但过程中编辑器被卸载重建、滚动位置/焦点丢失。
+ * 本补丁只改「进入最大化」这一支：**不再隐藏任何区域**，改为把辅助栏横向撑到可用宽度的
+ * 约 60%（编辑器至少保留 420px 或 40%），资源管理器宽度原样不动；「退出最大化」分支
+ * 保持原版（把辅助栏宽度还原成 AUXILIARYBAR_LAST_NON_MAXIMIZED_SIZE）。
+ * 也就是说：最大化 = 「把对话栏拉宽」，而不是「把别的都收起来」。
+ *
  * 用法：
  *   node disable-ide-agent-sidebar.mjs              # 打补丁（幂等，首次自动备份）
  *   node disable-ide-agent-sidebar.mjs --dry-run    # 只报告将要做什么，不写任何文件
@@ -31,11 +40,14 @@
  *     仍在，同时不破坏 code signature 之外的可写面；
  *   - 备份旁存指纹（sha256 / size / IDE 版本 / 打补丁后的 hash）：--restore 前比对当前
  *     bundle，不一致（= IDE 已升级）就拒绝，避免把旧内核盖回新 IDE；
- *   - 参数白名单：未知参数直接报错退出（旧实现会把 --dry-run 当"打补丁"执行）。
+ *   - 参数白名单：未知参数直接报错退出（旧实现会把 --dry-run 当"打补丁"执行）；
+ *   - 写盘前 `node --check` 语法自检：单行 bundle 上少一个逗号就是白屏，自检不过
+ *     就不替换（原文件未动）。
  *
  * IDE 更新/重装后补丁会被覆盖，重跑本脚本即可。生效需 Reload Window（建议整退重启）。
  */
 import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 import {
   closeSync,
   copyFileSync,
@@ -92,6 +104,14 @@ const PATCHES = [
     PATCHED:
       'this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_HIDDEN,!0),this.state.initialization.views.containerToRestore.auxiliaryBar=void 0,this.updateWindowBorder(!0)/* gode: agent sidebar startup restore disabled */',
   },
+  {
+    id: "maximize-keeps-editor",
+    name: "最大化辅助栏不再隐藏编辑器/资源管理器（改为拉宽）",
+    ORIGINAL:
+      'e.sideBarVisible&&this.setSideBarHidden(!0),e.panelVisible&&this.setPanelHidden(!0),e.editorVisible&&this.setEditorHidden(!0),this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
+    PATCHED:
+      '(()=>{const t=this.workbenchGrid.getViewSize().width,n=this.isVisible("workbench.parts.sidebar")?this.workbenchGrid.getViewSize(this.sideBarPartView).width:0,r=this.isVisible("workbench.parts.activitybar")?this.workbenchGrid.getViewSize(this.activityBarPartView).width:0,s=Math.max(0,t-n-r),o=Math.max(i,Math.min(Math.round(s*.6),s-Math.max(420,Math.round(s*.4))));this.workbenchGrid.resizeView(this.auxiliaryBarPartView,{width:o,height:this.workbenchGrid.getViewSize(this.auxiliaryBarPartView).height}),n>0&&this.workbenchGrid.getViewSize(this.sideBarPartView).width!==n&&this.workbenchGrid.resizeView(this.sideBarPartView,{width:n,height:this.workbenchGrid.getViewSize(this.sideBarPartView).height})})(),/* gode: maximize keeps editor + sidebar visible */this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
+  },
 ];
 
 /**
@@ -144,15 +164,32 @@ function ideVersion() {
 }
 
 /**
+ * 语法自检：补丁是对 27MB 的**单行** bundle 做字符串替换，少一个逗号/多一个括号，
+ * 结果都是 IDE 白屏起不来，而且没有任何可读报错（Renderer 直接 SyntaxError 挂掉）。
+ * `node --check` 对 27MB 约 0.3s，完全付得起；不通过就放弃替换，原文件分毫未动。
+ */
+function syntaxError(file) {
+  const result = spawnSync(process.execPath, ["--check", file], { encoding: "utf8" });
+  if (result.status === 0) return null;
+  const lines = `${result.stderr ?? ""}${result.stdout ?? ""}`.trim().split("\n");
+  return lines.slice(0, 6).join("\n");
+}
+
+/**
  * 原子写入：同目录临时文件 → 校验字节数 → rename。
  *
  * 直接 writeFileSync(27MB) 是**非原子**的：写入途中 Ctrl-C / 磁盘满 / 权限抖动都会
  * 留下截断的 bundle，IDE 直接起不来（备份虽在，但用户多半不知道可以 --restore）。
  * rename 在同文件系统内是原子替换：要么旧文件完好，要么新文件完整。
  */
-function writeAtomic(file, contents) {
+function writeAtomic(file, contents, { validateSyntax = false } = {}) {
   const dir = dirname(file);
-  const tmp = join(dir, `.${basename(file)}.gode-tmp-${process.pid}`);
+  // 做语法自检时临时文件名必须以 .js 结尾：`node --check` 按扩展名判定模块类型，
+  // 无扩展名会直接抛 ERR_UNKNOWN_FILE_EXTENSION，把"校验不了"误报成"语法错误"。
+  const tmp = join(
+    dir,
+    `.${basename(file)}.gode-tmp-${process.pid}${validateSyntax ? ".js" : ""}`,
+  );
   // 权限位必须沿用原文件：临时文件按 umask 新建（通常 644），若原 bundle 是 640/660
   // 或带 setgid，rename 之后权限就被悄悄改了——IDE 排查这类问题极其费时。
   let mode = 0o644;
@@ -184,6 +221,13 @@ function writeAtomic(file, contents) {
   if (size !== expected) {
     rmSync(tmp, { force: true });
     fail(`临时文件字节数不符（期望 ${expected}，实际 ${size}），已放弃替换。`);
+  }
+  if (validateSyntax) {
+    const problem = syntaxError(tmp);
+    if (problem) {
+      rmSync(tmp, { force: true });
+      fail(`临时文件语法校验未通过（原文件未改动）：\n${problem}`);
+    }
   }
   renameSync(tmp, file);
   // 目录项也要落盘：rename 只保证"要么旧要么新"，断电后目录项未同步仍可能回到旧名。
@@ -328,7 +372,7 @@ function restore({ force }) {
     process.exit(1);
   }
 
-  writeAtomic(TARGET, backup);
+  writeAtomic(TARGET, backup, { validateSyntax: true });
   rmSync(META, { force: true });
   console.log(`[ide-patch] 已恢复原版 ← ${source}（Reload Window 生效）`);
 }
@@ -392,7 +436,7 @@ function patch({ dryRun }) {
     if (!data.includes(entry.PATCHED)) {
       fail(`写入前自检失败（补丁片段缺失）：${entry.name}`);
     }
-    console.log(`[ide-patch] ✓ 已打补丁：${entry.name}`);
+    console.log(`[ide-patch] ✓ ${dryRun ? "(dry-run) 将打补丁" : "已打补丁"}：${entry.name}`);
   }
 
   const audit = auditShowSites(data);
@@ -408,7 +452,7 @@ function patch({ dryRun }) {
     return;
   }
 
-  writeAtomic(TARGET, data);
+  writeAtomic(TARGET, data, { validateSyntax: true });
   const after = readFileSync(TARGET);
   for (const [entry] of states) {
     if (!after.includes(entry.PATCHED)) fail(`终验失败：${entry.name}`);
@@ -433,6 +477,9 @@ function patch({ dryRun }) {
   }
   console.log(
     "[ide-patch] ✓ 内核 agent 侧栏已从根禁用自动展开（运行期 openPanel + 启动布局强制恢复双根断）。",
+  );
+  console.log(
+    "[ide-patch] ✓ 辅助栏「最大化」改为只拉宽自身：编辑器标签页与资源管理器保持可见。",
   );
   console.log(
     "[ide-patch] 生效：Reload Window（建议整退重启 IDE）。恢复：node scripts/disable-ide-agent-sidebar.mjs --restore",
