@@ -517,6 +517,12 @@ describe("IDE 内核 agent 侧栏自动展开根断（用户反馈：聚焦即�
     expect(script).toContain('"--restore"');
     expect(script).toContain('"--status"');
     expect(script).toContain('gode-orig.bak');
+    // 补丁 2：布局初始化每次启动都无条件强制辅助栏可见并恢复 agent 容器，
+    // 该路径绕过 openPanel（补丁 1 拦不住）——必须翻转为默认隐藏。
+    expect(script).toContain("启动布局强制恢复 agent 辅助栏 → 默认隐藏");
+    expect(script).toContain("AUXILIARYBAR_HIDDEN,!0");
+    expect(script).toContain("auxiliaryBar=void 0");
+    expect(script).toContain("gode: agent sidebar startup restore disabled");
   });
 
   it("deploy.sh 部署后自动重打补丁（IDE 更新覆盖内核后保持默认关）", () => {
