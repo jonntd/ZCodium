@@ -145,7 +145,7 @@
       },
       {
         "command": "gode.toggleChatFullscreen",
-        "title": "切换对话全屏（最大化编辑器组）",
+        "title": "切换对话全屏（展开 / 均分编辑器组）",
         "category": "Gode",
         "icon": "$(screen-full)"
       },
