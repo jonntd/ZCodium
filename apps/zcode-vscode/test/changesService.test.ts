@@ -254,6 +254,8 @@ function makeHarness(initialSession: string | null = "s-1"): Harness {
     workspaceRoot: () => WORKSPACE_ROOT,
     readFile: async () => "",
     clientId: "host-test",
+    // P1 合批持久化在测试里关掉（同步直写），断言保持确定性。
+    persistDebounceMs: 0,
     persist: (next) => {
       persisted = next;
     },

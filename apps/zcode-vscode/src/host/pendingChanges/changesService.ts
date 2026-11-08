@@ -21,6 +21,7 @@ import type {
 import { conversationTopicFrameSchema } from "@zcode/shared/zcode-protocol-v4";
 import type { IZCodeAgentService } from "@zcode/services";
 import { ChangesTracker, resolveChangePath } from "./changesTracker";
+import { DebouncedPersister } from "./debouncedPersister";
 import { buildApplyFileRewindEnvelope } from "./commandEnvelope";
 import type {
   ChangeFileItem,
@@ -75,6 +76,8 @@ export interface ChangesServiceOptions {
   log: (message: string) => void;
   /** 注入时钟（测试确定性）。 */
   now?: () => number;
+  /** 持久化合批窗口（性能审查 P1；<=0 同步直写，测试确定性用）。 */
+  persistDebounceMs?: number;
 }
 
 interface Subscription {
@@ -99,12 +102,18 @@ export class ChangesService {
   private readonly changeListeners = new Set<(snapshot: ChangesSnapshot) => void>();
   /** 明细拉取去重（同一轮并发只发一次查询）。 */
   private readonly fetchingTargets = new Set<string>();
+  private readonly persister: DebouncedPersister;
 
   constructor(options: ChangesServiceOptions) {
     this.options = options;
-    // tracker 变化 → 持久化 + 下游刷新（树/状态栏/上下文键经 changeListeners）。
+    // tracker 变化 → 持久化（P1：trailing 合批 + 指纹去重，防流式期间每帧全量
+    // workspaceState.update）+ 下游刷新（树/状态栏/上下文键经 changeListeners）。
+    this.persister = new DebouncedPersister(
+      (state) => this.options.persist(state as PersistedChanges),
+      options.persistDebounceMs ?? 250,
+    );
     this.tracker.onChange((snapshot) => {
-      this.options.persist({
+      this.persister.push({
         pending: [...snapshot.pending],
         history: [...snapshot.history],
       });
@@ -313,6 +322,8 @@ export class ChangesService {
 
   dispose(): void {
     this.disposed = true;
+    // 合批中的最后一笔先落盘（防丢尾部变化），再拆订阅。
+    this.persister.dispose();
     this.teardownSubscription();
     this.restartDisposable?.dispose();
     this.changeListeners.clear();
@@ -678,8 +689,12 @@ export function describeUnsafe(
   return `已阻止撤销以保护你的改动：${detail}。可手动处理后再试。`;
 }
 
-/** 便捷：rawPath → 绝对路径（树/命令装配用；与 tracker 内部语义一致）。 */
-export function resolveChangeFilePath(rawPath: string, workspaceRoot: string): string {
+/** 便捷：rawPath → 绝对路径（树/命令装配用；与 tracker 内部语义一致）。
+ *  穿越逃逸（解析结果不在 workspaceRoot 内）返回 null（安全审查 S2 fail-closed）。 */
+export function resolveChangeFilePath(
+  rawPath: string,
+  workspaceRoot: string,
+): string | null {
   return resolveChangePath(rawPath, workspaceRoot);
 }
 

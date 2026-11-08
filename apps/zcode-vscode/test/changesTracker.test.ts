@@ -10,7 +10,11 @@ import {
   HISTORY_TURN_LIMIT,
   resolveChangePath,
 } from "../src/host/pendingChanges/changesTracker";
-import type { TrackedFrame, TrackedTurnHeader } from "../src/host/pendingChanges/types";
+import type {
+  HistoryTurnEntry,
+  TrackedFrame,
+  TrackedTurnHeader,
+} from "../src/host/pendingChanges/types";
 
 function turnHeader(overrides: Partial<TrackedTurnHeader> & { rowId: number }): TrackedTurnHeader {
   return {
@@ -46,10 +50,20 @@ function detailItems(paths: string[]) {
 }
 
 describe("resolveChangePath", () => {
-  it("相对路径拼 workspaceRoot；绝对路径原样", () => {
+  it("相对路径拼 workspaceRoot；workspace 内绝对路径原样", () => {
     expect(resolveChangePath("src/a.ts", "/ws")).toBe("/ws/src/a.ts");
-    expect(resolveChangePath("/abs/a.ts", "/ws")).toBe("/abs/a.ts");
+    expect(resolveChangePath("/ws/abs/a.ts", "/ws")).toBe("/ws/abs/a.ts");
     expect(resolveChangePath("src/a.ts", "/ws/")).toBe("/ws/src/a.ts");
+    expect(resolveChangePath("", "/ws")).toBe("/ws");
+  });
+
+  it("S2：逃逸 workspaceRoot 的路径 fail-closed 返回 null", () => {
+    // 相对穿越逃逸。
+    expect(resolveChangePath("../../etc/passwd", "/ws")).toBeNull();
+    expect(resolveChangePath("a/../../../tmp/x", "/ws")).toBeNull();
+    // workspace 外的绝对路径（CLI 产外部路径 = 撤销预检也会拦的外部改动）。
+    expect(resolveChangePath("/etc/passwd", "/ws")).toBeNull();
+    expect(resolveChangePath("/wsibling/a.ts", "/ws")).toBeNull();
   });
 });
 
@@ -342,5 +356,43 @@ describe("ChangesTracker", () => {
     });
     expect(tracker.snapshot().undetailedTurns).toBeUndefined();
     expect(tracker.snapshot().pending).toHaveLength(1);
+  });
+});
+
+describe("importPersisted 裁剪（性能审查 P2）", () => {
+  function historyTurn(rowId: number): HistoryTurnEntry {
+    return {
+      sessionId: "s-1",
+      target: { rowId, entityId: `entity-${rowId}` },
+      rowId,
+      endedAt: rowId * 1000,
+      files: [
+        { path: `f${rowId}.ts`, resolvedPath: `/ws/f${rowId}.ts`, additions: 1, deletions: 0, state: "kept" },
+      ],
+    };
+  }
+
+  it("持久化历史超 HISTORY_TURN_LIMIT 时导入后裁最旧", () => {
+    const tracker = new ChangesTracker();
+    tracker.resetForSession("s-1");
+    const overLimit = HISTORY_TURN_LIMIT + 5;
+    const history = Array.from({ length: overLimit }, (_, index) => historyTurn(index + 1));
+    tracker.importPersisted({ pending: [], history }, "s-1");
+    const snapshot = tracker.snapshot();
+    expect(snapshot.history).toHaveLength(HISTORY_TURN_LIMIT);
+    // 裁最旧（endedAt 升序最小者）：rowId 1..5 消失，最新保留。
+    const rowIds = new Set(snapshot.history.map((turn) => turn.rowId));
+    expect(rowIds.has(1)).toBe(false);
+    expect(rowIds.has(overLimit)).toBe(true);
+  });
+
+  it("未超限导入不裁剪", () => {
+    const tracker = new ChangesTracker();
+    tracker.resetForSession("s-1");
+    tracker.importPersisted(
+      { pending: [], history: [historyTurn(1), historyTurn(2)] },
+      "s-1",
+    );
+    expect(tracker.snapshot().history).toHaveLength(2);
   });
 });

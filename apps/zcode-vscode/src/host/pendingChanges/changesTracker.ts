@@ -13,6 +13,7 @@
  * CLI 的 external_modified 预检拦截，UI 直接呈现不可恢复，语义一致）。
  */
 
+import { isPathInsideWorkspace } from "../pathContainment";
 import type {
   ChangeFileItem,
   HistoryFileEntry,
@@ -28,12 +29,20 @@ import type {
 /** 历史轮保留上限（spec §8；FIFO 裁剪，不静默删最新）。 */
 export const HISTORY_TURN_LIMIT = 100;
 
-/** rawPath → 绝对路径：绝对原样、相对拼 workspaceRoot（同 CLI file-rewind 归一语义）。 */
-export function resolveChangePath(rawPath: string, workspaceRoot: string): string {
+/**
+ * rawPath → 绝对路径：绝对原样、相对拼 workspaceRoot（同 CLI file-rewind 归一语义）。
+ * 安全审查 S2：解析结果必须仍落在 workspaceRoot 内（防 `../` 逃逸），fail-closed
+ * 返回 null（调用方按脏数据跳过该文件）——CLI 可信但纵深防御不缺席，且与撤销
+ * 预检的 external_modified 口径一致（外部路径本就不可恢复）。
+ */
+export function resolveChangePath(rawPath: string, workspaceRoot: string): string | null {
+  if (rawPath.length === 0) return workspaceRoot;
   // POSIX 绝对判定即可：CLI 侧 resolveWorkspacePath 产出的绝对路径必以 / 开头。
-  if (rawPath.startsWith("/")) return rawPath;
-  const root = workspaceRoot.replace(/\/+$/, "");
-  return rawPath.length > 0 ? `${root}/${rawPath}` : root;
+  const resolved = rawPath.startsWith("/")
+    ? rawPath
+    : `${workspaceRoot.replace(/\/+$/, "")}/${rawPath}`;
+  if (!isPathInsideWorkspace(resolved, [workspaceRoot])) return null;
+  return resolved;
 }
 
 interface TurnRecord {
@@ -171,6 +180,14 @@ export class ChangesTracker {
       if (turn.sessionId !== sessionId || this.history.has(turn.rowId)) continue;
       this.history.set(turn.rowId, turn);
     }
+    // P2：导入后统一裁剪到保留上限——旧实现不做裁剪，持久化超限（如旧版本
+    // 未裁剪或历史被外部扩大）时全量载入，内存与后续快照序列化都被放大。
+    if (this.history.size > HISTORY_TURN_LIMIT) {
+      const ordered = [...this.history.values()].sort(compareHistoryAsc);
+      for (const turn of ordered.slice(0, this.history.size - HISTORY_TURN_LIMIT)) {
+        this.history.delete(turn.rowId);
+      }
+    }
     this.emit();
   }
 
@@ -228,6 +245,10 @@ export class ChangesTracker {
     const revertedPaths = new Set(record?.fileChanges?.revertedPaths ?? []);
     for (const item of params.items) {
       const resolvedPath = resolveChangePath(item.path, params.workspaceRoot);
+      if (resolvedPath === null) {
+        // S2：解析结果逃逸 workspaceRoot → 脏数据不入账（撤销预检也会拦截外部路径）。
+        continue;
+      }
       if (revertedPaths.has(item.path)) {
         this.setHistoryFileState(params.target.rowId, item.path, "reverted");
         continue;
@@ -431,8 +452,16 @@ export class ChangesTracker {
       files,
     });
     // 同路径出现在新轮：旧轮该文件标记 superseded（若仍是 pending/kept）。
+    // P2：先命中判定再重建——无该文件或已 superseded/reverted 的轮不 set 新对象
+    // （旧实现每落一个文件就全量遍历重建所有轮，一轮 F 个文件 → O(T×F²)）。
     for (const [rowId, turn] of this.history) {
       if (rowId === target.rowId) continue;
+      const hit = turn.files.some(
+        (candidate) =>
+          candidate.path === file.path &&
+          (candidate.state === "pending" || candidate.state === "kept"),
+      );
+      if (!hit) continue;
       const oldFiles = turn.files.map(
         (candidate): HistoryFileEntry =>
           candidate.path === file.path && (candidate.state === "pending" || candidate.state === "kept")

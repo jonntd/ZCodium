@@ -158,6 +158,25 @@ describe("聊天卡片「审查 / 打开」保留能力", () => {
     const containment = readSource("src/host/pathContainment.ts");
     expect(containment).toContain("export function isPathInsideWorkspace");
     expect(existsSync(resolve(ROOT, "test/pathContainment.test.ts"))).toBe(true);
+    // S2：resolveChangePath 逃逸 fail-closed（返回 null，脏数据不入账）。
+    const tracker = readSource("src/host/pendingChanges/changesTracker.ts");
+    expect(tracker).toContain("isPathInsideWorkspace(resolved, [workspaceRoot])");
+    expect(tracker).toContain("string | null");
+  });
+
+  it("性能加固：持久化合批 + 历史重建跳过 + 导入裁剪（P1/P2）", () => {
+    // P1：tracker.onChange 不再直连 persist——经 DebouncedPersister 合批，
+    // dispose flush 尾笔；窗口可注入（测试 0ms 同步直写）。
+    const service = readSource("src/host/pendingChanges/changesService.ts");
+    expect(service).toContain("new DebouncedPersister(");
+    expect(service).toContain("options.persistDebounceMs ?? 250");
+    expect(service).toContain("this.persister.dispose();");
+    expect(existsSync(resolve(ROOT, "test/debouncedPersister.test.ts"))).toBe(true);
+    // P2：superseded 标记先命中判定再重建（不无差别全量 set）；导入后统一裁剪。
+    const tracker = readSource("src/host/pendingChanges/changesTracker.ts");
+    expect(tracker).toContain("const hit = turn.files.some(");
+    expect(tracker).toContain("this.history.size > HISTORY_TURN_LIMIT");
+    expect(tracker).toContain("compareHistoryAsc");
   });
 });
 
