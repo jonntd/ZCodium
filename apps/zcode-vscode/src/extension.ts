@@ -28,10 +28,14 @@ export async function activate(context: ExtensionContext): Promise<void> {
       void container?.dispose();
     },
   });
-  window.registerWebviewViewProvider(ChatPanel.viewId, container.chatPanel, {
-    webviewOptions: { retainContextWhenHidden: true },
-  });
-  registerCommands(container);
+  // 增量审查 X7：provider 与命令注册的 Disposable 全部入 subscriptions
+  // （VS Code 官方订阅生命周期口径；扩展宿主回收本会兜底，但显式登记不依赖隐式行为）。
+  context.subscriptions.push(
+    window.registerWebviewViewProvider(ChatPanel.viewId, container.chatPanel, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    ...registerCommands(container),
+  );
 }
 
 export async function deactivate(): Promise<void> {

@@ -12,7 +12,7 @@
  *   host 侧不再持有 ApprovalService 实例（其内核类保留，见 approvals/approvalService.ts）。
  */
 
-import type { ExtensionContext } from "vscode";
+import type { Disposable, ExtensionContext } from "vscode";
 import { commands, env, languages, Uri, window, workspace } from "vscode";
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, isAbsolute, join } from "node:path";
@@ -1024,8 +1024,8 @@ function buildPlatformMethods(deps: {
 }
 
 /** 命令注册（extension.ts 调用；实现体在 src/commands/hostCommands.ts）。 */
-export function registerCommands(container: Container): void {
-  registerHostCommands({
+export function registerCommands(container: Container): Disposable[] {
+  return registerHostCommands({
     chatEditorPanel: container.chatEditorPanel,
     hostRuntime: container.hostRuntime,
     diagnostics: container.diagnostics,

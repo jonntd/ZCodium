@@ -449,6 +449,21 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(container).toContain("createTempTextAttachment: text 必须为字符串");
   });
 
+  it("X7：注册 Disposable 全量入 subscriptions（provider + 14 条宿主命令）", () => {
+    // 此前 commands.registerCommand / registerWebviewViewProvider 的返回值被丢弃
+    // （扩展宿主回收会兜底，但不依赖隐式行为——对齐 VS Code 官方订阅生命周期口径）。
+    const extension = readSource("src/extension.ts");
+    expect(extension).toContain("context.subscriptions.push(");
+    expect(extension).toContain("window.registerWebviewViewProvider(");
+    expect(extension).toContain("...registerCommands(container)");
+    const hostCommands = readSource("src/commands/hostCommands.ts");
+    expect(hostCommands).toContain("export function registerHostCommands(deps: HostCommandDeps): Disposable[]");
+    expect(hostCommands).toContain("return disposables;");
+    expect(hostCommands).not.toContain("void commands.registerCommand(");
+    const container = readSource("src/container.ts");
+    expect(container).toContain("export function registerCommands(container: Container): Disposable[]");
+  });
+
   it("宿主代码不聚焦 Gode 视图容器（workbench.view.extension.* 会自动展开侧栏，与主形态冲突）", () => {
     // 状态栏待审按钮曾指向已删除的旧容器 gode（死命令）；且任何 workbench.view.extension
     // 引用都会展开侧栏视图——编辑器标签是唯一主形态，宿主侧一律走 gode.openChat。
