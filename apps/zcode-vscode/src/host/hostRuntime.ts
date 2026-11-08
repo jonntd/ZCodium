@@ -179,6 +179,10 @@ export class HostRuntime {
   /** chatPanel.resolveWebviewView 时调用：建立该 webview 的 RPC 连接。 */
   attachWebview(id: string, sender: WebviewSender): void {
     if (this.disposed) return;
+    // 增量审查 X3：同一 id 重复挂载（webview 重建/重解析先于旧连接 dispose 的竞态）
+    // 先拆旧连接——直接覆盖会让旧 protocol/PlatformRpcHandler/Emitter 泄漏，且旧
+    // sender 迟到的 onDidDispose 会把新连接误拆（见下方身份校验）。
+    if (this.connections.has(id)) this.detachWebview(id);
     // 新连接 = 用户刚打开的对话页：后续 UI 定向帧优先投给它。
     this.lastActiveConnectionId = id;
     const platformRpc = new PlatformRpcHandler({
@@ -206,8 +210,11 @@ export class HostRuntime {
       onDidClientDisconnect: onDidDisconnect.event,
     });
     // webview dispose → 断开（ChannelServer/ChannelClient 清理由 IPCServer 完成）。
+    // 身份校验（增量审查 X3）：只有当前连接仍是本 sender 时才拆——防旧 webview
+    // 迟到的 dispose（先 attach 新连接、后 fire 旧 onDidDispose）误杀新连接。
     void (sender as { onDidDispose?: Event<void> }).onDidDispose?.(() => {
-      this.detachWebview(id);
+      const current = this.connections.get(id);
+      if (current && current.sender === sender) this.detachWebview(id);
     });
     this.options.log?.(`[host-bridge] webview 已连接：${id}`);
   }

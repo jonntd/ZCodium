@@ -9,7 +9,12 @@
  */
 
 import { randomBytes } from "node:crypto";
-import type { Webview, WebviewView, WebviewViewProvider } from "vscode";
+import type {
+  Disposable,
+  Webview,
+  WebviewView,
+  WebviewViewProvider,
+} from "vscode";
 import { Uri, env, window, workspace } from "vscode";
 import type { HostRuntime } from "../host/hostRuntime";
 
@@ -18,6 +23,12 @@ export const CHAT_VIEW_ID = "gode.chat";
 export class ChatPanel implements WebviewViewProvider {
   public static readonly viewId = CHAT_VIEW_ID;
   private view: WebviewView | null = null;
+  /**
+   * 本轮 resolve 注册的监听（增量审查 X3）：resolveWebviewView 可能被多次调用
+   * （webview 重建/宿主重解析），重复 resolve 先清旧监听——否则 onDidReceiveMessage
+   * 叠加，一条 webview 消息会被重复处理（RPC 重复执行、host 帧重复）。
+   */
+  private resolveSubscriptions: Disposable[] = [];
 
   constructor(
     private readonly extensionUri: Uri,
@@ -32,6 +43,9 @@ export class ChatPanel implements WebviewViewProvider {
   ) {}
 
   resolveWebviewView(view: WebviewView): void {
+    // 增量审查 X3：重复 resolve 先清上一轮监听（见 resolveSubscriptions 注释）。
+    for (const disposable of this.resolveSubscriptions) disposable.dispose();
+    this.resolveSubscriptions = [];
     this.view = view;
     view.webview.options = {
       enableScripts: true,
@@ -43,22 +57,28 @@ export class ChatPanel implements WebviewViewProvider {
       this.resolveInitialSessionId,
     );
     // 帧转发：webview → host。
-    view.webview.onDidReceiveMessage((message: unknown) => {
-      this.hostRuntime.handleWebviewMessage(CHAT_VIEW_ID, message);
-    });
+    this.resolveSubscriptions.push(
+      view.webview.onDidReceiveMessage((message: unknown) => {
+        this.hostRuntime.handleWebviewMessage(CHAT_VIEW_ID, message);
+      }),
+    );
     this.hostRuntime.attachWebview(CHAT_VIEW_ID, view.webview);
     // 跳板：resolve 即首次可见；onDidChangeVisibility 覆盖后续每次展开。
     // 注意：visibility 不再经 pushHostFrame 广播——编辑器标签形态并存后，A 页的
     // 可见性帧会广播到 B 页把对方渲染面错误暂停/恢复（跨页状态污染的根源）；
     // 各 webview 的 document.visibilitychange 自证源已足够感知自身可见性。
     if (view.visible) this.onVisible?.();
-    view.onDidChangeVisibility(() => {
-      if (view.visible) this.onVisible?.();
-    });
-    view.onDidDispose(() => {
-      this.hostRuntime.detachWebview(CHAT_VIEW_ID);
-      this.view = null;
-    });
+    this.resolveSubscriptions.push(
+      view.onDidChangeVisibility(() => {
+        if (view.visible) this.onVisible?.();
+      }),
+      view.onDidDispose(() => {
+        for (const disposable of this.resolveSubscriptions) disposable.dispose();
+        this.resolveSubscriptions = [];
+        this.hostRuntime.detachWebview(CHAT_VIEW_ID);
+        this.view = null;
+      }),
+    );
   }
 
   /** 显示面板（引导/错误时调用）。 */

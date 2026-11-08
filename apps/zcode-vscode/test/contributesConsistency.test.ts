@@ -350,6 +350,15 @@ describe("可拖动的编辑器标签页形态", () => {
     const chatPanel = readSource("src/ui/chatPanel.ts");
     expect(chatPanel).toContain("export function buildChatWebviewHtml(");
     expect(chatPanel).toContain("attachWebview(CHAT_VIEW_ID");
+    // 增量审查 X3：resolveWebviewView 可能被多次调用（webview 重建/重解析），
+    // 监听必须挂在本轮 subscriptions 上并在重复 resolve/dispose 时先清，
+    // 否则 onDidReceiveMessage 叠加 → 一条 webview 消息被重复处理（RPC 重复执行）。
+    expect(chatPanel).toContain("resolveSubscriptions");
+    expect(chatPanel).toContain("for (const disposable of this.resolveSubscriptions) disposable.dispose();");
+    // host 侧对称防御：同 id 重复 attach 先拆旧连接 + dispose 回调身份校验。
+    const hostRuntime = readSource("src/host/hostRuntime.ts");
+    expect(hostRuntime).toContain("if (this.connections.has(id)) this.detachWebview(id);");
+    expect(hostRuntime).toContain("current.sender === sender");
   });
 
   it("容器装配、命令注册与释放链完整", () => {

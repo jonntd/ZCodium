@@ -678,3 +678,104 @@ describe("编辑器标签 UI 上行 + 会话标签中继（多页签共享）", 
     });
   });
 });
+
+describe("增量审查 X3：webview 连接生命周期", () => {
+  /** 带 onDidDispose 事件的 sender（模拟 Webview/WebviewPanel 的 dispose 事件）。 */
+  function makeDisposalSender(frames?: unknown[]): {
+    sender: {
+      postMessage: (message: unknown) => void;
+      onDidDispose: (cb: () => void) => { dispose(): void };
+    };
+    fireDispose: () => void;
+  } {
+    const disposeCallbacks: Array<() => void> = [];
+    return {
+      sender: {
+        postMessage: (message: unknown) => {
+          frames?.push(message);
+        },
+        onDidDispose: (cb: () => void) => {
+          disposeCallbacks.push(cb);
+          return { dispose() {} };
+        },
+      },
+      fireDispose: () => {
+        for (const cb of disposeCallbacks) cb();
+      },
+    };
+  }
+
+  function makeMinimalRuntime(): HostRuntime {
+    return new HostRuntime({
+      services: new ServiceCollection(),
+      exposurePolicy: createExposurePolicy([]),
+      platformMethods: new Map(),
+      settingsBridge: new HostSettingsBridge(() => normalizeSettingsSnapshot({})),
+    });
+  }
+
+  it("同 id 重复 attach：旧连接先拆，旧 sender 迟到的 dispose 不误杀新连接", () => {
+    const runtime = makeMinimalRuntime();
+    const oldFrames: unknown[] = [];
+    const newFrames: unknown[] = [];
+    const old = makeDisposalSender(oldFrames);
+    const fresh = makeDisposalSender(newFrames);
+
+    runtime.attachWebview("gode.chat", old.sender);
+    // 竞态：旧 webview dispose 前，webview 重解析已用同 id 挂了新连接。
+    runtime.attachWebview("gode.chat", fresh.sender);
+    // 旧 sender 迟到的 onDidDispose：身份校验必须保住新连接。
+    old.fireDispose();
+
+    // 新连接存活：renderer ready 后 host 帧定向可达。
+    runtime.handleWebviewMessage("gode.chat", {
+      t: "plat-evt",
+      event: "notifyRendererReady",
+    });
+    runtime.pushHostFrame("theme", 2);
+    expect(newFrames).toContainEqual({ t: "host", kind: "theme", payload: 2 });
+    // 旧 sender 不再收到任何帧（连接已被替换）。
+    expect(oldFrames).toEqual([]);
+    runtime.dispose();
+  });
+
+  it("正常路径不受影响：dispose 事件 fire 的 sender 是当前连接时照常拆", () => {
+    const runtime = makeMinimalRuntime();
+    const frames: unknown[] = [];
+    const conn = makeDisposalSender(frames);
+    runtime.attachWebview("gode.chat", conn.sender);
+    runtime.handleWebviewMessage("gode.chat", {
+      t: "plat-evt",
+      event: "notifyRendererReady",
+    });
+    conn.fireDispose();
+    // 连接已拆：host 帧进入 pending 队列而非投递（无就绪连接语义）。
+    runtime.pushHostFrame("theme", 2);
+    expect(frames).toEqual([]);
+    runtime.dispose();
+  });
+
+  it("同 id 重复 attach 后消息只被当前连接处理一次（旧 protocol 已 dispose）", () => {
+    const runtime = makeMinimalRuntime();
+    const oldFrames: unknown[] = [];
+    const newFrames: unknown[] = [];
+    const old = makeDisposalSender(oldFrames);
+    const fresh = makeDisposalSender(newFrames);
+    runtime.attachWebview("gode.chat", old.sender);
+    runtime.attachWebview("gode.chat", fresh.sender);
+    runtime.handleWebviewMessage("gode.chat", {
+      t: "plat-evt",
+      event: "notifyRendererReady",
+    });
+    runtime.handleWebviewMessage("gode.chat", {
+      t: "plat-evt",
+      event: "__debug-probe",
+      payload: "x",
+    });
+    // ready 后的定向/广播帧只走新连接；旧连接的 postMessage 零调用。
+    runtime.pushHostFrame("locale", "zh-cn");
+    expect(oldFrames).toEqual([]);
+    expect(newFrames).toContainEqual({ t: "host", kind: "locale", payload: "zh-cn" });
+    runtime.dispose();
+  });
+});
