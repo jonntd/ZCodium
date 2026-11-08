@@ -439,6 +439,16 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(quickEdit).toContain("while (this.contents.size > MAX_QUICK_EDIT_SNAPSHOTS)");
   });
 
+  it("X5：平台方法写/拉面收敛（saveFile scheme 白名单 + 文本附件上限）", () => {
+    const container = readSource("src/container.ts");
+    // sourceUrl 走宿主侧 fetch：scheme 白名单与 openExternal 同口径，杜绝任意 scheme。
+    expect(container).toContain("SAVE_FILE_SOURCE_SCHEMES = [\"http\", \"https\", \"data\"]");
+    expect(container).toContain("if (!SAVE_FILE_SOURCE_SCHEMES.includes(sourceScheme))");
+    // createTempTextAttachment：text 必须 string 且有字节上限（磁盘耗尽面）。
+    expect(container).toContain("TEMP_TEXT_ATTACHMENT_LIMIT_BYTES = 2 * 1024 * 1024");
+    expect(container).toContain("createTempTextAttachment: text 必须为字符串");
+  });
+
   it("宿主代码不聚焦 Gode 视图容器（workbench.view.extension.* 会自动展开侧栏，与主形态冲突）", () => {
     // 状态栏待审按钮曾指向已删除的旧容器 gode（死命令）；且任何 workbench.view.extension
     // 引用都会展开侧栏视图——编辑器标签是唯一主形态，宿主侧一律走 gode.openChat。

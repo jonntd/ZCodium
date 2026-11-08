@@ -87,6 +87,15 @@ import { parsePatchHunks } from "./host/pendingChanges/beforeContent";
 
 /** 指令导入的单文件内容上限（importWorkspaceInstructions，组4 一次性导入面）。 */
 const INSTRUCTION_IMPORT_LIMIT_BYTES = 512 * 1024;
+/** 文本附件上限（增量审查 X5）：createTempTextAttachment 的 text 无界会把宿主磁盘当存储用。 */
+const TEMP_TEXT_ATTACHMENT_LIMIT_BYTES = 2 * 1024 * 1024;
+/**
+ * saveFile sourceUrl 的 scheme 白名单（增量审查 X5）：sourceUrl 走宿主侧 fetch，
+ * 与 openExternal 的 scheme 白名单同口径收敛——file:/blob: 等 scheme 在宿主侧
+ * 本就不可拉取（undici 不支持），白名单把模糊失败变成可读错误并杜绝后续引入
+ * 新 scheme 处理时的越权面。
+ */
+const SAVE_FILE_SOURCE_SCHEMES = ["http", "https", "data"];
 
 /** 会话标签共享态的 workspaceState 键（多页签/多对话页同步的 host 侧存储）。 */
 const SESSION_TABS_HOST_KEY = "gode.sessionTabs.host";
@@ -777,6 +786,18 @@ function buildPlatformMethods(deps: {
         typeof payload?.sourceUrl === "string" &&
         payload.sourceUrl.length > 0
       ) {
+        // 增量审查 X5：scheme 白名单（SAVE_FILE_SOURCE_SCHEMES 注释）。
+        let sourceScheme = "";
+        try {
+          sourceScheme = new URL(payload.sourceUrl).protocol.replace(":", "");
+        } catch {
+          throw new Error("saveFile: sourceUrl 不是合法 URL");
+        }
+        if (!SAVE_FILE_SOURCE_SCHEMES.includes(sourceScheme)) {
+          throw new Error(
+            `saveFile: sourceUrl scheme「${sourceScheme}」不支持（仅 ${SAVE_FILE_SOURCE_SCHEMES.join("/")}）`,
+          );
+        }
         const res = await fetch(payload.sourceUrl);
         if (!res.ok)
           return {
@@ -805,15 +826,27 @@ function buildPlatformMethods(deps: {
       if (!filename || filename === "." || filename === "..") {
         throw new Error("createTempTextAttachment: filename 非法");
       }
+      // 增量审查 X5：text 收敛为 string 并设上限（TEMP_TEXT_ATTACHMENT_LIMIT_BYTES
+      // 注释）；非 string 一律拒绝而非静默序列化。
+      const text = payload?.text;
+      if (text !== undefined && typeof text !== "string") {
+        throw new Error("createTempTextAttachment: text 必须为字符串");
+      }
+      const content = text ?? "";
+      if (Buffer.byteLength(content, "utf8") > TEMP_TEXT_ATTACHMENT_LIMIT_BYTES) {
+        throw new Error(
+          `createTempTextAttachment: 文本超过 ${TEMP_TEXT_ATTACHMENT_LIMIT_BYTES} 字节上限`,
+        );
+      }
       const dir = join(context.globalStorageUri.fsPath, "tmp");
       await mkdir(dir, { recursive: true });
       const localPath = join(dir, filename);
-      await writeFile(localPath, payload?.text ?? "", "utf8");
+      await writeFile(localPath, content, "utf8");
       return {
         filename,
         localPath,
         mimeType: "text/plain" as const,
-        sizeBytes: (payload?.text ?? "").length,
+        sizeBytes: Buffer.byteLength(content, "utf8"),
       };
     },
     // 资源管理器拖拽 URI 解析（spec: composer-explorer-file-drop）；vscode/fs 接线在
