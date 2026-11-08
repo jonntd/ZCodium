@@ -85,6 +85,8 @@ import type {
   MaterializeWorkflowArtifactFileRequest,
   OpenCuaPermissionOnboardingOptions,
   RemoteRelaySetConfigRequest,
+  RemoteRelayPreviewShareUrlsRequest,
+  RemoteRelayPreviewShareUrlsResponse,
   RemoteRelayShareLink,
   RemoteRelayShareLinkRequest,
   RemoteRelayStatus,
@@ -312,6 +314,11 @@ contextBridge.exposeInMainWorld("zcode", {
   // 时效签名链接（spec §18）：签名在 Main，渲染层只传 ttl。
   remoteRelayGetShareLink: (request: RemoteRelayShareLinkRequest): Promise<RemoteRelayShareLink> =>
     ipcRenderer.invoke(PlatformChannels.RemoteRelayGetShareLink, request),
+  // 草稿地址实时预览（spec §21）：纯派生 IPC，不落盘不重启；渲染层依旧不持有任何密钥。
+  remoteRelayPreviewShareUrls: (
+    request: RemoteRelayPreviewShareUrlsRequest,
+  ): Promise<RemoteRelayPreviewShareUrlsResponse> =>
+    ipcRenderer.invoke(PlatformChannels.RemoteRelayPreviewShareUrls, request),
   listWSLDistros: () => ipcRenderer.invoke(PlatformChannels.ListWSLDistros),
   listDockerContainers: () => ipcRenderer.invoke(PlatformChannels.ListDockerContainers),
   listSSHConfigAliases: (): Promise<SSHConfigAliasOption[]> =>

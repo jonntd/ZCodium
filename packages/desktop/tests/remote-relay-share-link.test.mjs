@@ -9,6 +9,7 @@ import {
   SHARE_LINK_MIN_TTL_SECONDS,
   buildRelayLanShareLink,
   buildRelayShareLink,
+  buildRelayShareUrls,
   signRelayShareParams,
 } from "../src/main/remoteRelayShareLink.js";
 
@@ -221,5 +222,72 @@ test("resolveRelayLanHost：loopback → null（须换成局域网 IP）；私�
     "",
   ]) {
     assert.equal(resolveRelayLanHost(url), null, url);
+  }
+});
+
+// ── buildRelayShareUrls（spec §21）：buildStatus 与草稿预览共用的唯一推导入口 ──
+
+test("buildRelayShareUrls：中继在 VPS → 外网链接由 url 推导，内网链接为 null", () => {
+  const urls = buildRelayShareUrls({
+    relayUrl: "ws://104.223.21.20:3180",
+    publicUrlOverride: null,
+    lanAddresses: ["192.168.8.106"],
+    roomKey: TOKEN,
+  });
+  const parsed = new URL(urls.publicShareUrl ?? "");
+  assert.equal(`${parsed.protocol}//${parsed.host}`, "http://104.223.21.20:3180");
+  assert.equal(parsed.searchParams.get("token"), TOKEN);
+  assert.equal(parsed.searchParams.get("autoReconnect"), "1");
+  assert.equal(urls.lanShareUrl, null);
+});
+
+test("buildRelayShareUrls：中继在本机（loopback）→ 内网链接用检测到的局域网地址；无覆盖时外网为 null", () => {
+  const urls = buildRelayShareUrls({
+    relayUrl: "ws://127.0.0.1:3180",
+    publicUrlOverride: null,
+    lanAddresses: ["192.168.8.106"],
+    roomKey: TOKEN,
+  });
+  const parsed = new URL(urls.lanShareUrl ?? "");
+  assert.equal(`${parsed.protocol}//${parsed.host}`, "http://192.168.8.106:3180");
+  assert.equal(parsed.searchParams.get("token"), TOKEN);
+  assert.equal(urls.publicShareUrl, null);
+});
+
+test("buildRelayShareUrls：publicUrl 覆盖值优先于推导（§18.5 语义，端口映射/DDNS 路径）", () => {
+  const urls = buildRelayShareUrls({
+    relayUrl: "wss://relay.example.com",
+    publicUrlOverride: "https://ddns.example.org",
+    lanAddresses: [],
+    roomKey: TOKEN,
+  });
+  const parsed = new URL(urls.publicShareUrl ?? "");
+  assert.equal(`${parsed.protocol}//${parsed.host}`, "https://ddns.example.org");
+});
+
+test("buildRelayShareUrls：E2EE 时两条链接都带 #k=；缺 roomKey 返回双 null", () => {
+  const withKey = buildRelayShareUrls({
+    relayUrl: "ws://104.223.21.20:3180",
+    publicUrlOverride: null,
+    lanAddresses: [],
+    roomKey: TOKEN,
+    channelKey: "channel-key",
+  });
+  assert.equal(withKey.publicShareUrl?.endsWith("#k=channel-key"), true);
+  for (const urls of [
+    buildRelayShareUrls({
+      relayUrl: "ws://104.223.21.20:3180",
+      publicUrlOverride: null,
+      lanAddresses: [],
+      roomKey: "",
+    }),
+    buildRelayShareUrls({
+      relayUrl: "",
+      publicUrlOverride: null,
+      lanAddresses: [],
+      roomKey: TOKEN,
+    }),
+  ]) {
+    assert.deepEqual(urls, { lanShareUrl: null, publicShareUrl: null });
   }
 });

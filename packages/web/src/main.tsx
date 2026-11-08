@@ -8,6 +8,7 @@ import {
   ZCodeIntlProvider,
   generateMobileDeviceFingerprint,
   playTaskNotificationSound,
+  readSettingsSectionFromLocationHash,
   setStreamClientId,
   useZCodeIntl,
   type Theme,
@@ -719,6 +720,10 @@ async function bootstrapWebApp() {
 
   const autoReconnect = params.get("autoReconnect") === "1";
 
+  // 设置页深链（FR-B14「在完整界面查看/撤销权限规则」）：插件/外部链接带 `#settings=<id>`。
+  // 只读 hash 不改写——fragment 里可能同时承载 E2EE 的 #k=，地址栏必须原样保留。
+  const settingsDeepLink = readSettingsSectionFromLocationHash();
+
   let delivered = false;
   try {
     // 连接阶段做**有界**自动重试：瞬时失败（桌面刚重启、relay 宽限到期）自动再来一次，
@@ -761,6 +766,9 @@ async function bootstrapWebApp() {
             initialWorkspaceAbsPath={bootstrap.initialWorkspaceAbsPath}
             initialWorkspaceIdentity={bootstrap.initialWorkspaceIdentity}
             initialTaskId={bootstrap.initialTaskId}
+            initialSettingsDeepLink={
+              settingsDeepLink.requested ? (settingsDeepLink.section ?? true) : undefined
+            }
             restoreSession={bootstrap.restoreSession}
             allowOpenWorkspace={bootstrap.allowOpenWorkspace}
             preferDirectoryBrowser

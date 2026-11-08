@@ -10,7 +10,7 @@ import { createServer } from "node:http";
 import { test } from "node:test";
 import { SocketProtocol, VSBuffer } from "@zcode/rpc";
 import { WebSocketServer } from "ws";
-import { createRemoteRelayClient } from "../src/main/remoteRelayClient.ts";
+import { createRemoteRelayClient, HeartbeatLiveness } from "../src/main/remoteRelayClient.ts";
 
 const HOST_SECRET = "test-secret";
 const WORKSPACE_PATH = "/tmp/relay-test-workspace";
@@ -77,7 +77,7 @@ function wrapWs(ws) {
 }
 
 /** 起一个「假 relay」：HTTP + WS 同端口，行为与 deploy/vps-relay/relay.mjs 的最小交集。 */
-async function startFakeRelay() {
+async function startFakeRelay({ dropServerPongFrames = false } = {}) {
   const state = { hostReports: [], hostSocket: null, relayProtocol: null, received: [], hostConnections: 0, upgradeUrls: [], dialAuthorizations: [] };
 
   const httpServer = createServer((req, res) => {
@@ -97,6 +97,21 @@ async function startFakeRelay() {
     }
     res.writeHead(404).end();
   });
+
+  if (dropServerPongFrames) {
+    // 模拟「被代理静默杀死的僵尸链路」的半边：服务器照常收发，但**吞掉所有 pong 帧**
+    // （服务器→客户端帧首字节低 4 位 = 0xA 即 pong）。客户端侧没有任何 close/error，
+    // 只有靠 HeartbeatLiveness 的 pong 缺失判定才能发现链路已死（spec §17 心跳活性）。
+    httpServer.on("connection", (tcpSocket) => {
+      const originalWrite = tcpSocket.write.bind(tcpSocket);
+      tcpSocket.write = (chunk, ...rest) => {
+        if (Buffer.isBuffer(chunk) && chunk.length > 0 && (chunk[0] & 0x0f) === 0x0a) {
+          return true;
+        }
+        return originalWrite(chunk, ...rest);
+      };
+    });
+  }
 
   const wss = new WebSocketServer({ noServer: true });
   httpServer.on("upgrade", (req, socket, head) => {
@@ -340,4 +355,56 @@ test("remoteRelayClient：slot 参数 → 拨出 /host?slot=<k>（多槽位 spec
   );
   // 拨出成功后照常上报工作区（槽位不影响控制面行为）。
   assert.ok(await until(() => relay.state.hostReports.length > 0), "应上报工作区");
+});
+
+// ── HeartbeatLiveness 状态机（spec §17 心跳活性，2026-11-03 僵尸连接回归守卫）──
+
+test("HeartbeatLiveness：连续 miss 上限拍无 pong 才判死；收到 pong 即复位", () => {
+  const liveness = new HeartbeatLiveness(2);
+  // 第 1 拍：无历史 miss → 正常发出 ping。
+  assert.equal(liveness.onBeat(), false);
+  // 第 2 拍：上一拍没等到 pong，miss=1 < 2 → 仍不判死。
+  assert.equal(liveness.onBeat(), false);
+  // 第 3 拍：连续 miss=2 → 判死。
+  assert.equal(liveness.onBeat(), true);
+  // 对端回 pong：状态复位，重新计数。
+  liveness.onPong();
+  assert.equal(liveness.onBeat(), false);
+  assert.equal(liveness.onBeat(), false);
+  assert.equal(liveness.onBeat(), true);
+});
+
+test("remoteRelayClient：服务器吞 pong（僵尸链路）→ 客户端必须自行判定死亡并重建连接", async (t) => {
+  // 真实故障（2026-11-03）：Clash TUN 静默杀掉桌面↔relay 的 WS，TCP 无 FIN，
+  // close 事件永不触发；旧实现只 ping 不验 pong，桌面自认为在线（「已连上中继」），
+  // relay 侧房间早已清掉，手机端一直撞 401。此测试在协议层模拟同一半开场景。
+  const relay = await startFakeRelay({ dropServerPongFrames: true });
+  t.after(relay.close);
+
+  const warns = [];
+  const client = createRemoteRelayClient({
+    url: relay.url,
+    roomKey: HOST_SECRET,
+    logger: {
+      info: () => {},
+      warn: (message) => warns.push(String(message)),
+    },
+    resolveTargetWindow: () => ({ windowId: 1, hostProcess: { postMessage: () => {} } }),
+    resolveWorkspace: () => ({ workspacePath: WORKSPACE_PATH }),
+    createChannel: () => createLinkedPorts(),
+    heartbeatIntervalMs: 30,
+  });
+  client.start();
+  t.after(() => client.stop());
+
+  assert.ok(await until(() => relay.state.hostConnections >= 1), "首次连接应建立");
+  // 服务器不回 pong → 连续 2 拍 miss 后客户端应 terminate 并重建（1s 初始退避内）。
+  assert.ok(
+    await until(() => relay.state.hostConnections >= 2, 2500),
+    "吞 pong 后应主动重建连接",
+  );
+  assert.ok(
+    warns.some((m) => /pong/.test(m)),
+    `应有「心跳无 pong」告警，实际: ${JSON.stringify(warns)}`,
+  );
 });

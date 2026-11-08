@@ -62,6 +62,7 @@ export function createDesktopPlatform(options: {
     remoteRelayStop: () => window.zcode.remoteRelayStop(),
     remoteRelaySetConfig: (request) => window.zcode.remoteRelaySetConfig(request),
     remoteRelayGetShareLink: (request) => window.zcode.remoteRelayGetShareLink(request),
+    remoteRelayPreviewShareUrls: (request) => window.zcode.remoteRelayPreviewShareUrls(request),
     loadMcpFromUserDirectory: (payload) => window.zcode.loadMcpFromUserDirectory(payload),
     saveMcpToUserDirectory: (payload) => window.zcode.saveMcpToUserDirectory(payload),
     migrateLegacyCommonMcp: (payload) => window.zcode.migrateLegacyCommonMcp(payload),

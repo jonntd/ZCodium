@@ -183,6 +183,41 @@ const MAX_RECONNECT_DELAY_MS = 30_000;
 const CLIENT_OFFLINE_RECONNECT_DELAY_MS = 100;
 
 /**
+ * WS 心跳活性判定（僵尸连接防护，2026-11-03）：
+ *
+ * 中继链路会经过本机代理/TUN（实测 Clash Verge fake-IP 网段），连接可能被代理**静默
+ * 杀死**——TCP 层不回 FIN，`close` 事件永不触发，而 `ws.ping()` 发进半开连接在本地
+ * 永远「成功」（实测踩中：桌面侧显示「已连上中继」，relay 侧房间早已清掉，手机端
+ * 一直撞 401/4002）。TCP 的 send 成功对半开连接毫无意义，唯一可信的是**对端回了
+ * pong**：连续 `missedPongLimit` 拍 ping 都没等到 pong 即判定链路死亡。
+ */
+export class HeartbeatLiveness {
+  private awaitingPong = false;
+  private missedPongs = 0;
+
+  constructor(private readonly missedPongLimit = 2) {}
+
+  /**
+   * 每拍心跳调用：返回 true 表示应立即判定死亡并重建连接
+   * （上一拍 ping 未获 pong 且已连续 miss 到上限）。
+   */
+  onBeat(): boolean {
+    if (this.awaitingPong) {
+      this.missedPongs += 1;
+      if (this.missedPongs >= this.missedPongLimit) return true;
+    }
+    this.awaitingPong = true;
+    return false;
+  }
+
+  /** 收到对端 pong：重置判定状态。 */
+  onPong(): void {
+    this.awaitingPong = false;
+    this.missedPongs = 0;
+  }
+}
+
+/**
  * 把 `ws` 的 WebSocket 适配成 `@zcode/rpc` 的 `ISocket`。
  *
  * 与 `packages/server/src/http.ts` 内的同名私有函数同构。那个函数未导出，
@@ -475,9 +510,21 @@ export function createRemoteRelayClient(options: RemoteRelayClientOptions): Remo
       );
       logger?.info(`已向窗口 Host 挂载中继 attachment，windowId=${target.windowId}`);
 
+      // 心跳活性：每拍 ping 必须等 pong（见 HeartbeatLiveness 注释）。
+      // close 事件对被代理静默杀死的连接不可靠，这里按 pong 主动判定并 terminate ——
+      // terminate 触发 close 事件，走下方统一的关闭/重连路径（spec §17 心跳活性）。
+      const liveness = new HeartbeatLiveness();
+      ws.on("pong", () => liveness.onPong());
       heartbeatTimer = setInterval(() => {
         try {
-          if (ws.readyState === WebSocket.OPEN) ws.ping();
+          if (ws.readyState === WebSocket.OPEN) {
+            if (liveness.onBeat()) {
+              logger?.warn("中继心跳连续无 pong，判定链路死亡，主动重建连接");
+              ws.terminate();
+              return;
+            }
+            ws.ping();
+          }
         } catch {
           /* 忽略 */
         }

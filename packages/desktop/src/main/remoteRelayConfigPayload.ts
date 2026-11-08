@@ -13,6 +13,7 @@
 import {
   decodeRelayChannelKey,
   type RemoteRelayFileConfig,
+  type RemoteRelayPreviewShareUrlsRequest,
   type RemoteRelaySetConfigRequest,
   type RemoteRelayShareLinkRequest,
 } from "@zcode/shared";
@@ -56,53 +57,66 @@ export function parseRemoteRelaySetConfigRequest(payload: unknown): RemoteRelayS
     throw new Error(`config 含未知字段：${unknownKeys.join(", ")}`);
   }
 
+  // null 归一化为「未设置」并剔除（2026-11-03 回归修复）：外部工具/手工编辑写出的
+  // 配置文件可能带 `"publicUrl": null`，而 UI 轮询会把 fileConfig 原样带回
+  // setConfig 请求 —— 不剔除的话，一次合法的「清空该字段」意图会在字段校验里炸成
+  // 「publicUrl 必须以 http:// 或 https:// 开头」，主开关从此拨不动（实测踩中）。
+  // 在入口统一剔除后，写回的文件不再含 null，round-trip 收敛为「键缺席 = 未设置」，
+  // 与 RemoteRelayFileConfig 的可选字段语义一致。
+  const v = Object.fromEntries(
+    Object.entries(c).filter(([, value]) => value !== null),
+  ) as Record<string, unknown>;
+
   // 空字符串表示「未设置/恢复默认」（清空公开地址=按中继地址推导、清空工作区=跟随窗口），
   // 因此只在**非空**时校验格式。历史上这里把空串当非法，导致这些字段根本清不掉。
-  if (!isBlank(c.url) && !(typeof c.url === "string" && /^wss?:\/\//i.test(c.url.trim()))) {
+  if (!isBlank(v.url) && !(typeof v.url === "string" && /^wss?:\/\//i.test(v.url.trim()))) {
     throw new Error("url 必须以 ws:// 或 wss:// 开头");
   }
-  if (!isBlank(c.roomKey) && typeof c.roomKey !== "string") {
+  if (!isBlank(v.roomKey) && typeof v.roomKey !== "string") {
     throw new Error("roomKey 必须是字符串");
   }
-  if (!isBlank(c.workspace) && typeof c.workspace !== "string") {
+  if (!isBlank(v.workspace) && typeof v.workspace !== "string") {
     throw new Error("workspace 必须是字符串");
   }
   if (
-    c.windowId !== undefined &&
-    (typeof c.windowId !== "number" || !Number.isInteger(c.windowId) || c.windowId <= 0)
+    v.windowId !== undefined &&
+    (typeof v.windowId !== "number" || !Number.isInteger(v.windowId) || v.windowId <= 0)
   ) {
     throw new Error("windowId 必须是正整数");
   }
-  if (c.autoStart !== undefined && typeof c.autoStart !== "boolean") {
+  if (v.autoStart !== undefined && typeof v.autoStart !== "boolean") {
     throw new Error("autoStart 必须是布尔值");
   }
-  if (!isBlank(c.publicUrl) && !(typeof c.publicUrl === "string" && /^https?:\/\//i.test(c.publicUrl.trim()))) {
+  if (
+    !isBlank(v.publicUrl) &&
+    !(typeof v.publicUrl === "string" && /^https?:\/\//i.test(v.publicUrl.trim()))
+  ) {
     throw new Error("publicUrl 必须以 http:// 或 https:// 开头");
   }
-  if (c.e2ee !== undefined && typeof c.e2ee !== "boolean") {
+  if (v.e2ee !== undefined && typeof v.e2ee !== "boolean") {
     throw new Error("e2ee 必须是布尔值");
   }
   // 并发客户端槽位数（spec §17）：1..8，上不封顶会打爆 Host attachment 与中继连接。
-  if (c.slots !== undefined) {
+  if (v.slots !== undefined) {
     if (
-      typeof c.slots !== "number" ||
-      !Number.isInteger(c.slots) ||
-      c.slots < 1 ||
-      c.slots > 8
+      typeof v.slots !== "number" ||
+      !Number.isInteger(v.slots) ||
+      v.slots < 1 ||
+      v.slots > 8
     ) {
       throw new Error("slots 必须是 1..8 的整数");
     }
   }
   // 非空时必须是合法的 32B base64url：把 typo 在写入前拦住（否则 client 拨出时才失败）。
-  if (!isBlank(c.channelKey)) {
+  if (!isBlank(v.channelKey)) {
     try {
-      decodeRelayChannelKey(c.channelKey as string);
+      decodeRelayChannelKey(v.channelKey as string);
     } catch (error) {
       throw new Error(`channelKey 不合法：${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
-  return { config: c as RemoteRelayFileConfig, apply: apply !== false };
+  return { config: v as RemoteRelayFileConfig, apply: apply !== false };
 }
 
 /**
@@ -120,6 +134,24 @@ export function parseRemoteRelayShareLinkRequest(payload: unknown): RemoteRelayS
     throw new Error("ttlSeconds 必须是正数或 null");
   }
   return { ttlSeconds };
+}
+
+/**
+ * `remoteRelayPreviewShareUrls` 请求的解析（spec §21）。与配置解析同模块同理由：
+ * 必须可单测、不依赖 electron；非法地址在进 Main 前拦住（推导函数假定输入已是
+ * `ws(s)://` 完整地址，预览 handler 不做第二次容错）。
+ */
+export function parseRemoteRelayPreviewShareUrlsRequest(
+  payload: unknown,
+): RemoteRelayPreviewShareUrlsRequest {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("payload 必须是对象");
+  }
+  const { relayUrl } = payload as { relayUrl?: unknown };
+  if (typeof relayUrl !== "string" || !/^wss?:\/\//i.test(relayUrl.trim())) {
+    throw new Error("relayUrl 必须以 ws:// 或 wss:// 开头");
+  }
+  return { relayUrl: relayUrl.trim() };
 }
 
 /**

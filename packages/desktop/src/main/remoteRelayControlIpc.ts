@@ -1,14 +1,15 @@
 import { networkInterfaces } from "node:os";
 import { ipcMain } from "electron";
 import {
-  isLocalRelayHost,
   PlatformChannels,
   type RemoteRelayFileConfig,
+  type RemoteRelayPreviewShareUrlsResponse,
   type RemoteRelayShareLink,
   type RemoteRelayStatus,
 } from "@zcode/shared";
 import { pickRemoteRelayLanAddresses } from "./remoteRelayLanAddresses.js";
 import {
+  parseRemoteRelayPreviewShareUrlsRequest,
   parseRemoteRelaySetConfigRequest,
   parseRemoteRelayShareLinkRequest,
 } from "./remoteRelayConfigPayload.js";
@@ -21,7 +22,7 @@ import {
   writeConfigFile,
   type EffectiveRelayConfig,
 } from "./remoteRelayConfig.js";
-import { buildRelayLanShareLink, buildRelayShareLink } from "./remoteRelayShareLink.js";
+import { buildRelayShareLink, buildRelayShareUrls } from "./remoteRelayShareLink.js";
 import {
   createRemoteRelayClient,
   type RelayMessagePort,
@@ -85,6 +86,15 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
     // 只认用户**显式填写**的覆盖值。中继在本机时「由 url 推导」会得到 http://127.0.0.1:3180，
     // 手机永远访问不到，若拿它当覆盖值就会让「外网」那一行显示一个 loopback 地址。
     const publicUrlOverride = currentConfig?.publicUrlOverride ?? null;
+    // 两条链接的推导收口在 buildRelayShareUrls（spec §21）：buildStatus 与草稿预览
+    // 共用同一实现，预览 = 落盘后结果，不允许推导规则漂移。
+    const { lanShareUrl, publicShareUrl } = buildRelayShareUrls({
+      relayUrl: currentConfig?.url ?? "",
+      publicUrlOverride,
+      lanAddresses,
+      roomKey,
+      channelKey,
+    });
     return {
       configured: currentConfig !== null,
       running,
@@ -92,32 +102,8 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
       source: currentConfig?.source ?? null,
       e2ee: currentConfig?.e2ee ?? false,
       slots: currentConfig?.slots ?? 1,
-      // 内网链接：中继就在本机局域网时，把主机换成检测到的局域网地址——中继配成
-      // 127.0.0.1 时手机同 WiFi 也连不上，这是唯一能让手机连上的地址（spec §18.6）。
-      lanShareUrl:
-        currentConfig && roomKey
-          ? buildRelayLanShareLink({
-              relayUrl: currentConfig.url,
-              lanAddresses,
-              roomKey,
-              channelKey,
-            })
-          : null,
-      // 公网链接：中继本来就在公网时由 url 推导即可（buildRelayShareLink 内部做）；
-      // 中继在本机时必须由用户**显式填**外网地址，否则给 null —— 那种配置本来就没有外网
-      // 入口，硬拼一条只会和内网链接重复（或拼出一条连不上的 loopback 地址）。
-      publicShareUrl:
-        currentConfig &&
-        roomKey &&
-        (!isLocalRelayHost(currentConfig.url) || publicUrlOverride !== null)
-          ? (buildRelayShareLink({
-              url: currentConfig.url,
-              publicUrl: publicUrlOverride,
-              roomKey,
-              channelKey,
-              ttlSeconds: null,
-            })?.shareUrl ?? null)
-          : null,
+      lanShareUrl,
+      publicShareUrl,
       windowId: null,
       lanAddresses,
       configFilePath: getConfigFilePath(),
@@ -251,6 +237,40 @@ export function createRemoteRelayControl(deps: RemoteRelayControlDeps): {
           ttlSeconds: request.ttlSeconds ?? null,
         });
         return link ?? { shareUrl: null, expiresAt: null };
+      },
+    );
+
+    // 草稿地址实时预览（spec §21）：纯派生，不写配置、不 stop/start 运行中的客户端。
+    // 凭据补齐语义与 RemoteRelayGetShareLink 完全一致——运行中取正在运行的连接的
+    // roomKey（2026-10-21 失配教训），未运行走「读状态」同一套补齐链（保存即生成）。
+    ipcMain.handle(
+      PlatformChannels.RemoteRelayPreviewShareUrls,
+      async (_event, payload: unknown): Promise<RemoteRelayPreviewShareUrlsResponse> => {
+        const request = parseRemoteRelayPreviewShareUrlsRequest(payload);
+        const file = await readConfigFile(logger);
+        let effective: EffectiveRelayConfig | null;
+        if (clients.length) {
+          lastFileConfig = file ?? (await ensureRelaySecrets(lastFileConfig, logger));
+          effective = currentConfig;
+        } else {
+          lastFileConfig = await ensureRelaySecrets(file, logger);
+          effective = resolveEffectiveConfig(lastFileConfig);
+        }
+        if (!effective) return { lanShareUrl: null, publicShareUrl: null };
+        // 用草稿地址替换 url 做一次合成解析：roomKey / channelKey / e2ee /
+        // publicUrlOverride 全部沿用同一 resolveEffectiveConfig 规则（含 env 覆盖），
+        // 不在 handler 里手抄字段——这就是「预览 = 落盘后结果」的实现保证。
+        // relayUrl 已由 parse 白名单校验为 ws(s):// 完整地址，合成解析必然成功；
+        // 兜底走 effective 仅取密钥/覆盖值（两条路径下这些字段一致）。
+        const resolved = resolveEffectiveConfig({ ...lastFileConfig, url: request.relayUrl });
+        const source = resolved ?? effective;
+        return buildRelayShareUrls({
+          relayUrl: request.relayUrl,
+          publicUrlOverride: source.publicUrlOverride,
+          lanAddresses: pickRemoteRelayLanAddresses(networkInterfaces()),
+          roomKey: source.roomKey,
+          channelKey: source.e2ee ? (source.channelKey ?? null) : null,
+        });
       },
     );
   }

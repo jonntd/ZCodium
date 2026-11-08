@@ -123,3 +123,38 @@ export function buildRelayLanShareLink(input: {
     })?.shareUrl ?? null
   );
 }
+
+/**
+ * 内网/外网两条链接的**唯一推导入口**（spec §21）：`buildStatus` 与草稿预览
+ * （`RemoteRelayPreviewShareUrls`）共用，保证「预览 = 落盘后结果」，不允许第二份推导。
+ * null 边界沿用 §18.6：中继不在本机局域网时内网链接为 null；中继在本机且无公开地址
+ * 覆盖时外网链接为 null。publicUrl 覆盖值优先于推导值（§18.5，端口映射/DDNS 合法路径）。
+ */
+export function buildRelayShareUrls(input: {
+  relayUrl: string;
+  /** 显式公开地址覆盖（配置文件 `publicUrl`）；缺省由 relayUrl 推导。 */
+  publicUrlOverride: string | null;
+  lanAddresses: readonly string[];
+  roomKey: string;
+  channelKey?: string | null;
+}): { lanShareUrl: string | null; publicShareUrl: string | null } {
+  const roomKey = input.roomKey.trim();
+  if (!roomKey || !input.relayUrl) return { lanShareUrl: null, publicShareUrl: null };
+  const lanShareUrl = buildRelayLanShareLink({
+    relayUrl: input.relayUrl,
+    lanAddresses: input.lanAddresses,
+    roomKey,
+    channelKey: input.channelKey,
+  });
+  const publicShareUrl =
+    !isLocalRelayHost(input.relayUrl) || input.publicUrlOverride != null
+      ? (buildRelayShareLink({
+          url: input.relayUrl,
+          publicUrl: input.publicUrlOverride,
+          roomKey,
+          channelKey: input.channelKey,
+          ttlSeconds: null,
+        })?.shareUrl ?? null)
+      : null;
+  return { lanShareUrl, publicShareUrl };
+}

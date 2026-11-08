@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  parseRemoteRelayPreviewShareUrlsRequest,
   parseRemoteRelaySetConfigRequest,
   unwrapLegacyRemoteRelayConfigFile,
 } from "../src/main/remoteRelayConfigPayload.ts";
@@ -124,4 +125,46 @@ test("正常文件原样返回，不误判", () => {
   const flat = unwrapLegacyRemoteRelayConfigFile(VALID_CONFIG);
   assert.equal(flat.recovered, false);
   assert.deepEqual(flat.config, VALID_CONFIG);
+});
+
+test("回归守卫：字段值为 null 视为「未设置」并剔除，不再炸字段校验（2026-11-03）", () => {
+  // 外部工具/手工编辑会写出 `"publicUrl": null`；UI 轮询把它原样带回请求后，
+  // 此前会炸成「publicUrl 必须以 http:// 开头」，主开关拨不动。剔除后 round-trip 收敛。
+  const parsed = parseRemoteRelaySetConfigRequest({
+    config: {
+      url: "ws://127.0.0.1:3180",
+      roomKey: "devsecret-room-key",
+      publicUrl: null,
+      autoStart: null,
+      channelKey: null,
+    },
+  });
+  assert.deepEqual(parsed.config, {
+    url: "ws://127.0.0.1:3180",
+    roomKey: "devsecret-room-key",
+  });
+});
+
+// ── parseRemoteRelayPreviewShareUrlsRequest（spec §21）：预览请求的白名单校验 ──
+
+test("预览请求：合法 ws(s):// 地址通过并 trim；非法形状在进 Main 前拦住", () => {
+  assert.deepEqual(parseRemoteRelayPreviewShareUrlsRequest({ relayUrl: " ws://192.168.8.106:3180 " }), {
+    relayUrl: "ws://192.168.8.106:3180",
+  });
+  assert.deepEqual(
+    parseRemoteRelayPreviewShareUrlsRequest({ relayUrl: "wss://relay.example.com:3180" }),
+    { relayUrl: "wss://relay.example.com:3180" },
+  );
+  for (const payload of [
+    { relayUrl: "http://192.168.8.106:3180" },
+    { relayUrl: "192.168.8.106:3180" },
+    { relayUrl: "" },
+    { relayUrl: 42 },
+    {},
+  ]) {
+    assert.throws(() => parseRemoteRelayPreviewShareUrlsRequest(payload), /relayUrl/);
+  }
+  for (const payload of ["ws://x", null]) {
+    assert.throws(() => parseRemoteRelayPreviewShareUrlsRequest(payload), /payload 必须是对象/);
+  }
 });
