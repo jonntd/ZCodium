@@ -638,12 +638,34 @@ export interface ZCodeAgentStorageStartupSnapshot {
   state: ZCodeStorageStartupState | null;
 }
 
+/**
+ * 协议 `runtime/capabilities` 的应答形状（FR-A13 / M2-8）。与
+ * `zcodeRuntimeCapabilitiesSchema`（@zcode/shared，非 strict、字段全可选）一致：
+ * 旧 CLI 会剥掉或整段缺席字段，消费方必须把「false / 缺席」都当不支持处理。
+ */
+export interface ZCodeAgentRuntimeCapabilities {
+  independentPlanState?: boolean;
+  historyFirst?: boolean;
+}
+
 export interface IZCodeAgentService {
   /** 控制面不需要账号或模型，且不发送普通协议请求。 */
   prepareStorage(params: ZCodeAgentWorkspaceTarget): Promise<void>;
   getStorageStartupState(
     params: ZCodeAgentWorkspaceTarget,
   ): Promise<ZCodeAgentStorageStartupSnapshot | null>;
+  /**
+   * FR-A13（M2-8）：CLI runtime 能力位查询（协议 `runtime/capabilities`）。
+   * 控制面常量应答：不依赖 provider/model 就绪、不落持久化 store、不建立会话。
+   * CLI 未实现该方法时 -32601 原样上抛（ZCodeProtocolClientError 携带 code，RPC 层
+   * passthrough 透传），由调用方（VS Code 插件）统一判「能力缺失」并降级，这里不做
+   * 静默兜底；server dist 未重建时则会抛无 code 的 "Method not found" —— 两种形状
+   * 都是能力缺失，不得被调用方伪装成请求失败。
+   * 旧 server 可以不提供此能力（optional，同 reconcileSessionsIndexV4 先例）。
+   */
+  runtimeCapabilities?(
+    params: ZCodeAgentWorkspaceTarget,
+  ): Promise<ZCodeAgentRuntimeCapabilities>;
   onDynamicStorageStartupState(
     params: ZCodeAgentWorkspaceTarget,
   ): Event<ZCodeAgentStorageStartupSnapshot>;

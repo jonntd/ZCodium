@@ -33,9 +33,14 @@ describe("remote project single-root authority", () => {
     const { repo, db } = await remoteFixture();
     const project = repo.saveProject({ roots: ["/a"] });
     const task = { taskId: "new", workspacePath: "/a", workspaceIdentity: `${hostId}:/a` };
-    expect(() => repo.reserveCreatedTask({ task, projectId: null })).toThrow(
-      "project.remote-project-required",
-    );
+    // 没有任何项目声明该根目录时，unclassified admission 仍被拒绝；
+    // 已有项目精确声明根目录时则自动关联（见 repository/contract.test.ts）。
+    expect(() =>
+      repo.reserveCreatedTask({
+        task: { taskId: "unclaimed", workspacePath: "/x", workspaceIdentity: `${hostId}:/x` },
+        projectId: null,
+      }),
+    ).toThrow("project.remote-project-required");
     expect(() =>
       repo.reserveCreatedTask({ task, projectId: project.id, additionalDirectories: ["/b"] }),
     ).toThrow("project.remote-single-root-required");

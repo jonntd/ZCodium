@@ -17,6 +17,7 @@ import {
   requestVerificationInteractionAvailable,
 } from "@zcode/shared";
 import { zcodeMcpUiSamplingResultSchema } from "@zcode/shared";
+import { zcodeRuntimeCapabilitiesSchema } from "@zcode/shared";
 import { MCP_APPS_SAMPLING_TRANSPORT_TIMEOUT_MS } from "@zcode/shared/mcp-apps";
 import {
   channelReplyRequestSchema,
@@ -1661,17 +1662,25 @@ export function createZCodeAgentService(
         // 前一次失败不能打乱之后开关提交的顺序；当前快照仍需继续尝试。
       })
       .then(async () => {
-        await params.client.request(
-          zcodeProtocolMethods.workspaceUpdateInteractionPreferences,
-          {
-            workspace: buildWorkspaceRef(params.workspace),
-            preferences: {
-              askUserQuestionAutoResolutionEnabled:
-                params.preferences.askUserQuestionAutoResolutionEnabled,
+        try {
+          await params.client.request(
+            zcodeProtocolMethods.workspaceUpdateInteractionPreferences,
+            {
+              workspace: buildWorkspaceRef(params.workspace),
+              preferences: {
+                askUserQuestionAutoResolutionEnabled:
+                  params.preferences.askUserQuestionAutoResolutionEnabled,
+              },
             },
-          },
-          zcodeWorkspaceUpdateInteractionPreferencesResultSchema,
-        );
+            zcodeWorkspaceUpdateInteractionPreferencesResultSchema,
+          );
+        } catch (error) {
+          // 旧 CLI 不认识该方法：静默降级（交互问题自动解析退回 CLI 内置行为）。
+          // 这里是快照的第一个方法且排在会话建立的重放链上——失败上抛会让任何
+          // 不支持该方法的旧 CLI 连会话都开不了（FR-A17 边界：-32601 不阻塞会话）；
+          // 其余同步失败仍需上抛，与后续五个 workspace/update* 的降级口径一致。
+          if (!isProtocolMethodNotFoundError(error)) throw error;
+        }
         try {
           await params.client.request(
             zcodeProtocolMethods.workspaceUpdateModelIoPreferences,
@@ -4020,6 +4029,22 @@ export function createZCodeAgentService(
       // 查询 runtime identity 只能观察现有进程，不能把 dormant workspace 变成活动进程。
       await getReadOnlyClient(params, "existing-only");
       return await processManager.getRuntimeIdentity(params);
+    },
+
+    async runtimeCapabilities(params: ZCodeAgentWorkspaceTarget) {
+      // FR-A13（M2-8）：runtime/capabilities 是 CLI 控制面常量应答（apps/zcode-cli
+      // packages/bootstrap/src/zcode-protocol/server.ts:827），不依赖 provider/model
+      // 就绪也不落持久化 store。用只读 client 的 start-if-needed 路径：插件启动探测时
+      // workspace runtime 往往还没起，existing-only 会把主路径变成必败；spawn 出的
+      // 只读进程随后被同 workspace 的会话路径复用，不为探测额外开进程。
+      const client = await getReadOnlyClient(params);
+      return client.request(
+        zcodeProtocolMethods.runtimeCapabilities,
+        {},
+        zcodeRuntimeCapabilitiesSchema,
+        // 能力探测是启动路径的一部分：短超时失败快，让调用方尽早落到 --version 兜底。
+        { timeoutMs: 15_000 },
+      );
     },
 
     async createSession(params: ZCodeAgentCreateSessionParams) {

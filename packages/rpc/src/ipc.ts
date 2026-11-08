@@ -283,12 +283,16 @@ export class IPCClient<TContext = string>
   private channelServer: ChannelServer<TContext>;
 
   constructor(protocol: IMessagePassingProtocol, ctx: TContext) {
-    // 第一条消息：发送自己的身份标识
+    // 先创建 ChannelClient：注册 onMessage 订阅。对端（IPCServer）收到 ctx 帧
+    // 会同步回发 Initialize，若此刻尚未订阅（异步传输下通常已注册，同步内存
+    // 环回下必然未注册），Initialize 帧将永久丢失、whenInitialized 永挂。
+    this.channelClient = new ChannelClient(protocol);
+
+    // 第一条消息：发送自己的身份标识（仍是第一条出站消息，协议不变）
     const writer = new BufferWriter();
     serialize(writer, ctx);
     protocol.send(writer.buffer);
 
-    this.channelClient = new ChannelClient(protocol);
     this.channelServer = new ChannelServer(protocol, ctx);
   }
 

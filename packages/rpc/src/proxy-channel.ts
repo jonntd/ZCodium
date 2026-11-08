@@ -53,8 +53,11 @@ export namespace ProxyChannel {
     const eventMap = new Map<string, Event<unknown>>();
     for (const key in handler) {
       if (isEvent(key) && !isDynamicEvent(key) && typeof handler[key] === "function") {
-        // 把事件 buffer 化：即使没人订阅，事件也不会丢失
-        eventMap.set(key, bufferEvent(handler[key] as Event<unknown>));
+        // 把事件 buffer 化：即使没人订阅，事件也不会丢失。
+        // 必须 bind(this)：服务的事件若是类原型方法（依赖 this 取内部 Emitter），
+        // 裸调用会丢 this 抛 TypeError——而 EventListen 订阅失败是静默语义，
+        // 故障只会表现为事件永远到不了客户端。
+        eventMap.set(key, bufferEvent((handler[key] as Event<unknown>).bind(handler)));
       }
     }
 
@@ -74,7 +77,8 @@ export namespace ProxyChannel {
           }
           // 延迟发现的事件（Proxy 服务可能不会在 for-in 中出现）
           if (isEvent(event)) {
-            eventMap.set(event, bufferEvent(handler[event] as Event<unknown>));
+            // 同预缓存：bind(this) 防止类原型方法在 bufferEvent 内裸调用时丢 this。
+            eventMap.set(event, bufferEvent((handler[event] as Event<unknown>).bind(handler)));
             return eventMap.get(event) as Event<T>;
           }
         }

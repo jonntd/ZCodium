@@ -405,6 +405,36 @@ export class TaskIndexRepo {
     // acp_session_id。直接运行时映射会让 read/send/subscribe 到处变成双 ID 兜底；
     // 初始化时把索引行迁到真实 session id，后续统一走新协议正常路径。
     this.migrateLegacyAcpTaskIds();
+    this.sweepGhostReservedRows();
+  }
+
+  /**
+   * 启动回收幽灵预留行（spec: sidebar-task-service-resolution P2-4）。
+   *
+   * reserveCreatedTask 在任务创建前先插占位行（created_at=0、无 CLI 事实）；创建失败
+   * （CLI 拒绝/进程退出）后占位行永久残留——实测 3 行（title/provider 全空、
+   * handoff_pending=8），污染组织库且部分视图计数虚高。
+   * 判定口径与 applyCliFacts 的「预留行」判定完全一致：`cli_created_at IS NULL AND
+   * created_at=0`。启动时点回收是安全的：预留行的消费（applyCliFacts）在行缺失时会
+   * 重新 INSERT（upsert 插入路径），跨 host 竞态下也不会丢真实任务；
+   * 携带 CLI 事实的行（cli_created_at 非空）不受影响。
+   */
+  private sweepGhostReservedRows(): void {
+    try {
+      const result = this.getDatabase()
+        .prepare(
+          "DELETE FROM tasks WHERE created_at = 0 AND cli_created_at IS NULL",
+        )
+        .run();
+      if (result.changes > 0) {
+        logger.info(`已回收 ${result.changes} 行无 CLI 事实的幽灵预留行`);
+      }
+    } catch (error) {
+      // 回收失败不阻断启动（卫生问题，不是事实问题）。
+      logger.warn("幽灵预留行回收失败", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private hasColumn(table: string, column: string): boolean {
@@ -528,7 +558,7 @@ export class TaskIndexRepo {
         last_unread_at = @last_unread_at,
         pinned = @pinned,
         archived = @archived,
-        deleted = @deleted,
+        deleted = MAX(tasks.deleted, @deleted),
         title_overridden = @title_overridden,
         searchable_text = @searchable_text,
         meta_json = @meta_json,
@@ -834,7 +864,10 @@ export class TaskIndexRepo {
           last_unread_at = MAX(tasks.last_unread_at, COALESCE(tasks.unread_at, 0)),
           pinned = excluded.pinned,
           archived = excluded.archived,
-          deleted = excluded.deleted,
+          -- 墓碑单调（spec: sidebar-task-service-resolution / skill I14）：删除事实只能由
+          -- 明确事件写入，任何回源/迁移 upsert 不得把已有墓碑清回存活——否则 CLI 删除
+          -- 拒绝（busy）后，存活事实回源会把 tombstone 行复活（实测 deleted 1→0）。
+          deleted = MAX(tasks.deleted, excluded.deleted),
           title_overridden = excluded.title_overridden,
           searchable_text = excluded.searchable_text,
           meta_json = excluded.meta_json`,
@@ -1041,8 +1074,10 @@ export class TaskIndexRepo {
           )
           .run(workspaceKey(params), params.taskId, params.expectedUnreadAt);
         const row = this.getTaskRow(params);
-        if (!row || row.deleted === 1)
+        if (!row || row.deleted === 1) {
+          if (row) throw new Error(`task index 中该 task 已删除: ${params.taskId}`);
           throw new Error(`task index 中不存在 task: ${params.taskId}`);
+        }
         db.exec("COMMIT");
         return { meta: rowToMeta(row), cleared: Number(updated.changes) > 0 };
       } catch (error) {
@@ -1103,8 +1138,13 @@ export class TaskIndexRepo {
       db.exec("BEGIN IMMEDIATE");
       try {
         const row = this.getTaskRow(params);
-        if (!row || row.deleted === 1)
+        if (!row || row.deleted === 1) {
+          // 错误语义拆分（spec: sidebar-task-service-resolution P0-2）：已删除 ≠ 不存在。
+          // 归档/删除写路径拒因此前被笼统报成「不存在」，双侧日志无法区分
+          // 「列表过期」与「墓碑行」（复活缺陷排查时的主要障眼）。
+          if (row) throw new Error(`task index 中该 task 已删除: ${params.taskId}`);
           throw new Error(`task index 中不存在 task: ${params.taskId}`);
+        }
         const hasUnread = "unreadAt" in params.patch;
         // marker 的 watermark 在清除后仍保留；旧手机 CAS 不能清除同毫秒内的新未读。
         const unread =

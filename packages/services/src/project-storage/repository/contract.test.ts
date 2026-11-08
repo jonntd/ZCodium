@@ -1,6 +1,35 @@
 import { describe, expect, it } from "vitest";
 import { fixture, port } from "#src/project-storage/test-fixture.js";
 describe("project repository contract", () => {
+  it("auto-links a remote-host session to the project claiming the workspace root when projectId is absent", async () => {
+    const { db, context } = await fixture();
+    await port.migrate(db, context);
+    db.exec("INSERT INTO hosts(host_id,kind) VALUES ('remote:server:s','server')");
+    const repo = port.repository(db, "remote:server:s");
+    const project = repo.saveProject({ roots: ["/remote"] });
+    // workspace-first 入口（嵌入完整界面的插件）不带 projectId 也能创建会话。
+    expect(
+      repo.reserveCreatedTask({
+        task: { taskId: "auto", workspacePath: "/remote", workspaceIdentity: "remote:server:s:/remote" },
+        projectId: null,
+      }),
+    ).toEqual({ workspacePath: "/remote", projectId: project.id, additionalDirectories: [] });
+    // 未被任何项目声明的目录仍拒绝。
+    expect(() =>
+      repo.reserveCreatedTask({
+        task: { taskId: "unclaimed", workspacePath: "/elsewhere", workspaceIdentity: "remote:server:s:/elsewhere" },
+        projectId: null,
+      }),
+    ).toThrow("project.remote-project-required");
+    // 已删除项目不参与自动关联。
+    repo.deleteProject(project.id);
+    expect(() =>
+      repo.reserveCreatedTask({
+        task: { taskId: "auto2", workspacePath: "/remote", workspaceIdentity: "remote:server:s:/remote" },
+        projectId: null,
+      }),
+    ).toThrow("project.remote-project-required");
+  });
   it("rejects a foreign task directory read even when the row and its project agree", async () => {
     const { db, context } = await fixture();
     await port.migrate(db, context);

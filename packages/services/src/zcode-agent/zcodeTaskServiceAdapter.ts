@@ -3065,9 +3065,21 @@ export function createZCodeTaskServiceAdapter(
     },
 
     async archiveTask(params): Promise<ZCodeTaskMeta> {
-      const meta = await updateIndexedTaskState(params, { archived: true });
-      emitWorkspaceTaskListChanged(params, meta, "task_archived");
-      return meta;
+      try {
+        const meta = await updateIndexedTaskState(params, { archived: true });
+        emitWorkspaceTaskListChanged(params, meta, "task_archived");
+        return meta;
+      } catch (error) {
+        // 诊断（应用反馈「归档任务失败」无任何日志可查）：拒绝原因此前被 UI catch 吞掉，
+        // 这里落服务侧事实（taskId/workspacePath/错误），与 P0-2 错误语义拆分配套。
+        logger.error(undefined, "[task-archive] archiveTask 被拒绝", {
+          taskId: params.taskId,
+          workspacePath: params.workspacePath,
+          workspaceIdentity: params.workspaceIdentity,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     },
 
     async unarchiveTask(params): Promise<ZCodeTaskMeta> {

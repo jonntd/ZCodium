@@ -3,6 +3,7 @@ import { resolveZCodeAgentSpawnCwd } from "#src/zcode-agent/zcodeAgentSpawnCwd.j
 import type { ZCodeAgentStorageStartupSnapshot } from "#src/zcode-agent/zcodeAgent.js";
 /* eslint-disable max-lines -- zcodeAgentProcessManager 集中维护 agent 子进程启动、复用、超时回收和 runtime identity，拆分会扩大进程生命周期状态同步面 */
 import { spawn } from "node:child_process";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -540,10 +541,31 @@ export function wrapZCodeAgentCommandWithStdioTapDevProxy(
   };
 }
 
+/** 快速退出判定阈值：启动后存活不足该时长即视为 spawn 失败回路。 */
+export const FAST_EXIT_UPTIME_MS = 5_000;
+export const FAST_EXIT_BACKOFF_BASE_MS = 1_000;
+export const FAST_EXIT_BACKOFF_MAX_MS = 30_000;
+
+/**
+ * 快速退出连续次数 → 下次 respawn 前的退避时长（1s、2s、4s…封顶 30s）。
+ * 纯函数（单测直测）。目的：运行时崩溃循环（如 spawn 旗标不被 CLI 接受）时，
+ * 把「每秒 spawn」的无效风暴压回有界重试，同时保留自动恢复能力。
+ */
+export function fastExitBackoffDelayMs(consecutiveFastExits: number): number {
+  if (consecutiveFastExits <= 0) return 0;
+  return Math.min(
+    FAST_EXIT_BACKOFF_MAX_MS,
+    FAST_EXIT_BACKOFF_BASE_MS * 2 ** (consecutiveFastExits - 1),
+  );
+}
+
 export class ZCodeAgentProcessManager {
   private readonly processesByWorkspaceKey = new Map<string, ManagedZCodeAgentProcess>();
   private readonly ownedProcesses = new Set<ManagedZCodeAgentProcess>();
   private readonly startingByWorkspaceKey = new Map<string, Promise<ZCodeProtocolClient>>();
+  /** 快速退出退避（真机教训 2026-11-07：spawn 崩溃循环每秒一发，必须有界重试）。 */
+  private readonly fastExitCountByWorkspaceKey = new Map<string, number>();
+  private readonly respawnNotBeforeByWorkspaceKey = new Map<string, number>();
   private readonly restartGenerationByWorkspaceKey = new Map<string, number>();
   private readonly runtimeGenerationByWorkspaceKey = new Map<string, number>();
   private readonly availableRuntimeIdentityByWorkspaceKey = new Map<string, string>();
@@ -850,6 +872,13 @@ export class ZCodeAgentProcessManager {
       throw new Error("ZCode agent process manager is disposed.");
     }
     const workspaceKey = resolveWorkspaceKey(params);
+    // 快速退出退避：崩溃循环期间把 respawn 有界延迟（并发调用共用同一次等待，
+    // 后续经 startingByWorkspaceKey 去重），避免「每秒 spawn」的无效风暴。
+    const respawnNotBefore = this.respawnNotBeforeByWorkspaceKey.get(workspaceKey);
+    if (respawnNotBefore !== undefined && respawnNotBefore > Date.now()) {
+      await sleep(respawnNotBefore - Date.now());
+      this.respawnNotBeforeByWorkspaceKey.delete(workspaceKey);
+    }
     const existing = this.processesByWorkspaceKey.get(workspaceKey);
     if (existing && !existing.child.killed) {
       return existing.client;
@@ -1240,6 +1269,20 @@ export class ZCodeAgentProcessManager {
         this.clearIdleTimer(managed);
         const endedAt = Date.now();
         const terminationKind = managed.terminationIntent?.kind ?? "unexpected";
+        // 快速退出退避记账：意外早夭（存活 < FAST_EXIT_UPTIME_MS）递增计数并设定
+        // 下次 respawn 退避；有意终止（dispose/restartWorkspaceProcess）或长寿运行
+        // 清零——退避只针对失控的崩溃循环，不惩罚正常的管理动作。
+        if (endedAt - startedAt < FAST_EXIT_UPTIME_MS && terminationKind === "unexpected") {
+          const consecutive = (this.fastExitCountByWorkspaceKey.get(workspaceKey) ?? 0) + 1;
+          this.fastExitCountByWorkspaceKey.set(workspaceKey, consecutive);
+          this.respawnNotBeforeByWorkspaceKey.set(
+            workspaceKey,
+            Date.now() + fastExitBackoffDelayMs(consecutive),
+          );
+        } else {
+          this.fastExitCountByWorkspaceKey.delete(workspaceKey);
+          this.respawnNotBeforeByWorkspaceKey.delete(workspaceKey);
+        }
         // 协议解析/stream 故障会先触发 protocol-close，再由 Host 用 SIGTERM
         // 回收仍存活的进程。若只透传主动 termination intent，desktop 只能看到最终信号，
         // 无法区分协议故障与受控退出；保留首次 cleanup 原因作为结构化根因。
@@ -1456,6 +1499,8 @@ export class ZCodeAgentProcessManager {
     this.disposed = true;
     this.storageStartupEmitter.dispose();
     this.abortAllPendingStarts();
+    this.fastExitCountByWorkspaceKey.clear();
+    this.respawnNotBeforeByWorkspaceKey.clear();
     for (const managed of this.ownedProcesses) {
       this.recordTerminationIntent(managed, "manager-dispose");
       this.reportRuntimeUnavailable(managed);

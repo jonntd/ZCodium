@@ -379,14 +379,29 @@ export class ProjectRepository implements ProjectRepositoryContract {
       const host = ensureHost(this.db, key, this.ownerHostId);
       if (host !== (this.ownerHostId ?? "local")) throw new Error("project.cross-host-move");
       if (!readTask(this.db, input.task)) {
+        // 调用方未显式指定项目：按 workspacePath 在本 Host 项目里做精确根匹配自动关联
+        // （本地/远端一致，spec: ide-workspace-project-binding）。桌面端从项目列表进入
+        // 会话时 projectId 由 UI 传入；嵌入完整界面的插件（workspace-first 入口）新会话
+        // 没有项目导航上下文，不应把"先选项目"这个步骤强加给它——只要已有项目声明了
+        // 该根目录就复用。精确根匹配不猜项目：子目录不命中声明根为父目录的工程。
+        let projectId = input.projectId;
+        if (!projectId) {
+          const claimed = readProjects(this.db, false).find(
+            (project) =>
+              project.hostId === host &&
+              !project.deleted &&
+              project.roots.some((root) => root.rootPath === input.task.workspacePath),
+          );
+          if (claimed) projectId = claimed.id;
+        }
         assertRemoteTaskDirectories(
           this.ownerHostId,
-          input.projectId ? requireProject(this.db, input.projectId) : null,
+          projectId ? requireProject(this.db, projectId) : null,
           input.task.workspacePath,
           input.additionalDirectories,
         );
-        if (input.projectId) {
-          const project = requireProject(this.db, input.projectId);
+        if (projectId) {
+          const project = requireProject(this.db, projectId);
           if (project.deleted && input.additionalDirectories === undefined)
             throw new Error("project.deleted");
           if (project.hostId !== host) throw new Error("project.cross-host-move");
@@ -407,7 +422,7 @@ export class ProjectRepository implements ProjectRepositoryContract {
             input.task.taskId,
             host,
             input.task.workspacePath,
-            input.projectId,
+            projectId,
             OWNERSHIP_DECIDED,
             input.additionalDirectories === undefined
               ? null
