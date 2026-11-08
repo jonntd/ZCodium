@@ -202,16 +202,14 @@ function WebviewRoot({
         )
           ? workspaceRef.current
           : (foldersRef.current[0] ?? workspaceRef.current);
-        import("@/store/zcodeSessionStore.js").then(
-          ({ useZCodeSessionStore }) => {
-            useZCodeSessionStore
-              .getState()
-              .requestComposerTextInsert(
-                activeWorkspace,
-                buildDiagnosticsInjection(payload),
-              );
-          },
-        );
+        // 增量审查 X6：顶部已静态 import 同一模块，此处原动态 import 是多余的
+        // Promise 链（诊断帧每帧执行一次）——直接走静态引用。
+        useZCodeSessionStore
+          .getState()
+          .requestComposerTextInsert(
+            activeWorkspace,
+            buildDiagnosticsInjection(payload),
+          );
       }),
     [hostFrames],
   );

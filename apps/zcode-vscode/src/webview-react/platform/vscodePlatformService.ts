@@ -25,6 +25,10 @@ import type {
 } from "@zcode/shared";
 import type { HostFrameBus } from "../bridge/hostFrames";
 import type { PlatformRpcClient } from "../bridge/platformRpcClient";
+// base64 编码复用桥 wire 的分块实现（增量审查 X6：原内联实现逐字节字符串拼接，
+// saveFile 图片导出 MB 级时是数百万次拼接；wire 实现在 webview 无 Buffer 环境
+// 自动走 0x8000 分块快路径，双端行为一致）。
+import { bytesToBase64 } from "../../bridge/wire";
 import type { VscodeThemeKind } from "../themeBridge";
 
 /** 不支持能力的安全返回值集中定义（矩阵 §2.4）。 */
@@ -102,7 +106,7 @@ export class VscodePlatformService implements IPlatformService {
     // ArrayBuffer 过 postMessage 需 base64：data 编为 dataB64；sourceUrl 交给宿主侧拉取。
     // 两者皆缺时宿主返回可读错误（附件上传链路另行承担大文件面）。
     const dataB64 = payload.data
-      ? arrayBufferToBase64(payload.data)
+      ? bytesToBase64(new Uint8Array(payload.data))
       : undefined;
     return this.rpc.call("saveFile", {
       dataB64,
@@ -531,16 +535,6 @@ export class VscodePlatformService implements IPlatformService {
       this.hostFrames?.on<VscodeThemeKind>("theme", callback) ?? (() => {})
     );
   }
-}
-
-/** ArrayBuffer → base64（Webview 无 Buffer；btoa 走二进制字符串桥）。 */
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  const bytes = new Uint8Array(buffer);
-  let binary = "";
-  for (let i = 0; i < bytes.length; i += 1) {
-    binary += String.fromCharCode(bytes[i]!);
-  }
-  return btoa(binary);
 }
 
 /** 与宿主 ChangesDiffOpener.openPendingDiff 对齐的结构化 hunk。 */
