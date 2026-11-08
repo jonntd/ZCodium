@@ -4,6 +4,13 @@ import { log } from "./logger";
 
 const SCHEME = "gode-quick-edit";
 
+/**
+ * 快照上限（增量审查 X4）：每次 Cmd+K 存 before/after 两份全文快照且从不清理，
+ * 长会话下无界增长。超上限按插入序淘汰最旧——快照只在 diff 预览期间需要，
+ * 决策后（应用/放弃）对应页签即关闭，淘汰最旧不影响在用预览。
+ */
+const MAX_QUICK_EDIT_SNAPSHOTS = 16;
+
 /** 虚拟文档内容：diff 两侧都通过它渲染，避免为了预览而临时落盘。 */
 export class QuickEditContentProvider implements vscode.TextDocumentContentProvider {
   private readonly contents = new Map<string, string>();
@@ -12,6 +19,11 @@ export class QuickEditContentProvider implements vscode.TextDocumentContentProvi
 
   set(uri: vscode.Uri, content: string): void {
     this.contents.set(uri.toString(), content);
+    while (this.contents.size > MAX_QUICK_EDIT_SNAPSHOTS) {
+      const oldest = this.contents.keys().next().value;
+      if (oldest === undefined) break;
+      this.contents.delete(oldest);
+    }
     this.emitter.fire(uri);
   }
 

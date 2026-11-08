@@ -100,12 +100,20 @@ export function sessionAllowlistRule(toolName: string, input: unknown): string {
   return name;
 }
 
+/** resolved 审批默认保留条数（增量审查 X4）：requests 只增不减会无界增长。 */
+export const DEFAULT_MAX_RETAINED_REQUESTS = 200;
+
 export class ApprovalService {
   private readonly requests = new Map<string, ApprovalRequest>();
   private readonly sessionAllowlist = new Set<string>();
+  private readonly maxRetainedRequests: number;
   private replyFn: ApprovalReplyFn | null = null;
   private warnFn: ApprovalWarnFn | null = null;
   private updateHandler: ((update: ApprovalUpdate) => void) | null = null;
+
+  constructor(options?: { maxRetainedRequests?: number }) {
+    this.maxRetainedRequests = Math.max(1, options?.maxRetainedRequests ?? DEFAULT_MAX_RETAINED_REQUESTS);
+  }
 
   /** 注入应答通道（ProtocolConnection.reply 的包装）与告警通道。 */
   attach(replyFn: ApprovalReplyFn, warnFn?: ApprovalWarnFn): void {
@@ -123,6 +131,11 @@ export class ApprovalService {
       if (request.state === "pending") count += 1;
     }
     return count;
+  }
+
+  /** 诊断/测试面：登记的请求总数（含 resolved；X4 修剪上限的校验出口）。 */
+  get requestCount(): number {
+    return this.requests.size;
   }
 
   get pendingRequests(): ApprovalRequest[] {
@@ -177,6 +190,7 @@ export class ApprovalService {
         reason: "本次会话允许（会话级 allowlist 命中）",
       });
       this.updateHandler?.({ kind: "autoAllowed", request });
+      this.pruneResolvedRequests();
       return;
     }
     const request: ApprovalRequest = {
@@ -190,6 +204,7 @@ export class ApprovalService {
     };
     this.requests.set(requestId, request);
     this.updateHandler?.({ kind: "requested", request });
+    this.pruneResolvedRequests();
   }
 
   /** snapshot 恢复的 pendingPermissions 重放（P1-8 断线恢复内核）。 */
@@ -232,6 +247,7 @@ export class ApprovalService {
       this.requests.set(p.requestId, request);
       this.updateHandler?.({ kind: "restored", request });
     }
+    this.pruneResolvedRequests();
   }
 
   /**
@@ -279,5 +295,19 @@ export class ApprovalService {
   resetForNewSession(): void {
     this.requests.clear();
     this.sessionAllowlist.clear();
+  }
+
+  /**
+   * 收纳修剪（增量审查 X4）：requests 只增不减——resolved 条目永久滞留，而
+   * `input` 可能携带整个文件内容（Write/Edit 工具），长会话下无界增长。
+   * 超上限时按插入序淘汰**已 resolved** 的最旧条目；pending/pendingRestore
+   * 一律不动（幂等保护与快照重放语义不受影响）。
+   */
+  private pruneResolvedRequests(): void {
+    if (this.requests.size <= this.maxRetainedRequests) return;
+    for (const [requestId, request] of this.requests) {
+      if (this.requests.size <= this.maxRetainedRequests) break;
+      if (request.state === "resolved") this.requests.delete(requestId);
+    }
   }
 }

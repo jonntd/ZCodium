@@ -182,6 +182,36 @@ describe("ApprovalService", () => {
     expect(service.pendingCount).toBe(0);
     expect(service.isSessionAllowed("bash", { command: "npm test" })).toBe(false);
   });
+
+  it("X4：超上限只淘汰最旧的 resolved，pending/pendingRestore 永不驱逐", () => {
+    const service = new ApprovalService({ maxRetainedRequests: 2 });
+    service.attach(() => {}, () => {});
+    // 两轮请求并 resolve（均 resolved，插入序：perm-1 < perm-2）
+    service.handleReversePermissionRequest({ ...PERM_PARAMS, requestId: "perm-1" }, "f1");
+    service.resolve("perm-1", "allow");
+    service.handleReversePermissionRequest({ ...PERM_PARAMS, requestId: "perm-2" }, "f2");
+    service.resolve("perm-2", "allow");
+    // 第三个请求 pending → 超上限，淘汰最旧 resolved（perm-1）
+    service.handleReversePermissionRequest({ ...PERM_PARAMS, requestId: "perm-3" }, "f3");
+    expect(service.requestCount).toBe(2);
+    expect(service.pendingCount).toBe(1);
+    expect(service.pendingRequests[0]!.requestId).toBe("perm-3");
+    // 再 resolve 一个 → 又超上限，淘汰 perm-2
+    service.resolve("perm-3", "allow");
+    service.handleReversePermissionRequest({ ...PERM_PARAMS, requestId: "perm-4" }, "f4");
+    expect(service.requestCount).toBe(2);
+    expect(service.pendingCount).toBe(1);
+  });
+
+  it("X4：全部 pending 时无 resolved 可淘汰，条目保留不误删", () => {
+    const service = new ApprovalService({ maxRetainedRequests: 2 });
+    service.attach(() => {}, () => {});
+    service.handleReversePermissionRequest({ ...PERM_PARAMS, requestId: "perm-a" }, "fa");
+    service.handleReversePermissionRequest({ ...PERM_PARAMS, requestId: "perm-b" }, "fb");
+    service.handleReversePermissionRequest({ ...PERM_PARAMS, requestId: "perm-c" }, "fc");
+    expect(service.requestCount).toBe(3);
+    expect(service.pendingCount).toBe(3);
+  });
 });
 
 describe("危险命令判定（保守静态规则）", () => {

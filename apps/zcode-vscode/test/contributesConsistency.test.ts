@@ -426,6 +426,19 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(chatPanel).toContain("if (view.visible) this.onVisible?.()");
   });
 
+  it("X4：无界内存面收敛（审批登记与 quick-edit 快照均有上限）", () => {
+    // ApprovalService.requests 只增不减：input 可携带整文件内容，长会话无界增长。
+    // resolved 按插入序淘汰，pending/pendingRestore 永不驱逐（幂等与重放语义不受影响）。
+    const approval = readSource("src/approvals/approvalService.ts");
+    expect(approval).toContain("DEFAULT_MAX_RETAINED_REQUESTS = 200");
+    expect(approval).toContain("pruneResolvedRequests");
+    expect(approval).toContain('if (request.state === "resolved") this.requests.delete(requestId);');
+    // QuickEditContentProvider.contents：每次 Cmd+K 存 before/after 两份快照且从不清理。
+    const quickEdit = readSource("src/features/quickEdit.ts");
+    expect(quickEdit).toContain("MAX_QUICK_EDIT_SNAPSHOTS = 16");
+    expect(quickEdit).toContain("while (this.contents.size > MAX_QUICK_EDIT_SNAPSHOTS)");
+  });
+
   it("宿主代码不聚焦 Gode 视图容器（workbench.view.extension.* 会自动展开侧栏，与主形态冲突）", () => {
     // 状态栏待审按钮曾指向已删除的旧容器 gode（死命令）；且任何 workbench.view.extension
     // 引用都会展开侧栏视图——编辑器标签是唯一主形态，宿主侧一律走 gode.openChat。
