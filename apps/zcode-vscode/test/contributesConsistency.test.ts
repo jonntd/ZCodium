@@ -324,13 +324,23 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(fullscreen?.when).toBe(
       "activeWebviewPanelId == 'gode.chatEditor' && !editorPartMaximizedEditorGroup",
     );
-    // 全屏按钮：转发 IDE 原生 toggleMaximizeEditorGroup（只重排编辑器组，不动侧栏）。
+    // 全屏按钮：只在编辑器区域内「展开 ↔ 均分」（toggleEditorWidths），**不得**转发
+    // 原生 toggleMaximizeEditorGroup——那个命令单组时是 no-op（用户反馈「按钮失效」），
+    // 多组时会把其它编辑器组整体隐藏（用户的代码标签像被关掉）。
     expect(contributes.commands?.find((c) => c.command === "gode.toggleChatFullscreen")?.icon).toBe(
       "$(screen-full)",
     );
-    expect(readSource("src/commands/hostCommands.ts")).toContain(
-      "workbench.action.toggleMaximizeEditorGroup",
+    expect(readSource("src/commands/hostCommands.ts")).toContain("toggleChatFullscreenLayout(");
+    const fullscreenModule = readSource("src/features/chatFullscreen.ts");
+    expect(fullscreenModule).toContain(
+      'export const CHAT_FULLSCREEN_TOGGLE_COMMAND = "workbench.action.toggleEditorWidths"',
     );
+    // 注释里可以提到原生最大化（说明为什么不用），但**绝不能真的去执行**它或任何关栏命令。
+    expect(fullscreenModule).not.toContain(
+      'executeCommand("workbench.action.toggleMaximizeEditorGroup")',
+    );
+    expect(fullscreenModule).not.toContain('"workbench.action.closeSidebar"');
+    expect(fullscreenModule).not.toContain('"workbench.action.closeAuxiliaryBar"');
     const editorTitleCtx = contributes.menus?.["editor/title/context"] ?? [];
     // 仅保留原有的加入上下文入口。
     expect(editorTitleCtx.map((item) => item.command)).toEqual(["gode.addFileToContext"]);

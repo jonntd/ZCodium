@@ -25,6 +25,8 @@ import {
   type WorkspaceHostFramePayload,
 } from "../host/hostFrameKinds";
 import type { SessionsIndexBridge } from "../host/sessionsIndexBridge";
+import { toggleChatFullscreenLayout } from "../features/chatFullscreen";
+import { log } from "../features/logger";
 
 /** 命令实现依赖（container 注入；结构化最小面）。 */
 export interface HostCommandDeps {
@@ -143,21 +145,34 @@ export function registerHostCommands(deps: HostCommandDeps): Disposable[] {
       return result;
     }),
   );
-  // 全屏切换（editor/title navigation@3，Claude 标签同款 ⤢）：最大化当前编辑器组 ↔
-  // 恢复均分。只重排编辑器区域内的组宽度，侧栏/资源管理器/面板保持展开不受影响。
-  // 转发 IDE 原生 toggle 命令，状态由 IDE 管理。
-  // **when 必须带 `!editorPartMaximizedEditorGroup`**：IDE 内核
-  // workbench.action.toggleMaximizeEditorGroup 自己就往 editor/title 挂了按钮
-  // （order -1e4、icon screen-full、when editorPartMaximizedEditorGroup、带 toggled 高亮），
-  // 已最大化时它出现在最左侧。我们不互斥的话点完最大化就会并排出现两个一模一样的
-  // $(screen-full)——一个我们的、一个原生的（用户实测反馈「点最大化会出现两个」）。
-  // 分工：未最大化 → 我们的按钮（放大）；已最大化 → 原生按钮（还原，且自动高亮）。
+  // 全屏切换（editor/title navigation@3 ⤢）：让对话所在编辑器组吃满编辑器区域宽度，
+  // 再点一次恢复均分。**不隐藏资源管理器、不关闭/隐藏任何已打开的标签**——语义与
+  // 具体取舍见 features/chatFullscreen.ts 文件头（原生「最大化编辑器组」单组时是
+  // no-op、多组时会把其它组整体隐藏，两条都不符合用户诉求）。
+  // **when 仍带 `!editorPartMaximizedEditorGroup`**：IDE 内核
+  // workbench.action.toggleMaximizeEditorGroup 自带 editor/title 按钮（order -1e4、
+  // icon screen-full、when editorPartMaximizedEditorGroup、带 toggled 高亮）；用户若
+  // 从命令面板/快捷键进了原生最大化态，我们的按钮让位，避免两个同款 $(screen-full) 并排。
   // （锁定编辑器组同理不放自定义按钮：IDE 原生锁定 UI 更完整——tab 右键「锁定组」
   // + 锁定后标签行右侧原生锁指示器点击即解锁；自定义按钮会与原生指示器重复显示。）
   disposables.push(
-    commands.registerCommand("gode.toggleChatFullscreen", () =>
-      commands.executeCommand("workbench.action.toggleMaximizeEditorGroup"),
-    ),
+    commands.registerCommand("gode.toggleChatFullscreen", async () => {
+      const result = await toggleChatFullscreenLayout({
+        editorGroupCount: () => window.tabGroups.all.length,
+        executeCommand: (command) => commands.executeCommand(command),
+        notifyAlreadyFull: () => {
+          window.setStatusBarMessage(
+            "对话已占满编辑器区域（当前只有 1 个编辑器组）：不会隐藏资源管理器，也不会关闭已打开的标签",
+            4_000,
+          );
+        },
+      });
+      log.info(
+        "layout",
+        `对话全屏切换：编辑器组=${result.groups}，重排=${result.acted ? "展开↔均分" : "跳过（单组）"}`,
+      );
+      return result;
+    }),
   );
   disposables.push(commands.registerCommand("gode.onboarding", () => deps.presentOnboarding()));
   disposables.push(commands.registerCommand("gode.showLogs", () => deps.diagnostics.show()));
