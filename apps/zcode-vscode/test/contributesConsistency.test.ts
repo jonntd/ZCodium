@@ -504,3 +504,23 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(chatPanel).not.toContain('pushHostFrame("visibility"');
   });
 });
+
+describe("IDE 内核 agent 侧栏自动展开根断（用户反馈：聚焦即弹侧栏）", () => {
+  it("根断脚本存在且补丁语义完整（备份/恢复/幂等）", () => {
+    const script = readSource("scripts/disable-ide-agent-sidebar.mjs");
+    // 补丁目标：内核 CascadeService.openPanel 是侧栏打开的唯一汇聚点。
+    expect(script).toContain("AntigravityCascadeService.openPanel()");
+    // 移除的是 openViewContainer + 可见性广播，保留已可见时的宽度调整。
+    expect(script).toContain("gode: agent sidebar auto-open disabled");
+    expect(script).toContain("openViewContainer(Vpe)");
+    // 三态：--restore 恢复备份、--status 查询、默认幂等打补丁。
+    expect(script).toContain('"--restore"');
+    expect(script).toContain('"--status"');
+    expect(script).toContain('gode-orig.bak');
+  });
+
+  it("deploy.sh 部署后自动重打补丁（IDE 更新覆盖内核后保持默认关）", () => {
+    const deploy = readSource("scripts/deploy.sh");
+    expect(deploy).toContain("node scripts/disable-ide-agent-sidebar.mjs || true");
+  });
+});

@@ -108,3 +108,6 @@ for f in dist/extension.js dist/webview/main.js package.json; do
 done
 echo "[deploy] 完成：$DEST"
 echo "[deploy] 提示：如 IDE 正在运行，请 Reload Window（或重启 IDE）加载新产物。"
+
+# IDE 内核 agent 侧栏自动展开根断（幂等）：IDE 更新会覆盖内核 bundle，部署后重打。
+node scripts/disable-ide-agent-sidebar.mjs || true
