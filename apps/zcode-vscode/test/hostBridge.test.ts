@@ -28,6 +28,9 @@ import {
 import { HOST_FRAME_KINDS } from "../src/host/hostFrameKinds";
 import {
   buildDiagnosticsFramePayload,
+  composeEditorTabTitle,
+  parseEditorTabUiPayload,
+  parseSessionTabsPayload,
   type DiagnosticsSourceEntry,
 } from "../src/host/hostFrameKinds";
 import { parseBridgeEnvelope } from "../src/bridge/wire";
@@ -195,6 +198,8 @@ describe("PlatformRpcHandler（经 HostRuntime 分流）", () => {
     expect(PLATFORM_METHOD_WHITELIST).toContain("getActiveEditorSelection");
     expect(PLATFORM_METHOD_WHITELIST).toContain("importWorkspaceInstructions");
     expect(PLATFORM_METHOD_WHITELIST).toContain("pickWorkspaceFolder");
+    // 资源管理器拖拽 URI 解析（spec: composer-explorer-file-drop）。
+    expect(PLATFORM_METHOD_WHITELIST).toContain("resolveFileDropPaths");
 
     // 白名单内方法经桥 roundtrip（HostRuntime 分流 → plat-res(ok)）。
     const loopback = makeLoopback({
@@ -244,6 +249,7 @@ describe("host 帧协议（T02/⑤：visibility/diagnostics/restart/open-panel�
       "session-switch",
       "full-ui-url",
       "capabilities",
+      "session-tabs",
     ]);
     for (const kind of HOST_FRAME_KINDS) {
       expect(
@@ -319,5 +325,356 @@ describe("HostSettingsBridge 参数面（P1-3 / P1-16）", () => {
     const dirs = Array.from({ length: 300 }, (_, i) => `/dir-${i}`);
     const snapshot = normalizeSettingsSnapshot({ additionalDirectories: dirs });
     expect(snapshot.additionalDirectories).toHaveLength(256);
+  });
+});
+
+describe("host 帧排队（spec: composer-insert-delivery）", () => {
+  /** 无 webview 的裸 runtime：面板未打开场景。 */
+  function makeDetachedRuntime() {
+    const runtime = new HostRuntime({
+      services: new ServiceCollection(),
+      exposurePolicy: createExposurePolicy([]),
+      platformMethods: new Map(),
+      settingsBridge: new HostSettingsBridge(() =>
+        normalizeSettingsSnapshot({}),
+      ),
+    });
+    const frames: unknown[] = [];
+    const sender = {
+      postMessage: (message: unknown) => {
+        frames.push(message);
+      },
+    };
+    return { runtime, frames, sender };
+  }
+
+  function hostKinds(frames: unknown[]): string[] {
+    return frames
+      .map((frame) => frame as { t?: string; kind?: string })
+      .filter((frame) => frame.t === "host")
+      .map((frame) => frame.kind!);
+  }
+
+  function hostTexts(frames: unknown[]): string[] {
+    return frames
+      .map((frame) => frame as { t?: string; payload?: { text?: string } })
+      .filter((frame) => frame.t === "host")
+      .map((frame) => frame.payload?.text ?? "");
+  }
+
+  it("面板未打开时 pushFrame 入队；attach 后不立即 flush；renderer ready 才按序送达", () => {
+    const { runtime, frames, sender } = makeDetachedRuntime();
+    runtime.pushHostFrame("composer-insert", {
+      text: "a",
+      mode: "prepend-if-missing",
+    });
+    runtime.pushHostFrame("composer-insert", {
+      text: "b",
+      mode: "prepend-if-missing",
+    });
+
+    runtime.attachWebview("test", sender);
+    // attach 本身不 flush：main.js 可能尚未注册 message 监听。
+    expect(frames).toEqual([]);
+
+    runtime.handleWebviewMessage("test", {
+      t: "plat-evt",
+      event: "notifyRendererReady",
+    });
+    // 暂存帧按 FIFO 到达（初始帧注入缺省为空）。
+    expect(hostKinds(frames)).toEqual(["composer-insert", "composer-insert"]);
+    expect(hostTexts(frames)).toEqual(["a", "b"]);
+  });
+
+  it("就绪后帧直发；队列有界（>32 丢最旧）", () => {
+    const { runtime, frames, sender } = makeDetachedRuntime();
+    for (let i = 0; i < 40; i += 1) {
+      runtime.pushHostFrame("composer-insert", { text: `m-${i}` });
+    }
+    runtime.attachWebview("test", sender);
+    runtime.handleWebviewMessage("test", {
+      t: "plat-evt",
+      event: "notifyRendererReady",
+    });
+    const texts = hostTexts(frames);
+    expect(texts[0]).toBe("m-8");
+    expect(texts[texts.length - 1]).toBe("m-39");
+    expect(hostKinds(frames)).toHaveLength(32);
+
+    // renderer ready 后：帧直发，不再入队。
+    runtime.pushHostFrame("composer-insert", { text: "live" });
+    expect(hostTexts(frames).at(-1)).toBe("live");
+    expect(hostKinds(frames)).toHaveLength(33);
+  });
+});
+
+describe("UI 定向帧（pushToActiveHostFrame：跨页状态污染修复）", () => {
+  function makeMultiRuntime() {
+    const runtime = new HostRuntime({
+      services: new ServiceCollection(),
+      exposurePolicy: createExposurePolicy([]),
+      platformMethods: new Map(),
+      settingsBridge: new HostSettingsBridge(() =>
+        normalizeSettingsSnapshot({}),
+      ),
+    });
+    const makeCapture = (id: string) => {
+      const frames: unknown[] = [];
+      const sender = {
+        postMessage: (message: unknown) => {
+          frames.push(message);
+        },
+      };
+      runtime.attachWebview(id, sender);
+      runtime.handleWebviewMessage(id, {
+        t: "plat-evt",
+        event: "notifyRendererReady",
+      });
+      return { id, frames };
+    };
+    return { runtime, makeCapture };
+  }
+
+  function texts(frames: unknown[]): string[] {
+    return frames
+      .map((frame) => frame as { t?: string; payload?: { text?: string } })
+      .filter((frame) => frame.t === "host")
+      .map((frame) => frame.payload?.text ?? "");
+  }
+
+  it("帧只投给最近活动的连接；另一页不收（点击页面 A 的按钮不影响页面 B）", () => {
+    const { runtime, makeCapture } = makeMultiRuntime();
+    const a = makeCapture("a");
+    const b = makeCapture("b");
+
+    // 页面 a 交互 → lastActive=a：定向帧只到 a。
+    runtime.handleWebviewMessage("a", { t: "plat-evt", event: "noop" });
+    runtime.pushToActiveHostFrame("composer-insert", { text: "to-a" });
+    expect(texts(a.frames)).toEqual(["to-a"]);
+    expect(texts(b.frames)).toEqual([]);
+
+    // 页面 b 交互 → lastActive=b：定向帧只到 b。
+    runtime.handleWebviewMessage("b", { t: "plat-evt", event: "noop" });
+    runtime.pushToActiveHostFrame("composer-insert", { text: "to-b" });
+    expect(texts(b.frames)).toEqual(["to-b"]);
+    expect(texts(a.frames)).toEqual(["to-a"]);
+  });
+
+  it("最近活动连接断开后退化到任一就绪连接（帧不丢）", () => {
+    const { runtime, makeCapture } = makeMultiRuntime();
+    const a = makeCapture("a");
+    const b = makeCapture("b");
+    runtime.handleWebviewMessage("a", { t: "plat-evt", event: "noop" });
+    runtime.detachWebview("a"); // lastActive 指向已断开连接
+    runtime.pushToActiveHostFrame("composer-insert", { text: "fallback" });
+    expect(texts(b.frames)).toEqual(["fallback"]);
+    expect(texts(a.frames)).toEqual([]);
+  });
+
+  it("全部未就绪时入队，ready 后按序送达", () => {
+    const { runtime } = makeMultiRuntime();
+    const frames: unknown[] = [];
+    const sender = {
+      postMessage: (message: unknown) => {
+        frames.push(message);
+      },
+    };
+    runtime.attachWebview("late", sender);
+    runtime.pushToActiveHostFrame("composer-insert", { text: "queued" });
+    expect(frames).toEqual([]); // attach 不 flush
+    runtime.handleWebviewMessage("late", {
+      t: "plat-evt",
+      event: "notifyRendererReady",
+    });
+    expect(texts(frames)).toEqual(["queued"]);
+  });
+});
+
+describe("编辑器标签 UI 上行 + 会话标签中继（多页签共享）", () => {
+  /** 载荷纯函数（hostFrameKinds 唯一定义处）。 */
+  it("composeEditorTabTitle：截断/忙态前缀/默认标题回退", () => {
+    const base = "Gode 对话";
+    expect(composeEditorTabTitle(base, { title: null, busy: false })).toBe(base);
+    expect(composeEditorTabTitle(base, { title: "修复登录 bug", busy: false })).toBe(
+      "修复登录 bug",
+    );
+    expect(composeEditorTabTitle(base, { title: "修复登录 bug", busy: true })).toBe(
+      "● 修复登录 bug",
+    );
+    // 空白标题回退默认；超长截断加省略号。
+    expect(composeEditorTabTitle(base, { title: "   ", busy: false })).toBe(base);
+    const long = "x".repeat(60);
+    const composed = composeEditorTabTitle(base, { title: long, busy: false });
+    expect(composed).toHaveLength(41); // 40 + 省略号
+    expect(composed.endsWith("…")).toBe(true);
+  });
+
+  it("parseEditorTabUiPayload：宽松收窄，非对象/空串标题归 null", () => {
+    expect(parseEditorTabUiPayload(null)).toBeNull();
+    expect(parseEditorTabUiPayload("x")).toBeNull();
+    expect(parseEditorTabUiPayload({ title: "t", busy: true })).toEqual({
+      title: "t",
+      busy: true,
+    });
+    expect(parseEditorTabUiPayload({ title: null, busy: false })).toEqual({
+      title: null,
+      busy: false,
+    });
+    expect(parseEditorTabUiPayload({ title: "", busy: true })).toEqual({
+      title: null,
+      busy: true,
+    });
+    expect(parseEditorTabUiPayload({ busy: true })).toEqual({
+      title: null,
+      busy: true,
+    });
+  });
+
+  function makeRelayRuntime(persisted: unknown = null) {
+    const writes: unknown[] = [];
+    const tabUiCalls: Array<{ id: string; payload: unknown }> = [];
+    const runtime = new HostRuntime({
+      services: new ServiceCollection(),
+      exposurePolicy: createExposurePolicy([]),
+      platformMethods: new Map(),
+      settingsBridge: new HostSettingsBridge(() => normalizeSettingsSnapshot({})),
+      onEditorTabUi: (id, payload) => tabUiCalls.push({ id, payload }),
+      sessionTabsPersistence: {
+        read: () => persisted,
+        write: (value) => writes.push(value),
+      },
+    });
+    const makeCapture = (id: string) => {
+      const frames: unknown[] = [];
+      const sender = {
+        postMessage: (message: unknown) => {
+          frames.push(message);
+        },
+      };
+      runtime.attachWebview(id, sender);
+      runtime.handleWebviewMessage(id, {
+        t: "plat-evt",
+        event: "notifyRendererReady",
+      });
+      return { id, frames, sender };
+    };
+    const sessionTabsFrames = (frames: unknown[]): unknown[] =>
+      frames
+        .map((frame) => frame as { t?: string; kind?: string; payload?: unknown })
+        .filter((frame) => frame.t === "host" && frame.kind === "session-tabs")
+        .map((frame) => frame.payload);
+    return { runtime, writes, tabUiCalls, makeCapture, sessionTabsFrames };
+  }
+
+  it("notifyEditorTabUi 携带连接 id 路由到 onEditorTabUi", () => {
+    const { runtime, tabUiCalls } = makeRelayRuntime();
+    runtime.attachWebview("gode.chat.editor.2", {
+      postMessage: () => {},
+    });
+    runtime.handleWebviewMessage("gode.chat.editor.2", {
+      t: "plat-evt",
+      event: "notifyEditorTabUi",
+      payload: { title: "修复登录", busy: true },
+    });
+    expect(tabUiCalls).toEqual([
+      { id: "gode.chat.editor.2", payload: { title: "修复登录", busy: true } },
+    ]);
+  });
+
+  it("syncSessionTabs 中继给其他就绪连接但不回发发送方，且写持久化", () => {
+    const { runtime, writes, makeCapture, sessionTabsFrames } = makeRelayRuntime();
+    const a = makeCapture("a");
+    const b = makeCapture("b");
+    const tabs = { tabs: [{ id: "t1", title: "Untitled", sessionId: null, pinned: false }] };
+    runtime.handleWebviewMessage("a", {
+      t: "plat-evt",
+      event: "syncSessionTabs",
+      payload: tabs,
+    });
+    expect(sessionTabsFrames(b.frames)).toEqual([tabs]);
+    expect(sessionTabsFrames(a.frames)).toEqual([]); // 不回发发送方
+    expect(writes).toEqual([tabs]);
+  });
+
+  it("晚启动连接 renderer ready 后补发持久化的标签全集", () => {
+    const stored = {
+      tabs: [
+        { id: "t1", title: "重构桥层", sessionId: "s-1", pinned: true },
+        { id: "t2", title: "Untitled", sessionId: null, pinned: false },
+      ],
+    };
+    const { runtime, sessionTabsFrames } = makeRelayRuntime(stored);
+    const frames: unknown[] = [];
+    runtime.attachWebview("late", {
+      postMessage: (message: unknown) => {
+        frames.push(message);
+      },
+    });
+    expect(frames).toEqual([]); // attach 不补发，等 renderer ready
+    runtime.handleWebviewMessage("late", {
+      t: "plat-evt",
+      event: "notifyRendererReady",
+    });
+    expect(sessionTabsFrames(frames)).toEqual([stored]);
+  });
+
+  it("非法 syncSessionTabs 载荷整体丢弃（不中继、不写持久化）", () => {
+    const { runtime, writes, makeCapture, sessionTabsFrames } = makeRelayRuntime();
+    const b = makeCapture("b");
+    runtime.handleWebviewMessage("b", {
+      t: "plat-evt",
+      event: "syncSessionTabs",
+      payload: { tabs: "not-an-array" },
+    });
+    runtime.handleWebviewMessage("b", {
+      t: "plat-evt",
+      event: "syncSessionTabs",
+      payload: null,
+    });
+    expect(sessionTabsFrames(b.frames)).toEqual([]);
+    expect(writes).toEqual([]);
+  });
+
+  it("parseSessionTabsPayload：脏条目逐条丢弃，不整体拒绝", () => {
+    expect(parseSessionTabsPayload({ tabs: "x" })).toBeNull();
+    expect(
+      parseSessionTabsPayload({
+        tabs: [
+          { id: "ok", title: "t", sessionId: "s", pinned: true },
+          null,
+          { title: "missing id" },
+          { id: "", title: "empty id" },
+        ],
+      }),
+    ).toEqual([{ id: "ok", title: "t", sessionId: "s", pinned: true }]);
+  });
+
+  it("requestSessionPicker 上行路由到 onRequestSessionPicker（空态历史入口）", () => {
+    const calls: number[] = [];
+    const runtime = new HostRuntime({
+      services: new ServiceCollection(),
+      exposurePolicy: createExposurePolicy([]),
+      platformMethods: new Map(),
+      settingsBridge: new HostSettingsBridge(() => normalizeSettingsSnapshot({})),
+      onRequestSessionPicker: () => calls.push(1),
+    });
+    runtime.attachWebview("gode.chat.editor", { postMessage: () => {} });
+    runtime.handleWebviewMessage("gode.chat.editor", {
+      t: "plat-evt",
+      event: "requestSessionPicker",
+    });
+    expect(calls).toEqual([1]);
+    // 未注入回调时静默忽略（不崩）。
+    const bare = new HostRuntime({
+      services: new ServiceCollection(),
+      exposurePolicy: createExposurePolicy([]),
+      platformMethods: new Map(),
+      settingsBridge: new HostSettingsBridge(() => normalizeSettingsSnapshot({})),
+    });
+    bare.attachWebview("gode.chat.editor", { postMessage: () => {} });
+    bare.handleWebviewMessage("gode.chat.editor", {
+      t: "plat-evt",
+      event: "requestSessionPicker",
+    });
   });
 });

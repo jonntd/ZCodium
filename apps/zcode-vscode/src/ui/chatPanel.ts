@@ -12,7 +12,7 @@ import type { Webview, WebviewView, WebviewViewProvider } from "vscode";
 import { Uri, env, window, workspace } from "vscode";
 import type { HostRuntime } from "../host/hostRuntime";
 
-export const CHAT_VIEW_ID = "code.chat";
+export const CHAT_VIEW_ID = "gode.chat";
 
 export class ChatPanel implements WebviewViewProvider {
   public static readonly viewId = CHAT_VIEW_ID;
@@ -23,6 +23,11 @@ export class ChatPanel implements WebviewViewProvider {
     private readonly hostRuntime: HostRuntime,
     /** per-folder 最近会话解析（P1-1.5：bootstrap data-session-id 注入）。 */
     private readonly resolveInitialSessionId: (folder: string) => string | null = () => null,
+    /**
+     * 侧栏可见跳板（Claude Code 点击体验）：webview view 无法拖进编辑器标签行，
+     * 用户点活动栏图标 → 侧栏可见 → 宿主回调（container）弹出可拖动的编辑器标签。
+     */
+    private readonly onVisible?: () => void,
   ) {}
 
   resolveWebviewView(view: WebviewView): void {
@@ -31,16 +36,23 @@ export class ChatPanel implements WebviewViewProvider {
       enableScripts: true,
       localResourceRoots: [Uri.joinPath(this.extensionUri, "dist")],
     };
-    view.webview.html = this.buildPaneHtml(view.webview);
+    view.webview.html = buildChatWebviewHtml(
+      view.webview,
+      this.extensionUri,
+      this.resolveInitialSessionId,
+    );
     // 帧转发：webview → host。
     view.webview.onDidReceiveMessage((message: unknown) => {
       this.hostRuntime.handleWebviewMessage(CHAT_VIEW_ID, message);
     });
     this.hostRuntime.attachWebview(CHAT_VIEW_ID, view.webview);
-    // 可见性帧生产（T02⑦）：侧栏面板隐藏/显示 → webview 暂停/恢复渲染面。
-    // @types/vscode 1.90 的 onDidChangeVisibility 事件无载荷，读 view.visible 快照。
+    // 跳板：resolve 即首次可见；onDidChangeVisibility 覆盖后续每次展开。
+    // 注意：visibility 不再经 pushHostFrame 广播——编辑器标签形态并存后，A 页的
+    // 可见性帧会广播到 B 页把对方渲染面错误暂停/恢复（跨页状态污染的根源）；
+    // 各 webview 的 document.visibilitychange 自证源已足够感知自身可见性。
+    if (view.visible) this.onVisible?.();
     view.onDidChangeVisibility(() => {
-      this.hostRuntime.pushHostFrame("visibility", { visible: view.visible });
+      if (view.visible) this.onVisible?.();
     });
     view.onDidDispose(() => {
       this.hostRuntime.detachWebview(CHAT_VIEW_ID);
@@ -53,28 +65,40 @@ export class ChatPanel implements WebviewViewProvider {
     void this.view?.show?.(true);
   }
 
-  private buildPaneHtml(webview: Webview): string {
-    const nonce = Array.from({ length: 32 }, () => Math.random().toString(36).slice(2)).join("");
-    const scriptUri = webview.asWebviewUri(
-      Uri.joinPath(this.extensionUri, "dist", "webview", "main.js"),
-    );
-    const styleUri = webview.asWebviewUri(
-      Uri.joinPath(this.extensionUri, "dist", "webview", "styles.css"),
-    );
-    const folders = (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
-    const workspacePath = folders[0] ?? "";
-    // per-folder 最近会话（P1-1.5 host 半；webview index.tsx 读取 data-session-id）。
-    const sessionId = workspacePath
-      ? this.resolveInitialSessionId(workspacePath)
-      : null;
-    // ColorThemeKind: 1 Light / 2 Dark / 3 HighContrast / 4 HighContrastLight。
-    const themeKind = window.activeColorTheme.kind;
-    const locale = env.language;
-    return `<!DOCTYPE html>
+}
+
+/**
+ * webview HTML 骨架（侧栏 view 与编辑器标签页共用）：bootstrap 数据 + ESM 入口。
+ * 两种形态挂载的是同一份 `Root` 工作台，资源 URI 由各自 webview 的 cspSource 生成。
+ */
+export function buildChatWebviewHtml(
+  webview: Webview,
+  extensionUri: Uri,
+  resolveInitialSessionId: (folder: string) => string | null,
+): string {
+  const nonce = Array.from({ length: 32 }, () => Math.random().toString(36).slice(2)).join("");
+  const scriptUri = webview.asWebviewUri(
+    Uri.joinPath(extensionUri, "dist", "webview", "main.js"),
+  );
+  const styleUri = webview.asWebviewUri(
+    Uri.joinPath(extensionUri, "dist", "webview", "styles.css"),
+  );
+  const folders = (workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath);
+  const workspacePath = folders[0] ?? "";
+  // per-folder 最近会话（P1-1.5 host 半；webview index.tsx 读取 data-session-id）。
+  const sessionId = workspacePath ? resolveInitialSessionId(workspacePath) : null;
+  // ColorThemeKind: 1 Light / 2 Dark / 3 HighContrast / 4 HighContrastLight。
+  const themeKind = window.activeColorTheme.kind;
+  const locale = env.language;
+  return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
+  <!-- CSP 硬约束（docs/conversation-share-v1.md 同源教训）：script-src 必须带
+       'wasm-unsafe-eval'，否则 shiki 的 oniguruma wasm 无法实例化，@pierre/diffs
+       拿不到高亮 token → 聊天面板代码块只剩 header、代码体空白。它只放开 wasm
+       编译，eval / new Function 仍被挡。worker-src 放行 blob:（diff worker 池兜底）。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource} 'wasm-unsafe-eval'; worker-src ${webview.cspSource} blob:; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="${styleUri}">
   <title>Gode Agent</title>
@@ -91,7 +115,6 @@ export class ChatPanel implements WebviewViewProvider {
   <script nonce="${nonce}" type="module" src="${scriptUri}"></script>
 </body>
 </html>`;
-  }
 }
 
 function escapeAttr(value: string): string {

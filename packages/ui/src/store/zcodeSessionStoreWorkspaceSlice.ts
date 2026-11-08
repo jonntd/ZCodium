@@ -39,7 +39,9 @@ type SetFn = (
   partial:
     | ZCodeSessionStoreState
     | Partial<ZCodeSessionStoreState>
-    | ((state: ZCodeSessionStoreState) => ZCodeSessionStoreState | Partial<ZCodeSessionStoreState>),
+    | ((
+        state: ZCodeSessionStoreState,
+      ) => ZCodeSessionStoreState | Partial<ZCodeSessionStoreState>),
 ) => void;
 
 let groupedDraftSequence = 0;
@@ -49,14 +51,17 @@ function createGroupedDraftId(createdAt: number): string {
   return `grouped-draft-${createdAt}-${groupedDraftSequence}`;
 }
 
-function normalizeThoughtLevelConfigOption(option: ZCodeConfigOption): ZCodeConfigOption {
+function normalizeThoughtLevelConfigOption(
+  option: ZCodeConfigOption,
+): ZCodeConfigOption {
   if (
     option.type !== "select" ||
     (option.id !== "thought_level" && option.category !== "thought_level")
   ) {
     return option;
   }
-  const currentValue = typeof option.currentValue === "string" ? option.currentValue : "";
+  const currentValue =
+    typeof option.currentValue === "string" ? option.currentValue : "";
   if (option.options?.some((entry) => entry.value === currentValue)) {
     return option;
   }
@@ -68,11 +73,15 @@ function normalizeThoughtLevelConfigOption(option: ZCodeConfigOption): ZCodeConf
   return { ...option, currentValue: fallbackValue };
 }
 
-function normalizeConfigOptions(options: ZCodeConfigOption[]): ZCodeConfigOption[] {
+function normalizeConfigOptions(
+  options: ZCodeConfigOption[],
+): ZCodeConfigOption[] {
   return options.map(normalizeThoughtLevelConfigOption);
 }
 
-function cloneConfigOptions(options: readonly ZCodeConfigOption[]): ZCodeConfigOption[] {
+function cloneConfigOptions(
+  options: readonly ZCodeConfigOption[],
+): ZCodeConfigOption[] {
   return options.map((option) => ({
     ...option,
     options: option.options?.map((entry) => ({ ...entry })),
@@ -248,9 +257,13 @@ export function createWorkspaceSlice(set: SetFn) {
           state,
           workspacePath,
           (current) => {
-            const { [id ?? ""]: _ignoredUnreadTask, ...restTaskUnreadByTaskId } =
-              current.taskUnreadByTaskId;
-            const optimisticTask = id ? current.optimisticTaskListByTaskId[id] : undefined;
+            const {
+              [id ?? ""]: _ignoredUnreadTask,
+              ...restTaskUnreadByTaskId
+            } = current.taskUnreadByTaskId;
+            const optimisticTask = id
+              ? current.optimisticTaskListByTaskId[id]
+              : undefined;
             const nextOptimisticTaskListByTaskId =
               id && typeof optimisticTask?.unreadAt === "number"
                 ? {
@@ -313,7 +326,12 @@ export function createWorkspaceSlice(set: SetFn) {
 
         return { ...workspaceUpdate, ...navUpdate };
       });
-      if (id) notifyTaskNavigationCommitted({ workspacePath, workspaceIdentity, taskId: id });
+      if (id)
+        notifyTaskNavigationCommitted({
+          workspacePath,
+          workspaceIdentity,
+          taskId: id,
+        });
     },
 
     promoteGroupedDraftTask: (
@@ -357,7 +375,8 @@ export function createWorkspaceSlice(set: SetFn) {
                 ...current.optimisticTaskListByTaskId,
                 // task_created 可能比 command ACK 更早到 renderer；若已有更完整的乐观元数据，
                 // 不能被这个仅用于补空档的最小行反向降级。
-                [taskId]: current.optimisticTaskListByTaskId[taskId] ?? optimisticTask,
+                [taskId]:
+                  current.optimisticTaskListByTaskId[taskId] ?? optimisticTask,
               },
               promotedGroupedDraftTaskByTaskId: {
                 ...current.promotedGroupedDraftTaskByTaskId,
@@ -385,11 +404,14 @@ export function createWorkspaceSlice(set: SetFn) {
             }
             // promoted placement 只负责草稿提升到 SQLite 排序收敛前的单次事务。
             // 落库后必须消费，避免用户后续手动拖动 task 时被旧 placement 再次拉回原 group。
-            const { [taskId]: _consumedPromotedDraft, ...restPromotedGroupedDraftTaskByTaskId } =
-              current.promotedGroupedDraftTaskByTaskId;
+            const {
+              [taskId]: _consumedPromotedDraft,
+              ...restPromotedGroupedDraftTaskByTaskId
+            } = current.promotedGroupedDraftTaskByTaskId;
             return {
               ...current,
-              promotedGroupedDraftTaskByTaskId: restPromotedGroupedDraftTaskByTaskId,
+              promotedGroupedDraftTaskByTaskId:
+                restPromotedGroupedDraftTaskByTaskId,
             };
           },
           workspaceIdentity,
@@ -417,7 +439,10 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
-    invalidateDraftRuntime: (workspacePath: string, workspaceIdentity?: string) => {
+    invalidateDraftRuntime: (
+      workspacePath: string,
+      workspaceIdentity?: string,
+    ) => {
       set((state) =>
         updateWorkspaceState(
           state,
@@ -426,7 +451,8 @@ export function createWorkspaceSlice(set: SetFn) {
             ...current,
             // protocol-v4 的草稿预热会话只存在于 SessionPane 内，不能仅清空
             // legacy draftSessionId。递增版本让 pane 精确回收未提升的预热会话并重建能力快照。
-            draftRuntimeInvalidationVersion: current.draftRuntimeInvalidationVersion + 1,
+            draftRuntimeInvalidationVersion:
+              current.draftRuntimeInvalidationVersion + 1,
             draftSessionId: null,
           }),
           workspaceIdentity,
@@ -440,8 +466,10 @@ export function createWorkspaceSlice(set: SetFn) {
       workspaceIdentity?: string,
       mention?: ComposerMentionPrefill,
       mode?: "replace" | "prepend-if-missing",
+      mentions?: readonly ComposerMentionPrefill[],
     ) => {
       let nextRequestId = 0;
+      const batch = mentions && mentions.length > 0 ? [...mentions] : undefined;
       set((state) =>
         updateWorkspaceState(
           state,
@@ -455,7 +483,8 @@ export function createWorkspaceSlice(set: SetFn) {
               composerTextInsertRequest: {
                 requestId,
                 text,
-                ...(mention ? { mention } : {}),
+                // 批量优先；单数 mention 仅在无批量时透传（兼容既有生产者）。
+                ...(batch ? { mentions: batch } : mention ? { mention } : {}),
                 ...(mode ? { mode } : {}),
               },
             };
@@ -484,7 +513,27 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
-    requestTimelineBottom: (workspacePath: string, taskId: string, workspaceIdentity?: string) => {
+    requestComposerFocus: (workspacePath: string, workspaceIdentity?: string) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          workspacePath,
+          // 只递增版本号发聚焦意图（ConversationComposer 对 draftFocusVersion 变化
+          // 主动 requestComposerFocus）；不带任何会话/草稿态变更，重复调用无害。
+          (current) => ({
+            ...current,
+            draftFocusVersion: current.draftFocusVersion + 1,
+          }),
+          workspaceIdentity,
+        ),
+      );
+    },
+
+    requestTimelineBottom: (
+      workspacePath: string,
+      taskId: string,
+      workspaceIdentity?: string,
+    ) => {
       let nextRequestId = 0;
       set((state) =>
         updateWorkspaceState(
@@ -540,7 +589,10 @@ export function createWorkspaceSlice(set: SetFn) {
         ),
       );
     },
-    clearDraftTaskGroup: (workspacePath: string, workspaceIdentity?: string) => {
+    clearDraftTaskGroup: (
+      workspacePath: string,
+      workspaceIdentity?: string,
+    ) => {
       set((state) =>
         updateWorkspaceState(
           state,
@@ -580,11 +632,14 @@ export function createWorkspaceSlice(set: SetFn) {
               normalizedProvider ?? current.selectedProvider,
             );
             const shouldResetSupplierForDraftProvider =
-              Boolean(normalizedProvider) && nextSelectedProvider !== current.selectedProvider;
+              Boolean(normalizedProvider) &&
+              nextSelectedProvider !== current.selectedProvider;
             const shouldClearSlashCommands =
-              current.activeTaskId !== null || shouldResetSupplierForDraftProvider;
+              current.activeTaskId !== null ||
+              shouldResetSupplierForDraftProvider;
             const shouldInheritActiveTaskConfig =
-              current.activeTaskId !== null && !shouldResetSupplierForDraftProvider;
+              current.activeTaskId !== null &&
+              !shouldResetSupplierForDraftProvider;
             const activeTaskIdForInheritance = shouldInheritActiveTaskConfig
               ? current.activeTaskId
               : null;
@@ -592,7 +647,8 @@ export function createWorkspaceSlice(set: SetFn) {
               ? current.taskConfigOptionsByTaskId[activeTaskIdForInheritance]
               : null;
             const inheritedConfigOptions = activeTaskIdForInheritance
-              ? cachedActiveTaskConfigOptions && cachedActiveTaskConfigOptions.length > 0
+              ? cachedActiveTaskConfigOptions &&
+                cachedActiveTaskConfigOptions.length > 0
                 ? cachedActiveTaskConfigOptions
                 : // Bug 原因：protocol-v4 当前任务的配置可能只完成了 workspace 投影，
                   // legacy task 缓存尚未写入或仍是首帧空数组。此时工具条已经显示
@@ -605,7 +661,9 @@ export function createWorkspaceSlice(set: SetFn) {
                 : null;
             const inheritedConfigOptionsStatus =
               current.activeTaskId && inheritedDraftConfigOptions
-                ? (current.taskConfigOptionsStatusByTaskId[current.activeTaskId] ?? "ready")
+                ? (current.taskConfigOptionsStatusByTaskId[
+                    current.activeTaskId
+                  ] ?? "ready")
                 : current.configOptionsStatus;
             const nextGroupedDraftTask = (() => {
               const placement = options?.groupedDraftPlacement;
@@ -615,7 +673,10 @@ export function createWorkspaceSlice(set: SetFn) {
               if (
                 current.activeTaskId === null &&
                 current.groupedDraftTask &&
-                isSameGroupedDraftPlacement(current.groupedDraftTask.placement, placement)
+                isSameGroupedDraftPlacement(
+                  current.groupedDraftTask.placement,
+                  placement,
+                )
               ) {
                 return current.groupedDraftTask;
               }
@@ -650,7 +711,8 @@ export function createWorkspaceSlice(set: SetFn) {
                 Number(current.draftProjectId !== options?.projectId),
               groupedDraftTask: nextGroupedDraftTask,
               draftCreateSource:
-                options?.createSource ?? (options?.groupedDraftPlacement ? "group" : "session"),
+                options?.createSource ??
+                (options?.groupedDraftPlacement ? "group" : "session"),
               draftRuntime: { status: "idle", error: null },
               // 从已有 task 点 New Task 时，草稿输入框必须继承当前 task 的完整配置。
               // 否则后续 workspace prepare 会按 Team Plan / 默认模型重建草稿，把已选的其他模型回弹成 GLM。
@@ -679,13 +741,16 @@ export function createWorkspaceSlice(set: SetFn) {
               // 但以前这里每次“新建任务”都无条件清空，草稿态重复点击会把命令列表清空且不会触发回填。
               // 仅在“从 task 切到 draft”或“provider 真正切换”时清空，避免同草稿态重复点击误伤。
               ...(shouldClearSlashCommands ? { slashCommands: [] } : {}),
-              ...(normalizedProvider ? { selectedProvider: nextSelectedProvider } : {}),
+              ...(normalizedProvider
+                ? { selectedProvider: nextSelectedProvider }
+                : {}),
               ...(shouldResetSupplierForDraftProvider
                 ? {
                     // 某些“新建任务”入口会把当前 selectedProvider 透传回 startDraft。
                     // 如果 provider 实际没变化却强制重置 supplier，会出现“显示 custom 模型但 custom 选项被锁”的撕裂态。
                     // 这里只在 provider 真正切换时才回到 native，避免同 provider 新建草稿误伤现有 supplier 上下文。
-                    selectedSupplierKey: buildNativeSupplierKey(nextSelectedProvider),
+                    selectedSupplierKey:
+                      buildNativeSupplierKey(nextSelectedProvider),
                     isGhostSupplier: false,
                     supplierMismatchReason: null,
                   }
@@ -697,13 +762,18 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
-    clearGroupedDraftTask: (workspacePath: string, workspaceIdentity?: string) => {
+    clearGroupedDraftTask: (
+      workspacePath: string,
+      workspaceIdentity?: string,
+    ) => {
       set((state) =>
         updateWorkspaceState(
           state,
           workspacePath,
           (current) =>
-            current.groupedDraftTask ? { ...current, groupedDraftTask: null } : current,
+            current.groupedDraftTask
+              ? { ...current, groupedDraftTask: null }
+              : current,
           workspaceIdentity,
         ),
       );
@@ -885,7 +955,11 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
-    finishModelSwitch: (workspacePath: string, requestId: string, workspaceIdentity?: string) => {
+    finishModelSwitch: (
+      workspacePath: string,
+      requestId: string,
+      workspaceIdentity?: string,
+    ) => {
       set((state) =>
         updateWorkspaceState(
           state,
@@ -913,9 +987,16 @@ export function createWorkspaceSlice(set: SetFn) {
       workspaceIdentity?: string,
     ) => {
       set((state) => {
-        const current = getWorkspaceState(state, workspacePath, workspaceIdentity);
+        const current = getWorkspaceState(
+          state,
+          workspacePath,
+          workspaceIdentity,
+        );
         const normalizedOptions = normalizeConfigOptions(options);
-        const skipped = areConfigOptionsEquivalent(current.configOptions, normalizedOptions);
+        const skipped = areConfigOptionsEquivalent(
+          current.configOptions,
+          normalizedOptions,
+        );
         if (skipped) {
           // 无 API key / 旧模型不可用时，工具栏 recovery effect 会多次提交同一份空模型配置。
           // 等价配置不应触发 workspace 级 store 通知，否则 ChatInputToolbar 会在 effect 中再次 setConfigOptions。
@@ -982,11 +1063,18 @@ export function createWorkspaceSlice(set: SetFn) {
           state,
           workspacePath,
           (current) => {
-            const nextConfigOptions = updateCurrentModeConfigOption(current.configOptions, modeId);
-            const activeTaskPatch = updateActiveTaskConfigOptions(current, (options) =>
-              updateCurrentModeConfigOption(options, modeId),
+            const nextConfigOptions = updateCurrentModeConfigOption(
+              current.configOptions,
+              modeId,
             );
-            if (nextConfigOptions === current.configOptions && !activeTaskPatch) {
+            const activeTaskPatch = updateActiveTaskConfigOptions(
+              current,
+              (options) => updateCurrentModeConfigOption(options, modeId),
+            );
+            if (
+              nextConfigOptions === current.configOptions &&
+              !activeTaskPatch
+            ) {
               return current;
             }
             return {
@@ -1003,7 +1091,10 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
-    bumpTaskListVersion: (workspacePath: string, workspaceIdentity?: string) => {
+    bumpTaskListVersion: (
+      workspacePath: string,
+      workspaceIdentity?: string,
+    ) => {
       set((state) =>
         updateWorkspaceState(
           state,
@@ -1049,11 +1140,16 @@ export function createWorkspaceSlice(set: SetFn) {
           state,
           workspacePath,
           (current) => {
-            const optimisticTaskMeta = current.optimisticTaskListByTaskId[taskId];
-            const cachedTaskMeta = current.taskListCache?.find((task) => task.taskId === taskId);
+            const optimisticTaskMeta =
+              current.optimisticTaskListByTaskId[taskId];
+            const cachedTaskMeta = current.taskListCache?.find(
+              (task) => task.taskId === taskId,
+            );
             const baseTaskMeta = optimisticTaskMeta ?? cachedTaskMeta;
-            const currentHasUnread = current.taskUnreadByTaskId[taskId] === true;
-            const currentUnreadAt = optimisticTaskMeta?.unreadAt ?? cachedTaskMeta?.unreadAt;
+            const currentHasUnread =
+              current.taskUnreadByTaskId[taskId] === true;
+            const currentUnreadAt =
+              optimisticTaskMeta?.unreadAt ?? cachedTaskMeta?.unreadAt;
 
             if (hasUnread) {
               const nextUnreadAt = baseTaskMeta?.unreadAt ?? Date.now();

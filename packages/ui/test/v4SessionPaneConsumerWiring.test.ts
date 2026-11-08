@@ -25,8 +25,9 @@ describe("SessionPane 的 scope、GenUI 与浮窗消费者边界", () => {
   it("Root 项目 scope 用于真实编辑器及附件交接，恢复查询带 workspace identity", () => {
     expect(composer).toContain("`${V4_DRAFT_SCOPE_ROOT}:${rootDraftScopeKey}`");
     expect(composer).toContain("registerV4ComposerDraftReader");
-    expect(composer).toContain(
-      "consumeV4ComposerDraftAttachments(workspaceKey, draftFocusVersion)",
+    // 消费调用允许换行格式化（prettier 重排过参数），按空白归一后匹配。
+    expect(composer.replace(/\s+/g, " ")).toContain(
+      "consumeV4ComposerDraftAttachments( workspaceKey, draftFocusVersion, )",
     );
     expect(composer).toContain("submittedDraftText: trimmed");
     expect(recovery).toContain("workspaceIdentity?.trim() || workspacePath");

@@ -30,6 +30,7 @@ import { setLogSink } from "./features/logger";
 import { primaryWorkspacePath } from "./features/featureConfig";
 import { buildDiagnosticsExportContent } from "./ui/diagnosticsBuffer";
 import { ChatPanel, CHAT_VIEW_ID } from "./ui/chatPanel";
+import { ChatEditorPanel } from "./ui/chatEditorPanel";
 import { Diagnostics } from "./ui/diagnostics";
 import { DiffViewer } from "./ui/diffViewer";
 import { StatusBar } from "./ui/statusBar";
@@ -80,27 +81,32 @@ import { sessionAllowlistRule } from "./approvals/approvalService";
 import { normalizeMcpServersForSettings } from "./configSettings";
 import type { WorkspaceHostFramePayload } from "./host/hostFrameKinds";
 import { registerHostCommands } from "./commands/hostCommands";
-import { wirePendingChanges, type PendingChangesWire } from "./host/pendingChanges/assembly";
-import type { ChangesDiffOpener } from "./host/pendingChanges/diffOpener";
-import type { ChangesService } from "./host/pendingChanges/changesService";
+import { ChangesDiffOpener } from "./host/pendingChanges/diffOpener";
 
 /** 指令导入的单文件内容上限（importWorkspaceInstructions，组4 一次性导入面）。 */
 const INSTRUCTION_IMPORT_LIMIT_BYTES = 512 * 1024;
 
+/** 会话标签共享态的 workspaceState 键（多页签/多对话页同步的 host 侧存储）。 */
+const SESSION_TABS_HOST_KEY = "gode.sessionTabs.host";
+
 export interface Container {
   chatPanel: ChatPanel;
+  chatEditorPanel: ChatEditorPanel;
   hostRuntime: HostRuntime;
   runtimeController: RuntimeController;
   sessionsIndex: SessionsIndexBridge;
   statusBar: StatusBar;
   diagnostics: Diagnostics;
   diffViewer: DiffViewer;
-  /** 文件改动审查编排面（spec: docs/spec/vscode-pending-changes.md）。 */
-  changesService: ChangesService;
   /** onboarding 引导面（P1-10.2/P1-10.3；CLI 未找到时自动呈现，T13）。 */
   welcomePage: WelcomePage;
   /** 3 步上手卡命令面（P1-10.2「随时可看」入口；CLI 实况由容器闭包读取）。 */
   presentOnboarding(): Promise<void>;
+  /**
+   * 首次打开对话的一次性上手卡（globalState 标记，仅首次呈现；openChat/newSession/
+   * newChatTab 等入口经 registerCommands 注入的 firstOpen 钩子触发）。
+   */
+  presentOnboardingOnce(): void;
   services: PluginServiceAssembly;
   dispose(): Promise<void>;
 }
@@ -212,10 +218,8 @@ export async function createContainer(
   // ── 平台方法实现（host 端 VS Code API 落地面） ──
   // runtimeController 双向依赖（plat 写会话键 ↔ controller 持 agentService）：经占位解环。
   const runtimeControllerPlaceholder: { current?: RuntimeController } = {};
-  // changesService 装配晚于平台方法表（需要 runtimeController 就绪），同法懒解引用。
-  const changesServicePlaceholder: { current?: ChangesService } = {};
-  // pendingChanges wire（diffOpener）同样晚于平台方法表，占位懒解。
-  const pendingChangesPlaceholder: { current?: PendingChangesWire } = {};
+  // 聊天卡片「审查」用的原生双栏 diff，装配晚于平台方法表，占位懒解引用。
+  const diffOpenerPlaceholder: { current?: ChangesDiffOpener } = {};
   const platformMethods = new Map<string, PlatformMethodHandler>(
     Object.entries(
       buildPlatformMethods({
@@ -226,9 +230,8 @@ export async function createContainer(
         statusBar,
         sessionsIndex,
         runtimeController: () => runtimeControllerPlaceholder.current,
-        changesService: () => changesServicePlaceholder.current,
         resolveWorkspaceUri,
-        diffOpener: () => pendingChangesPlaceholder.current?.diffOpener,
+        diffOpener: () => diffOpenerPlaceholder.current,
         primaryFolder: () => listFolders()[0],
         // exportLogs 聚合源（§7.10）：输出通道内存镜像读取面（Diagnostics 持有）。
         diagnosticsSnapshot: () => diagnostics.snapshotLines(),
@@ -252,7 +255,8 @@ export async function createContainer(
     platformMethods,
     settingsBridge,
     // renderer 就绪 → 下发初始 host 帧（§2.2；M15 修复：原为空钩子）。
-    // theme/locale/workspace 快照读 vscode API；visibility 由 chatPanel 变化事件生产。
+    // theme/locale/workspace 快照读 vscode API；初始帧经 postById 定向投递到刚就绪
+    // 的连接（visibility 不再生产：多形态并存后广播会跨页污染，见 chatPanel.ts）。
     sendInitialFrames: (push) => {
       push("theme", window.activeColorTheme.kind);
       push("locale", env.language);
@@ -262,6 +266,22 @@ export async function createContainer(
         activeFolder: workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
       };
       push("workspace", payload);
+    },
+    // 编辑器标签 UI 上行 → 回写对应 WebviewPanel 标题（会话标题/忙态前缀；
+    // chatEditorPanel 声明在后，回调运行时才解引用，TDZ 无虞）。
+    onEditorTabUi: (connectionId, payload) => {
+      chatEditorPanel.handleEditorTabUi(connectionId, payload);
+    },
+    // 会话标签共享态持久化（多页签/多对话页同步的 host 侧存储）。
+    sessionTabsPersistence: {
+      read: () => context.workspaceState.get<unknown>(SESSION_TABS_HOST_KEY) ?? null,
+      write: (value) => {
+        void context.workspaceState.update(SESSION_TABS_HOST_KEY, value);
+      },
+    },
+    // 空态「历史会话」主按钮 → 复用 gode.pickSession 全链（快捷选择 + session-switch + reveal）。
+    onRequestSessionPicker: () => {
+      void commands.executeCommand("gode.pickSession");
     },
     log: (message) => diagnostics.log(message),
   });
@@ -292,20 +312,14 @@ export async function createContainer(
   });
   runtimeControllerPlaceholder.current = runtimeController;
 
-  // ── 文件改动审查（spec: docs/spec/vscode-pending-changes.md；装配收口在 pendingChanges/assembly.ts）──
-  const pendingChanges = wirePendingChanges({
-    context,
-    hostRuntime,
-    runtimeController,
-    store,
-    workspaceSessions,
-    statusBar,
-    log: (message) => diagnostics.log(message),
-    primaryFolder: () => listFolders()[0] ?? null,
+  // ── 原生编辑器 / 双栏 diff（聊天卡片「打开」「审查」的宿主落地面）──
+  // 「文件改动历史」TreeView 及其会话订阅、状态栏角标、命令族已整体移除；
+  // 只保留 diffOpener，供 openPatchDiffInEditor 复用 zcode-before 反向应用管线。
+  const changesDiffOpener = new ChangesDiffOpener();
+  diffOpenerPlaceholder.current = changesDiffOpener;
+  context.subscriptions.push(changesDiffOpener.register(), {
+    dispose: () => changesDiffOpener.dispose(),
   });
-  const changesService = pendingChanges.service;
-  changesServicePlaceholder.current = changesService;
-  pendingChangesPlaceholder.current = pendingChanges;
 
   // ── 状态栏投影（P0-2/P0-9）：Agent 生命周期事件 → setState（审批角标接 plat 上报面） ──
   // capabilities 横切生产面（T07「接线后行为」+ FR-A13 残余吸收，closeout-2）：agent
@@ -343,16 +357,24 @@ export async function createContainer(
 
   // ── 侧栏对话面（插件原生形态）：webview 挂载与 full/server 形态同源的桌面 Root， ──
   // ── 服务走进程内 ServiceCollection（与桌面 host 同一装配入口 createLocalServices）。──
-  const chatPanel = new ChatPanel(
+  // bootstrap data-session-id：优先运行时已验证（activeSessions = restore 成功面），
+  // 恢复尚未完成时乐观回落持久化键（失败由 onSessionRestoreFailure 纠正帧兜底）。
+  const resolveInitialSessionId = (folder: string): string | null =>
+    runtimeController.activeSession(folder) ??
+    workspaceSessions.get(folderKey(folder)) ??
+    null;
+  // 编辑器标签页形态（可拖动/拆分/移动）：与侧栏共用同一 Root 与 hostRuntime 多连接桥。
+  const chatEditorPanel = new ChatEditorPanel(
     context.extensionUri,
     hostRuntime,
-    // bootstrap data-session-id：优先运行时已验证（activeSessions = restore 成功面），
-    // 恢复尚未完成时乐观回落持久化键（失败由 onSessionRestoreFailure 纠正帧兜底）。
-    (folder) =>
-      runtimeController.activeSession(folder) ??
-      workspaceSessions.get(folderKey(folder)) ??
-      null,
+    resolveInitialSessionId,
   );
+  // 侧栏跳板 + 侧栏自动展开兜底：视图变为可见（无论触发源——点活动栏图标、IDE
+  // 恢复布局、还是任意代码/命令把它展开）→ 聚焦编辑器标签。收栏逻辑内聚在
+  // ChatEditorPanel.reveal()（延迟收起，赢过 IDE 对 agent webview 聚焦的自动展开）。
+  const chatPanel = new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId, () => {
+    chatEditorPanel.reveal();
+  });
 
   // ── 服务调用统一路由（PRD §8.5 单通道） ──
   // 进程内 ServiceCollection 直取（命令面只用 agent/task 两服务；编辑器命令与
@@ -382,12 +404,13 @@ export async function createContainer(
       });
       return picked?.action;
     },
-    revealChat: () => chatPanel.reveal(),
+    revealChat: () => chatEditorPanel.reveal(),
     revealClaudeImportPanel: () => {
-      hostRuntime.pushHostFrame("open-panel", {
+      // open-panel 是 UI 定向帧：只投给最近活动的对话页（广播会让两页同时弹面板）。
+      hostRuntime.pushToActiveHostFrame("open-panel", {
         panel: "import-claude-sessions",
       });
-      chatPanel.reveal();
+      chatEditorPanel.reveal();
     },
     showLogs: () => diagnostics.show(),
     recheckCli: async () => {
@@ -408,8 +431,6 @@ export async function createContainer(
     }),
     workspace.onDidChangeWorkspaceFolders(() => {
       bindWorkspaceProjects();
-      // 主 folder 变化 → pending-changes 换 workspaceRoot 重订（spec §6）。
-      changesService.syncSession();
       hostRuntime.pushHostFrame("workspace", {
         folders: (workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath),
         activeFolder: workspace.workspaceFolders?.[0]?.uri.fsPath ?? null,
@@ -424,16 +445,7 @@ export async function createContainer(
   );
 
   // ── activate 后：per-folder 最近会话恢复（P1-1.5 host 半；resume 恒带约束面） ──
-  // 恢复完成后同步 pending-changes 订阅（spec §8：restore 是会话真相就绪点）。
-  void runtimeController
-    .restoreWorkspaceSessions()
-    .then((restored) => {
-      // restore 恢复的会话显式直传（folder=主 folder），无会话则保持空态等通知。
-      const folder = listFolders()[0] ?? null;
-      const sessionId = folder ? restored.restored.at(-1) ?? workspaceSessions.get(folderKey(folder)) ?? null : null;
-      changesService.setSession(sessionId ?? undefined, folder);
-    })
-    .catch(() => changesService.setSession(undefined, null));
+  void runtimeController.restoreWorkspaceSessions().catch(() => undefined);
 
   // ── P1-10.2：CLI 未找到 → 呈现安装引导与「重新检测」入口（P0-1 引导语义） ──
   if (!cliInfo) void welcomePage.presentCliMissing();
@@ -460,7 +472,14 @@ export async function createContainer(
     kind: "composer-insert" | "session-switch",
     payload: unknown,
   ): void => {
-    hostRuntime.pushHostFrame(kind, payload);
+    // composer-insert 是纯 UI 定向内容（composer 预填）：只投给最近活动的对话页，
+    // 避免「在页面 A 加入上下文，页面 B 的输入框也被预填」的跨页污染；
+    // session-switch 是会话语义（历史会话切换），双页同显是有意设计，保持广播。
+    if (kind === "composer-insert") {
+      hostRuntime.pushToActiveHostFrame(kind, payload);
+    } else {
+      hostRuntime.pushHostFrame(kind, payload);
+    }
   };
   const editorFeatureDisposables = registerEditorCommands({
     getWorkspacePath: editorWorkspacePath,
@@ -488,19 +507,26 @@ export async function createContainer(
 
   return {
     chatPanel,
+    chatEditorPanel,
     hostRuntime,
     runtimeController,
     sessionsIndex,
     statusBar,
     diagnostics,
     diffViewer,
-    changesService,
     welcomePage,
     presentOnboarding: () => welcomePage.presentOnboarding({ cli: cliInfo }),
+    // 一次性上手卡：首次打开对话（任一打开入口）自动呈现，之后只在用户主动调
+    // gode.onboarding 时出现。globalState 持久化标记，重装/重开窗口不重复打扰。
+    presentOnboardingOnce: () => {
+      const key = "gode.onboarding.autoPresented";
+      if (context.globalState.get<boolean>(key, false)) return;
+      void context.globalState.update(key, true);
+      void welcomePage.presentOnboarding({ cli: cliInfo });
+    },
     services,
     async dispose(): Promise<void> {
-      changesService.dispose();
-      pendingChanges.dispose();
+      chatEditorPanel.dispose();
       runtimeController.dispose();
       hostRuntime.dispose();
       await services.dispose();
@@ -519,11 +545,9 @@ function buildPlatformMethods(deps: {
   statusBar: StatusBar;
   sessionsIndex: SessionsIndexBridge;
   runtimeController: () => RuntimeController | undefined;
-  /** pending-changes 服务懒访问（装配顺序晚于本表，闭包延迟解引用）。 */
-  changesService: () => ChangesService | undefined;
   /** chat 路径 → 工作区根解析兜底的 Uri（编辑器直开路由）。 */
   resolveWorkspaceUri: (path: string) => Uri;
-  /** pending-changes diffOpener 懒访问（原生双栏 diff；装配顺序晚于本表）。 */
+  /** 原生双栏 diff（聊天卡片「审查」）；装配顺序晚于本表，闭包延迟解引用。 */
   diffOpener: () => ChangesDiffOpener | undefined;
   primaryFolder: () => string | undefined;
   /** per-folder 最近会话键表（P1-1.1 降级列表数据源；M18）。 */
@@ -799,9 +823,6 @@ function buildPlatformMethods(deps: {
       if (!folder)
         throw new Error("notifySessionCreated: 无 workspace folder 可归属");
       deps.runtimeController()?.setActiveSession(folder, sessionId);
-      // 会话通知直传 folder+sessionId（共享 ext host 多窗口下主 folder 推断不可靠，
-      // 真机教训 2026-11-07）：pending-changes 按显式目标重订。
-      deps.changesService()?.setSession(sessionId, folder);
       return { folder: folderKey(folder), sessionId };
     },
     /** 会话删除上报：反查持有该会话的 folder 并清键。 */
@@ -815,8 +836,6 @@ function buildPlatformMethods(deps: {
         store.setSessionId(folder, undefined);
         deps.runtimeController()?.setActiveSession(folder, undefined);
       }
-      // 会话删除 → pending-changes 回草稿态订阅（该会话的 pending 由 CLI 侧失效兜底）。
-      deps.changesService()?.setSession(undefined, null);
       return { sessionId, folders };
     },
     /** 审批角标上报面（P0-9：数据源尽力面，缺上报时状态栏保持状态机部分）。 */
@@ -964,12 +983,14 @@ function buildPlatformMethods(deps: {
 /** 命令注册（extension.ts 调用；实现体在 src/commands/hostCommands.ts）。 */
 export function registerCommands(container: Container): void {
   registerHostCommands({
-    chatPanel: container.chatPanel,
+    chatEditorPanel: container.chatEditorPanel,
     hostRuntime: container.hostRuntime,
     diagnostics: container.diagnostics,
     sessionsIndex: container.sessionsIndex,
     agentService: container.services.services.get(IZCodeAgentService),
     // P1-10.2：3 步上手卡命令面（Gode: 上手引导）；CLI 实况由容器闭包读取。
     presentOnboarding: () => container.presentOnboarding(),
+    // 首次打开对话自动呈现上手卡（一次性；presentOnboardingOnce 自带标记）。
+    firstOpen: () => container.presentOnboardingOnce(),
   });
 }

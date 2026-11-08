@@ -1,9 +1,9 @@
 {
-  "name": "code",
-  "displayName": "Code",
-  "description": "把 Code 接进 VS Code：与桌面端同源的 @zcode/ui 对话界面、流式回复、工具时间线、审批与断线恢复。",
+  "name": "gode",
+  "displayName": "Gode",
+  "description": "把 Gode 接进 VS Code：与桌面端同源的 @zcode/ui 对话界面、流式回复、工具时间线、审批与断线恢复。",
   "version": "0.2.0",
-  "publisher": "zcodium",
+  "publisher": "gode",
   "license": "MIT",
   "private": true,
   "type": "commonjs",
@@ -18,14 +18,9 @@
     "ai",
     "agent",
     "chat",
-    "code"
+    "gode"
   ],
   "main": "./dist/extension.js",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/zcodium/zcode",
-    "directory": "apps/zcode-vscode"
-  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -33,16 +28,16 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "code",
-          "title": "Code",
-          "icon": "media/zcodium.svg"
+          "id": "godeChat",
+          "title": "Gode",
+          "icon": "media/gode.svg"
         }
       ]
     },
     "views": {
-      "code": [
+      "godeChat": [
         {
-          "id": "code.chat",
+          "id": "gode.chat",
           "name": "对话",
           "type": "webview"
         }
@@ -50,270 +45,309 @@
     },
     "commands": [
       {
-        "command": "code.openChat",
+        "command": "gode.openChat",
         "title": "打开对话",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.onboarding",
+        "command": "gode.onboarding",
         "title": "上手引导",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.newSession",
+        "command": "gode.newSession",
         "title": "新建会话",
-        "category": "ZCodium",
+        "category": "Gode",
         "icon": "$(add)"
       },
       {
-        "command": "code.restartAgent",
+        "command": "gode.restartAgent",
         "title": "重启 Agent 进程",
-        "category": "ZCodium",
+        "category": "Gode",
         "icon": "$(refresh)"
       },
       {
-        "command": "code.showLogs",
-        "title": "显示 ZCodium 日志",
-        "category": "ZCodium"
+        "command": "gode.showLogs",
+        "title": "显示 Gode 日志",
+        "category": "Gode"
       },
       {
-        "command": "code.checkBundleSize",
+        "command": "gode.checkBundleSize",
         "title": "检查 Webview/Host 产物体积门禁",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.switchWorkspace",
+        "command": "gode.switchWorkspace",
         "title": "切换工作区",
-        "category": "ZCodium",
+        "category": "Gode",
         "icon": "$(split-horizontal)"
       },
       {
-        "command": "code.sendDiagnostics",
+        "command": "gode.sendDiagnostics",
         "title": "发送诊断信息",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.openMcpSettings",
+        "command": "gode.openMcpSettings",
         "title": "打开 MCP 设置",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.openInstructions",
+        "command": "gode.openInstructions",
         "title": "打开指令配置",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.openSessionParams",
+        "command": "gode.openSessionParams",
         "title": "打开会话参数",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.importClaudeSessions",
+        "command": "gode.importClaudeSessions",
         "title": "导入 Claude 会话",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.showSubagents",
+        "command": "gode.showSubagents",
         "title": "查看子代理",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.openUsage",
+        "command": "gode.openUsage",
         "title": "查看用量",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.quickEdit",
+        "command": "gode.quickEdit",
         "title": "改写选中代码（Quick Edit）",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.sendTerminalSelection",
-        "title": "发送终端选区到 ZCodium",
-        "category": "ZCodium"
+        "command": "gode.sendTerminalSelection",
+        "title": "发送终端选区到 Gode",
+        "category": "Gode"
       },
       {
-        "command": "code.generateCommitMessage",
+        "command": "gode.generateCommitMessage",
         "title": "生成提交信息",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.reviewChanges",
+        "command": "gode.reviewChanges",
         "title": "审阅当前改动",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.pickSession",
+        "command": "gode.pickSession",
         "title": "历史会话",
-        "category": "ZCodium",
+        "category": "Gode",
         "icon": "$(history)"
       },
       {
-        "command": "code.codeAction",
-        "title": "ZCodium 代码操作",
-        "category": "ZCodium"
+        "command": "gode.toggleChatFullscreen",
+        "title": "切换对话全屏（最大化编辑器组）",
+        "category": "Gode",
+        "icon": "$(screen-full)"
       },
       {
-        "command": "code.addRangeToChat",
+        "command": "gode.newChatTab",
+        "title": "新建对话页签",
+        "category": "Gode"
+      },
+      {
+        "command": "gode.codeAction",
+        "title": "Gode 代码操作",
+        "category": "Gode"
+      },
+      {
+        "command": "gode.addRangeToChat",
         "title": "把选中范围加入对话",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.fixDiagnostics",
-        "title": "用 ZCodium 修复诊断",
-        "category": "ZCodium"
+        "command": "gode.fixDiagnostics",
+        "title": "用 Gode 修复诊断",
+        "category": "Gode"
       },
       {
-        "command": "code.explainSelection",
+        "command": "gode.explainSelection",
         "title": "解释选中的代码",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.fixSelection",
+        "command": "gode.fixSelection",
         "title": "修复选中的代码",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.refactorSelection",
+        "command": "gode.refactorSelection",
         "title": "重构选中的代码",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.writeTests",
+        "command": "gode.writeTests",
         "title": "为选中的代码写测试",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.addToContext",
+        "command": "gode.addToContext",
         "title": "加入对话上下文",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.showEditorLogs",
+        "command": "gode.showEditorLogs",
         "title": "显示编辑器功能日志",
-        "category": "ZCodium"
+        "category": "Gode"
       },
       {
-        "command": "code.stop",
+        "command": "gode.stop",
         "title": "停止生成",
-        "category": "ZCodium",
+        "category": "Gode",
         "icon": "$(debug-stop)"
       },
       {
-        "command": "code.addFileToContext",
-        "title": "加入 ZCodium 对话",
-        "category": "ZCodium"
+        "command": "gode.addFileToContext",
+        "title": "加入 Gode 对话",
+        "category": "Gode"
+      },
+      {
+        "command": "gode.openChatInEditor",
+        "title": "在编辑器标签页中打开对话",
+        "category": "Gode",
+        "icon": "$(split-horizontal)"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "code.newSession",
-          "when": "view == code.chat",
+          "command": "gode.newSession",
+          "when": "view == gode.chat",
           "group": "navigation@1"
         },
         {
-          "command": "code.restartAgent",
-          "when": "view == code.chat",
+          "command": "gode.restartAgent",
+          "when": "view == gode.chat",
           "group": "1_manage@1"
         },
         {
-          "command": "code.switchWorkspace",
-          "when": "view == code.chat",
+          "command": "gode.switchWorkspace",
+          "when": "view == gode.chat",
           "group": "1_manage@2"
         },
         {
-          "command": "code.pickSession",
-          "when": "view == code.chat",
+          "command": "gode.pickSession",
+          "when": "view == gode.chat",
           "group": "navigation@2"
         },
         {
-          "command": "code.stop",
-          "when": "view == code.chat",
+          "command": "gode.stop",
+          "when": "view == gode.chat",
           "group": "1_manage@3"
+        },
+        {
+          "command": "gode.openChatInEditor",
+          "when": "view == gode.chat",
+          "group": "navigation@3"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "gode.newSession",
+          "when": "activeWebviewPanelId == 'gode.chatEditor'",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gode.pickSession",
+          "when": "activeWebviewPanelId == 'gode.chatEditor'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gode.toggleChatFullscreen",
+          "when": "activeWebviewPanelId == 'gode.chatEditor'",
+          "group": "navigation@3"
         }
       ],
       "editor/context": [
         {
-          "submenu": "code.editorContext",
+          "submenu": "gode.editorContext",
           "group": "1_code@1",
           "when": "editorHasSelection"
         }
       ],
-      "code.editorContext": [
+      "gode.editorContext": [
         {
-          "command": "code.explainSelection",
+          "command": "gode.explainSelection",
           "group": "1_assist@1"
         },
         {
-          "command": "code.fixSelection",
+          "command": "gode.fixSelection",
           "group": "1_assist@2"
         },
         {
-          "command": "code.refactorSelection",
+          "command": "gode.refactorSelection",
           "group": "1_assist@3"
         },
         {
-          "command": "code.writeTests",
+          "command": "gode.writeTests",
           "group": "1_assist@4"
         },
         {
-          "command": "code.addToContext",
+          "command": "gode.addToContext",
           "group": "2_context@1"
         }
       ],
       "commandPalette": [
         {
-          "command": "code.codeAction",
+          "command": "gode.codeAction",
           "when": "false"
         },
         {
-          "command": "code.addRangeToChat",
+          "command": "gode.addRangeToChat",
           "when": "false"
         },
         {
-          "command": "code.fixDiagnostics",
+          "command": "gode.fixDiagnostics",
           "when": "false"
         }
       ],
       "scm/title": [
         {
-          "command": "code.generateCommitMessage",
+          "command": "gode.generateCommitMessage",
           "group": "navigation@10"
         },
         {
-          "command": "code.reviewChanges",
+          "command": "gode.reviewChanges",
           "group": "navigation@11"
         }
       ],
       "terminal/context": [
         {
-          "command": "code.sendTerminalSelection",
+          "command": "gode.sendTerminalSelection",
           "group": "1_code@1"
         }
       ],
       "explorer/context": [
         {
-          "command": "code.addFileToContext",
+          "command": "gode.addFileToContext",
           "group": "7_gode@1"
         }
       ],
       "editor/title/context": [
         {
-          "command": "code.addFileToContext",
+          "command": "gode.addFileToContext",
           "group": "1_code@1"
         }
       ]
     },
     "configuration": {
-      "title": "Code",
+      "title": "Gode",
       "properties": {
-        "code.cliPath": {
+        "gode.cliPath": {
           "type": "string",
           "default": "",
           "markdownDescription": "`zcodium` CLI 可执行文件绝对路径。留空时从 `PATH` 探测 `zcodium`。"
         },
-        "code.mode": {
+        "gode.mode": {
           "type": "string",
           "enum": [
             "build",
@@ -326,12 +360,12 @@
           "default": "build",
           "markdownDescription": "Agent 工作模式，经 HostSettingsBridge 归一为 RuntimeController 编排面（恢复/编程式创建）的 `create.config.mode`。侧栏对话区草稿会话走 v4 createSession（模式在会话头部切换），不读取本设置。"
         },
-        "code.model": {
+        "gode.model": {
           "type": "string",
           "default": "",
           "markdownDescription": "模型选择，格式 `providerId/modelId`，经 HostSettingsBridge 归一为 RuntimeController 编排面（恢复/编程式创建）的下发参数；留空使用 CLI 默认模型。侧栏对话区草稿会话的模型在会话头部切换，不读取本设置。"
         },
-        "code.permissions.allowlist": {
+        "gode.permissions.allowlist": {
           "type": "array",
           "items": {
             "type": "string"
@@ -339,7 +373,7 @@
           "default": [],
           "markdownDescription": "工具 allowlist 规则（支持 `Tool` 与 `Tool(args)` 形式），随 create/resume 携带（P1-3）。"
         },
-        "code.permissions.denylist": {
+        "gode.permissions.denylist": {
           "type": "array",
           "items": {
             "type": "string"
@@ -347,7 +381,7 @@
           "default": [],
           "markdownDescription": "工具 denylist 规则，随 create/resume 携带；resume 不带会绕过约束。"
         },
-        "code.mcp.servers": {
+        "gode.mcp.servers": {
           "type": "array",
           "items": {
             "type": "object"
@@ -355,7 +389,7 @@
           "default": [],
           "markdownDescription": "MCP 服务器配置（stdio/http，字段对齐 zcodeProtocolMcpServerSchema），改动后需重建会话生效（P1-8）。"
         },
-        "code.context.additionalDirectories": {
+        "gode.context.additionalDirectories": {
           "type": "array",
           "items": {
             "type": "string"
@@ -364,7 +398,7 @@
           "maxItems": 256,
           "markdownDescription": "Agent 可访问的附加目录（协议上限 256 个，P1-16.1）。"
         },
-        "code.autoContext": {
+        "gode.autoContext": {
           "type": "string",
           "default": "off",
           "enum": [
@@ -378,27 +412,44 @@
             "再加最近 5 分钟内编辑过的文件"
           ],
           "description": "发送消息时自动附加的编辑器上下文（FR-B22）。"
+        },
+        "gode.disableKeybindings": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "禁用 Gode 的全部默认快捷键（打开对话 / 新建会话）。"
         }
       }
     },
     "submenus": [
       {
-        "id": "code.editorContext",
-        "label": "ZCodium"
+        "id": "gode.editorContext",
+        "label": "Gode"
       }
     ],
     "keybindings": [
       {
-        "command": "code.quickEdit",
+        "command": "gode.quickEdit",
         "key": "ctrl+alt+k",
         "mac": "cmd+alt+k",
         "when": "editorHasSelection && editorTextFocus"
       },
       {
-        "command": "code.addToContext",
+        "command": "gode.addToContext",
         "key": "ctrl+alt+a",
         "mac": "cmd+alt+a",
         "when": "editorHasSelection"
+      },
+      {
+        "command": "gode.openChat",
+        "key": "ctrl+alt+esc",
+        "mac": "cmd+esc",
+        "when": "!config.gode.disableKeybindings"
+      },
+      {
+        "command": "gode.newSession",
+        "key": "ctrl+alt+n",
+        "mac": "cmd+alt+n",
+        "when": "!config.gode.disableKeybindings"
       }
     ]
   },
@@ -408,7 +459,8 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "size": "node scripts/check-bundle-size.mjs",
-    "package": "node esbuild.mjs && vsce package --no-dependencies --out dist/ && node scripts/check-bundle-size.mjs"
+    "package": "node esbuild.mjs && vsce package --no-dependencies --out dist/ && node scripts/check-bundle-size.mjs",
+    "test:host": "bash scripts/run-extension-host-smoke.sh"
   },
   "dependencies": {
     "@zcode/client": "workspace:*",

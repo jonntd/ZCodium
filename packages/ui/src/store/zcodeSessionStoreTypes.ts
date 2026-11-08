@@ -26,13 +26,19 @@ import {
   type SessionCreateSource,
 } from "@zcode/shared";
 import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
-import type { SessionConfigState, SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
+import type {
+  SessionConfigState,
+  SubmissionMode,
+} from "@zcode/shared/zcode-protocol-v4";
 import type {
   AutomationsNavigationTab,
   TaskNavigationHistory,
   WorkspaceNavEntry,
 } from "@/lib/taskNavigationHistory.js";
-import type { MentionCategory, MentionItemData } from "@/mentions/mentionTypes.js";
+import type {
+  MentionCategory,
+  MentionItemData,
+} from "@/mentions/mentionTypes.js";
 
 // ────────────────────────────────────────────
 // Interfaces
@@ -44,7 +50,9 @@ export interface WorkspaceInitState {
   attempts: number;
 }
 
-export type GroupedDraftTaskPlacement = { type: "top" } | { type: "group"; groupId: string };
+export type GroupedDraftTaskPlacement =
+  | { type: "top" }
+  | { type: "group"; groupId: string };
 
 export interface GroupedDraftTaskState {
   draftId: string;
@@ -137,7 +145,13 @@ export interface ComposerMentionPrefill {
 export interface ComposerTextInsertRequest {
   requestId: number;
   text: string;
+  /** 单条 mention（兼容既有生产者）；批量注入用 mentions。 */
   mention?: ComposerMentionPrefill;
+  /**
+   * 批量 mention（spec: composer-insert-delivery）：host 对 N 条上下文只发一个帧，
+   * 避免单槽 store 被连续多帧覆盖的竞态。与 mention 互斥使用，mentions 优先。
+   */
+  mentions?: ComposerMentionPrefill[];
   mode?: "replace" | "prepend-if-missing";
 }
 
@@ -232,7 +246,10 @@ export interface WorkspaceZCodeUIState {
 export interface ZCodeSessionStoreState {
   /** 按 workspace 维护聊天相关 UI 状态 */
   workspaces: Record<string, WorkspaceZCodeUIState>;
-  getWorkspaceState: (workspacePath: string, workspaceIdentity?: string) => WorkspaceZCodeUIState;
+  getWorkspaceState: (
+    workspacePath: string,
+    workspaceIdentity?: string,
+  ) => WorkspaceZCodeUIState;
 
   setActiveTaskId: (
     workspacePath: string,
@@ -245,7 +262,10 @@ export interface ZCodeSessionStoreState {
     initialization: ComposerInitialization,
     workspaceIdentity?: string,
   ) => void;
-  clearDraftTaskGroup: (workspacePath: string, workspaceIdentity?: string) => void;
+  clearDraftTaskGroup: (
+    workspacePath: string,
+    workspaceIdentity?: string,
+  ) => void;
   promoteGroupedDraftTask: (
     workspacePath: string,
     taskId: string,
@@ -262,17 +282,30 @@ export interface ZCodeSessionStoreState {
     sessionId: string | null,
     workspaceIdentity?: string,
   ) => void;
-  invalidateDraftRuntime: (workspacePath: string, workspaceIdentity?: string) => void;
+  invalidateDraftRuntime: (
+    workspacePath: string,
+    workspaceIdentity?: string,
+  ) => void;
   requestComposerTextInsert: (
     workspacePath: string,
     text: string,
     workspaceIdentity?: string,
     mention?: ComposerMentionPrefill,
     mode?: "replace" | "prepend-if-missing",
+    mentions?: readonly ComposerMentionPrefill[],
   ) => number;
   clearComposerTextInsertRequest: (
     workspacePath: string,
     requestId: number,
+    workspaceIdentity?: string,
+  ) => void;
+  /**
+   * 请求把焦点交给当前 composer（递增 draftFocusVersion，复用既有聚焦链路）。
+   * VS Code webview 场景：编辑器标签激活/窗口重新聚焦时调用（Claude Code 同款，
+   * 打开对话即可直接输入）；不动会话态，只发聚焦意图。
+   */
+  requestComposerFocus: (
+    workspacePath: string,
     workspaceIdentity?: string,
   ) => void;
   requestTimelineBottom: (
@@ -296,7 +329,10 @@ export interface ZCodeSessionStoreState {
       createSource?: SessionCreateSource;
     },
   ) => void;
-  clearGroupedDraftTask: (workspacePath: string, workspaceIdentity?: string) => void;
+  clearGroupedDraftTask: (
+    workspacePath: string,
+    workspaceIdentity?: string,
+  ) => void;
   bindRuntimeProvider: (
     workspacePath: string,
     provider: ZCodeProvider,
@@ -414,7 +450,11 @@ export interface ZCodeSessionStoreState {
     stage: ModelSwitchStage,
     workspaceIdentity?: string,
   ) => void;
-  finishModelSwitch: (workspacePath: string, requestId: string, workspaceIdentity?: string) => void;
+  finishModelSwitch: (
+    workspacePath: string,
+    requestId: string,
+    workspaceIdentity?: string,
+  ) => void;
   setTaskConfigOptions: (
     workspacePath: string,
     taskId: string,
@@ -442,7 +482,11 @@ export interface ZCodeSessionStoreState {
     workspaceIdentity?: string,
   ) => void;
   /** 删除任务后同步回收选中态和乐观态，避免右侧继续展示已删除任务 */
-  removeTaskState: (workspacePath: string, taskId: string, workspaceIdentity?: string) => void;
+  removeTaskState: (
+    workspacePath: string,
+    taskId: string,
+    workspaceIdentity?: string,
+  ) => void;
 
   setConfigOptions: (
     workspacePath: string,
@@ -465,7 +509,10 @@ export interface ZCodeSessionStoreState {
     workspaceIdentity?: string,
   ) => void;
   /** 任务列表变更时调用（创建/删除任务），驱动 zcodeTaskMetaMerge 重新拉取列表 */
-  bumpTaskListVersion: (workspacePath: string, workspaceIdentity?: string) => void;
+  bumpTaskListVersion: (
+    workspacePath: string,
+    workspaceIdentity?: string,
+  ) => void;
   /** 更新已拉取的任务列表缓存 */
   setTaskListCache: (
     workspacePath: string,
@@ -490,7 +537,10 @@ export interface ZCodeSessionStoreState {
     automationTab?: AutomationsNavigationTab,
   ) => void;
   /** 记录插件市场主视图导航。 */
-  taskNavPushPluginStore: (workspacePath: string, workspaceIdentity?: string) => void;
+  taskNavPushPluginStore: (
+    workspacePath: string,
+    workspaceIdentity?: string,
+  ) => void;
   /** 后退，返回目标 entry；到头了返回 null */
   taskNavGoBack: () => WorkspaceNavEntry | null;
   /** 前进，返回目标 entry；到头了返回 null */

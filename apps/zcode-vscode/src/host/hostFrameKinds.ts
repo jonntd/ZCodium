@@ -18,7 +18,8 @@ export type HostFrameKindValue =
   | "composer-insert"
   | "session-switch"
   | "full-ui-url"
-  | "capabilities";
+  | "capabilities"
+  | "session-tabs";
 
 /** host 帧型全集（与 src/bridge/wire.ts 的 HostFrameKind 判定一字不差；测试锁定）。 */
 export const HOST_FRAME_KINDS: readonly HostFrameKindValue[] = [
@@ -33,6 +34,7 @@ export const HOST_FRAME_KINDS: readonly HostFrameKindValue[] = [
   "session-switch",
   "full-ui-url",
   "capabilities",
+  "session-tabs",
 ];
 
 /** visibility 帧：chatPanel onDidChangeVisibility 生产（webview 隐藏时暂停渲染）。 */
@@ -143,8 +145,20 @@ export interface ComposerInsertHostFramePayload {
     value: string;
     markdown: string;
     description?: string;
-    data?: { kind: "file" | "directory"; path: string; relativePath: string };
+    data?: {
+      kind: "file" | "directory";
+      path: string;
+      relativePath: string;
+      /** 选区上下文的 1-based 起止行：仅影响 pill 展示文案。 */
+      startLine?: number;
+      endLine?: number;
+    };
   };
+  /**
+   * 批量 mention（spec: composer-insert-delivery）：N 条上下文合并为一个帧，
+   * 避免 store 单槽被连续多帧覆盖；与 mention 互斥，mentions 优先。
+   */
+  mentions?: Array<NonNullable<ComposerInsertHostFramePayload["mention"]>>;
   /**
    * replace（默认）：指令类命令整体预填；prepend-if-missing：加入上下文 pill
    * 前置且按 mention.id 去重，不覆盖用户正在编辑的草稿。
@@ -197,4 +211,89 @@ export interface CapabilitiesHostFramePayload {
    * UI 据此显示「当前 CLI 版本不支持」；false = 暂时不可得（transient），UI 静默不诬告。
    */
   capabilityMissing: boolean;
+}
+
+// ── 编辑器标签 UI 上行（plat-evt notifyEditorTabUi） ───────────────
+
+/** 编辑器标签标题上限（超出截断加省略号；IDE 标签本身也会二次截断）。 */
+export const EDITOR_TAB_TITLE_MAX_LENGTH = 40;
+/** 忙态前缀（Agent streaming/creating/restoring 时显示；静态符号，IDE 标签不支持动画）。 */
+export const EDITOR_TAB_BUSY_PREFIX = "● ";
+
+/**
+ * webview → host 的编辑器标签 UI 状态（plat-evt "notifyEditorTabUi"；fire-and-forget，
+ * 不经白名单——plat-evt 事件面无方法调用语义，host 侧只消费已知事件名）。
+ * title=null 表示回退默认标题（草稿态）；host 只接受编辑器形态连接的该事件。
+ */
+export interface EditorTabUiPayload {
+  /** 活动会话的任务标题（首条消息自动截取）；null = 草稿/未知（用默认标题）。 */
+  title: string | null;
+  /** 活动任务是否运行中（streaming/creating/restoring）。 */
+  busy: boolean;
+}
+
+/** 宽松解析 webview 上行的标签 UI 载荷；形状非法返回 null（host 丢弃）。 */
+export function parseEditorTabUiPayload(payload: unknown): EditorTabUiPayload | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const record = payload as Record<string, unknown>;
+  const title =
+    record["title"] === null || record["title"] === undefined
+      ? null
+      : typeof record["title"] === "string" && record["title"].length > 0
+        ? record["title"]
+        : null;
+  return { title, busy: record["busy"] === true };
+}
+
+/**
+ * 合成编辑器标签标题：忙态前缀 + 会话标题（截断）或默认标题。
+ * 纯函数（vitest 直测）；chatEditorPanel 拿结果直接写 panel.title。
+ */
+export function composeEditorTabTitle(
+  baseTitle: string,
+  payload: EditorTabUiPayload,
+): string {
+  const trimmed = payload.title?.trim() ?? "";
+  const body =
+    trimmed.length > 0
+      ? trimmed.length > EDITOR_TAB_TITLE_MAX_LENGTH
+        ? `${trimmed.slice(0, EDITOR_TAB_TITLE_MAX_LENGTH)}…`
+        : trimmed
+      : baseTitle;
+  return payload.busy ? `${EDITOR_TAB_BUSY_PREFIX}${body}` : body;
+}
+
+// ── session-tabs 帧（多页签会话标签跨页共享） ────────────────────
+
+/** 会话标签快照（webview SessionTab 的 wire 形状；host 侧不 import webview 层）。 */
+export interface SessionTabSnapshot {
+  id: string;
+  title: string;
+  sessionId: string | null;
+  pinned: boolean;
+}
+
+/** session-tabs 帧：host 中继的会话标签全集（晚启动连接补发同一形状）。 */
+export interface SessionTabsHostFramePayload {
+  tabs: SessionTabSnapshot[];
+}
+
+/** 宽松解析标签快照数组（脏数据逐条丢弃，不整体拒绝）。 */
+export function parseSessionTabsPayload(payload: unknown): SessionTabSnapshot[] | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const tabs = (payload as Record<string, unknown>)["tabs"];
+  if (!Array.isArray(tabs)) return null;
+  const snapshots: SessionTabSnapshot[] = [];
+  for (const item of tabs) {
+    if (typeof item !== "object" || item === null) continue;
+    const record = item as Record<string, unknown>;
+    if (typeof record["id"] !== "string" || record["id"].length === 0) continue;
+    snapshots.push({
+      id: record["id"],
+      title: typeof record["title"] === "string" ? record["title"] : "Untitled",
+      sessionId: typeof record["sessionId"] === "string" ? record["sessionId"] : null,
+      pinned: record["pinned"] === true,
+    });
+  }
+  return snapshots;
 }

@@ -19,13 +19,13 @@ import { CAPABILITY_UNSUPPORTED_HINT } from "../webview-react/capabilities";
 
 /** container.ts CLI 未找到时写入诊断的同源日志行（文案变更须同步该处语义）。 */
 export const CLI_NOT_FOUND_LOG =
-  "[cli] 未找到 zcodium CLI：侧栏将呈现引导（安装后点击「重新检测」或执行 ZCodium: 重启 Agent）";
+  "[cli] 未找到 zcodium CLI：侧栏将呈现引导（安装后点击「重新检测」或执行 Gode: 重启 Agent）";
 
 /** CLI 未找到时的安装引导（信息条正文；「重新检测」为操作项）。 */
 export const CLI_NOT_FOUND_GUIDANCE =
   "未找到 zcodium CLI：模型调用由 CLI 承担（zcodium app-server --stdio）。" +
-  "请安装 CLI，或在设置 code.cliPath 指定绝对路径；" +
-  "安装后点击「重新检测」，或执行命令 ZCodium: 重启 Agent 进程。";
+  "请安装 CLI，或在设置 gode.cliPath 指定绝对路径；" +
+  "安装后点击「重新检测」，或执行命令 Gode: 重启 Agent 进程。";
 
 // ── 3 步上手卡（P1-10.2） ──
 
@@ -41,7 +41,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     title: "第 1 步 · 安装 zcodium CLI",
     detail:
       "模型调用由 CLI 承担（zcodium app-server --stdio，扩展经 @zcode/services 进程管理拉起）。" +
-      "PATH 中有 zcodium 即可，或在设置 code.cliPath 指定绝对路径。",
+      "PATH 中有 zcodium 即可，或在设置 gode.cliPath 指定绝对路径。",
   },
   {
     id: "chat",
@@ -49,7 +49,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     detail:
       "Activity Bar「Gode Agent」侧栏输入框直接提问；@ 引用文件与选区；" +
       "模型 / 协作模式 / 思考深度在会话头部切换；顶部按钮切换或删除会话" +
-      "（多根工作区每个 folder 独立会话，ZCodium: 切换工作区聚焦 folder）。",
+      "（多根工作区每个 folder 独立会话，Gode: 切换工作区聚焦 folder）。",
   },
   {
     id: "configure",
@@ -57,7 +57,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     detail:
       "权限 allowlist / denylist、MCP 服务器、附加目录在设置面板维护" +
       "（改动后需重建会话生效）；Claude Code 历史可一键导入" +
-      "（ZCodium: 导入 Claude 会话，检测 ~/.claude/projects，原文件不删除）。",
+      "（Gode: 导入 Claude 会话，检测 ~/.claude/projects，原文件不删除）。",
   },
 ];
 
@@ -67,7 +67,7 @@ export const CLAUDE_IMPORT_ENTRY = {
   /** 组4 导入面板的 open-panel 词（src/webview-react/import/ImportClaudeSessions.tsx）。 */
   panel: "import-claude-sessions",
   /** 面板打开的命令面（container.registerCommands 登记，contributes.commands）。 */
-  commandId: "code.importClaudeSessions",
+  commandId: "gode.importClaudeSessions",
   label: "导入 Claude Code 会话",
   note: "检测 ~/.claude/projects 下可导入历史；解析与导入由 services zcode-task 频道承担，原文件不删除。仅桌面环境可用。",
 } as const;
@@ -160,7 +160,7 @@ export function projectOnboardingState(params: OnboardingInput): OnboardingState
   if (cliMissing) {
     card.push({
       label: "重新检测 CLI",
-      detail: "重跑 CLI 探测（settings code.cliPath 优先，随后 PATH）；找到后重置 Agent 运行时。",
+      detail: "重跑 CLI 探测（settings gode.cliPath 优先，随后 PATH）；找到后重置 Agent 运行时。",
       action: WELCOME_CARD_ACTIONS.recheckCli,
     });
   }
@@ -244,7 +244,7 @@ export class WelcomePage {
     if (found) {
       this.ports.log("[cli] 重新检测：已找到 zcodium CLI，Agent 运行时已重置（下次对话重拉）");
     } else {
-      this.ports.log("[cli] 重新检测：仍未找到 zcodium CLI（检查 PATH 或设置 code.cliPath）");
+      this.ports.log("[cli] 重新检测：仍未找到 zcodium CLI（检查 PATH 或设置 gode.cliPath）");
     }
     return found;
   }

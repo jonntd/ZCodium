@@ -59,7 +59,8 @@ export type HostFrameKind =
   | "composer-insert"
   | "session-switch"
   | "full-ui-url"
-  | "capabilities";
+  | "capabilities"
+  | "session-tabs";
 
 export interface HostFrame {
   t: "host";
@@ -154,7 +155,8 @@ export function parseBridgeEnvelope(data: unknown): BridgeEnvelope | null {
         kind === "composer-insert" ||
         kind === "session-switch" ||
         kind === "full-ui-url" ||
-        kind === "capabilities"
+        kind === "capabilities" ||
+        kind === "session-tabs"
         ? (data as unknown as HostFrame)
         : null;
     }

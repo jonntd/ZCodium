@@ -28,13 +28,37 @@ import type { SessionsIndexBridge } from "../host/sessionsIndexBridge";
 
 /** 命令实现依赖（container 注入；结构化最小面）。 */
 export interface HostCommandDeps {
-  chatPanel: { reveal(): void };
-  hostRuntime: { pushHostFrame(kind: HostFrameKind, payload: unknown): void };
+  /** 编辑器标签页形态（可拖动/拆分/移动）；「打开对话」默认形态。 */
+  chatEditorPanel: {
+    reveal(): {
+      created: boolean;
+      viewType: string;
+      title: string;
+      viewColumn?: number;
+    };
+    /** 总是新建一个对话页签（状态栏「新建页签」按钮）；多页签并存、内容同显。 */
+    openNew(): {
+      created: boolean;
+      viewType: string;
+      title: string;
+      viewColumn?: number;
+    };
+  };
+  hostRuntime: {
+    pushHostFrame(kind: HostFrameKind, payload: unknown): void;
+    /** UI 定向帧（open-panel/diagnostics）：只投给最近活动的对话页，不广播。 */
+    pushToActiveHostFrame(kind: HostFrameKind, payload: unknown): void;
+  };
   diagnostics: { show(): void; log(message: string): void };
   sessionsIndex: Pick<SessionsIndexBridge, "pickWorkspaceFolder">;
   agentService: Pick<IZCodeAgentService, "disposeAll">;
   /** 3 步上手卡（P1-10.2；container 注入 welcomePage.presentOnboarding，CLI 实况由容器闭包读取）。 */
   presentOnboarding: () => Promise<void>;
+  /**
+   * 首次打开对话的一次性钩子（容器注入：globalState 标记 + 自动呈现上手卡）。
+   * openChat/openChatInEditor/newChatTab/newSession 四个入口统一调用；缺省不呈现。
+   */
+  firstOpen?: () => void;
 }
 
 /** languages.getDiagnostics() → 帧载荷原始条目；限定当前编辑器文件（P1-5.1）。 */
@@ -57,10 +81,10 @@ function toDiagnosticsEntries(activeFile: Uri | undefined): DiagnosticsSourceEnt
   return entries;
 }
 
-/** 组4 消费的 open-panel 帧（面板打开指令）。 */
+/** 组4 消费的 open-panel 帧（面板打开指令）：定向到最近活动页，不广播。 */
 function pushOpenPanel(deps: HostCommandDeps, panel: string): void {
   const payload: OpenPanelHostFramePayload = { panel };
-  deps.hostRuntime.pushHostFrame("open-panel", payload);
+  deps.hostRuntime.pushToActiveHostFrame("open-panel", payload);
 }
 
 /** T09 host 半：两档 QuickPick → getDiagnostics（当前文件）→ diagnostics 帧（取消不发帧）。 */
@@ -74,7 +98,7 @@ export async function sendDiagnosticsCommand(deps: HostCommandDeps): Promise<voi
         detail: "下发当前文件 Error/Warning 级诊断",
       },
     ],
-    { placeHolder: "ZCodium：发送诊断信息（当前文件，两档）" },
+    { placeHolder: "Gode：发送诊断信息（当前文件，两档）" },
   );
   if (!tier) return; // 用户取消：不发帧、不提示
   const payload: DiagnosticsHostFramePayload = buildDiagnosticsFramePayload(
@@ -84,8 +108,9 @@ export async function sendDiagnosticsCommand(deps: HostCommandDeps): Promise<voi
   deps.diagnostics.log(
     `[diagnostics] 下发 ${payload.tier} 档诊断：${payload.items.length} 条（errors=${payload.errorCount}）`,
   );
-  deps.hostRuntime.pushHostFrame("diagnostics", payload);
-  deps.chatPanel.reveal();
+  // 诊断面是 UI 定向内容：只投给最近活动的对话页，避免另一页同步弹出诊断。
+  deps.hostRuntime.pushToActiveHostFrame("diagnostics", payload);
+  deps.chatEditorPanel.reveal();
 }
 
 /**
@@ -95,44 +120,73 @@ export async function sendDiagnosticsCommand(deps: HostCommandDeps): Promise<voi
  * 勿再宣称「与 contributes 一字不差」——那曾造成 14↔31 的契约漂移（2026-11-06 修正）。
  */
 export function registerHostCommands(deps: HostCommandDeps): void {
-  void commands.registerCommand("code.openChat", () => deps.chatPanel.reveal());
-  void commands.registerCommand("code.onboarding", () => deps.presentOnboarding());
-  void commands.registerCommand("code.showLogs", () => deps.diagnostics.show());
-  void commands.registerCommand("code.restartAgent", () => {
+  // 「打开对话」默认即编辑器标签页形态（与 Claude Code tab 同款：IDE 管理标签，
+  // 可随意拖动 / 拆分 / 移动到新窗口）；侧栏视图保留为可选形态（gode.chat 仍注册）。
+  // 返回面板状态（真机冒烟按此断言标签创建）。一次性上手卡钩子在 reveal **之后**：
+  // presentOnboarding 内部同步 revealChat，若先行会把首开 created 置 false。
+  const openChat = () => {
+    const result = deps.chatEditorPanel.reveal();
+    deps.firstOpen?.();
+    return result;
+  };
+  void commands.registerCommand("gode.openChat", openChat);
+  // 别名入口（view/title navigation@3）：与 openChat 同一目标。
+  void commands.registerCommand("gode.openChatInEditor", openChat);
+  // 状态栏「新建页签」：总是创建一个新的对话编辑器标签（多页签并存，内容同显）。
+  void commands.registerCommand("gode.newChatTab", () => {
+    const result = deps.chatEditorPanel.openNew();
+    deps.firstOpen?.();
+    return result;
+  });
+  // 全屏切换（editor/title navigation@3，Claude 标签同款 ⤢）：最大化当前编辑器组 ↔
+  // 恢复均分。只重排编辑器区域内的组宽度，侧栏/资源管理器/面板保持展开不受影响。
+  // 转发 IDE 原生 toggle 命令，状态由 IDE 管理。
+  // （锁定编辑器组不再提供自定义按钮：IDE 原生锁定 UI 更完整——tab 右键「锁定组」
+  // + 锁定后标签行右侧原生锁指示器点击即解锁；自定义按钮会与原生指示器重复显示。）
+  void commands.registerCommand("gode.toggleChatFullscreen", () =>
+    commands.executeCommand("workbench.action.toggleMaximizeEditorGroup"),
+  );
+  void commands.registerCommand("gode.onboarding", () => deps.presentOnboarding());
+  void commands.registerCommand("gode.showLogs", () => deps.diagnostics.show());
+  void commands.registerCommand("gode.restartAgent", () => {
     // Agent 进程生命周期归 @zcode/services 进程管理；命令面释放全部 workspace 运行时，
     // 下次对话自动重新拉起（崩溃重建编排的对手面）。
     deps.agentService.disposeAll();
   });
-  void commands.registerCommand("code.newSession", () => {
+  void commands.registerCommand("gode.newSession", () => {
     // 新会话 = webview 侧回到草稿态（V4WorkspaceChatArea draft）；会话数据保留在会话库。
+    // **定向**给最近活动页：回草稿是当前页的 UI 动作，广播会把其他页签也拉回草稿
+    // （多页签共享标签列表后，新草稿标签经 session-tabs 中继自然出现在其他页）。
     const payload: WorkspaceHostFramePayload = { kind: "new-session" };
-    deps.hostRuntime.pushHostFrame("workspace", payload);
-    deps.chatPanel.reveal();
+    deps.hostRuntime.pushToActiveHostFrame("workspace", payload);
+    const result = deps.chatEditorPanel.reveal();
+    deps.firstOpen?.();
+    return result;
   });
-  void commands.registerCommand("code.checkBundleSize", () => {
+  void commands.registerCommand("gode.checkBundleSize", () => {
     void window.showInformationMessage("体积门禁在构建脚本中执行：pnpm --filter zcode-vscode size");
   });
   // ── 组1 登记命令的 host 半（T06/T09） ──
-  void commands.registerCommand("code.switchWorkspace", async () => {
+  void commands.registerCommand("gode.switchWorkspace", async () => {
     const picked = await deps.sessionsIndex.pickWorkspaceFolder();
     if (picked === null) return; // 取消/无 folder：不发帧
     deps.diagnostics.log(`[workspace] 聚焦 folder：${picked}`);
     const payload: WorkspaceHostFramePayload = { kind: "workspace-focused", folder: picked };
     deps.hostRuntime.pushHostFrame("workspace", payload);
-    deps.chatPanel.reveal();
+    deps.chatEditorPanel.reveal();
   });
-  void commands.registerCommand("code.sendDiagnostics", () => {
+  void commands.registerCommand("gode.sendDiagnostics", () => {
     void sendDiagnosticsCommand(deps);
   });
-  void commands.registerCommand("code.openMcpSettings", () => {
+  void commands.registerCommand("gode.openMcpSettings", () => {
     // MCP 写回仅落 settings（PRD 降级口径：改动后需重建会话生效），入口直达设置面。
-    void commands.executeCommand("workbench.action.openSettings", "code.mcp.servers");
+    void commands.executeCommand("workbench.action.openSettings", "gode.mcp.servers");
   });
-  void commands.registerCommand("code.openInstructions", () => pushOpenPanel(deps, "instructions"));
-  void commands.registerCommand("code.openSessionParams", () => pushOpenPanel(deps, "session-params"));
-  void commands.registerCommand("code.importClaudeSessions", () =>
+  void commands.registerCommand("gode.openInstructions", () => pushOpenPanel(deps, "instructions"));
+  void commands.registerCommand("gode.openSessionParams", () => pushOpenPanel(deps, "session-params"));
+  void commands.registerCommand("gode.importClaudeSessions", () =>
     pushOpenPanel(deps, "import-claude-sessions"),
   );
-  void commands.registerCommand("code.showSubagents", () => pushOpenPanel(deps, "subagents"));
-  void commands.registerCommand("code.openUsage", () => pushOpenPanel(deps, "usage"));
+  void commands.registerCommand("gode.showSubagents", () => pushOpenPanel(deps, "subagents"));
+  void commands.registerCommand("gode.openUsage", () => pushOpenPanel(deps, "usage"));
 }

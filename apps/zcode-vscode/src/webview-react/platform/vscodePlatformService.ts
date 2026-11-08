@@ -42,6 +42,8 @@ export interface VscodePlatformServiceOptions {
 export class VscodePlatformService implements IPlatformService {
   /** 插件运行在本机 extension host 旁：桌面能力位开启（H7）。 */
   readonly isDesktop = true;
+  /** 终端/帮助由 IDE 原生提供，隐藏应用内嵌的终端面板、帮助菜单与链路提示。 */
+  readonly nativeTerminalHost = true;
   readonly canOpenLocalFiles = true;
   readonly canSelectFilePath = true;
   readonly isLocalDevelopmentRuntime = false;
@@ -323,6 +325,23 @@ export class VscodePlatformService implements IPlatformService {
 
   syncActiveTaskSession(_sessionId: string | null): void {
     // 桌面 PiP focus 概念，VS Code 无对应面。
+  }
+
+  // ── 插件扩展上行（plat-evt fire-and-forget；host 侧 HostRuntime 消费） ──
+
+  /** 编辑器标签 UI 状态（会话标题/忙态）→ host 回写对应 WebviewPanel 标题。 */
+  notifyEditorTabUi(state: { title: string | null; busy: boolean }): void {
+    this.rpc.sendEvent("notifyEditorTabUi", state);
+  }
+
+  /** 会话标签全集上行 → host 持久化 + 中继给其他对话页（多页签共享）。 */
+  syncSessionTabs(tabs: unknown): void {
+    this.rpc.sendEvent("syncSessionTabs", tabs);
+  }
+
+  /** 空态「历史会话」主按钮上行 → host 打开历史会话快捷选择器（gode.pickSession）。 */
+  requestSessionPicker(): void {
+    this.rpc.sendEvent("requestSessionPicker");
   }
 
   registerOAuthState(_payload: unknown): void {
