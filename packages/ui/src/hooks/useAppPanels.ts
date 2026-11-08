@@ -136,6 +136,51 @@ function createTerminalSidePaneTitle(
   }
 }
 
+/**
+ * 工作区侧栏（任务列表）显隐偏好。
+ *
+ * 背景（用户反馈：点「+」新建会话/新建页签时侧栏总自动展开）：该状态原本是纯内存
+ * `useState(true)`——每个 webview 实例（IDE 编辑器页签重建、点「+」新建页签、
+ * 重启 IDE）都从「展开」重新开始，用户收起过的选择完全丢失。
+ * 现在落盘到 localStorage（同源 webview 共享、可跨会话），并用模块级变量兜住
+ * localStorage 不可用（隐私模式/沙箱）时的同上下文记忆。
+ */
+const WORKSPACE_SIDEBAR_VISIBLE_STORAGE_KEY = "zcode:workspace-shell:sidebar-visible";
+
+/** 同 JS 上下文内的记忆（localStorage 不可用时仍能跨重挂载保持）。 */
+let workspaceSidebarVisibleMemory: boolean | null = null;
+
+/**
+ * 读取侧栏显隐偏好。
+ *
+ * 默认值 = **收起**（用户明确诉求：侧边开关默认关，别再自动展开）。
+ * 注意不能用 isDesktop 分支：IDE 插件宿主的 vscodePlatformService.isDesktop 也是
+ * true（桌面能力位），按宿主区分会把 IDE 里的默认值又翻回展开。
+ */
+export function readWorkspaceSidebarVisible(): boolean {
+  if (workspaceSidebarVisibleMemory !== null) return workspaceSidebarVisibleMemory;
+  try {
+    const raw = globalThis.localStorage?.getItem(WORKSPACE_SIDEBAR_VISIBLE_STORAGE_KEY);
+    if (raw === "1") return (workspaceSidebarVisibleMemory = true);
+    if (raw === "0") return (workspaceSidebarVisibleMemory = false);
+  } catch {
+    // localStorage 不可用：落回默认值（不抛，侧栏功能不受影响）
+  }
+  return (workspaceSidebarVisibleMemory = false);
+}
+
+export function persistWorkspaceSidebarVisible(visible: boolean): void {
+  workspaceSidebarVisibleMemory = visible;
+  try {
+    globalThis.localStorage?.setItem(
+      WORKSPACE_SIDEBAR_VISIBLE_STORAGE_KEY,
+      visible ? "1" : "0",
+    );
+  } catch {
+    // 写入失败仅失去跨会话记忆，不影响本次交互
+  }
+}
+
 export function useAppPanels(options: {
   workspaceAbsPath: string;
   workspaceIdentity?: string;
@@ -211,7 +256,11 @@ export function useAppPanels(options: {
   // 交互说明：侧栏显隐按钮放在 App 外层，而不是 Sidebar 内部。
   // 这样即使侧栏被隐藏，入口也仍然留在左上角，不会出现"收起后没有地方再展开"的问题；
   // 同时这里统一处理 macOS 红绿灯安全区，避免按钮和系统窗口控件重叠。
-  const [isSidebarVisible, setIsSidebarVisible] = useState(true);
+  // 初值来自落盘偏好（见 readWorkspaceSidebarVisible 注释）：IDE 里新开页签/重建
+  // webview 不再无条件展开侧栏；从未设置过时 IDE 内默认收起、桌面端默认展开。
+  const [isSidebarVisible, setIsSidebarVisible] = useState(() =>
+    readWorkspaceSidebarVisible(),
+  );
   const [browserNavigationRequest, setBrowserNavigationRequest] =
     useState<BrowserNavigationRequest | null>(null);
   const [allRecentClosedSidePaneTabs, setAllRecentClosedSidePaneTabs] = useState<
@@ -1373,7 +1422,13 @@ export function useAppPanels(options: {
   }, [isOfficeMode, workspaceAbsPath]);
 
   const handleToggleSidebar = useCallback(() => {
-    setIsSidebarVisible((visible) => !visible);
+    setIsSidebarVisible((visible) => {
+      const next = !visible;
+      // 用户对侧栏的显隐选择必须落盘：否则每次新 webview（IDE 里点「+」新建页签、
+      // 页签重建、重启）都会回到初值——表现就是「侧栏总是自动打开」。
+      persistWorkspaceSidebarVisible(next);
+      return next;
+    });
   }, []);
 
   const handleToggleSidePaneCollapse = useCallback(() => {
