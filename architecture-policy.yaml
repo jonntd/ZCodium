@@ -2,6 +2,24 @@ version: 1
 
 # 存量模块先标记为 legacy；新模块或完成迁移的模块设置 managed: true。
 modules:
+  # zcode-vscode：深度绑定内部模块的 VS Code 宿主（自 /Volumes/date/ZCodium 迁入）。
+  # 协议契约唯一所有者 @zcode/shared；传输/Agent 服务复用 @zcode/services；Webview 连接
+  # 复用 @zcode/client；对话 UI 复用 @zcode/ui（复用边界见 architecture-p1.md §1.3）。
+  - id: zcode-vscode
+    roots:
+      - apps/zcode-vscode/src
+      - apps/zcode-vscode/esbuild.mjs
+      - apps/zcode-vscode/vitest.config.ts
+    managed: true
+    requires:
+      - shared
+      - services
+      - client
+      - ui
+      - rpc
+    publicEntrypoints:
+      - apps/zcode-vscode/src/extension.ts
+    owner: conversation
   - id: rpc
     roots: [packages/rpc/src]
     managed: false
