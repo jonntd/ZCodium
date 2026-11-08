@@ -11,6 +11,7 @@
 import { normalize } from "node:path";
 import type { IProjectService } from "@zcode/services";
 import { log } from "./logger";
+import { isTransientWorkspacePath } from "./transientWorkspacePath";
 
 export interface WorkspaceProjectBindingDeps {
   /** IDE 当前打开的全部 folder 绝对路径（每次调用取实时快照）。 */
@@ -29,7 +30,13 @@ export async function ensureWorkspaceProjectBinding(
 ): Promise<void> {
   const service = deps.getProjectService();
   if (!service) return;
-  const folders = [...new Set(deps.listFolders())].filter((folder) => folder.trim());
+  const folders = [...new Set(deps.listFolders())]
+    .filter((folder) => folder.trim())
+    .filter((folder) => {
+      if (!isTransientWorkspacePath(folder)) return true;
+      log.debug("project-binding", `跳过临时工作区（不登记工程）：${folder}`);
+      return false;
+    });
   if (folders.length === 0) return;
   try {
     const tree = await service.readTree({ includeDeleted: false });

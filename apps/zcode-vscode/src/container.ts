@@ -183,6 +183,11 @@ export async function createContainer(
   // allowlist/denylist 编译为 --allowed-tools/--disallowed-tools 旗标；settings 变更 =
   // 下次 spawn 生效（不做运行中进程的热更新）。
   const services = createPluginServices({
+    // 数据根隔离（测试/冒烟专用）：真机冒烟用隔离的 user-data-dir 起 IDE，但扩展默认
+    // 写真实数据根（~/.zcodium）——每跑一次就把临时工作区注册成一个真工程，用户侧栏
+    // 因此堆出「ws (43)…ws (47)」这种垃圾分组。显式设置 ZCODE_DATA_ROOT 时重定向，
+    // 未设置（正常使用）保持共享桌面端存储的既有口径不变。
+    ...(process.env.ZCODE_DATA_ROOT ? { dataRootDir: process.env.ZCODE_DATA_ROOT } : {}),
     zcodeBuiltinProviderConfigFilePath: join(
       context.extensionUri.fsPath,
       "cli-bundle/provider/zcode-builtin.json",

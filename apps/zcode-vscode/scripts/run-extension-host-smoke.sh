@@ -31,7 +31,7 @@ mkdir -p "$TMP/ws" "$TMP/ud" "$TMP/ext"
 
 echo "[host-smoke] 验收部署产物：$DEPLOY"
 set +e
-OUTPUT="$(env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS "$ELECTRON" \
+OUTPUT="$(env -u ELECTRON_RUN_AS_NODE -u NODE_OPTIONS ZCODE_DATA_ROOT="$TMP/data" "$ELECTRON" \
   --no-sandbox --disable-gpu \
   --user-data-dir="$TMP/ud" \
   --extensions-dir="$TMP/ext" \

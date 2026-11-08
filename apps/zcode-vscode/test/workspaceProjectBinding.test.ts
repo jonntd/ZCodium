@@ -58,10 +58,21 @@ describe("ensureWorkspaceProjectBinding", () => {
 
   it("未注册的 folder → saveProject 新建（roots+primaryRoot，不传 name）", async () => {
     const service = fakeService(EMPTY_TREE);
-    await ensureWorkspaceProjectBinding(deps(service, ["/tmp/gode-ui-test"]));
+    await ensureWorkspaceProjectBinding(deps(service, ["/Users/example/gode-ui-test"]));
     expect(service.saved).toEqual([
-      { roots: ["/tmp/gode-ui-test"], primaryRoot: "/tmp/gode-ui-test" },
+      { roots: ["/Users/example/gode-ui-test"], primaryRoot: "/Users/example/gode-ui-test" },
     ]);
+  });
+
+  it("临时工作区不登记（真机冒烟 /tmp/zc-ext-host-smoke.* 污染回归）", async () => {
+    const service = fakeService(EMPTY_TREE);
+    await ensureWorkspaceProjectBinding(
+      deps(service, [
+        "/tmp/zc-ext-host-smoke.6rGUDC/ws",
+        "/private/tmp/zc-ext-host-smoke.ULuVxN/ws",
+      ]),
+    );
+    expect(service.saved).toEqual([]);
   });
 
   it("已有工程精确声明该根目录 → 复用不新建（幂等）", async () => {
@@ -77,12 +88,12 @@ describe("ensureWorkspaceProjectBinding", () => {
           deleted: false,
           createdAt: 1,
           updatedAt: 1,
-          roots: [{ rootPath: "/tmp/gode-ui-test", position: 0, isPrimary: true }],
+          roots: [{ rootPath: "/Users/example/gode-ui-test", position: 0, isPrimary: true }],
         },
       ],
       tasks: [],
     });
-    await ensureWorkspaceProjectBinding(deps(service, ["/tmp/gode-ui-test"]));
+    await ensureWorkspaceProjectBinding(deps(service, ["/Users/example/gode-ui-test"]));
     expect(service.saved).toEqual([]);
   });
 

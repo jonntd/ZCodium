@@ -36,12 +36,25 @@ afterEach(() => {
 });
 
 describe("container 装配面：数据根不重定向（docs/architecture.md §7.9）", () => {
-  it("createPluginServices 调用不含 dataRootDir（services 栈回落默认根 $HOME/.zcodium）", () => {
+  it("createPluginServices 只在显式 ZCODE_DATA_ROOT 时重定向，默认回落 $HOME/.zcodium", () => {
     const call = containerSource.match(
       /const services = createPluginServices\(\{([\s\S]*?)\n  \}\);/,
     );
     expect(call).not.toBeNull();
-    expect(call![1]).not.toMatch(/\bdataRootDir\b/);
+    // 2026-11-08：真机冒烟把临时工作区注册进真实数据根（用户侧栏堆出「ws (43)…(47)」
+    // 空工程），因此开放 ZCODE_DATA_ROOT 给测试隔离——但必须由 env 守卫，生产默认不重定向。
+    expect(call![1]).toMatch(/process\.env\.ZCODE_DATA_ROOT/);
+    expect(call![1]).toMatch(
+      /process\.env\.ZCODE_DATA_ROOT \? \{ dataRootDir: process\.env\.ZCODE_DATA_ROOT \} : \{\}/,
+    );
+  });
+
+  it("真机冒烟脚本给扩展隔离数据根（不污染用户 ~/.zcodium）", () => {
+    const smoke = readFileSync(
+      new URL("../scripts/run-extension-host-smoke.sh", import.meta.url),
+      "utf8",
+    );
+    expect(smoke).toContain('ZCODE_DATA_ROOT="$TMP/data"');
   });
 
   it("spec 与实现同源：docs/architecture.md 保留「数据根口径」条目（口径变更须先改 spec）", () => {
