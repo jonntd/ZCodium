@@ -263,7 +263,7 @@
         },
         {
           "command": "gode.toggleChatFullscreen",
-          "when": "activeWebviewPanelId == 'gode.chatEditor'",
+          "when": "activeWebviewPanelId == 'gode.chatEditor' && !editorPartMaximizedEditorGroup",
           "group": "navigation@3"
         }
       ],

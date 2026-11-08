@@ -313,9 +313,17 @@ describe("可拖动的编辑器标签页形态", () => {
     ]);
     // when 值带点号必须加引号，否则 when 解析器按 key 路径比较，按钮永不显示。
     for (const item of editorTitle) {
-      expect(item.when).toBe("activeWebviewPanelId == 'gode.chatEditor'");
+      expect(item.when).toContain("activeWebviewPanelId == 'gode.chatEditor'");
       expect(item.group).toMatch(/^navigation@\d$/);
     }
+    // 最大化按钮必须与 IDE 原生按钮互斥：内核 workbench.action.toggleMaximizeEditorGroup
+    // 自带 editor/title 按钮（order -1e4、icon screenFull、when editorPartMaximizedEditorGroup），
+    // 已最大化时会出现在最左侧并高亮。我们只在「未最大化」时显示，最大化后交给原生还原，
+    // 否则两个一模一样的 $(screen-full) 会并排（用户实测反馈）。
+    const fullscreen = editorTitle.find((item) => item.command === "gode.toggleChatFullscreen");
+    expect(fullscreen?.when).toBe(
+      "activeWebviewPanelId == 'gode.chatEditor' && !editorPartMaximizedEditorGroup",
+    );
     // 全屏按钮：转发 IDE 原生 toggleMaximizeEditorGroup（只重排编辑器组，不动侧栏）。
     expect(contributes.commands?.find((c) => c.command === "gode.toggleChatFullscreen")?.icon).toBe(
       "$(screen-full)",

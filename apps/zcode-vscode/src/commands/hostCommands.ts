@@ -146,7 +146,13 @@ export function registerHostCommands(deps: HostCommandDeps): Disposable[] {
   // 全屏切换（editor/title navigation@3，Claude 标签同款 ⤢）：最大化当前编辑器组 ↔
   // 恢复均分。只重排编辑器区域内的组宽度，侧栏/资源管理器/面板保持展开不受影响。
   // 转发 IDE 原生 toggle 命令，状态由 IDE 管理。
-  // （锁定编辑器组不再提供自定义按钮：IDE 原生锁定 UI 更完整——tab 右键「锁定组」
+  // **when 必须带 `!editorPartMaximizedEditorGroup`**：IDE 内核
+  // workbench.action.toggleMaximizeEditorGroup 自己就往 editor/title 挂了按钮
+  // （order -1e4、icon screen-full、when editorPartMaximizedEditorGroup、带 toggled 高亮），
+  // 已最大化时它出现在最左侧。我们不互斥的话点完最大化就会并排出现两个一模一样的
+  // $(screen-full)——一个我们的、一个原生的（用户实测反馈「点最大化会出现两个」）。
+  // 分工：未最大化 → 我们的按钮（放大）；已最大化 → 原生按钮（还原，且自动高亮）。
+  // （锁定编辑器组同理不放自定义按钮：IDE 原生锁定 UI 更完整——tab 右键「锁定组」
   // + 锁定后标签行右侧原生锁指示器点击即解锁；自定义按钮会与原生指示器重复显示。）
   disposables.push(
     commands.registerCommand("gode.toggleChatFullscreen", () =>
