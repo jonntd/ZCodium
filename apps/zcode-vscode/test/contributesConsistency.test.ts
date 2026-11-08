@@ -396,15 +396,22 @@ describe("可拖动的编辑器标签页形态", () => {
     // 视图恢复后都可能再展开一次，单次延迟可能输掉竞争；幂等收栏无误伤）。
     const editorPanel = readSource("src/ui/chatEditorPanel.ts");
     expect(editorPanel).toContain("workbench.action.closeAuxiliaryBar");
-    expect(editorPanel).toContain("workbench.action.closeSidebar");
+    // 绝不关主侧栏（资源管理器）：主侧栏是用户的文件树，与"对抗 agent 面板自动
+    // 展开"无关；曾经连 closeSidebar 一起调用，导致打开对话时资源管理器被关掉。
+    expect(editorPanel).not.toContain("workbench.action.closeSidebar");
     // 收栏窗口 [350, 800, 1500, 3000]：多点重试覆盖 IDE 展开时点不固定的竞争；
     // 窗口锚定在聚焦事件上（见下），加长尾重试不会误伤用户手动展开的侧栏。
     expect(editorPanel).toContain("const delays = [350, 800, 1_500, 3_000];");
     // X1：单飞去重（一轮窗口重复调用不叠加 timer）+ dispose 取消在途调度。
     expect(editorPanel).toContain("if (sidePanelsCollapseTimers.length > 0) return;");
     expect(editorPanel).toContain("cancelSidePanelsCollapse();");
-    // reveal 入口统一调度收栏（命令与侧栏跳板共用同一份逻辑）。
-    expect(editorPanel).toContain("scheduleSidePanelsCollapse();");
+    // 收栏调度带触发源（排障可定位）+ 侧栏对话可见时整体让位。
+    expect(editorPanel).toContain("scheduleSidePanelsCollapse(source, this.isChatPanelVisible)");
+    expect(editorPanel).toContain('this.collapse("reveal")');
+    expect(editorPanel).toContain('this.collapse("new-tab")');
+    expect(editorPanel).toContain('this.collapse("first-frame")');
+    expect(editorPanel).toContain('this.collapse("tab-visible")');
+    expect(editorPanel).toContain("if (skip()) {");
     // 收栏锚点跟随真实聚焦：渲染器首帧上行 + 页签变为可见——IDE 对 agent webview
     // 的聚焦自动展开可迟到数秒（渲染器加载完才持焦点），仅锚按钮点击会输掉竞争
     // （用户实测：点 + 后侧栏在收栏窗口关闭后才被 IDE 展开、开着不走）。
@@ -426,11 +433,14 @@ describe("可拖动的编辑器标签页形态", () => {
   it("侧栏可见性不跳转、不自关（修「点活动栏图标弹出面板后秒关」）", () => {
     const chatPanel = readSource("src/ui/chatPanel.ts");
     // 原「侧栏可见跳板」在视图可见时 reveal 编辑器标签，而 reveal() 内有延迟收栏
-    // （对抗 IDE 对 agent webview 的自动展开）→ 把用户自己点开的面板 350ms 后关掉。
+    // （对抗 IDE 对 agent webview 的自动展开）→ 把用户自己点开的面板关掉。
     // 活动栏图标的语义是「打开这个视图」，视图应留下。
     expect(chatPanel).not.toContain("onVisible");
-    expect(chatPanel).not.toContain("onDidChangeVisibility");
     expect(chatPanel).not.toContain("scheduleSidePanelsCollapse");
+    expect(chatPanel).not.toContain("closeAuxiliaryBar");
+    // 可见性只做状态自证（给编辑器标签的收栏兜底做避让判断），不执行任何命令。
+    expect(chatPanel).toContain("isViewVisible()");
+    expect(chatPanel).toContain("this.viewVisible = view.visible");
     // 收栏兜底仍挂在编辑器标签的显式打开路径上（命令/状态栏/标题栏按钮）。
     const container = readSource("src/container.ts");
     expect(container).not.toContain("new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId, () => {");

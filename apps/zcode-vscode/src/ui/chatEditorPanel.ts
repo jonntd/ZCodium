@@ -17,6 +17,7 @@ import {
   parseEditorTabUiPayload,
 } from "../host/hostFrameKinds";
 import { buildChatWebviewHtml } from "./chatPanel";
+import { log } from "../features/logger";
 
 /** createWebviewPanel 的 viewType（与侧栏 CHAT_VIEW_ID 区分，避免视图注册冲突）。 */
 export const CHAT_EDITOR_VIEW_TYPE = "gode.chatEditor";
@@ -28,30 +29,32 @@ export const CHAT_EDITOR_TITLE = "Gode 对话";
 export const MAX_CHAT_EDITOR_TABS = 4;
 
 /**
- * 收起主侧栏与辅助侧栏（延迟多点重试）。
+ * 收起**辅助侧栏**（延迟多点重试）。
  *
  * IDE（Antigravity）在 agent 类 webview 获得焦点/重新聚焦时会**异步自动展开**
- * 承载 Gode 视图的侧栏（布局联动），且展开时点不固定（布局动画/视图恢复后
+ * 承载 Gode 视图的辅助侧栏（布局联动），且展开时点不固定（布局动画/视图恢复后
  * 都可能再展开一次）；立即收会输给第一次自动展开，单次延迟也可能输给更晚的
- * 那次——多点重试幂等收栏（侧栏已关时 setPartHidden 是 no-op，无误伤）。
- * 窗口收窄到 1.5s：IDE 自动展开集中在 webview 激活后的瞬间；再往后的重试只会
+ * 那次——多点重试幂等收栏（栏已关时 closeAuxiliaryBar 是 no-op，无误伤）。
+ * 窗口收窄到 3s：IDE 自动展开集中在 webview 激活后的瞬间；再往后的重试只会
  * 误伤用户在打开对话后手动展开的侧栏（无法与自动展开区分，只能限长）。
- */
-/**
- * 在途收栏调度（增量审查 X1）：模块级单飞——一轮窗口（1.5s）内重复调用不叠加
- * timer（连续点按钮 N 次原实现会堆 3N 个回调）；保留 id 以便 dispose 取消，
- * 防扩展宿主收尾后回调仍 fire 误伤用户侧栏。
+ *
+ * **只关辅助栏，绝不关主侧栏（资源管理器）**：主侧栏是用户自己的文件树，
+ * 与"对抗 agent 面板自动展开"毫无关系。此前连 `closeSidebar` 一起调用，导致
+ * 打开对话时用户资源管理器被一起关掉（用户实测："点 gode 按钮…关闭资源管理器"）。
  */
 let sidePanelsCollapseTimers: ReturnType<typeof setTimeout>[] = [];
 
-function scheduleSidePanelsCollapse(): void {
+/** 收栏触发源（只用于诊断日志：出问题能定位是谁调度的那一轮收栏）。 */
+type CollapseSource = "reveal" | "new-tab" | "first-frame" | "tab-visible";
+
+function scheduleSidePanelsCollapse(source: CollapseSource, skip: () => boolean): void {
   if (sidePanelsCollapseTimers.length > 0) return;
   const delays = [350, 800, 1_500, 3_000];
   sidePanelsCollapseTimers = delays.map((delay, index) =>
     globalThis.setTimeout(
       () => {
         if (index === delays.length - 1) sidePanelsCollapseTimers = []; // 窗口收口
-        closeSidePanels();
+        closeSidePanels(source, skip);
       },
       delay,
     ),
@@ -66,16 +69,18 @@ export function cancelSidePanelsCollapse(): void {
   sidePanelsCollapseTimers = [];
 }
 
-function closeSidePanels(): void {
-  for (const closeCommand of [
-    "workbench.action.closeAuxiliaryBar",
-    "workbench.action.closeSidebar",
-  ]) {
-    void commands.executeCommand(closeCommand).then(
-      undefined,
-      () => {}, // 旧版 IDE 无此命令时静默忽略（该栏保留，不影响功能）
-    );
+function closeSidePanels(source: CollapseSource, skip: () => boolean): void {
+  // 用户正看着侧栏对话面板（自己点活动栏图标打开的）→ 什么都不做：
+  // 那是用户的布局，不是 IDE 的自动展开。
+  if (skip()) {
+    log.info("layout", `收栏跳过（侧栏对话可见，source=${source}）`);
+    return;
   }
+  log.info("layout", `收起辅助侧栏（source=${source}）`);
+  void commands.executeCommand("workbench.action.closeAuxiliaryBar").then(
+    undefined,
+    () => {}, // 旧版 IDE 无此命令时静默忽略（该栏保留，不影响功能）
+  );
 }
 
 /** 打开结果（命令返回值；真机自动化据此断言面板确实创建在编辑器里）。 */
@@ -99,14 +104,23 @@ export class ChatEditorPanel {
     private readonly hostRuntime: HostRuntime,
     /** per-folder 最近会话解析（与侧栏同一注入源）。 */
     private readonly resolveInitialSessionId: (folder: string) => string | null = () => null,
+    /**
+     * 侧栏对话面板当前是否可见：可见时收栏兜底整体让位——用户自己打开的面板
+     * 不该被"对抗 IDE 自动展开"的逻辑关掉（见 closeSidePanels 注释）。
+     */
+    private readonly isChatPanelVisible: () => boolean = () => false,
   ) {}
+
+  private collapse(source: CollapseSource): void {
+    scheduleSidePanelsCollapse(source, this.isChatPanelVisible);
+  }
 
   /**
    * 已有页签则聚焦「用户正看着的那个」（visible 优先），都没有才聚焦最近创建的；
    * 全部关闭则新建。随后多点延迟收起被 IDE 自动展开的侧栏。
    */
   reveal(): ChatEditorOpenResult {
-    scheduleSidePanelsCollapse();
+    this.collapse("reveal");
     // 已可见的面板优先：避免多页签下把焦点从用户正在看的页签抢到 lastId 页签。
     const visible = [...this.panels.values()].find((panel) => panel.visible);
     if (visible) {
@@ -137,7 +151,7 @@ export class ChatEditorPanel {
    * 达到上限时退化为聚焦已有页签——每个页签是完整 webview 实例，无限创建会拖垮宿主。
    */
   openNew(): ChatEditorOpenResult {
-    scheduleSidePanelsCollapse();
+    this.collapse("new-tab");
     if (this.panels.size >= MAX_CHAT_EDITOR_TABS) {
       return this.reveal();
     }
@@ -178,12 +192,12 @@ export class ChatEditorPanel {
     panel.webview.onDidReceiveMessage((message: unknown) => {
       if (!armedOnFirstFrame) {
         armedOnFirstFrame = true;
-        scheduleSidePanelsCollapse();
+        this.collapse("first-frame");
       }
       this.hostRuntime.handleWebviewMessage(bridgeId, message);
     });
     panel.onDidChangeViewState(({ webviewPanel }) => {
-      if (webviewPanel.visible) scheduleSidePanelsCollapse();
+      if (webviewPanel.visible) this.collapse("tab-visible");
     });
     this.hostRuntime.attachWebview(bridgeId, panel.webview);
     panel.onDidDispose(() => {

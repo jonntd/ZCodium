@@ -23,6 +23,8 @@ export const CHAT_VIEW_ID = "gode.chat";
 export class ChatPanel implements WebviewViewProvider {
   public static readonly viewId = CHAT_VIEW_ID;
   private view: WebviewView | null = null;
+  /** 侧栏对话当前是否可见（只做状态自证，不触发任何跳转/布局动作）。 */
+  private viewVisible = false;
   /**
    * 本轮 resolve 注册的监听（增量审查 X3）：resolveWebviewView 可能被多次调用
    * （webview 重建/宿主重解析），重复 resolve 先清旧监听——否则 onDidReceiveMessage
@@ -58,22 +60,33 @@ export class ChatPanel implements WebviewViewProvider {
       }),
     );
     this.hostRuntime.attachWebview(CHAT_VIEW_ID, view.webview);
-    // 视图可见性不再引发任何跳转/收栏（缺陷修复 2026-11-08）：原「侧栏可见跳板」
-    // 在视图可见时去 reveal 编辑器标签，而 reveal() 内部会多点延迟收起侧栏——于是
-    // **用户自己点活动栏图标打开的对话面板，350ms 后被我们自己的收栏逻辑关掉**，
-    // 表现是「弹出个窗口然后秒关」（用户实测截图）。活动栏图标语义应当就是「打开
-    // 这个视图」：视图留下，跳转交给命令/标题栏按钮/状态栏这些显式入口。
+    // 视图可见性**只做状态自证**，不引发任何跳转/收栏（缺陷修复 2026-11-08）：
+    // 原「侧栏可见跳板」在视图可见时去 reveal 编辑器标签，而 reveal() 内部会多点
+    // 延迟收起侧栏——于是**用户自己点活动栏图标打开的对话面板**被我们自己的收栏
+    // 逻辑关掉/连带关掉主侧栏（资源管理器），表现为「弹出个窗口然后秒关」与
+    // 「点 gode 按钮后资源管理器/编辑器布局被清掉」。活动栏图标语义就是「打开这个
+    // 视图」：视图留下；可见性只用于让编辑器标签的收栏兜底避开用户正看着的面板。
     // （可见性也不经 pushHostFrame 广播：编辑器标签形态并存后，A 页的可见性帧会
     // 广播到 B 页把对方渲染面错误暂停/恢复；各 webview 的 document.visibilitychange
     // 自证源已足够感知自身可见性。）
+    this.viewVisible = view.visible;
     this.resolveSubscriptions.push(
+      view.onDidChangeVisibility?.(() => {
+        this.viewVisible = view.visible;
+      }) ?? { dispose: () => {} },
       view.onDidDispose(() => {
         for (const disposable of this.resolveSubscriptions) disposable.dispose();
         this.resolveSubscriptions = [];
         this.hostRuntime.detachWebview(CHAT_VIEW_ID);
         this.view = null;
+        this.viewVisible = false;
       }),
     );
+  }
+
+  /** 侧栏对话是否正被用户看着（编辑器标签的收栏兜底据此避让）。 */
+  isViewVisible(): boolean {
+    return this.viewVisible;
   }
 
   /** 显示面板（引导/错误时调用）。 */
