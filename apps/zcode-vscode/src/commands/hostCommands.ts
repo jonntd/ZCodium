@@ -45,11 +45,18 @@ export interface HostCommandDeps {
       title: string;
       viewColumn?: number;
     };
+    /**
+     * 「新建会话」的定向投递目标：reveal() 会选中的同一块面板的连接 id。
+     * 无存活页签时 null（此时才允许打开/新建）。
+     */
+    activeConnectionId(): string | null;
   };
   hostRuntime: {
     pushHostFrame(kind: HostFrameKind, payload: unknown): void;
     /** UI 定向帧（open-panel/diagnostics）：只投给最近活动的对话页，不广播。 */
     pushToActiveHostFrame(kind: HostFrameKind, payload: unknown): void;
+    /** 定向帧（指定连接）：只投给这一页；连接不可用时落回最近活动页。 */
+    pushHostFrameTo(connectionId: string | null, kind: HostFrameKind, payload: unknown): void;
   };
   diagnostics: { show(): void; log(message: string): void };
   sessionsIndex: Pick<SessionsIndexBridge, "pickWorkspaceFolder">;
@@ -185,11 +192,13 @@ export function registerHostCommands(deps: HostCommandDeps): Disposable[] {
   );
   disposables.push(
     commands.registerCommand("gode.newSession", () => {
-      // 新会话 = webview 侧回到草稿态（V4WorkspaceChatArea draft）；会话数据保留在会话库。
-      // **定向**给最近活动页：回草稿是当前页的 UI 动作，广播会把其他页签也拉回草稿
-      // （多页签共享标签列表后，新草稿标签经 session-tabs 中继自然出现在其他页）。
+      // 新会话 = 当前页回到草稿态（V4WorkspaceChatArea draft；会话数据保留在会话库）。
+      // **定向投给「当前这一页」**——不能走 pushToActiveHostFrame：那认的是「最近活动
+      // 连接」，与用户眼前的页签未必同一个，投错会把另一页拉回草稿。目标连接为 null
+      // 说明没有存活页签，先 reveal() 开一个，帧随该连接的就绪顺序落在新页上。
+      const connectionId = deps.chatEditorPanel.activeConnectionId();
       const payload: WorkspaceHostFramePayload = { kind: "new-session" };
-      deps.hostRuntime.pushToActiveHostFrame("workspace", payload);
+      deps.hostRuntime.pushHostFrameTo(connectionId, "workspace", payload);
       const result = deps.chatEditorPanel.reveal();
       deps.firstOpen?.();
       return result;

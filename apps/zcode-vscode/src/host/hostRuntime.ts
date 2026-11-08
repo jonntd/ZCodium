@@ -171,6 +171,24 @@ export class HostRuntime {
     this.post(target, frame);
   }
 
+  /**
+   * 定向推送（指定连接）：帧只投给该对话页，其它页不受影响。
+   *
+   * 「新建会话」这类**只对当前页成立**的 UI 动作必须走这条：`pushToActiveHostFrame`
+   * 认的是「最近活动的连接」，它与用户眼前的页签未必是同一个（先点了侧栏再点页签、
+   * 或页签之间切换后的竞态），投错就会把另一页拉回草稿。
+   * 连接不存在/未就绪时落回最近活动页语义（命令先行、面板后开的场景同样成立）。
+   */
+  pushHostFrameTo(connectionId: string | null, kind: HostFrameKind, payload: unknown): void {
+    if (this.disposed) return;
+    const connection = connectionId ? this.connections.get(connectionId) : undefined;
+    if (!connection?.readyForFrames) {
+      this.pushToActiveHostFrame(kind, payload);
+      return;
+    }
+    this.post(connection, { t: "host", kind, payload });
+  }
+
   /** chatPanel.resolveWebviewView 时调用：建立该 webview 的 RPC 连接。 */
   attachWebview(id: string, sender: WebviewSender): void {
     if (this.disposed) return;

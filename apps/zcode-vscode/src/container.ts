@@ -378,18 +378,17 @@ export async function createContainer(
     workspaceSessions.get(folderKey(folder)) ??
     null;
   // 侧栏版对话是**独立可用面**，不再做「可见即跳编辑器标签」：那条跳板会连带触发
-  // reveal() 里的延迟收栏，把用户刚点开的侧栏面板关掉（「弹出个窗口然后秒关」缺陷）。
+  // 编辑器面板的收栏副作用，把用户刚点开的侧栏面板关掉（「弹出个窗口然后秒关」缺陷）。
   // 标签页形态的入口全部显式：标题栏 + / 历史会话、状态栏新建页签、gode.openChat
-  // 命令与通知动作按钮——这些路径里的收栏兜底（对抗 IDE 对 agent webview 的自动
-  // 展开）保持原样，但只收辅助栏、且侧栏对话可见时让位。
+  // 命令与通知动作按钮。
   const chatPanel = new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId);
   // 编辑器标签页形态（可拖动/拆分/移动）：与侧栏共用同一 Root 与 hostRuntime 多连接桥。
+  // 这里**不再注入「收栏让位谓词」**：收栏兜底整体删除（它会关掉承载自身面板的辅助栏，
+  // 导致面板被销毁、下次点 + 又重建一个新页签；详见 chatEditorPanel 文件头）。
   const chatEditorPanel = new ChatEditorPanel(
     context.extensionUri,
     hostRuntime,
     resolveInitialSessionId,
-    // 侧栏对话可见时，收栏兜底整体让位（用户自己打开的面板不该被我们关掉）。
-    () => chatPanel.isViewVisible(),
   );
 
   // ── 服务调用统一路由（PRD §8.5 单通道） ──

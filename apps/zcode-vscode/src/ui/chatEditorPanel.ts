@@ -10,7 +10,7 @@
  */
 
 import type { WebviewPanel } from "vscode";
-import { commands, Uri, ViewColumn, window } from "vscode";
+import { Uri, ViewColumn, window } from "vscode";
 import type { HostRuntime } from "../host/hostRuntime";
 import {
   composeEditorTabTitle,
@@ -29,59 +29,23 @@ export const CHAT_EDITOR_TITLE = "Gode 对话";
 export const MAX_CHAT_EDITOR_TABS = 4;
 
 /**
- * 收起**辅助侧栏**（延迟多点重试）。
+ * **本模块不再执行任何布局命令**（收栏兜底已删除，2026-11-08）。
  *
- * IDE（Antigravity）在 agent 类 webview 获得焦点/重新聚焦时会**异步自动展开**
- * 承载 Gode 视图的辅助侧栏（布局联动），且展开时点不固定（布局动画/视图恢复后
- * 都可能再展开一次）；立即收会输给第一次自动展开，单次延迟也可能输给更晚的
- * 那次——多点重试幂等收栏（栏已关时 closeAuxiliaryBar 是 no-op，无误伤）。
- * 窗口收窄到 3s：IDE 自动展开集中在 webview 激活后的瞬间；再往后的重试只会
- * 误伤用户在打开对话后手动展开的侧栏（无法与自动展开区分，只能限长）。
+ * 历史：为对抗 Antigravity「agent webview 获焦时自动展开辅助侧栏」，这里挂过一轮
+ * 延迟多点 `closeAuxiliaryBar`（曾经还捎带 `closeSidebar`，误关了用户的资源管理器）。
+ * 但它有致命副作用——**我们的对话 WebviewPanel 就承载在辅助栏里**：关辅助栏 = 销毁
+ * 自己的面板 → `onDidDispose` 把 panel 从存活表摘掉 → 下一次点「新建会话（+）」找不到
+ * 已有页签，只好 `create()` 一个新的 → 用户看到「点一下就多出一个 Gode 对话标签」。
  *
- * **只关辅助栏，绝不关主侧栏（资源管理器）**：主侧栏是用户自己的文件树，
- * 与"对抗 agent 面板自动展开"毫无关系。此前连 `closeSidebar` 一起调用，导致
- * 打开对话时用户资源管理器被一起关掉（用户实测："点 gode 按钮…关闭资源管理器"）。
+ * 日志实证（~/.antigravity-ide 的 Gode 输出通道）：
+ *   13:10:37.391 webview 断开：gode.chat.editor   ← 收栏把面板关掉
+ *   13:10:41.984 webview 已连接：gode.chat.editor.2  ← 再点一次只能重建
+ *   13:10:47.899 webview 已连接：gode.chat.editor.3
+ * 而收栏被跳过（侧栏对话可见）的会话里，一次都没有新建出第二个页签。
+ *
+ * 现在「IDE 自动展开 agent 侧栏」由内核补丁兜住（scripts/disable-ide-agent-sidebar.mjs，
+ * 运行期 openPanel + 启动布局双根断，deploy.sh 幂等重打），本模块无需也不该碰布局。
  */
-let sidePanelsCollapseTimers: ReturnType<typeof setTimeout>[] = [];
-
-/** 收栏触发源（只用于诊断日志：出问题能定位是谁调度的那一轮收栏）。 */
-type CollapseSource = "reveal" | "new-tab" | "first-frame" | "tab-visible";
-
-function scheduleSidePanelsCollapse(source: CollapseSource, skip: () => boolean): void {
-  if (sidePanelsCollapseTimers.length > 0) return;
-  const delays = [350, 800, 1_500, 3_000];
-  sidePanelsCollapseTimers = delays.map((delay, index) =>
-    globalThis.setTimeout(
-      () => {
-        if (index === delays.length - 1) sidePanelsCollapseTimers = []; // 窗口收口
-        closeSidePanels(source, skip);
-      },
-      delay,
-    ),
-  );
-}
-
-/** 取消在途收栏调度（ChatEditorPanel.dispose 调用）。 */
-export function cancelSidePanelsCollapse(): void {
-  for (const timer of sidePanelsCollapseTimers) {
-    globalThis.clearTimeout(timer);
-  }
-  sidePanelsCollapseTimers = [];
-}
-
-function closeSidePanels(source: CollapseSource, skip: () => boolean): void {
-  // 用户正看着侧栏对话面板（自己点活动栏图标打开的）→ 什么都不做：
-  // 那是用户的布局，不是 IDE 的自动展开。
-  if (skip()) {
-    log.info("layout", `收栏跳过（侧栏对话可见，source=${source}）`);
-    return;
-  }
-  log.info("layout", `收起辅助侧栏（source=${source}）`);
-  void commands.executeCommand("workbench.action.closeAuxiliaryBar").then(
-    undefined,
-    () => {}, // 旧版 IDE 无此命令时静默忽略（该栏保留，不影响功能）
-  );
-}
 
 /** 打开结果（命令返回值；真机自动化据此断言面板确实创建在编辑器里）。 */
 export interface ChatEditorOpenResult {
@@ -104,23 +68,13 @@ export class ChatEditorPanel {
     private readonly hostRuntime: HostRuntime,
     /** per-folder 最近会话解析（与侧栏同一注入源）。 */
     private readonly resolveInitialSessionId: (folder: string) => string | null = () => null,
-    /**
-     * 侧栏对话面板当前是否可见：可见时收栏兜底整体让位——用户自己打开的面板
-     * 不该被"对抗 IDE 自动展开"的逻辑关掉（见 closeSidePanels 注释）。
-     */
-    private readonly isChatPanelVisible: () => boolean = () => false,
   ) {}
-
-  private collapse(source: CollapseSource): void {
-    scheduleSidePanelsCollapse(source, this.isChatPanelVisible);
-  }
 
   /**
    * 已有页签则聚焦「用户正看着的那个」（visible 优先），都没有才聚焦最近创建的；
-   * 全部关闭则新建。随后多点延迟收起被 IDE 自动展开的侧栏。
+   * 全部关闭才新建。
    */
   reveal(): ChatEditorOpenResult {
-    this.collapse("reveal");
     // 已可见的面板优先：避免多页签下把焦点从用户正在看的页签抢到 lastId 页签。
     const visible = [...this.panels.values()].find((panel) => panel.visible);
     if (visible) {
@@ -142,7 +96,19 @@ export class ChatEditorPanel {
         ...(last.viewColumn === undefined ? {} : { viewColumn: last.viewColumn }),
       };
     }
-    return this.create();
+    return this.create("resume", "reveal:无存活页签");
+  }
+
+  /**
+   * 定向投递目标：`reveal()` 会选中同一块面板（visible 优先 → 最近创建）。
+   * 命令侧拿到连接 id 后把 UI 帧只投给「这一页」，避免多页签下把另一页拉回草稿。
+   * **不创建页签**：无存活页签时返回 null（调用方自行决定是否打开）。
+   */
+  activeConnectionId(): string | null {
+    const visible = [...this.panels.entries()].find(([, panel]) => panel.visible);
+    if (visible) return visible[0];
+    if (this.lastId && this.panels.has(this.lastId)) return this.lastId;
+    return null;
   }
 
   /**
@@ -151,17 +117,25 @@ export class ChatEditorPanel {
    * 达到上限时退化为聚焦已有页签——每个页签是完整 webview 实例，无限创建会拖垮宿主。
    */
   openNew(): ChatEditorOpenResult {
-    this.collapse("new-tab");
     if (this.panels.size >= MAX_CHAT_EDITOR_TABS) {
       return this.reveal();
     }
-    return this.create("draft");
+    return this.create("draft", "openNew:状态栏新建页签");
   }
 
-  private create(mode: "resume" | "draft" = "resume"): ChatEditorOpenResult {
+  private create(
+    mode: "resume" | "draft" = "resume",
+    reason = "unknown",
+  ): ChatEditorOpenResult {
     this.seq += 1;
     const bridgeId =
       this.seq === 1 ? CHAT_EDITOR_BRIDGE_ID : `${CHAT_EDITOR_BRIDGE_ID}.${this.seq}`;
+    // 诊断锚点：新建页签是「用户可见的副作用」，必须能复盘是谁、为什么建的
+    // （历史 bug：收栏把自己面板关掉 → 下一次点击被迫重建，见文件头注释）。
+    log.info(
+      "layout",
+      `新建对话页签：${bridgeId}（reason=${reason}，存活=${this.panels.size}）`,
+    );
     const panel = window.createWebviewPanel(
       CHAT_EDITOR_VIEW_TYPE,
       CHAT_EDITOR_TITLE,
@@ -183,24 +157,13 @@ export class ChatEditorPanel {
       this.extensionUri,
       resolveSessionId,
     );
-    // 收栏锚点跟随真实聚焦：IDE 对 agent webview **聚焦**才自动展开侧栏，而聚焦
-    // 不只发生在创建瞬间——webview 渲染器加载完（bundle 大、可达数秒）真正拿到
-    // 焦点时会再触发一次，远晚于按钮点击时的收栏窗口（用户实测侧栏「死而复生」）。
-    // 因此除点击时刻外，再以两类聚焦事件为锚各挂一轮收栏（单飞去重）：
-    // 1) 渲染器首帧上行（webview 活起来即将持焦点）；2) 页签变为可见（切换/聚焦）。
-    let armedOnFirstFrame = false;
+    // 这里**不做任何布局动作**（收栏兜底已删除，见文件头）：把消息交给桥层即可。
     panel.webview.onDidReceiveMessage((message: unknown) => {
-      if (!armedOnFirstFrame) {
-        armedOnFirstFrame = true;
-        this.collapse("first-frame");
-      }
       this.hostRuntime.handleWebviewMessage(bridgeId, message);
-    });
-    panel.onDidChangeViewState(({ webviewPanel }) => {
-      if (webviewPanel.visible) this.collapse("tab-visible");
     });
     this.hostRuntime.attachWebview(bridgeId, panel.webview);
     panel.onDidDispose(() => {
+      log.info("layout", `对话页签已销毁：${bridgeId}（存活=${this.panels.size - 1}）`);
       this.hostRuntime.detachWebview(bridgeId);
       this.panels.delete(bridgeId);
       if (this.lastId === bridgeId) {
@@ -232,7 +195,6 @@ export class ChatEditorPanel {
   }
 
   dispose(): void {
-    cancelSidePanelsCollapse();
     for (const panel of this.panels.values()) {
       panel.dispose();
     }

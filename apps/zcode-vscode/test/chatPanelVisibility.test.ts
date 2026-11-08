@@ -137,7 +137,7 @@ describe("侧栏视图可见性：不跳转、不自关、不关资源管理器"
     expect(hostRuntime.detachWebview).toHaveBeenCalledWith(CHAT_VIEW_ID);
   });
 
-  it("源码不再保留可见性跳板，且收栏绝不关主侧栏", () => {
+  it("源码不再保留可见性跳板，编辑器面板也不执行任何布局命令", () => {
     const source = readFileSync(join(__dirname, "..", "src", "ui", "chatPanel.ts"), "utf8");
     expect(source).not.toContain("onVisible");
     expect(source).not.toContain("scheduleSidePanelsCollapse");
@@ -145,14 +145,20 @@ describe("侧栏视图可见性：不跳转、不自关、不关资源管理器"
       join(__dirname, "..", "src", "ui", "chatEditorPanel.ts"),
       "utf8",
     );
+    // 2026-11-08：收栏兜底整体删除。它关的辅助栏正是承载我们自己面板的地方——
+    // 关栏 = 销毁面板，下次点「新建会话」只能重建（「点一下就多出一个对话标签」）。
     expect(editorPanel).not.toContain("workbench.action.closeSidebar");
+    expect(editorPanel).not.toContain("workbench.action.closeAuxiliaryBar");
   });
 
-  it("container 不再向 ChatPanel 注入跳转回调，但把可见性喂给收栏兜底", () => {
+  it("container 不再向 ChatPanel 注入跳转回调，也不再给编辑器面板喂避让谓词", () => {
     const container = readFileSync(join(__dirname, "..", "src", "container.ts"), "utf8");
     const call = container.match(/new ChatPanel\(([\s\S]*?)\);/);
     expect(call).not.toBeNull();
     expect(call![1]).not.toContain("chatEditorPanel.reveal");
-    expect(container).toContain("() => chatPanel.isViewVisible()");
+    // 收栏已删 → 无需把侧栏可见性喂给编辑器面板（ChatEditorPanel 只收 3 个参数）。
+    const editorCall = container.match(/new ChatEditorPanel\(([\s\S]*?)\);/);
+    expect(editorCall).not.toBeNull();
+    expect(editorCall![1]).not.toContain("isViewVisible");
   });
 });

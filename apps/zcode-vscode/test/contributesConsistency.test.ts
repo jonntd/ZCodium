@@ -396,40 +396,31 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(hostCommands).toContain('registerCommand("gode.openChat", openChat)');
     // 首次打开对话自动呈现上手卡（一次性，globalState 标记在容器侧）。
     expect(hostCommands).toContain("deps.firstOpen?.()");
-    // 新会话帧**定向**给最近活动页（回草稿是当前页 UI 动作，广播会拉回其他页签）。
+    // 新会话帧**定向**给「当前这一页」（回草稿是单页 UI 动作）：先取 reveal 会选中
+    // 的那块面板的连接 id，再按 id 投递；不能走 pushToActiveHostFrame——后者认「最近
+    // 活动连接」，与眼前页签未必同一个，投错会把另一页拉回草稿。
+    expect(hostCommands).toContain("deps.chatEditorPanel.activeConnectionId()");
     expect(hostCommands).toContain(
-      'deps.hostRuntime.pushToActiveHostFrame("workspace", payload)',
+      'deps.hostRuntime.pushHostFrameTo(connectionId, "workspace", payload)',
     );
     expect(hostCommands).not.toContain("deps.chatPanel.reveal");
     expect(hostCommands).not.toContain("chatPanel: { reveal(): void }");
-    // 收起被 IDE 自动展开的侧栏：延迟多点重试（IDE 展开时点不固定——布局动画/
-    // 视图恢复后都可能再展开一次，单次延迟可能输掉竞争；幂等收栏无误伤）。
+    // 对话面板**不得再执行任何布局命令**（缺陷回归 2026-11-08）：原收栏兜底会
+    // closeAuxiliaryBar，而我们的对话 WebviewPanel 就承载在辅助栏里——关栏等于销毁
+    // 自己的面板，下次点「新建会话」只能重建，表现为「点 + 就多出一个对话标签」。
     const editorPanel = readSource("src/ui/chatEditorPanel.ts");
-    expect(editorPanel).toContain("workbench.action.closeAuxiliaryBar");
-    // 绝不关主侧栏（资源管理器）：主侧栏是用户的文件树，与"对抗 agent 面板自动
-    // 展开"无关；曾经连 closeSidebar 一起调用，导致打开对话时资源管理器被关掉。
+    expect(editorPanel).not.toContain("workbench.action.closeAuxiliaryBar");
     expect(editorPanel).not.toContain("workbench.action.closeSidebar");
-    // 收栏窗口 [350, 800, 1500, 3000]：多点重试覆盖 IDE 展开时点不固定的竞争；
-    // 窗口锚定在聚焦事件上（见下），加长尾重试不会误伤用户手动展开的侧栏。
-    expect(editorPanel).toContain("const delays = [350, 800, 1_500, 3_000];");
-    // X1：单飞去重（一轮窗口重复调用不叠加 timer）+ dispose 取消在途调度。
-    expect(editorPanel).toContain("if (sidePanelsCollapseTimers.length > 0) return;");
-    expect(editorPanel).toContain("cancelSidePanelsCollapse();");
-    // 收栏调度带触发源（排障可定位）+ 侧栏对话可见时整体让位。
-    expect(editorPanel).toContain("scheduleSidePanelsCollapse(source, this.isChatPanelVisible)");
-    expect(editorPanel).toContain('this.collapse("reveal")');
-    expect(editorPanel).toContain('this.collapse("new-tab")');
-    expect(editorPanel).toContain('this.collapse("first-frame")');
-    expect(editorPanel).toContain('this.collapse("tab-visible")');
-    expect(editorPanel).toContain("if (skip()) {");
-    // 收栏锚点跟随真实聚焦：渲染器首帧上行 + 页签变为可见——IDE 对 agent webview
-    // 的聚焦自动展开可迟到数秒（渲染器加载完才持焦点），仅锚按钮点击会输掉竞争
-    // （用户实测：点 + 后侧栏在收栏窗口关闭后才被 IDE 展开、开着不走）。
-    expect(editorPanel).toContain("armedOnFirstFrame");
-    expect(editorPanel).toContain("onDidChangeViewState");
+    expect(editorPanel).not.toContain("scheduleSidePanelsCollapse");
+    expect(editorPanel).not.toContain("setPartHidden");
+    // 新建页签必须留下可复盘的诊断锚点（reason + 存活数）。
+    expect(editorPanel).toContain("新建对话页签");
+    expect(editorPanel).toContain("reason=${reason}");
     // 已可见面板优先聚焦（不做冗余 focus——editor/title 的 + 按钮 when 门控保证
     // 点击时面板已激活，冗余 focus 会触发 IDE agent 侧栏联动「点新建会话侧栏被打开」）。
     expect(editorPanel).toContain("find((panel) => panel.visible)");
+    // 定向投递目标与 reveal 选中同一块面板（多页签下不把另一页拉回草稿）。
+    expect(editorPanel).toContain("activeConnectionId()");
     // 多页签上限：每个页签是完整 webview 实例，openNew 达上限退化为聚焦。
     expect(editorPanel).toContain("MAX_CHAT_EDITOR_TABS = 4");
     expect(editorPanel).toContain("if (this.panels.size >= MAX_CHAT_EDITOR_TABS)");
@@ -515,7 +506,7 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(editorPanel).toContain("private readonly panels = new Map<string, WebviewPanel>()");
     // 新页签 = 新草稿会话（Claude 同款）：openNew 面板 bootstrap 回草稿态，
     // 已有会话经共享标签栏切换；reveal 路径仍恢复最近会话。
-    expect(editorPanel).toContain('this.create("draft")');
+    expect(editorPanel).toContain('this.create("draft", "openNew:状态栏新建页签")');
     expect(editorPanel).toContain('mode === "draft" ? () => null : this.resolveInitialSessionId');
   });
 
