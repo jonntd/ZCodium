@@ -72,4 +72,19 @@ describe("对话全屏切换：编辑器区域内展开/均分", () => {
   it("切换命令是键盘可逆的原生 toggle（展开 ↔ 均分），不是单向最大化", () => {
     expect(CHAT_FULLSCREEN_TOGGLE_COMMAND).toBe("workbench.action.toggleEditorWidths");
   });
+
+  it("IDE 没有该命令时不冒泡异常（降级为不重排 + 一次提示）", async () => {
+    let notified = 0;
+    const result = await toggleChatFullscreenLayout({
+      editorGroupCount: () => 2,
+      executeCommand: () => Promise.reject(new Error("command not found")),
+      notifyAlreadyFull: () => {},
+      notifyUnsupported: () => {
+        notified += 1;
+      },
+    });
+    // 命令 handler 是 async：reject 冒泡出去就是未捕获的 Promise 拒绝 + IDE 红条。
+    expect(result).toEqual({ acted: false, groups: 2 });
+    expect(notified).toBe(1);
+  });
 });

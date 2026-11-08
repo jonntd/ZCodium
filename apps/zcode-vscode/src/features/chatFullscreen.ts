@@ -23,6 +23,12 @@ export interface ChatFullscreenDeps {
   readonly executeCommand: (command: string) => Thenable<unknown>;
   /** 单组时的轻提示（状态栏消息，不打断用户）。 */
   readonly notifyAlreadyFull: () => void;
+  /**
+   * 该 IDE 没有此命令时的轻提示（可选）。旧版/非 workbench 宿主上
+   * `executeCommand` 会 reject；不接住就是一个未捕获的 Promise 拒绝，且 IDE 会弹
+   * 「command not found」红条——用户看到的是"按钮报错"而不是"不支持"。
+   */
+  readonly notifyUnsupported?: () => void;
 }
 
 export interface ChatFullscreenResult {
@@ -48,6 +54,13 @@ export async function toggleChatFullscreenLayout(
     deps.notifyAlreadyFull();
     return { acted: false, groups };
   }
-  await deps.executeCommand(CHAT_FULLSCREEN_TOGGLE_COMMAND);
+  try {
+    await deps.executeCommand(CHAT_FULLSCREEN_TOGGLE_COMMAND);
+  } catch {
+    // 命令不存在（旧版 Antigravity / 非 workbench 宿主）：静默降级为"不做布局"，
+    // 只给一次轻提示。绝不 rethrow——命令 handler 是 async，冒泡出去就是未捕获拒绝。
+    deps.notifyUnsupported?.();
+    return { acted: false, groups };
+  }
   return { acted: true, groups };
 }

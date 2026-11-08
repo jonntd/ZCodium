@@ -416,19 +416,26 @@ describe("可拖动的编辑器标签页形态", () => {
     // 新建页签必须留下可复盘的诊断锚点（reason + 存活数）。
     expect(editorPanel).toContain("新建对话页签");
     expect(editorPanel).toContain("reason=${reason}");
-    // 已可见面板优先聚焦（不做冗余 focus——editor/title 的 + 按钮 when 门控保证
-    // 点击时面板已激活，冗余 focus 会触发 IDE agent 侧栏联动「点新建会话侧栏被打开」）。
-    expect(editorPanel).toContain("find((panel) => panel.visible)");
+    // 「当前页」判定只有一处（resolveTargetPanel）：reveal 与 activeConnectionId 共用，
+    // 规则漂移会让"投递目标"和"实际聚焦"错位（点 + 时把另一页清空、眼前页没反应）。
+    // 已可见面板优先、不做冗余 focus——editor/title 的 + 按钮 when 门控保证点击时面板
+    // 已激活，冗余 focus 会触发 IDE agent 侧栏联动「点新建会话侧栏被打开」。
+    expect(editorPanel).toContain("private resolveTargetPanel()");
+    expect(editorPanel).toContain("find(([, panel]) => panel.visible)");
+    // 并排布局下多个页签同时 visible：必须靠 onDidChangeViewState.active 记「真正焦点页」。
+    expect(editorPanel).toContain("webviewPanel.active");
     // 定向投递目标与 reveal 选中同一块面板（多页签下不把另一页拉回草稿）。
     expect(editorPanel).toContain("activeConnectionId()");
-    // 多页签上限：每个页签是完整 webview 实例，openNew 达上限退化为聚焦。
+    // 多页签上限：每个页签是完整 webview 实例，openNew 达上限退化为聚焦（并提示）。
     expect(editorPanel).toContain("MAX_CHAT_EDITOR_TABS = 4");
     expect(editorPanel).toContain("if (this.panels.size >= MAX_CHAT_EDITOR_TABS)");
     // 编辑器标签标题跟随（Claude 同款）：webview 上行标签 UI（会话标题/忙态）
-    // → host 回写 panel.title；仅消费编辑器形态连接（前缀过滤）。
+    // → host 回写 panel.title；仅消费编辑器形态连接（精确 id 判定，不用裸前缀——
+    // 否则 `gode.chat.editor-xxx` 之类的连接也会被当成页签，改标题静默失败）。
     expect(editorPanel).toContain("handleEditorTabUi(connectionId");
     expect(editorPanel).toContain("composeEditorTabTitle(");
-    expect(editorPanel).toContain('startsWith(CHAT_EDITOR_BRIDGE_ID)');
+    expect(editorPanel).toContain("isEditorBridgeId(");
+    expect(editorPanel).toContain("/^\\d+$/.test(");
   });
 
   it("侧栏可见性不跳转、不自关（修「点活动栏图标弹出面板后秒关」）", () => {

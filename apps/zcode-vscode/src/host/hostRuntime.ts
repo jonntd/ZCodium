@@ -96,6 +96,13 @@ export class HostRuntime {
   /** 无就绪连接时暂存的 host 帧（有界 FIFO）；renderer ready 后按序 flush。 */
   private pendingHostFrames: HostFrame[] = [];
   /**
+   * **定向**帧暂存：connectionId → 该连接未就绪期间积压的帧（有界 FIFO）。
+   *
+   * 不能复用 `pendingHostFrames`：那是"无就绪连接"时的**广播**队列，flush 时会发给
+   * 所有就绪连接——定向帧一旦落进去，等于又变成广播（把「新建会话」打到每一页）。
+   */
+  private readonly pendingTargetedFrames = new Map<string, HostFrame[]>();
+  /**
    * 最近活动的对话页连接 id（webview 每发一条消息即更新；新连接建立也视为活动）。
    * composer-insert / open-panel / diagnostics 等纯 UI 帧定向投递给它，避免
    * 广播把页面 A 的操作同步到所有页（多形态并存后的跨页状态污染）。
@@ -172,21 +179,40 @@ export class HostRuntime {
   }
 
   /**
-   * 定向推送（指定连接）：帧只投给该对话页，其它页不受影响。
+   * 定向推送（指定连接）：帧**只**投给该对话页，其它页一律不收。
    *
    * 「新建会话」这类**只对当前页成立**的 UI 动作必须走这条：`pushToActiveHostFrame`
    * 认的是「最近活动的连接」，它与用户眼前的页签未必是同一个（先点了侧栏再点页签、
    * 或页签之间切换后的竞态），投错就会把另一页拉回草稿。
-   * 连接不存在/未就绪时落回最近活动页语义（命令先行、面板后开的场景同样成立）。
+   *
+   * 目标不可用时**绝不做"最近活动页"降级**（历史缺陷：`new-session` 因此打到侧栏
+   * `gode.chat` 面板，把用户正看着的侧栏会话清成草稿态，而目标页毫无反应）：
+   * - `connectionId` 为 null / 连接不存在 → 丢弃并记日志（调用方应先用
+   *   `activeConnectionId()` 取真实目标；页签确实不存在时本来就没有可投的页）；
+   * - 连接存在但 renderer 未就绪 → 存入**该连接专用**队列，它 ready 时按序补发
+   *   （「命令先行、面板后开」场景由这条覆盖，且不会波及别的页）。
    */
   pushHostFrameTo(connectionId: string | null, kind: HostFrameKind, payload: unknown): void {
     if (this.disposed) return;
     const connection = connectionId ? this.connections.get(connectionId) : undefined;
-    if (!connection?.readyForFrames) {
-      this.pushToActiveHostFrame(kind, payload);
+    if (!connection) {
+      this.options.log?.(
+        `[host-bridge] 定向帧丢弃：目标连接不存在（target=${connectionId ?? "null"}，kind=${kind}）`,
+      );
       return;
     }
-    this.post(connection, { t: "host", kind, payload });
+    const frame: HostFrame = { t: "host", kind, payload };
+    if (!connection.readyForFrames) {
+      const queue = this.pendingTargetedFrames.get(connection.id) ?? [];
+      queue.push(frame);
+      if (queue.length > HOST_FRAME_QUEUE_LIMIT) queue.shift();
+      this.pendingTargetedFrames.set(connection.id, queue);
+      this.options.log?.(
+        `[host-bridge] 定向帧暂存：目标未就绪（target=${connection.id}，kind=${kind}，积压=${queue.length}）`,
+      );
+      return;
+    }
+    this.post(connection, frame);
   }
 
   /** chatPanel.resolveWebviewView 时调用：建立该 webview 的 RPC 连接。 */
@@ -240,6 +266,12 @@ export class HostRuntime {
     connection.onDidDisconnect.fire();
     connection.onDidDisconnect.dispose();
     this.connections.delete(id);
+    // 悬空清理（否则定向/广播的"活动页"会指向已死的连接）：
+    // - 该连接积压的定向帧已无投递对象，直接丢弃（面板都关了，回草稿也无意义）；
+    // - 最近活动指针指向它时置空，让后续 UI 定向帧走「任一就绪连接」的兜底，
+    //   而不是命中一个 Map 里已不存在的 id。
+    this.pendingTargetedFrames.delete(id);
+    if (this.lastActiveConnectionId === id) this.lastActiveConnectionId = null;
     this.options.log?.(`[host-bridge] webview 断开：${id}`);
   }
 
@@ -278,6 +310,9 @@ export class HostRuntime {
         if (!connection) return;
         connection.readyForFrames = true;
         this.sendInitialHostFrames(id);
+        // 定向队列先于广播队列补发：定向帧是「用户刚在这一页发起的动作」，语义上
+        // 早于任何广播帧。
+        this.flushTargetedFrames(id);
         this.flushPendingHostFrames();
         this.postSessionTabsTo(id);
         return;
@@ -367,6 +402,20 @@ export class HostRuntime {
     this.options.log?.(
       `[host-bridge] flush 暂存 host 帧 ${frames.length} 条 → ${this.connections.size} 个就绪连接`,
     );
+  }
+
+  /**
+   * 补发某个连接在未就绪期间积压的**定向**帧（只发给它自己）。
+   * 连接已不在（ready 之后紧接着 detach 的竞态）时静默丢弃。
+   */
+  private flushTargetedFrames(id: string): void {
+    const frames = this.pendingTargetedFrames.get(id);
+    this.pendingTargetedFrames.delete(id);
+    if (!frames || frames.length === 0) return;
+    const connection = this.connections.get(id);
+    if (!connection?.readyForFrames) return;
+    for (const frame of frames) this.post(connection, frame);
+    this.options.log?.(`[host-bridge] 补发定向帧 ${frames.length} 条 → ${id}`);
   }
 
   private post(connection: BridgeConnection, frame: BridgeEnvelope): void {

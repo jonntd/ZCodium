@@ -49,20 +49,26 @@ interface FakePanel {
     onDidReceiveMessage: () => { dispose: () => void };
     postMessage: () => Promise<boolean>;
   };
-  onDidChangeViewState: () => { dispose: () => void };
+  onDidChangeViewState: (handler: (event: { webviewPanel: FakePanel }) => void) => {
+    dispose: () => void;
+  };
   onDidDispose: (handler: () => void) => { dispose: () => void };
   reveal: ReturnType<typeof vi.fn>;
   dispose: ReturnType<typeof vi.fn>;
   title: string;
   viewColumn: number;
   visible: boolean;
+  active: boolean;
   /** 测试用：模拟 IDE 销毁该面板（关掉承载它的栏）。 */
   fireDispose: () => void;
+  /** 测试用：模拟该面板获得焦点（并排布局下多页同时 visible 时只有一个是 active）。 */
+  fireActive: () => void;
 }
 
 function makePanel(visible = true): FakePanel {
   let disposeHandler: (() => void) | null = null;
-  return {
+  let viewStateHandler: ((event: { webviewPanel: FakePanel }) => void) | null = null;
+  const panel: FakePanel = {
     webview: {
       options: {},
       html: "",
@@ -71,7 +77,10 @@ function makePanel(visible = true): FakePanel {
       onDidReceiveMessage: () => ({ dispose: () => {} }),
       postMessage: () => Promise.resolve(true),
     },
-    onDidChangeViewState: () => ({ dispose: () => {} }),
+    onDidChangeViewState: (handler) => {
+      viewStateHandler = handler;
+      return { dispose: () => {} };
+    },
     onDidDispose: (handler) => {
       disposeHandler = handler;
       return { dispose: () => {} };
@@ -81,8 +90,14 @@ function makePanel(visible = true): FakePanel {
     title: "",
     viewColumn: -2,
     visible,
+    active: visible,
     fireDispose: () => disposeHandler?.(),
+    fireActive: () => {
+      panel.active = true;
+      viewStateHandler?.({ webviewPanel: panel });
+    },
   };
+  return panel;
 }
 
 function makeHostRuntime() {
@@ -185,5 +200,43 @@ describe("对话编辑器面板：零布局副作用 + 不重复建标签", () =
     const overflow = panel.openNew();
     expect(overflow.created).toBe(false);
     expect(createWebviewPanel).toHaveBeenCalledTimes(MAX_CHAT_EDITOR_TABS);
+  });
+
+  it("并排布局下多页同时可见：以最近获得焦点的页为准，不投给最旧的那页", () => {
+    const { panel } = newPanel();
+    const created: FakePanel[] = [];
+    createWebviewPanel.mockImplementation(() => {
+      const fake = makePanel();
+      created.push(fake);
+      return fake;
+    });
+
+    panel.openNew(); // gode.chat.editor
+    panel.openNew(); // gode.chat.editor.2（新建即焦点页）
+    // 两个页签在各自编辑器组里都 visible；旧实现只按插入序取第一个 → 命中 .1。
+    expect(panel.activeConnectionId()).toBe("gode.chat.editor.2");
+
+    // 用户点回第一页：投递目标必须跟着走（否则"新建会话"会清掉另一页）。
+    created[0]!.fireActive();
+    expect(panel.activeConnectionId()).toBe("gode.chat.editor");
+    expect(panel.reveal().created).toBe(false);
+  });
+
+  it("标签 UI 上行只认编辑器页签连接（相似 id 不被误当成页签）", () => {
+    const { panel } = newPanel();
+    const created: FakePanel[] = [];
+    createWebviewPanel.mockImplementation(() => {
+      const fake = makePanel();
+      created.push(fake);
+      return fake;
+    });
+
+    panel.openNew();
+    panel.handleEditorTabUi("gode.chat.editor", { title: "会话 A", busy: false });
+    expect(created[0]!.title).toBe("会话 A");
+
+    // 前缀相同但不是页签连接（未来新增的非对话 webview）：不得改任何面板标题。
+    panel.handleEditorTabUi("gode.chat.editor-preview", { title: "不该出现", busy: false });
+    expect(created[0]!.title).toBe("会话 A");
   });
 });

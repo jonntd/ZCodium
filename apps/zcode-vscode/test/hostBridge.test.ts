@@ -488,6 +488,47 @@ describe("UI 定向帧（pushToActiveHostFrame：跨页状态污染修复）", (
     });
     expect(texts(frames)).toEqual(["queued"]);
   });
+
+  it("pushHostFrameTo：只投指定连接，即使它不是最近活动页", () => {
+    const { runtime, makeCapture } = makeMultiRuntime();
+    const a = makeCapture("a");
+    const b = makeCapture("b");
+    // 最近活动页是 b：广播/最近活动语义会投给 b，定向语义必须投给 a。
+    runtime.handleWebviewMessage("b", { t: "plat-evt", event: "noop" });
+    runtime.pushHostFrameTo("a", "composer-insert", { text: "only-a" });
+    expect(texts(a.frames)).toEqual(["only-a"]);
+    expect(texts(b.frames)).toEqual([]);
+  });
+
+  it("pushHostFrameTo：目标不存在/为 null 时丢弃，绝不降级打到最近活动页", () => {
+    // 历史缺陷：降级会把 new-session 打到最近活动连接（常常是侧栏 gode.chat 面板），
+    // 用户正看着的侧栏会话被清成草稿态，而目标页毫无反应。
+    const { runtime, makeCapture } = makeMultiRuntime();
+    const a = makeCapture("a");
+    runtime.handleWebviewMessage("a", { t: "plat-evt", event: "noop" });
+    runtime.pushHostFrameTo(null, "workspace", { kind: "new-session" });
+    runtime.pushHostFrameTo("gone", "workspace", { kind: "new-session" });
+    expect(texts(a.frames)).toEqual([]);
+  });
+
+  it("pushHostFrameTo：目标未就绪 → 排该连接队列，只等它自己 ready（不进广播队列）", () => {
+    const { runtime, makeCapture } = makeMultiRuntime();
+    const other = makeCapture("other"); // 已就绪的另一页
+    const targetFrames: unknown[] = [];
+    runtime.attachWebview("target", {
+      postMessage: (message: unknown) => targetFrames.push(message),
+    }); // 未 ready
+    runtime.pushHostFrameTo("target", "composer-insert", { text: "to-target" });
+    // 复用 pendingHostFrames 的话这里会被 flush 给 other —— 定向帧重新变成广播。
+    expect(texts(other.frames)).toEqual([]);
+    expect(texts(targetFrames)).toEqual([]);
+    runtime.handleWebviewMessage("target", {
+      t: "plat-evt",
+      event: "notifyRendererReady",
+    });
+    expect(texts(targetFrames)).toEqual(["to-target"]);
+    expect(texts(other.frames)).toEqual([]);
+  });
 });
 
 describe("编辑器标签 UI 上行 + 会话标签中继（多页签共享）", () => {
