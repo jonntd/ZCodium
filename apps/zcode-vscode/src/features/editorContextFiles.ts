@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { fileMentionRef, type PendingContext } from "./contextCollector";
+// 架构：从叶子 pendingContext 取契约（原经 contextCollector 会成环）。
+import { fileMentionRef, type PendingContext } from "./pendingContext";
 
 const MAX_FILE_LINES = 400;
 const MAX_FILE_BYTES = 256 * 1024;

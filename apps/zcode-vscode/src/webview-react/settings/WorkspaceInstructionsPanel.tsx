@@ -4,7 +4,7 @@
  * - 读写走 services setting 频道既有方法（ISettingService.get/update patch：
  *   customSystemPrompt/customSystemSegments/language——改动随下次会话生效，UI 明示）；
  *   分段提示词（P1-13.1）经 services 既有写穿（workspace/updateSystemSegments）生效；
- * - 「从 CLAUDE.md/ZCODIUM.md 一次性导入」：plat importWorkspaceInstructions（组2 读面）
+ * - 「从 CLAUDE.md/GODE.md 一次性导入」：plat importWorkspaceInstructions（组2 读面）
  *   → workspacePreferences.mapInstructionImport 幂等映射 → 确认后随表单写回；
  * - 交互式提问（ElicitationDialog）回执面：由对话区 V4InteractionDialogs 承载
  *   （v4 resolveInteraction 的 elicitation 回执 action/content），不在本面板。
@@ -158,7 +158,7 @@ export function WorkspaceInstructionsPanel({
         setMessage(
           outcome.skipped.length > 0
             ? "未发现新文件可导入（均已导入过）"
-            : "未找到 ZCODIUM.md / CLAUDE.md（每 folder 取首个命中）",
+            : "未找到 GODE.md / CLAUDE.md（每 folder 取首个命中）",
         );
       }
     } catch (err) {
@@ -183,7 +183,7 @@ export function WorkspaceInstructionsPanel({
           disabled={!form || importing}
           onClick={() => void handleImport()}
         >
-          从 CLAUDE.md/ZCODIUM.md 导入
+          从 CLAUDE.md/GODE.md 导入
         </Button>
         {onClose ? (
           <Button

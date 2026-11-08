@@ -1,5 +1,5 @@
 /**
- * ZCodium VS Code 插件三产物打包脚本（架构 §7.1）。
+ * Gode VS Code 插件三产物打包脚本（架构 §7.1）。
  *
  * - extension host bundle：CJS、platform node、external vscode；
  *   内联 @zcode/shared + @zcode/services + @zcode/rpc + zod 成单文件
@@ -28,7 +28,10 @@ const extensionOptions = {
   format: "cjs",
   platform: "node",
   target: "node20",
-  external: ["vscode"],
+  // node-pty：含平台原生二进制（pty.node/spawn-helper），esbuild 只能内联其 JS，
+  // 原生 .node 的动态 require（`build/Release/pty.node` 相对解析）在安装目录必然
+  // 失败。保持 external，由打包脚本把整包 node-pty 拷进扩展（见 package-node-pty.mjs）。
+  external: ["vscode", "node-pty"],
   outfile: "dist/extension.js",
   sourcemap: false,
   // §7.2 ③：minify + legalComments:none 是体积门禁（≤9MB）的预算内处置手段。

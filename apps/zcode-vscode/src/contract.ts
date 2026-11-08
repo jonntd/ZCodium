@@ -73,7 +73,7 @@ export { ExtensionStore } from "./store";
 // 破坏本门面「无 vscode 依赖、可 headless 测试」的契约）。
 export { CliLocator } from "./cli/cliLocator";
 export type { CliInfo } from "./cli/cliLocator";
-export type { ZcodiumUiState } from "./ui/statusBar";
+export type { GodeUiState } from "./ui/statusBar";
 
 // ── 错误码 ──
 export {

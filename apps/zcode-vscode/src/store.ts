@@ -6,8 +6,12 @@
  */
 
 import type { ExtensionContext, Memento } from "vscode";
+import { randomUUID } from "node:crypto";
+import type { PersistedChanges } from "./host/pendingChanges/changesService";
 
-const SESSION_ID_PREFIX = "code.sessionId.";
+const SESSION_ID_PREFIX = "gode.sessionId.";
+const CHANGES_CLIENT_ID_KEY = "gode.pendingChanges.clientId";
+const PENDING_CHANGES_KEY = "gode.pendingChanges.v1";
 
 /** 会话 ID 存储接口（测试用内存实现替换）。 */
 export interface SessionIdStore {
@@ -16,10 +20,14 @@ export interface SessionIdStore {
 }
 
 export class ExtensionStore implements SessionIdStore {
-  constructor(private readonly globalState: Memento) {}
+  constructor(
+    private readonly globalState: Memento,
+    /** pendingChanges/clientId 面（spec §8：workspaceState，per-window 生命周期）。 */
+    private readonly workspaceState?: Memento,
+  ) {}
 
   static fromContext(context: ExtensionContext): ExtensionStore {
-    return new ExtensionStore(context.globalState);
+    return new ExtensionStore(context.globalState, context.workspaceState);
   }
 
   getSessionId(workspaceKey: string): string | undefined {
@@ -40,5 +48,31 @@ export class ExtensionStore implements SessionIdStore {
       .keys()
       .filter((key) => key.startsWith(prefix) && this.globalState.get<string>(key) === sessionId)
       .map((key) => key.slice(prefix.length));
+  }
+
+  /**
+   * 宿主自持的 v4 clientId（applyFileRewind 信封；服务端幂等表按提交端区分）。
+   * 惰性生成并持久化，进程重启不变。
+   */
+  getChangesClientId(): string {
+    if (!this.workspaceState) return `host-${randomUUID()}`;
+    const existing = this.workspaceState.get<string>(CHANGES_CLIENT_ID_KEY);
+    if (existing) return existing;
+    const created = `host-${randomUUID()}`;
+    void this.workspaceState.update(CHANGES_CLIENT_ID_KEY, created);
+    return created;
+  }
+
+  getPendingChanges(): PersistedChanges | undefined {
+    const state = this.workspaceState?.get<PersistedChanges | undefined>(PENDING_CHANGES_KEY);
+    if (!state || (!Array.isArray(state.pending) && !Array.isArray(state.history))) return undefined;
+    return {
+      pending: Array.isArray(state.pending) ? state.pending : [],
+      history: Array.isArray(state.history) ? state.history : [],
+    };
+  }
+
+  setPendingChanges(state: PersistedChanges): void {
+    void this.workspaceState?.update(PENDING_CHANGES_KEY, state);
   }
 }

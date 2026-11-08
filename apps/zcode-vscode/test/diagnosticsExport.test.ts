@@ -1,7 +1,7 @@
 /**
  * exportLogs 聚合面（架构 architecture.md §7.10「exportLogs 聚合口径」）：
  *
- * 背景：exportLogs 曾只写一行占位文本（「见 ZCodium 输出通道」）即 success:true，
+ * 背景：exportLogs 曾只写一行占位文本（「见 Gode 输出通道」）即 success:true，
  * 用户拿到的「日志」有误导性。这里锁定两个纯层单元：
  * - BoundedLineBuffer：输出通道内存镜像（FIFO 环形，容量淘汰）；
  * - buildDiagnosticsExportContent：聚合导出内容（含空边界——如实标注
@@ -55,12 +55,12 @@ describe("buildDiagnosticsExportContent：聚合导出（含空边界）", () =>
       diagnosticsLines: ["[ts1] [state] ready", "[ts2] [stderr] tail"],
       exportedAt: "2026-01-01T00:00:00.000Z",
     });
-    expect(content).toContain("ZCodium 诊断导出（2026-01-01T00:00:00.000Z）");
+    expect(content).toContain("Gode 诊断导出（2026-01-01T00:00:00.000Z）");
     expect(content).toContain("[ts1] [state] ready");
     expect(content).toContain("[ts2] [stderr] tail");
     expect(content).not.toContain("（无记录）");
     // 不再是占位文本。
-    expect(content).not.toContain("见 ZCodium 输出通道（ZCodium: 显示日志）");
+    expect(content).not.toContain("见 Gode 输出通道（Gode: 显示日志）");
   });
 
   it("镜像为空（边界）→ 如实标注「（无记录）」，不虚构内容", () => {

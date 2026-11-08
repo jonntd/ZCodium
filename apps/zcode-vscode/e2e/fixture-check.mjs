@@ -6,7 +6,7 @@ import { NodePersonalProviderConfigRepository } from "@zcode/provider-node";
 // ProviderConfigService 从 @zcode/provider 导出
 import { ProviderConfigService } from "@zcode/provider";
 
-const FIXTURES = "/Users/jonntd/ZCodium/apps/zcode-vscode/e2e/fixtures";
+const FIXTURES = "/Users/jonntd/Gode/apps/zcode-vscode/e2e/fixtures";
 const dir = mkdtempSync(join(tmpdir(), "zcode-fixture-test-"));
 const personalFile = join(dir, "provider_config.json");
 copyFileSync(join(FIXTURES, "mock-provider-config.json"), personalFile);

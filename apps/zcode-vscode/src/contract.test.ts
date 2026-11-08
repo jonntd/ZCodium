@@ -75,7 +75,7 @@ export type ContractTypeExports = [
   contract.ApprovalUpdate,
   contract.SessionIdStore,
   contract.CliInfo,
-  contract.ZcodiumUiState,
+  contract.GodeUiState,
 ];
 
 describe("zcode-vscode 公开契约", () => {

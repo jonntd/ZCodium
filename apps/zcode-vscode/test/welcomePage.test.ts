@@ -39,7 +39,7 @@ describe("3 步上手卡（P1-10.2）", () => {
   });
 
   it("第 1 步指向 CLI 安装（cliPath / app-server 事实），第 3 步指向配置与导入", () => {
-    expect(ONBOARDING_STEPS[0]!.detail).toContain("code.cliPath");
+    expect(ONBOARDING_STEPS[0]!.detail).toContain("gode.cliPath");
     expect(ONBOARDING_STEPS[0]!.detail).toContain("app-server --stdio");
     expect(ONBOARDING_STEPS[2]!.detail).toContain("allowlist");
     expect(ONBOARDING_STEPS[2]!.detail).toContain("~/.claude/projects");
@@ -60,7 +60,7 @@ describe("projectOnboardingState（CLI 探测结果 → 引导态）", () => {
     const state = projectOnboardingState({ cli: null });
     expect(state.cliMissing).toBe(true);
     expect(state.cliGuidance).toBe(CLI_NOT_FOUND_GUIDANCE);
-    expect(state.cliGuidance).toContain("code.cliPath");
+    expect(state.cliGuidance).toContain("gode.cliPath");
     expect(state.cliGuidance).toContain("重新检测");
     const recheck = state.card.find((item) => item.action === WELCOME_CARD_ACTIONS.recheckCli);
     expect(recheck?.label).toContain("重新检测");
@@ -92,7 +92,7 @@ describe("projectOnboardingState（CLI 探测结果 → 引导态）", () => {
 describe("引导面引用事实（不改被引用文件）", () => {
   it("Claude 导入入口对齐组4 面板 open-panel 词与命令面", () => {
     expect(CLAUDE_IMPORT_ENTRY.panel).toBe("import-claude-sessions");
-    expect(CLAUDE_IMPORT_ENTRY.commandId).toBe("code.importClaudeSessions");
+    expect(CLAUDE_IMPORT_ENTRY.commandId).toBe("gode.importClaudeSessions");
     expect(CLAUDE_IMPORT_ENTRY.note).toContain("原文件不删除");
   });
 
@@ -127,7 +127,7 @@ describe("CAPABILITY_DEGRADATION_NOTES（成文进引导面）", () => {
 describe("CLI 引导与既有诊断语义对接", () => {
   it("CLI_NOT_FOUND_LOG 与 container.ts 检测分支的同源行一字不差", () => {
     expect(CLI_NOT_FOUND_LOG).toBe(
-      "[cli] 未找到 zcodium CLI：侧栏将呈现引导（安装后点击「重新检测」或执行 ZCodium: 重启 Agent）",
+      "[cli] 未找到 zcodium CLI：侧栏将呈现引导（安装后点击「重新检测」或执行 Gode: 重启 Agent）",
     );
   });
 
@@ -273,7 +273,7 @@ describe("recheck 诊断行", () => {
     missing.state.recheckResult = false;
     await new WelcomePage(missing.ports).recheck();
     expect(missing.calls.logs).toEqual([
-      "[cli] 重新检测：仍未找到 zcodium CLI（检查 PATH 或设置 code.cliPath）",
+      "[cli] 重新检测：仍未找到 zcodium CLI（检查 PATH 或设置 gode.cliPath）",
     ]);
   });
 });

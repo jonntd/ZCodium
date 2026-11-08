@@ -17,7 +17,7 @@ export interface SessionSummary {
  * 历史会话选择器（M2-6c）。
  *
  * 会话由 CLI 持久化（`session/list`），插件不另存一份 —— 所以桌面端聊过的会话
- * 在这里也能看到并接续，这正是「还原 Zcodium 全部能力」的一部分。
+ * 在这里也能看到并接续，这正是「还原 Gode 全部能力」的一部分。
  */
 export async function pickSession(
   listSessions: () => Promise<readonly SessionSummary[]>,
@@ -48,7 +48,7 @@ export async function pickSession(
   }));
 
   const picked = await vscode.window.showQuickPick(items, {
-    title: "Zcodium 历史会话",
+    title: "Gode 历史会话",
     placeHolder: "选择要接续的会话",
     matchOnDescription: true,
   });

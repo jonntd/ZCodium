@@ -31,4 +31,14 @@ export declare function createNodeReplMcpRuntime(input?: {
 export { installNodeReplProcessGuards, installNodeReplShutdownTriggers };
 export declare function main(): Promise<void>;
 export declare function captureComputerUseRuntimeFromEnvironment(env?: NodeJS.ProcessEnv): ComputerUseRuntime | undefined;
+interface WindowsHelperRecipe {
+    command: string;
+    entryPath: string;
+    root: string;
+    addonPath: string;
+    commandEnv: Record<string, string>;
+    hostPid: number;
+}
+declare function launchWindowsHelperFromRecipe(recipe: WindowsHelperRecipe, socketPath: string): Promise<void>;
+export declare const __launchWindowsHelperFromRecipeForTest: typeof launchWindowsHelperFromRecipe;
 //# sourceMappingURL=server.d.ts.map

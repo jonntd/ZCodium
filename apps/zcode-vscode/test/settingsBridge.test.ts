@@ -2,7 +2,7 @@
  * T02/② settings 桥参数面与写回归一化（P1-3.2 / P1-6.3 / P0-8 写回面）：
  *
  * - resume/create 恒带 allowlist/denylist/mcpServers/附加目录（恢复不绕过约束）；
- * - 每次 spawn 的工具面旗标快照与 --allowed-tools/--disallowed-tools argv 形状；
+ * - 会话级工具面快照与 spawn argv 只含协议服务参数（回归锁：工具旗标走协议参数）；
  * - 「本次会话允许」规则形（Tool/Tool(args)）与 allowlist 写回归一化（去空白/去重）。
  *
  * 纯层测试：HostSettingsBridge / approvalService 纯函数均不感知 vscode。
@@ -12,7 +12,6 @@ import { describe, expect, it } from "vitest";
 import {
   HostSettingsBridge,
   ZCODE_AGENT_SERVER_BASE_ARGS,
-  buildToolRuleFlags,
   mergeAllowlistRules,
   normalizeSettingsSnapshot,
   resolveZcodeAgentSpawnCommand,
@@ -87,47 +86,23 @@ describe("resume 恒带约束面（P1-3.2 / P1-6.3）", () => {
 });
 
 describe("spawn 工具面旗标注入点（P1-3：settings 变更 = 下次 spawn 生效）", () => {
-  it("resolveSpawnToolFlags 每次调用读新快照", () => {
-    const { bridge, setSnapshot } = mutableBridge({ toolAllowlist: ["Read"] });
-    expect(bridge.resolveSpawnToolFlags()).toEqual({ toolAllowlist: ["Read"], toolDenylist: [] });
-    setSnapshot({ toolDenylist: ["Bash(rm -rf:*)"] });
-    expect(bridge.resolveSpawnToolFlags()).toEqual({ toolAllowlist: [], toolDenylist: ["Bash(rm -rf:*)"] });
-  });
-
-  it("buildToolRuleFlags：非空面编译为旗标对，空面不注入", () => {
-    expect(
-      buildToolRuleFlags({ toolAllowlist: ["Read", "Bash(git status:*)"], toolDenylist: ["Bash(rm -rf:*)"] }),
-    ).toEqual(["--allowed-tools", "Read,Bash(git status:*)", "--disallowed-tools", "Bash(rm -rf:*)"]);
-    expect(buildToolRuleFlags({ toolAllowlist: [], toolDenylist: [] })).toEqual([]);
-    expect(buildToolRuleFlags({ toolAllowlist: ["WebFetch"], toolDenylist: [] })).toEqual([
-      "--allowed-tools",
-      "WebFetch",
-    ]);
+  it("会话级工具面：create/resume 参数携带 allow/deny（旗标不再进 spawn argv）", () => {
+    const { bridge } = mutableBridge({ toolAllowlist: ["Read"], toolDenylist: ["Bash(rm -rf:*)"] });
+    const create = bridge.resolveCreateParams("/tmp/ws");
+    expect(create.toolAllowlist).toEqual(["Read"]);
+    expect(create.toolDenylist).toEqual(["Bash(rm -rf:*)"]);
+    const resume = bridge.resolveResumeParams("session-1", "/tmp/ws");
+    expect(resume.toolAllowlist).toEqual(["Read"]);
+    expect(resume.toolDenylist).toEqual(["Bash(rm -rf:*)"]);
   });
 
   it("resolveZcodeAgentSpawnCommand：resolver 产物自带 app-server 协议服务模式基底 argv", () => {
     // services 进程管理对 resolver 产物 args 原样使用、不做合并——裸旗标会让进程
     // 永远进不了 app-server 模式（与桌面默认 resolver 的基底一致）。
     expect(ZCODE_AGENT_SERVER_BASE_ARGS).toEqual(["app-server", "--stdio"]);
-    expect(resolveZcodeAgentSpawnCommand("/usr/local/bin/zcodium", { toolAllowlist: [], toolDenylist: [] })).toEqual({
+    expect(resolveZcodeAgentSpawnCommand("/usr/local/bin/zcodium")).toEqual({
       command: "/usr/local/bin/zcodium",
       args: ["app-server", "--stdio"],
-    });
-    expect(
-      resolveZcodeAgentSpawnCommand("/usr/local/bin/zcodium", {
-        toolAllowlist: ["Read"],
-        toolDenylist: ["Bash(rm -rf:*)"],
-      }),
-    ).toEqual({
-      command: "/usr/local/bin/zcodium",
-      args: [
-        "app-server",
-        "--stdio",
-        "--allowed-tools",
-        "Read",
-        "--disallowed-tools",
-        "Bash(rm -rf:*)",
-      ],
     });
   });
 });

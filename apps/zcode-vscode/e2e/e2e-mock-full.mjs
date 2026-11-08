@@ -3,7 +3,7 @@
  *
  * 启动拓扑：
  *   mock-model-server.mjs (127.0.0.1:18101)   ← 假 Anthropic Messages API
- *   entry-http.js          (127.0.0.1:18777)  ← ZCodium server（隔离数据根）
+ *   entry-http.js          (127.0.0.1:18777)  ← Gode server（隔离数据根）
  *     └─ app-server（cli-bundle zcode.cjs）   ← agent 子进程（真 Node）
  *
  * 隔离手段：
@@ -25,7 +25,7 @@ import { join } from "node:path";
 import { HostServices } from "../src/fullui/hostServices";
 import { uuidv7 } from "@zcode/shared";
 
-const REPO = "/Users/jonntd/ZCodium";
+const REPO = "/Users/jonntd/Gode";
 const ENTRY = join(REPO, "packages/server/dist/entry-http.js");
 // 必须用真实系统 Node：WorkBuddy 内置 node 带 fs broker shim，子进程间文件视图
 // 会被虚拟化隔离（实测 server 物化的 builtin 文件对 agent 不可见 → 启动崩溃）。

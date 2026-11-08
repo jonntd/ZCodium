@@ -23,7 +23,7 @@ const INSTRUCTIONS = {
  * 与右键菜单共用同一组指令，但代码操作能在**诊断所在位置**直接出现，
  * 用户不用先选中再找菜单 —— 这是 Claude Code / Augment 那种「随手可得」的关键。
  */
-export class ZcodiumCodeActionProvider implements vscode.CodeActionProvider {
+export class GodeCodeActionProvider implements vscode.CodeActionProvider {
   /**
    * 用 getter 而不是静态字段：静态字段会在模块加载期求值，等于让整个扩展包
    * 在 import 时就依赖 `vscode.CodeActionKind`。getter 把依赖推迟到真正注册时，
@@ -49,12 +49,12 @@ export class ZcodiumCodeActionProvider implements vscode.CodeActionProvider {
 
     // 有诊断时优先给「修这个报错」，并把诊断原文一并带给模型。
     if (context.diagnostics.length > 0) {
-      const action = new vscode.CodeAction("用 Zcodium 修复此问题", vscode.CodeActionKind.QuickFix);
+      const action = new vscode.CodeAction("用 Gode 修复此问题", vscode.CodeActionKind.QuickFix);
       action.diagnostics = [...context.diagnostics];
       action.isPreferred = true;
       action.command = {
-        command: "code.fixDiagnostics",
-        title: "用 Zcodium 修复此问题",
+        command: "gode.fixDiagnostics",
+        title: "用 Gode 修复此问题",
         arguments: [document.uri, range, context.diagnostics.map(describeDiagnostic)],
       };
       actions.push(action);
@@ -64,22 +64,22 @@ export class ZcodiumCodeActionProvider implements vscode.CodeActionProvider {
     if (!selectionContext) return actions;
 
     actions.push(
-      this.createAction("用 Zcodium 解释选中代码", "code.codeAction", vscode.CodeActionKind.RefactorRewrite, {
+      this.createAction("用 Gode 解释选中代码", "gode.codeAction", vscode.CodeActionKind.RefactorRewrite, {
         document,
         range,
         instruction: INSTRUCTIONS.explain,
       }),
-      this.createAction("用 Zcodium 重构选中代码", "code.codeAction", vscode.CodeActionKind.RefactorRewrite, {
+      this.createAction("用 Gode 重构选中代码", "gode.codeAction", vscode.CodeActionKind.RefactorRewrite, {
         document,
         range,
         instruction: INSTRUCTIONS.refactor,
       }),
-      this.createAction("用 Zcodium 写测试", "code.codeAction", vscode.CodeActionKind.RefactorRewrite, {
+      this.createAction("用 Gode 写测试", "gode.codeAction", vscode.CodeActionKind.RefactorRewrite, {
         document,
         range,
         instruction: INSTRUCTIONS.tests,
       }),
-      this.createAction("加入 Zcodium 对话", "code.addRangeToChat", vscode.CodeActionKind.RefactorRewrite, {
+      this.createAction("加入 Gode 对话", "gode.addRangeToChat", vscode.CodeActionKind.RefactorRewrite, {
         document,
         range,
       }),

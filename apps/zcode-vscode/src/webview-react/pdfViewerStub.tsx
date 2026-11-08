@@ -24,7 +24,7 @@ export function PdfViewer(
   void args;
   return (
     <div className="flex items-center justify-center p-4 text-sm text-foreground-subtle">
-      插件端暂不支持 PDF 内嵌预览，请在 ZCodium 桌面端查看该文件。
+      插件端暂不支持 PDF 内嵌预览，请在 Gode 桌面端查看该文件。
     </div>
   );
 }

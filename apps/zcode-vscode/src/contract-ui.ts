@@ -6,6 +6,6 @@
  */
 
 export { StatusBar } from "./ui/statusBar";
-export type { ZcodiumUiState } from "./ui/statusBar";
+export type { GodeUiState } from "./ui/statusBar";
 export { DiffViewer } from "./ui/diffViewer";
 export { Diagnostics } from "./ui/diagnostics";

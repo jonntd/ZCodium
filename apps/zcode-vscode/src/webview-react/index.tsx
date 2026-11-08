@@ -22,7 +22,10 @@ import type { IServiceAccessor } from "@zcode/services";
 import { App } from "./App";
 import { HostFrameBus } from "./bridge/hostFrames";
 import { PlatformRpcClient } from "./bridge/platformRpcClient";
-import { WebviewMessagePortLike, sendClientContext } from "./bridge/webviewMessagePort";
+import {
+  WebviewMessagePortLike,
+  sendClientContext,
+} from "./bridge/webviewMessagePort";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { VscodePlatformService } from "./platform/vscodePlatformService";
 import { mapVscodeLanguage } from "./i18nSetup";
@@ -50,13 +53,17 @@ interface BootstrapData {
 }
 
 function readBootstrapData(): BootstrapData {
-  const script = document.getElementById("zcode-bootstrap") as HTMLScriptElement | null;
+  const script = document.getElementById(
+    "zcode-bootstrap",
+  ) as HTMLScriptElement | null;
   const data = script?.dataset;
   return {
     workspacePath: data?.workspacePath ?? "",
     folders: (data?.folders ?? "").split("\n").filter(Boolean),
     themeKind: (Number(data?.themeKind ?? "2") as VscodeThemeKind) || 2,
-    locale: data?.locale ?? (typeof navigator !== "undefined" ? navigator.language : "en"),
+    locale:
+      data?.locale ??
+      (typeof navigator !== "undefined" ? navigator.language : "en"),
     sessionId: data?.sessionId ? data.sessionId : null,
   };
 }
@@ -175,7 +182,10 @@ function WebviewRoot({
       hostFrames.on<WorkspaceHostFramePayload>("workspace", (payload) => {
         if (payload.kind === "workspace-focused") {
           setWorkspacePath(payload.folder);
-        } else if (payload.kind === "workspace-changed" && payload.activeFolder) {
+        } else if (
+          payload.kind === "workspace-changed" &&
+          payload.activeFolder
+        ) {
           setWorkspacePath(payload.activeFolder);
         }
       }),
@@ -187,45 +197,62 @@ function WebviewRoot({
     () =>
       hostFrames.on<DiagnosticsHostFramePayload>("diagnostics", (payload) => {
         // requestComposerTextInsert 的 workspace 键取当前聚焦 folder（诊断来自活动编辑器）。
-        const activeWorkspace = foldersRef.current.includes(workspaceRef.current)
+        const activeWorkspace = foldersRef.current.includes(
+          workspaceRef.current,
+        )
           ? workspaceRef.current
           : (foldersRef.current[0] ?? workspaceRef.current);
-        import("@/store/zcodeSessionStore.js").then(({ useZCodeSessionStore }) => {
-          useZCodeSessionStore
-            .getState()
-            .requestComposerTextInsert(activeWorkspace, buildDiagnosticsInjection(payload));
-        });
+        import("@/store/zcodeSessionStore.js").then(
+          ({ useZCodeSessionStore }) => {
+            useZCodeSessionStore
+              .getState()
+              .requestComposerTextInsert(
+                activeWorkspace,
+                buildDiagnosticsInjection(payload),
+              );
+          },
+        );
       }),
     [hostFrames],
   );
 
   // M1 编辑器功能：composer-insert 帧（终端送入/审阅改动/Code Action 等）→ composer 预填。
   // mention + prepend-if-missing = Claude Code/Augment 式干净上下文 pill（不覆盖草稿）。
+  // 批量 mentions（spec: composer-insert-delivery）：多文件上下文单帧到达，避免单槽覆盖。
   useEffect(
     () =>
-      hostFrames.on<ComposerInsertHostFramePayload>("composer-insert", (payload) => {
-        const activeWorkspace = foldersRef.current.includes(workspaceRef.current)
-          ? workspaceRef.current
-          : (foldersRef.current[0] ?? workspaceRef.current);
-        useZCodeSessionStore
-          .getState()
-          .requestComposerTextInsert(
-            activeWorkspace,
-            payload.text,
-            undefined,
-            payload.mention,
-            payload.mode,
-          );
-      }),
+      hostFrames.on<ComposerInsertHostFramePayload>(
+        "composer-insert",
+        (payload) => {
+          const activeWorkspace = foldersRef.current.includes(
+            workspaceRef.current,
+          )
+            ? workspaceRef.current
+            : (foldersRef.current[0] ?? workspaceRef.current);
+          useZCodeSessionStore
+            .getState()
+            .requestComposerTextInsert(
+              activeWorkspace,
+              payload.text,
+              undefined,
+              payload.mention,
+              payload.mode,
+              payload.mentions,
+            );
+        },
+      ),
     [hostFrames],
   );
 
   // M1 编辑器功能：session-switch 帧（历史会话命令）→ 重绑 sessionId（V4ChatPane resume）。
   useEffect(
     () =>
-      hostFrames.on<SessionSwitchHostFramePayload>("session-switch", (payload) => {
-        setSessionId(payload.sessionId);
-      }),
+      hostFrames.on<SessionSwitchHostFramePayload>(
+        "session-switch",
+        (payload) => {
+          setSessionId(payload.sessionId);
+        },
+      ),
     [hostFrames],
   );
 

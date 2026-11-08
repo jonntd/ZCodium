@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { ChannelClient, SocketProtocol, VSBuffer, Emitter } from "@zcode/rpc";
 import { RemoteServiceAccess } from "@zcode/client";
 
-const REPO = "/Users/jonntd/ZCodium";
+const REPO = "/Users/jonntd/Gode";
 const ENTRY = join(REPO, "packages/server/dist/entry-http.js");
 const NODE = process.execPath;
 const WS_PATH = "/tmp/zcode-antigravity-test";

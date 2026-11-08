@@ -116,10 +116,14 @@ describe("P0 等价回归：会话恢复与参数面（P0-6/P0-10）", () => {
 });
 
 describe("P0 等价回归：平台与桥（P0-3/P0-9 承载面）", () => {
-  it("频道白名单包含对话核心频道、排除高危服务", () => {
+  it("频道白名单包含对话核心频道、终端与高危进程面", () => {
     expect(DEFAULT_EXPOSED_CHANNELS).toContain("zcode-agent");
     expect(DEFAULT_EXPOSED_CHANNELS).toContain("zcode-session");
-    expect(DEFAULT_EXPOSED_CHANNELS).not.toContain("terminal");
+    // terminal：webview 壳承载桌面端同款 SidePane 终端 tab（TerminalSession →
+    // ITerminalService），PTY 在插件 host 进程内（node-pty），必须放行——
+    // 否则即 "Channel name 'terminal' timed out after 1000ms"。
+    expect(DEFAULT_EXPOSED_CHANNELS).toContain("terminal");
+    // process 仍是高危面，继续排除。
     expect(DEFAULT_EXPOSED_CHANNELS).not.toContain("process");
   });
 

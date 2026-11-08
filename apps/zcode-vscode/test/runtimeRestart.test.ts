@@ -103,6 +103,10 @@ function makeHarness(fake: FakeAgentService = new FakeAgentService()): Harness {
   const client = new ChannelClient(new MessagePortProtocol(port));
   // IPCServer 协议首消息 = ctx 身份帧（必须先于任何 call/listen 完成）。
   sendClientContext(vscode);
+  // host 帧投递闸（hostBridge 排队语义）：attach 不直发，等 webview 首条消息
+  // （notifyRendererReady）才 flush。真实 webview 启动即发此帧，harness 同步模拟，
+  // 否则 restart 横幅帧滞留队列，断言等不到。
+  vscode.postMessage({ t: "plat-evt", event: "notifyRendererReady" });
   const agentProxy = ProxyChannel.toService<IZCodeAgentService>(
     client.getChannel(IZCodeAgentService.channelName),
   );

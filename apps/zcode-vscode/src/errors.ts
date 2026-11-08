@@ -27,7 +27,7 @@ export const EXTENSION_ERROR_CODES = {
 /** 用户可读的插件侧错误信息（中文，供 UI 呈现）。 */
 export const EXTENSION_ERROR_MESSAGES: Record<number, string> = {
   [EXTENSION_ERROR_CODES.E_CLI_NOT_FOUND]:
-    "未找到 zcodium CLI。请安装后重试，或在设置中配置 code.cliPath。",
+    "未找到 zcodium CLI。请安装后重试，或在设置中配置 gode.cliPath。",
   [EXTENSION_ERROR_CODES.E_PROTOCOL_VERSION_MISMATCH]:
     "ZCode Protocol 版本不匹配，请升级 zcodium CLI 后重试。",
   [EXTENSION_ERROR_CODES.E_PROTOCOL_PARSE]:
@@ -39,7 +39,7 @@ export const EXTENSION_ERROR_MESSAGES: Record<number, string> = {
     "收到未知审批请求（requestId 不在待审批列表）。",
   [EXTENSION_ERROR_CODES.E_TRANSPORT_CLOSED]: "与 Agent 的连接已关闭。",
   [EXTENSION_ERROR_CODES.E_SERVICES_ASSEMBLY_FAILED]:
-    "ZCodium 服务装配失败，请查看诊断输出（ZCodium: 显示日志）。",
+    "Gode 服务装配失败，请查看诊断输出（Gode: 显示日志）。",
 };
 
 /**
@@ -69,7 +69,7 @@ export class ExtensionProtocolError extends Error {
 
   constructor(code: number, message?: string) {
     super(
-      message ?? EXTENSION_ERROR_MESSAGES[code] ?? `ZCodium 插件错误 ${code}`,
+      message ?? EXTENSION_ERROR_MESSAGES[code] ?? `Gode 插件错误 ${code}`,
     );
     this.name = "ExtensionProtocolError";
     this.code = code;

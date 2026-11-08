@@ -15,7 +15,7 @@ export const ZCODE_SESSION_MODES: readonly ZCodeSessionMode[] = [
   "auto",
 ];
 
-export interface ZcodiumConfig {
+export interface GodeConfig {
   /** settings 里配置的 CLI 绝对路径，空串表示走 PATH 探测。 */
   cliPath: string;
   /** 会话创建参数 config.mode，默认 build。 */
@@ -24,7 +24,7 @@ export interface ZcodiumConfig {
   rawModel: string;
 }
 
-export const DEFAULT_ZCODIUM_CONFIG: ZcodiumConfig = {
+export const DEFAULT_GODE_CONFIG: GodeConfig = {
   cliPath: "",
   mode: "build",
   rawModel: "",
@@ -53,7 +53,7 @@ export function normalizeMode(raw: string | undefined): ZCodeSessionMode {
 
 /**
  * MCP servers 的 settings 写回归一化（updateMcpServers，P1-8 写回面）：
- * 只保留数组内的对象条目（settings schema `code.mcp.servers: object[]`），
+ * 只保留数组内的对象条目（settings schema `gode.mcp.servers: object[]`），
  * 字段级校验归 @zcode/shared 的 zcodeProtocolMcpServerSchema（会话参数面时校验）。
  */
 export function normalizeMcpServersForSettings(servers: readonly unknown[]): unknown[] {

@@ -64,34 +64,33 @@ describe("CliLocator：内置 bundle 三级兜底", () => {
 });
 
 describe("resolveZcodeAgentSpawnCommand：nodeScript 分支", () => {
-  const rules = { toolAllowlist: ["Bash(git status)"], toolDenylist: ["WebFetch"] };
+  // 回归锁定（2026-11-07 真机事故）：spawn argv 只允许协议服务参数；
+  // --allowed-tools/--disallowed-tools 是 TUI 旗标，app-server 入口不识别，
+  // 注入会导致「打印 CLI help → exit 1」的每秒 spawn 崩溃风暴。
+  const FORBIDDEN_FLAGS = ["--allowed-tools", "--disallowed-tools"];
 
   it("nodeScript=true：经宿主 Node 运行 bundle，ELECTRON_RUN_AS_NODE=1", () => {
-    const spawn = resolveZcodeAgentSpawnCommand("/ext/cli-bundle/zcode.cjs", rules, {
+    const spawn = resolveZcodeAgentSpawnCommand("/ext/cli-bundle/zcode.cjs", {
       nodeScript: true,
     });
     expect(spawn.command).toBe(process.execPath);
-    expect(spawn.args).toEqual([
-      "/ext/cli-bundle/zcode.cjs",
-      ...ZCODE_AGENT_SERVER_BASE_ARGS,
-      "--allowed-tools",
-      "Bash(git status)",
-      "--disallowed-tools",
-      "WebFetch",
-    ]);
+    expect(spawn.args).toEqual(["/ext/cli-bundle/zcode.cjs", ...ZCODE_AGENT_SERVER_BASE_ARGS]);
     expect(spawn.env).toEqual({ ELECTRON_RUN_AS_NODE: "1" });
   });
 
   it("nodeScript 缺省：保持独立可执行形态（回归锁定）", () => {
-    const spawn = resolveZcodeAgentSpawnCommand("/usr/local/bin/zcodium", rules);
+    const spawn = resolveZcodeAgentSpawnCommand("/usr/local/bin/zcodium");
     expect(spawn.command).toBe("/usr/local/bin/zcodium");
-    expect(spawn.args).toEqual([
-      ...ZCODE_AGENT_SERVER_BASE_ARGS,
-      "--allowed-tools",
-      "Bash(git status)",
-      "--disallowed-tools",
-      "WebFetch",
-    ]);
+    expect(spawn.args).toEqual([...ZCODE_AGENT_SERVER_BASE_ARGS]);
     expect(spawn.env).toBeUndefined();
+  });
+
+  it("回归锁：spawn argv 永不包含 TUI 专属的工具面旗标", () => {
+    for (const options of [undefined, { nodeScript: true as const }]) {
+      const spawn = resolveZcodeAgentSpawnCommand("/ext/cli-bundle/zcode.cjs", options);
+      for (const flag of FORBIDDEN_FLAGS) {
+        expect(spawn.args).not.toContain(flag);
+      }
+    }
   });
 });

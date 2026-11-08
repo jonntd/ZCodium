@@ -72,7 +72,7 @@ export async function generateCommitMessage(
   let message: string;
   try {
     message = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.SourceControl, title: "Zcodium 正在生成提交信息…" },
+      { location: vscode.ProgressLocation.SourceControl, title: "Gode 正在生成提交信息…" },
       () => generateText(prompt, { maxOutputTokens: 1024 }),
     );
   } catch (error) {
@@ -89,7 +89,7 @@ export async function generateCommitMessage(
   }
   repo.inputBox.value = cleaned;
   void vscode.commands.executeCommand("workbench.view.scm");
-  void vscode.window.setStatusBarMessage("Zcodium：提交信息已填入 SCM 输入框", 4000);
+  void vscode.window.setStatusBarMessage("Gode：提交信息已填入 SCM 输入框", 4000);
 }
 
 /** 把当前改动作为上下文发到对话，用于「审阅这次改动」。 */

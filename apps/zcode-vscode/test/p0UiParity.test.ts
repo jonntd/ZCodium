@@ -37,11 +37,11 @@ import {
 } from "@zcode/shared/zcode-protocol-v4";
 import { PLATFORM_METHOD_WHITELIST } from "../src/host/platformRpcHandler";
 import {
-  CAPABILITY_BINARY_FRAME_HINT,
   CAPABILITY_UNSUPPORTED_HINT,
   capabilitiesFrameFromProbe,
   capabilitiesFromHello,
   gatePaneCallbacksByCapability,
+  headerHintFromCapabilities,
   probeCapabilitiesFrame,
   projectCapabilities,
   projectCapabilitiesPayload,
@@ -710,7 +710,6 @@ describe("T07 投影：restart 横幅与 capabilities 显隐（P1-6/P1-10.3）",
     expect(projection).toEqual({
       showTerminalEntry: false,
       showNativeDialogEntry: false,
-      binaryFrameHint: null,
       unsupportedHint: null,
     });
     const noBinary = projectCapabilities({
@@ -719,7 +718,8 @@ describe("T07 投影：restart 横幅与 capabilities 显隐（P1-6/P1-10.3）",
       binaryFrames: false,
       compression: "none",
     });
-    expect(noBinary.binaryFrameHint).toBe(CAPABILITY_BINARY_FRAME_HINT);
+    // 链路降级提示已整体移除：投影里不再有 binaryFrameHint 字段。
+    expect(noBinary).not.toHaveProperty("binaryFrameHint");
     // capabilitiesFromHello：hello 载荷收敛（integration fake hello 同形）。
     expect(
       capabilitiesFromHello({
@@ -733,6 +733,38 @@ describe("T07 投影：restart 横幅与 capabilities 显隐（P1-6/P1-10.3）",
     ).toMatchObject({ binaryFrames: true });
     expect(capabilitiesFromHello({ capabilities: null })).toBeNull();
     expect(capabilitiesFromHello(null)).toBeNull();
+  });
+
+  it("headerHintFromCapabilities：横幅行并入顶栏 chip（spec: workspace-header-status-hint）", () => {
+    // 投影 null（帧未到/静默规则）→ 无提示。
+    expect(headerHintFromCapabilities(null)).toBeNull();
+    // 能力面整体缺失 → warning tone（比链路降级更警示）。
+    expect(headerHintFromCapabilities(projectCapabilities(null))).toEqual({
+      message: CAPABILITY_UNSUPPORTED_HINT,
+      tone: "warning",
+    });
+    // binaryFrames=false → 无提示（链路降级横幅已移除）。
+    expect(
+      headerHintFromCapabilities(
+        projectCapabilities({
+          nativeDialogs: true,
+          localTerminal: true,
+          binaryFrames: false,
+          compression: "none",
+        }),
+      ),
+    ).toBeNull();
+    // 能力正常 → 无提示（chip 不渲染，header 高度不变）。
+    expect(
+      headerHintFromCapabilities(
+        projectCapabilities({
+          nativeDialogs: true,
+          localTerminal: true,
+          binaryFrames: true,
+          compression: "none",
+        }),
+      ),
+    ).toBeNull();
   });
 });
 
@@ -831,7 +863,7 @@ describe("projectCapabilitiesPayload：capabilities 帧 → App 投影（静默�
     expect(projectCapabilitiesPayload(undefined)).toBeNull();
   });
 
-  it("hello 帧 → 入口显隐按位投影（App 消费 showTerminalEntry/showNativeDialogEntry/binaryFrameHint）", () => {
+  it("hello 帧 → 入口显隐按位投影（App 消费 showTerminalEntry/showNativeDialogEntry）", () => {
     const projection = projectCapabilitiesPayload({
       capabilities: {
         nativeDialogs: true,
@@ -844,7 +876,6 @@ describe("projectCapabilitiesPayload：capabilities 帧 → App 投影（静默�
     expect(projection).toEqual({
       showTerminalEntry: true,
       showNativeDialogEntry: true,
-      binaryFrameHint: CAPABILITY_BINARY_FRAME_HINT,
       unsupportedHint: null,
     });
   });
@@ -858,7 +889,6 @@ describe("projectCapabilitiesPayload：capabilities 帧 → App 投影（静默�
     ).toEqual({
       showTerminalEntry: false,
       showNativeDialogEntry: false,
-      binaryFrameHint: null,
       unsupportedHint: CAPABILITY_UNSUPPORTED_HINT,
     });
   });

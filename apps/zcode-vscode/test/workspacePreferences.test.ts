@@ -4,7 +4,7 @@
  * - 指令/语言/删除保护：services setting 频道既有字段（AppSettings）的读写投影；
  * - 附加目录：plat 读面（getWorkspaceSettings）+ 写面（updateAdditionalDirectories
  *   host 归一化 ≤256）的双端形状；
- * - 「从 CLAUDE.md/ZCODIUM.md 一次性导入」：幂等映射（重复导入不重复拼接）；
+ * - 「从 CLAUDE.md/GODE.md 一次性导入」：幂等映射（重复导入不重复拼接）；
  * - T08 同源面：MCP CRUD 纯模型 + 「本次会话允许」pending permission 投影
  *   （sessionAllowlistRule 同口径）+ getWorkspaceSettings 白名单回归。
  *
@@ -56,13 +56,13 @@ describe("instructions form（AppSettings.customSystemPrompt/language 投影）"
   });
 });
 
-// ── 一次性导入（CLAUDE.md/ZCODIUM.md → customSystemPrompt） ──
+// ── 一次性导入（CLAUDE.md/GODE.md → customSystemPrompt） ──
 
 const importFiles = [
   {
     folder: "/repo",
-    name: "ZCODIUM.md",
-    path: "/repo/ZCODIUM.md",
+    name: "GODE.md",
+    path: "/repo/GODE.md",
     content: "使用 pnpm；测试统一 vitest。",
     sizeBytes: 24,
     truncated: false,
@@ -80,8 +80,8 @@ const importFiles = [
 describe("mapInstructionImport（P1-13.2 一次性拷贝 + 幂等）", () => {
   it("首次导入：节段带幂等标记拼到既有提示词之后；截断文件给 warning", () => {
     const outcome = mapInstructionImport(importFiles, "既有提示词");
-    expect(outcome.imported).toEqual(["/repo/ZCODIUM.md", "/repo/CLAUDE.md"]);
-    expect(outcome.promptDraft.startsWith("既有提示词\n\n<!-- zcodium:imported-instruction:/repo/ZCODIUM.md -->")).toBe(true);
+    expect(outcome.imported).toEqual(["/repo/GODE.md", "/repo/CLAUDE.md"]);
+    expect(outcome.promptDraft.startsWith("既有提示词\n\n<!-- zcodium:imported-instruction:/repo/GODE.md -->")).toBe(true);
     expect(outcome.promptDraft).toContain("使用 pnpm；测试统一 vitest。");
     expect(outcome.warnings[0]).toContain("/repo/CLAUDE.md");
     expect(outcome.skipped).toEqual([]);
@@ -91,14 +91,14 @@ describe("mapInstructionImport（P1-13.2 一次性拷贝 + 幂等）", () => {
     const first = mapInstructionImport(importFiles, "");
     const second = mapInstructionImport(importFiles, first.promptDraft);
     expect(second.imported).toEqual([]);
-    expect(second.skipped).toEqual(["/repo/ZCODIUM.md", "/repo/CLAUDE.md"]);
+    expect(second.skipped).toEqual(["/repo/GODE.md", "/repo/CLAUDE.md"]);
     expect(second.promptDraft).toBe(first.promptDraft);
     const firstFile = importFiles[0];
     expect(firstFile).toBeDefined();
     expect(second.promptDraft.split(instructionImportMarker(firstFile!))).toHaveLength(2);
   });
 
-  it("空文件集 → 草稿不变（面板给「未找到 ZCODIUM.md/CLAUDE.md」语义）", () => {
+  it("空文件集 → 草稿不变（面板给「未找到 GODE.md/CLAUDE.md」语义）", () => {
     const outcome = mapInstructionImport([], "keep");
     expect(outcome).toEqual({ promptDraft: "keep", imported: [], skipped: [], warnings: [] });
   });

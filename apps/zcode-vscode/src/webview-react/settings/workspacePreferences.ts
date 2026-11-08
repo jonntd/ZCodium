@@ -10,7 +10,7 @@
  *   既有写穿（workspace/updateSystemSegments）生效，本模块零协议新增；
  * - 附加目录：plat updateAdditionalDirectories（host 归一化 ≤256）+
  *   plat getWorkspaceSettings 读面；
- * - 「从 CLAUDE.md/ZCODIUM.md 一次性导入」：plat importWorkspaceInstructions 读文件 →
+ * - 「从 CLAUDE.md/GODE.md 一次性导入」：plat importWorkspaceInstructions 读文件 →
  *   一次性拷贝进 customSystemPrompt（幂等标记防重复导入）。
  * 纯函数模块：vitest 直测（test/workspacePreferences.test.ts）。
  */
@@ -92,7 +92,7 @@ export interface InstructionImportOutcome {
  * 一次性导入映射（P1-13.2：语义为一次性拷贝，非持续同步）：
  * - 幂等：既有提示词里已有同 path 标记 → 跳过（重复点击不重复拼接）；
  * - 截断文件给出 warning（512KB 上限，host 侧截断）；
- * - ZCODIUM.md 优先序由 host（每 folder 首个命中）保证，这里按返回序拼接。
+ * - GODE.md 优先序由 host（每 folder 首个命中）保证，这里按返回序拼接。
  */
 export function mapInstructionImport(
   files: readonly InstructionImportFile[],

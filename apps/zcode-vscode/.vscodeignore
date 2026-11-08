@@ -4,7 +4,11 @@ src/**
 test/**
 scripts/**
 out/**
-node_modules/**
+node_modules/@vitest/**
+node_modules/@zcode/**
+node_modules/vitest/**
+node_modules/.bin/**
+node_modules/.pnpm/**
 dist/**/*.map
 esbuild.mjs
 vitest.config.ts

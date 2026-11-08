@@ -151,34 +151,6 @@ export class HostSettingsBridge {
     };
   }
 
-  /**
-   * 每次 spawn 的工具面旗标快照（P1-3：settings 变更 = 下次 spawn 生效）。
-   * ZCodeAgentCommandResolver 每次 spawn 都会调用（services 进程管理保证），
-   * host 侧把快照经 buildToolRuleFlags 编译为 --allowed-tools / --disallowed-tools argv。
-   */
-  resolveSpawnToolFlags(): { toolAllowlist: string[]; toolDenylist: string[] } {
-    const snapshot = normalizeSettingsSnapshot(this.readSettings());
-    return { toolAllowlist: snapshot.toolAllowlist, toolDenylist: snapshot.toolDenylist };
-  }
-}
-
-/**
- * 工具面旗标 → spawn argv 后缀（纯函数，hostBridge/settingsBridge 测试锁定形状）。
- * 规则形式 `Tool` / `Tool(args)` 与 CLI --disallowed-tools 一致（本文件头部语义）；
- * 空列表不注入旗标（CLI 缺省=全量工具面）。
- */
-export function buildToolRuleFlags(rules: {
-  toolAllowlist: readonly string[];
-  toolDenylist: readonly string[];
-}): string[] {
-  const args: string[] = [];
-  if (rules.toolAllowlist.length > 0) {
-    args.push("--allowed-tools", rules.toolAllowlist.join(","));
-  }
-  if (rules.toolDenylist.length > 0) {
-    args.push("--disallowed-tools", rules.toolDenylist.join(","));
-  }
-  return args;
 }
 
 /**
@@ -199,19 +171,22 @@ export const ZCODE_AGENT_SERVER_BASE_ARGS: readonly string[] = ["app-server", "-
  */
 export function resolveZcodeAgentSpawnCommand(
   cliPath: string,
-  rules: { toolAllowlist: readonly string[]; toolDenylist: readonly string[] },
   options?: { nodeScript?: boolean },
 ): { command: string; args: string[]; env?: Record<string, string> } {
+  // 真机教训（2026-11-07）：spawn argv 只允许协议服务参数（app-server --stdio）。
+  // 工具规则必须走会话协议参数（createSession/resumeSession 的 toolAllowlist/
+  // toolDenylist，见 resolveCreate/ResumeParams）——`--allowed-tools` 等 TUI 旗标
+  // 不被 app-server 入口接受，会打印 CLI help 并 exit 1，引发 spawn 崩溃风暴。
   if (options?.nodeScript === true) {
     return {
       command: process.execPath,
-      args: [cliPath, ...ZCODE_AGENT_SERVER_BASE_ARGS, ...buildToolRuleFlags(rules)],
+      args: [cliPath, ...ZCODE_AGENT_SERVER_BASE_ARGS],
       env: { ELECTRON_RUN_AS_NODE: "1" },
     };
   }
   return {
     command: cliPath,
-    args: [...ZCODE_AGENT_SERVER_BASE_ARGS, ...buildToolRuleFlags(rules)],
+    args: [...ZCODE_AGENT_SERVER_BASE_ARGS],
   };
 }
 

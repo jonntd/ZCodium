@@ -5,7 +5,7 @@
  * Webview 连接复用 @zcode/client；UI 复用 @zcode/ui；桥 rpc 帧直通 @zcode/rpc 栈。
  */
 export const zcodeVscodeModule = {
-  id: "code",
+  id: "gode",
   requires: ["shared", "services", "client", "ui", "rpc"],
   provides: ["gode-vscode-extension"],
   publicEntrypoints: ["extension.ts"],

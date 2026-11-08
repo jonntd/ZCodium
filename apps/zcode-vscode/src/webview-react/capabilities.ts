@@ -13,6 +13,7 @@ import type {
   CapabilitiesHostFramePayload,
   RuntimeCapabilityFlags,
 } from "../host/hostFrameKinds";
+import type { WorkspaceHeaderHint } from "@/store/workspaceHeaderHintStore.js";
 
 export type { CapabilitiesHostFramePayload, RuntimeCapabilityFlags };
 
@@ -21,20 +22,31 @@ export interface CapabilityUiProjection {
   showTerminalEntry: boolean;
   /** 原生对话框入口显隐。 */
   showNativeDialogEntry: boolean;
-  /** 二进制帧缺失时的链路降级提示（null = 无需提示）。 */
-  binaryFrameHint: string | null;
   /** 能力面整体缺失（hello 未达/旧 CLI）的降级提示（P1-10.3）。 */
   unsupportedHint: string | null;
 }
 
 export const CAPABILITY_UNSUPPORTED_HINT = "当前 CLI 版本不支持";
-export const CAPABILITY_BINARY_FRAME_HINT =
-  "当前链路不支持二进制帧，传输已退化为 base64 文本帧";
+
+/**
+ * 能力投影 → 顶栏状态提示（spec: workspace-header-status-hint）。
+ * 链路降级提示（二进制帧 / base64 文本帧）已从插件宿主移除：传输编码对用户
+ * 无可操作性，横幅却常驻窄侧栏顶栏。仅保留 unsupportedHint（能力面整体缺失）
+ * 的 warning 提示，其余情况返回 null。
+ */
+export function headerHintFromCapabilities(
+  projection: CapabilityUiProjection | null,
+): WorkspaceHeaderHint | null {
+  if (projection?.unsupportedHint) {
+    return { message: projection.unsupportedHint, tone: "warning" };
+  }
+  return null;
+}
 
 /**
  * hello.capabilities → UI 显隐投影。
  * - capabilities 缺失（null/undefined）：全部入口隐藏 + unsupportedHint（不做部分猜测）；
- * - flags 在场：按位投影；binaryFrames=false 给出链路降级提示。
+ * - flags 在场：按位投影。
  */
 export function projectCapabilities(
   capabilities: RuntimeCapabilityFlags | null | undefined,
@@ -43,15 +55,12 @@ export function projectCapabilities(
     return {
       showTerminalEntry: false,
       showNativeDialogEntry: false,
-      binaryFrameHint: null,
       unsupportedHint: CAPABILITY_UNSUPPORTED_HINT,
     };
   }
   return {
     showTerminalEntry: capabilities.localTerminal === true,
     showNativeDialogEntry: capabilities.nativeDialogs === true,
-    binaryFrameHint:
-      capabilities.binaryFrames === true ? null : CAPABILITY_BINARY_FRAME_HINT,
     unsupportedHint: null,
   };
 }

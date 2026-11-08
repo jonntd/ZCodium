@@ -32,7 +32,12 @@ export const DEFAULT_EXPOSED_CHANNELS: readonly string[] = [
   "subagents",
   "usage-stats",
   // 文件 / 设置 / 广播（UI 装配面必需）
-  // 注意：terminal / process 属 §8 R3 高危服务面，默认绝不向 webview 暴露。
+  // 注意：process 属 §8 R3 高危服务面，默认绝不向 webview 暴露。
+  // terminal：Gode Agent 的 webview 壳承载了桌面端同款 SidePane 终端 tab
+  // （TerminalSession → ITerminalService），PTY 由插件 host 进程内的
+  // node-pty 承担（与桌面 host 同型），不放行即 "Channel name 'terminal'
+  // timed out after 1000ms"。
+  "terminal",
   "file",
   "media-preview",
   "setting",

@@ -24,7 +24,7 @@ export function createGenerateText(
     const selection = readModelSelection();
     if (!selection) {
       throw new Error(
-        "一次性文本生成需要指定模型。请在设置 `code.model` 中填写 `providerId/modelId`（需要档位时写成 `providerId/modelId$档位`）。",
+        "一次性文本生成需要指定模型。请在设置 `gode.model` 中填写 `providerId/modelId`（需要档位时写成 `providerId/modelId$档位`）。",
       );
     }
     const result = await runWithServices((accessor) =>

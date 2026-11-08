@@ -2,7 +2,7 @@
 /**
  * 本地 Mock 大模型服务器（Anthropic Messages API 兼容）。
  *
- * 用途：ZCodium E2E 自动化测试。把 provider 的 baseUrl 指到本服务即可让
+ * 用途：Gode E2E 自动化测试。把 provider 的 baseUrl 指到本服务即可让
  * server/agent 全链路走"本地假模型"——不出网、不烧 token、回复确定性。
  *
  * 协议面：

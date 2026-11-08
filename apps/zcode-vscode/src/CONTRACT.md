@@ -92,6 +92,13 @@ webview-react(React 装配) → 桥 shim → 同一 wire 协议 → host
    resume 必须携带 allowlist/denylist（P1-3.2）。
 4. Agent 传输与进程生命周期由 `@zcode/services` 进程管理承担；
    `RuntimeController` 只做 folder→服务生命周期与 resume 编排。
+5. 聊天卡片「审查 / 打开」（`src/host/pendingChanges/diffOpener.ts` +
+   `beforeContent.ts`）：webview 经 `openCodeViewerInEditor` 平台能力委托宿主，
+   「打开」→ `vscode.open`，「审查」→ `ChangesDiffOpener.openPendingDiff` 用
+   `zcode-before` 虚拟文档重构改动前内容并 `vscode.diff` 原生双栏呈现。
+   「文件改动历史」TreeView 及 `gode.changes.*` 命令族已按产品决策整体移除，
+   不再装配会话订阅 / 状态栏角标 / 编辑器标题栏按钮；`ChangesTracker`、
+   `ChangesService` 仅作为历史模块保留，不参与 activate 装配。
 
 ## 禁止事项
 

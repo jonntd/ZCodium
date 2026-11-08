@@ -1,53 +1,18 @@
 import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
-import { relative } from "node:path";
-import type { ContextChip } from "./viewProtocol";
+import { basename, relative } from "node:path";
 import type { AutoContextMode } from "./featureConfig";
 import { readDirectoryContext, readFileContext } from "./editorContextFiles";
+// PendingContext 契约与 fileMentionRef 工厂抽到叶子 pendingContext（断开与
+// editorContextFiles 的循环依赖），这里转口导出保持既有 import 面不变。
+import {
+  fileMentionRef,
+  type PendingContext,
+  type PendingContextMention,
+} from "./pendingContext";
 
-export interface PendingContext {
-  readonly chip: ContextChip;
-  readonly text: string;
-  /** 本块覆盖的文件路径（相对工作区），供发送时避免同一文件以其他形式重复出现。 */
-  readonly paths?: readonly string[];
-  /**
-   * 结构化 mention pill（Claude Code/Augment 口径）：composer 侧以 `prepend-if-missing`
-   * 预填干净引用（如 `client.js:9-10`），内容不塞输入框正文，模型按引用读文件。
-   * 缺省 = 无 mention 面（纯文本块，仅 buildPrompt 直发链路消费）。
-   */
-  readonly mention?: PendingContextMention;
-}
-
-/** composer mention pill 的最小结构面（与 ui ComposerMentionPrefill 结构兼容）。 */
-export interface PendingContextMention {
-  /** 去重身份：同 id 重复"加入上下文"不再产生第二个 pill。 */
-  readonly id: string;
-  readonly category: "files";
-  readonly label: string;
-  readonly value: string;
-  readonly markdown: string;
-  readonly data: { kind: "file" | "directory"; path: string; relativePath: string };
-}
-
-/** 文件引用 mention 工厂：label/转义与 ui mentionMarkdown 同口径（editorContextFiles 共用）。 */
-export function fileMentionRef(
-  fsPath: string,
-  relativePath: string,
-  label: string,
-  kind: "file" | "directory" = "file",
-  idSuffix = "",
-): PendingContextMention {
-  const normalizedPath = relativePath.replaceAll("\\", "/");
-  const escapedLabel = label.replaceAll("\\", "\\\\").replaceAll("[", "\\[").replaceAll("]", "\\]");
-  return {
-    id: `file:${fsPath}${idSuffix}`,
-    category: "files",
-    label,
-    value: kind === "directory" ? `${normalizedPath}/` : normalizedPath,
-    markdown: `[${escapedLabel}](./${normalizedPath})`,
-    data: { kind, path: fsPath, relativePath: normalizedPath },
-  };
-}
+export { fileMentionRef };
+export type { PendingContext, PendingContextMention };
 
 const MAX_SELECTION_LINES = 400;
 const MAX_DIAGNOSTICS = 20;
@@ -69,7 +34,9 @@ function fenced(languageId: string, content: string): string {
 }
 
 /** 选区 → 可直接拼进 prompt 的上下文块。 */
-export function contextFromSelection(editor: vscode.TextEditor): PendingContext | undefined {
+export function contextFromSelection(
+  editor: vscode.TextEditor,
+): PendingContext | undefined {
   return contextFromRange(editor.document, editor.selection);
 }
 
@@ -84,14 +51,27 @@ export function contextFromRange(
   const endLine = selection.end.line + 1;
   const raw = document.getText(selection);
   const lines = raw.split("\n");
-  const clipped = lines.length > MAX_SELECTION_LINES ? lines.slice(0, MAX_SELECTION_LINES) : lines;
-  const suffix = lines.length > MAX_SELECTION_LINES ? "\n…（选区过长，已截断）" : "";
+  const clipped =
+    lines.length > MAX_SELECTION_LINES
+      ? lines.slice(0, MAX_SELECTION_LINES)
+      : lines;
+  const suffix =
+    lines.length > MAX_SELECTION_LINES ? "\n…（选区过长，已截断）" : "";
   const path = workspaceRelative(document.uri.fsPath);
-  const label = `${path}:${startLine}-${endLine}`;
+  // pill 展示口径（用户要求）：`basename start-end`，如 `droptest.txt 500-666`；
+  // canonical 链接目标仍是相对路径（idSuffix 保持行号，同文件不同选区不互相判重）。
+  const label = `${basename(path)} ${startLine}-${endLine}`;
 
   return {
     chip: { id: randomUUID(), label },
-    mention: fileMentionRef(document.uri.fsPath, path, label, "file", `:${startLine}-${endLine}`),
+    mention: fileMentionRef(
+      document.uri.fsPath,
+      path,
+      label,
+      "file",
+      `:${startLine}-${endLine}`,
+      { startLine, endLine },
+    ),
     text: `<selection path="${path}" lines="${startLine}-${endLine}">\n${fenced(
       document.languageId,
       clipped.join("\n") + suffix,
@@ -100,7 +80,9 @@ export function contextFromRange(
 }
 
 /** 当前文件（无选区时）作为上下文。 */
-export function contextFromActiveFile(editor: vscode.TextEditor): PendingContext | undefined {
+export function contextFromActiveFile(
+  editor: vscode.TextEditor,
+): PendingContext | undefined {
   const document = editor.document;
   if (document.uri.scheme !== "file") return undefined;
   const path = workspaceRelative(document.uri.fsPath);
@@ -108,13 +90,19 @@ export function contextFromActiveFile(editor: vscode.TextEditor): PendingContext
   return {
     // id 不含光标行：同一文件重复"加入上下文"按 path 去重（光标移动不产生第二个 pill）。
     chip: { id: randomUUID(), label: `${path}:${cursor.line + 1}` },
-    mention: fileMentionRef(document.uri.fsPath, path, `${path}:${cursor.line + 1}`),
+    mention: fileMentionRef(
+      document.uri.fsPath,
+      path,
+      `${path}:${cursor.line + 1}`,
+    ),
     text: `<active-file path="${path}" cursor-line="${cursor.line + 1}" />`,
   };
 }
 
 /** 当前文件的诊断，交给模型判断「改完是否还会红」。 */
-export function contextFromDiagnostics(editor: vscode.TextEditor): PendingContext | undefined {
+export function contextFromDiagnostics(
+  editor: vscode.TextEditor,
+): PendingContext | undefined {
   const document = editor.document;
   const diagnostics = vscode.languages
     .getDiagnostics(document.uri)
@@ -221,7 +209,10 @@ export function autoContextSnapshot(
   const cursorByFsPath = new Map<string, number>();
   for (const visible of vscode.window.visibleTextEditors) {
     if (visible.document.uri.scheme !== "file") continue;
-    cursorByFsPath.set(visible.document.uri.fsPath, visible.selection.active.line + 1);
+    cursorByFsPath.set(
+      visible.document.uri.fsPath,
+      visible.selection.active.line + 1,
+    );
   }
 
   const openEditors: AutoContextOpenFile[] = [];
@@ -233,20 +224,31 @@ export function autoContextSnapshot(
       if (!uri || uri.scheme !== "file") continue;
       if (seen.has(uri.fsPath)) continue;
       seen.add(uri.fsPath);
-      openEditors.push({ fsPath: uri.fsPath, cursorLine: cursorByFsPath.get(uri.fsPath) });
+      openEditors.push({
+        fsPath: uri.fsPath,
+        cursorLine: cursorByFsPath.get(uri.fsPath),
+      });
     }
   }
 
   return {
     openEditors,
-    recentEdits: [...recentEdits].map(([fsPath, editedAt]) => ({ fsPath, editedAt })),
-    activeFsPath: editor?.document.uri.scheme === "file" ? editor.document.uri.fsPath : undefined,
+    recentEdits: [...recentEdits].map(([fsPath, editedAt]) => ({
+      fsPath,
+      editedAt,
+    })),
+    activeFsPath:
+      editor?.document.uri.scheme === "file"
+        ? editor.document.uri.fsPath
+        : undefined,
     now,
   };
 }
 
 function isSkippedAutoContextPath(fsPath: string): boolean {
-  return fsPath.split(/[\\/]/).some((segment) => AUTO_CONTEXT_SKIP_DIRS.has(segment));
+  return fsPath
+    .split(/[\\/]/)
+    .some((segment) => AUTO_CONTEXT_SKIP_DIRS.has(segment));
 }
 
 /** 「最相关」排序：活动文件置顶，其余保持 tab 顺序（tab 大致按打开/使用顺序）。 */
@@ -283,8 +285,16 @@ function autoContextBlock(entry: AutoContextEntry): PendingContext {
 }
 
 type AutoContextEntry =
-  | { readonly kind: "openEditor"; readonly fsPath: string; readonly cursorLine?: number }
-  | { readonly kind: "recentEdit"; readonly fsPath: string; readonly editedAt: number };
+  | {
+      readonly kind: "openEditor";
+      readonly fsPath: string;
+      readonly cursorLine?: number;
+    }
+  | {
+      readonly kind: "recentEdit";
+      readonly fsPath: string;
+      readonly editedAt: number;
+    };
 
 /**
  * 按档位把快照拼成上下文块：
@@ -301,9 +311,16 @@ export function buildAutoContext(
 ): PendingContext[] {
   if (mode === "off") return [];
 
-  const entries: AutoContextEntry[] = sortOpenEditors(snapshot.openEditors, snapshot.activeFsPath)
+  const entries: AutoContextEntry[] = sortOpenEditors(
+    snapshot.openEditors,
+    snapshot.activeFsPath,
+  )
     .filter((file) => !isSkippedAutoContextPath(file.fsPath))
-    .map((file) => ({ kind: "openEditor", fsPath: file.fsPath, cursorLine: file.cursorLine }));
+    .map((file) => ({
+      kind: "openEditor",
+      fsPath: file.fsPath,
+      cursorLine: file.cursorLine,
+    }));
 
   if (mode === "openEditorsAndRecentEdits") {
     const openedPaths = new Set(entries.map((entry) => entry.fsPath));
@@ -363,7 +380,10 @@ export async function buildPrompt(
   }
 
   // FR-B22 自动上下文：mention 带文件内容而这里只有路径，信息不重复，不做交叉去重。
-  const autoContext = buildAutoContext(autoContextSnapshot(editor), options.autoContext);
+  const autoContext = buildAutoContext(
+    autoContextSnapshot(editor),
+    options.autoContext,
+  );
   const coveredPaths = new Set<string>();
   for (const item of autoContext) {
     parts.push(item.text);
@@ -373,7 +393,9 @@ export async function buildPrompt(
 
   if (editor) {
     // 活动文件已被自动上下文覆盖（openEditors 档）时不再重复 active-file 块。
-    const activeCovered = coveredPaths.has(workspaceRelative(editor.document.uri.fsPath));
+    const activeCovered = coveredPaths.has(
+      workspaceRelative(editor.document.uri.fsPath),
+    );
     if (options.includeActiveFile && !activeCovered) {
       const active = contextFromActiveFile(editor);
       if (active) {

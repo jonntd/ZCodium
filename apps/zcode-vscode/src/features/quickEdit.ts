@@ -52,7 +52,7 @@ export async function runQuickEdit(deps: QuickEditDeps): Promise<void> {
   const document = editor.document;
   const original = document.getText(selection);
   const instruction = await vscode.window.showInputBox({
-    title: "Zcodium 改写",
+    title: "Gode 改写",
     prompt: "描述你想要的修改（Enter 生成，Esc 取消）",
     placeHolder: "例如：改成 early return 风格 / 补上空值判断 / 提取成独立函数",
     ignoreFocusOut: true,
@@ -82,7 +82,7 @@ export async function runQuickEdit(deps: QuickEditDeps): Promise<void> {
     rewritten = await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.SourceControl,
-        title: "Zcodium 正在改写…",
+        title: "Gode 正在改写…",
         cancellable: true,
       },
       async (_progress, token) => {
@@ -120,7 +120,7 @@ export async function runQuickEdit(deps: QuickEditDeps): Promise<void> {
     "vscode.diff",
     beforeUri,
     afterUri,
-    `Zcodium 改写预览：${relative}`,
+    `Gode 改写预览：${relative}`,
     { preview: true },
   );
 
@@ -139,7 +139,7 @@ export async function runQuickEdit(deps: QuickEditDeps): Promise<void> {
   if (!applied) return;
 
   await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
-  void vscode.window.setStatusBarMessage("Zcodium：改写已应用", 4000);
+  void vscode.window.setStatusBarMessage("Gode：改写已应用", 4000);
 }
 
 async function applySelectionRewrite(
