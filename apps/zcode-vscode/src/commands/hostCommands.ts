@@ -26,7 +26,12 @@ import {
 } from "../host/hostFrameKinds";
 import type { SessionsIndexBridge } from "../host/sessionsIndexBridge";
 import { toggleChatFullscreenLayout } from "../features/chatFullscreen";
+import { resolveNewSessionTarget } from "../features/newSessionTarget";
+import { CHAT_VIEW_ID } from "../ui/chatPanel";
 import { log } from "../features/logger";
+
+/** 侧栏对话视图标题（仅用于命令返回值；真实标题由 package.json 的 views 声明）。 */
+const SIDEBAR_CHAT_TITLE = "Gode 对话";
 
 /** 命令实现依赖（container 注入；结构化最小面）。 */
 export interface HostCommandDeps {
@@ -58,8 +63,17 @@ export interface HostCommandDeps {
     pushHostFrame(kind: HostFrameKind, payload: unknown): void;
     /** UI 定向帧（open-panel/diagnostics）：只投给最近活动的对话页，不广播。 */
     pushToActiveHostFrame(kind: HostFrameKind, payload: unknown): void;
-    /** 定向帧（指定连接）：只投给这一页；目标不存在则丢弃，未就绪则排到该连接队列。 */
-    pushHostFrameTo(connectionId: string | null, kind: HostFrameKind, payload: unknown): void;
+    /**
+     * 定向帧（指定连接）：只投给这一页；目标不存在则丢弃，未就绪则排到该连接队列。
+     * 返回 false 表示目标连接不存在（帧被丢弃），调用方可据此提示而不是假装成功。
+     */
+    pushHostFrameTo(
+      connectionId: string | null,
+      kind: HostFrameKind,
+      payload: unknown,
+    ): boolean;
+    /** 该连接是否在线（判断"某一面在不在"，不发帧）。 */
+    hasConnection(connectionId: string): boolean;
   };
   diagnostics: { show(): void; log(message: string): void };
   sessionsIndex: Pick<SessionsIndexBridge, "pickWorkspaceFolder">;
@@ -199,28 +213,59 @@ export function registerHostCommands(deps: HostCommandDeps): Disposable[] {
       deps.agentService.disposeAll();
     }),
   );
+  // 「新建会话（+）」：让**眼前这一面**回到草稿态（V4WorkspaceChatArea draft；会话数据
+  // 保留在会话库），**绝不新开编辑器页签**——那条路走 openNew（状态栏「新建页签」）。
+  //
+  // 历史缺陷（2026-11-08 用户反馈「我点加号为什么会创建出一个 TAB 窗口」）：侧栏
+  // 标题栏的 +（view/title）与标签行的 +（editor/title）绑定同一条命令，而这条命令
+  // 只认编辑器页签 → 在侧栏点 + 时要么把编辑器页签清成草稿（点错面），要么（没有
+  // 编辑器页签）直接 reveal 出一个新 TAB。目标面判定见 features/newSessionTarget.ts。
   disposables.push(
     commands.registerCommand("gode.newSession", () => {
-      // 新会话 = 当前页回到草稿态（V4WorkspaceChatArea draft；会话数据保留在会话库）。
-      // 定向投给「这一页」而不是 pushToActiveHostFrame：后者认「最近活动连接」，
-      // 与眼前页签未必同一个，投错会把另一页（含侧栏面板）拉回草稿。
-      //
-      // 无存活页签时**不要**先 reveal()：reveal 走 resume 模式，会按 per-folder 最近
-      // 会话建页，然后才收到 new-session 帧清空——用户看到"点 + 先闪出上次的对话再
-      // 变空"。直接 openNew() 建**草稿页**（draft 模式 bootstrap 不带 sessionId），
-      // 既省一次会话恢复，也没有那一帧闪烁。
-      if (deps.chatEditorPanel.activeConnectionId() === null) {
-        const created = deps.chatEditorPanel.openNew("newSession:无存活页签，直接建草稿页");
-        deps.firstOpen?.();
-        return created;
-      }
-      // 有存活页签：reveal 只是聚焦（不会 create），目标与投递同一块面板。
-      const result = deps.chatEditorPanel.reveal();
-      const connectionId = deps.chatEditorPanel.activeConnectionId();
+      const target = resolveNewSessionTarget({
+        editorConnectionId: deps.chatEditorPanel.activeConnectionId(),
+        sidebarOnline: deps.hostRuntime.hasConnection(CHAT_VIEW_ID),
+        sidebarConnectionId: CHAT_VIEW_ID,
+      });
       const payload: WorkspaceHostFramePayload = { kind: "new-session" };
-      deps.hostRuntime.pushHostFrameTo(connectionId, "workspace", payload);
+      if (target.surface === "editor") {
+        // reveal 只是聚焦（有存活页签时不会 create），投递目标 = 同一块面板。
+        const result = deps.chatEditorPanel.reveal();
+        deps.hostRuntime.pushHostFrameTo(target.connectionId, "workspace", payload);
+        deps.firstOpen?.();
+        return result;
+      }
+      if (target.surface === "sidebar") {
+        // 只剩侧栏一面：在侧栏里新开对话。定向投递（不广播）——编辑器页签此时不存在，
+        // 但广播会把"回草稿"同时推给任何别的连接。
+        deps.hostRuntime.pushHostFrameTo(target.connectionId, "workspace", payload);
+        deps.firstOpen?.();
+        return {
+          created: false,
+          viewType: CHAT_VIEW_ID,
+          title: SIDEBAR_CHAT_TITLE,
+        };
+      }
+      // 一个对话面都没有（首次使用 / 页签被关光）：才建草稿页签。**不要**先 reveal()
+      // ——reveal 走 resume 模式，会按 per-folder 最近会话建页再被清空，用户会看到
+      // "点 + 先闪出上次的对话再变空"。
+      const created = deps.chatEditorPanel.openNew("newSession:无任何对话面，建草稿页");
       deps.firstOpen?.();
-      return result;
+      return created;
+    }),
+  );
+  // 侧栏标题栏的 +（view/title）：**只**作用于侧栏这一页。
+  // 与 gode.newSession 分开是有意的——菜单命令拿不到"从哪儿点的"，两者若共用一条实现，
+  // 必然有一面被错误对待（有编辑器页签时侧栏点 + 会去清编辑器，反之则新开 TAB）。
+  disposables.push(
+    commands.registerCommand("gode.newSidebarSession", () => {
+      const delivered = deps.hostRuntime.pushHostFrameTo(CHAT_VIEW_ID, "workspace", {
+        kind: "new-session",
+      } satisfies WorkspaceHostFramePayload);
+      if (!delivered) {
+        // 侧栏 webview 尚未挂桥（视图刚展开 / 正在重建）：明确告知，不假装成功。
+        window.setStatusBarMessage("侧栏对话尚未就绪，请稍后再试", 3_000);
+      }
     }),
   );
   disposables.push(

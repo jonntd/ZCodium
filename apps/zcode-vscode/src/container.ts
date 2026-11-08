@@ -538,6 +538,11 @@ export async function createContainer(
     generateText: createGenerateText(runWithServices, editorWorkspacePath()),
     quickEditProvider,
     runWithServices,
+    // 「历史会话」选中后是否需要打开对话面：已有面（编辑器页签/侧栏）就不再开新的，
+    // 否则"在侧栏点历史会话"会凭空多出一个编辑器 TAB。
+    hasChatSurface: () =>
+      chatEditorPanel.activeConnectionId() !== null ||
+      hostRuntime.hasConnection(CHAT_VIEW_ID),
   });
   const codeActionEntry = createCodeActionEntry(editorPushFrame);
   const codeActionDisposable = languages.registerCodeActionsProvider(

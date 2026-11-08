@@ -96,11 +96,60 @@ describe("贡献点一致性", () => {
     const match = readSource("src/ui/chatPanel.ts").match(/CHAT_VIEW_ID\s*=\s*"([^"]+)"/);
     expect(match?.[1]).toBeDefined();
     expect(viewIds.has(match![1]!)).toBe(true);
-    const newSessionMenus = (contributes.menus?.["view/title"] ?? []).filter(
+    // 侧栏标题栏的 + 必须绑**侧栏作用域**的命令（gode.newSidebarSession），不能复用
+    // 编辑器那条 gode.newSession —— 后者在"没有编辑器页签"时会新开一个 TAB（用户反馈
+    // 2026-11-08「点加号创建出一个 TAB 窗口」的根因）。
+    const sidebarPlus = (contributes.menus?.["view/title"] ?? []).filter(
+      (entry) => entry.group === "navigation@1",
+    );
+    expect(sidebarPlus).toHaveLength(1);
+    expect(sidebarPlus[0]!.command).toBe("gode.newSidebarSession");
+    expect(sidebarPlus[0]!.when).toContain(`view == ${match![1]}`);
+    // 反向锁死：编辑器命令不得再挂回视图标题栏。
+    const editorNewSessionInView = (contributes.menus?.["view/title"] ?? []).filter(
       (entry) => entry.command === "gode.newSession",
     );
-    expect(newSessionMenus).toHaveLength(1);
-    expect(newSessionMenus[0]!.when).toContain(`view == ${match![1]}`);
+    expect(editorNewSessionInView).toEqual([]);
+  });
+
+  it("侧栏「新建会话」只投侧栏连接（定向，不广播、不建页签）", () => {
+    const source = readSource("src/commands/hostCommands.ts");
+    const start = source.indexOf('registerCommand("gode.newSidebarSession"');
+    expect(start).toBeGreaterThan(-1);
+    // 只截这一条命令的实现体（到下一条 registerCommand 为止），否则会把后面别的
+    // 命令（switchWorkspace 等）的广播调用算进来，断言恒假。
+    const nextStart = source.indexOf("commands.registerCommand(", start + 1);
+    const sidebarCommand = source.slice(start, nextStart === -1 ? undefined : nextStart);
+    // 定向投给 CHAT_VIEW_ID；广播会把"回草稿"同时推给别的连接。
+    expect(sidebarCommand).toContain('pushHostFrameTo(CHAT_VIEW_ID, "workspace"');
+    expect(sidebarCommand).not.toContain("pushHostFrame(");
+    expect(sidebarCommand).not.toContain("pushToActiveHostFrame");
+    expect(sidebarCommand).not.toContain("openNew");
+    expect(sidebarCommand).not.toContain("reveal()");
+    // 编辑器命令走目标面判定，而不是「没页签就建一个」。
+    const newSession = source.slice(
+      source.indexOf('registerCommand("gode.newSession"'),
+      start,
+    );
+    expect(newSession).toContain("resolveNewSessionTarget(");
+    expect(newSession).toContain("activeConnectionId()");
+    expect(newSession).toContain("hasConnection(CHAT_VIEW_ID)");
+  });
+
+  it("「历史会话」不再无条件打开对话（已有对话面时才不新开，避免凭空多出 TAB）", () => {
+    const source = readSource("src/features/editorCommands.ts");
+    const start = source.indexOf('register("gode.pickSession"');
+    expect(start).toBeGreaterThan(-1);
+    const next = source.indexOf("register(", start + 1);
+    const block = source.slice(start, next === -1 ? undefined : next);
+    // 帧照样广播（双页同显是有意设计），但**打开动作**必须先判"有没有面"：
+    // 没有编辑器页签时 openChat 会直接建一个 TAB——与「点加号多出一个 TAB」同源。
+    expect(block).toContain("hasChatSurface()");
+    expect(block).toContain('executeCommand("gode.openChat")');
+    // 容器注入的判定口径：编辑器页签 || 侧栏连接。
+    const container = readSource("src/container.ts");
+    expect(container).toContain("hasChatSurface: () =>");
+    expect(container).toContain("hostRuntime.hasConnection(CHAT_VIEW_ID)");
   });
 
   it("菜单引用的命令都已声明（或为宿主内置命令）", () => {
@@ -396,17 +445,19 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(hostCommands).toContain('registerCommand("gode.openChat", openChat)');
     // 首次打开对话自动呈现上手卡（一次性，globalState 标记在容器侧）。
     expect(hostCommands).toContain("deps.firstOpen?.()");
-    // 新会话帧**定向**给「当前这一页」（回草稿是单页 UI 动作）：先取 reveal 会选中
-    // 的那块面板的连接 id，再按 id 投递；不能走 pushToActiveHostFrame——后者认「最近
-    // 活动连接」，与眼前页签未必同一个，投错会把另一页拉回草稿。
+    // 新会话帧**定向**给「当前这一页」（回草稿是单页 UI 动作）：先按目标面判定取连接
+    // id，再按 id 投递；不能走 pushToActiveHostFrame——后者认「最近活动连接」，与眼前
+    // 页签未必同一个，投错会把另一页拉回草稿。
     expect(hostCommands).toContain("deps.chatEditorPanel.activeConnectionId()");
     expect(hostCommands).toContain(
-      'deps.hostRuntime.pushHostFrameTo(connectionId, "workspace", payload)',
+      'deps.hostRuntime.pushHostFrameTo(target.connectionId, "workspace", payload)',
     );
-    // 无存活页签时**直接建草稿页**，不走 reveal：reveal 是 resume 模式，会先按
+    // 目标面判定（侧栏在线时投侧栏，而不是新开 TAB）：判定本身在纯模块里直测。
+    expect(hostCommands).toContain("resolveNewSessionTarget({");
+    expect(hostCommands).toContain("deps.hostRuntime.hasConnection(CHAT_VIEW_ID)");
+    // 一个对话面都没有时**直接建草稿页**，不走 reveal：reveal 是 resume 模式，会先按
     // per-folder 最近会话建页、再被 new-session 帧清空（"点 + 先闪出上次对话"）。
-    expect(hostCommands).toContain("deps.chatEditorPanel.activeConnectionId() === null");
-    expect(hostCommands).toContain("newSession:无存活页签，直接建草稿页");
+    expect(hostCommands).toContain("newSession:无任何对话面，建草稿页");
     expect(hostCommands).not.toContain("deps.chatPanel.reveal");
     expect(hostCommands).not.toContain("chatPanel: { reveal(): void }");
     // 对话面板**不得再执行任何布局命令**（缺陷回归 2026-11-08）：原收栏兜底会

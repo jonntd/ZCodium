@@ -49,6 +49,14 @@ export interface EditorCommandDependencies {
   readonly runWithServices: <T>(
     run: (accessor: import("@zcode/services").IServiceAccessor) => Promise<T>,
   ) => Promise<T>;
+  /**
+   * 是否已有对话面（编辑器页签或侧栏视图）可承接 UI 帧。
+   *
+   * 用途：「历史会话」选中后**不再无条件 openChat**——`openChat` 在"没有编辑器
+   * 页签"时会新建一个对话 TAB（与用户反馈的「点加号创建出一个 TAB」同一类：
+   * 用户只想在眼前这一面切会话，却凭空多出一个窗口）。没有对话面时才需要打开。
+   */
+  readonly hasChatSurface: () => boolean;
 }
 
 const INSTRUCTIONS = {
@@ -180,7 +188,12 @@ export function registerEditorCommands(
     const sessionId = await pickSession(() => listSessions(deps));
     if (!sessionId) return;
     deps.pushFrame("session-switch", { sessionId });
-    await vscode.commands.executeCommand("gode.openChat");
+    // 已有对话面（编辑器页签 / 侧栏视图）时不再 openChat：帧已经送到眼前这一面，
+    // 多余的一次 openChat 会在"没有编辑器页签"时新开一个对话 TAB（用户反馈 2026-11-08
+    // 「点加号创建出一个 TAB 窗口」的同类现象）。只有一面都没有时才需要打开。
+    if (!deps.hasChatSurface()) {
+      await vscode.commands.executeCommand("gode.openChat");
+    }
   });
 
   // Code Action 的三种落点：带指令提交、只加上下文、按诊断修复。

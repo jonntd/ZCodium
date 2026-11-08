@@ -155,6 +155,12 @@
         "category": "Gode"
       },
       {
+        "command": "gode.newSidebarSession",
+        "title": "新建会话（侧栏）",
+        "category": "Gode",
+        "icon": "$(add)"
+      },
+      {
         "command": "gode.codeAction",
         "title": "Gode 代码操作",
         "category": "Gode"
@@ -220,7 +226,7 @@
     "menus": {
       "view/title": [
         {
-          "command": "gode.newSession",
+          "command": "gode.newSidebarSession",
           "when": "view == gode.chat",
           "group": "navigation@1"
         },

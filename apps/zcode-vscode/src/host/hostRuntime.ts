@@ -200,15 +200,23 @@ export class HostRuntime {
    *   `activeConnectionId()` 取真实目标；页签确实不存在时本来就没有可投的页）；
    * - 连接存在但 renderer 未就绪 → 存入**该连接专用**队列，它 ready 时按序补发
    *   （「命令先行、面板后开」场景由这条覆盖，且不会波及别的页）。
+   *
+   * @returns 是否已投递或已排入该连接的队列（false = 目标不存在，帧被丢弃）。
+   * 调用方据此区分"发出去了"与"根本没这一面"——例如侧栏「新建会话」在 webview
+   * 尚未挂桥时需要提示用户，而不是静默成功。
    */
-  pushHostFrameTo(connectionId: string | null, kind: HostFrameKind, payload: unknown): void {
-    if (this.disposed) return;
+  pushHostFrameTo(
+    connectionId: string | null,
+    kind: HostFrameKind,
+    payload: unknown,
+  ): boolean {
+    if (this.disposed) return false;
     const connection = connectionId ? this.connections.get(connectionId) : undefined;
     if (!connection) {
       this.options.log?.(
         `[host-bridge] 定向帧丢弃：目标连接不存在（target=${connectionId ?? "null"}，kind=${kind}）`,
       );
-      return;
+      return false;
     }
     const frame: HostFrame = { t: "host", kind, payload };
     if (!connection.readyForFrames) {
@@ -219,9 +227,20 @@ export class HostRuntime {
       this.options.log?.(
         `[host-bridge] 定向帧暂存：目标未就绪（target=${connection.id}，kind=${kind}，积压=${queue.length}）`,
       );
-      return;
+      return true;
     }
     this.post(connection, frame);
+    return true;
+  }
+
+  /**
+   * 某连接当前是否在线（webview 已挂桥、未 dispose）。
+   *
+   * 用途：命令侧判断"某个对话面到底在不在"，**不发帧、不创建任何东西**。
+   * 典型：「新建会话」在没有编辑器页签时，要不要把帧投给侧栏（而不是新开页签）。
+   */
+  hasConnection(connectionId: string): boolean {
+    return !this.disposed && this.connections.has(connectionId);
   }
 
   /** chatPanel.resolveWebviewView 时调用：建立该 webview 的 RPC 连接。 */
