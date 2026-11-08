@@ -55,6 +55,7 @@ import {
   type IServiceAccessor,
 } from "@zcode/services";
 import { ensureWorkspaceProjectBinding } from "./features/workspaceProjectBinding";
+import { writeStateQuietly } from "./features/stateWrite";
 import {
   HostSettingsBridge,
   mergeAllowlistRules,
@@ -134,6 +135,12 @@ export async function createContainer(
 ): Promise<Container> {
   const diagnostics = new Diagnostics();
   const statusBar = new StatusBar();
+  /**
+   * 持久化写入的失败汇报面（4 处 Memento 写入共用）。
+   * 写入失败可降级（下次再写），但必须留痕：静默失败会让"偏好/会话标签丢失"
+   * 这类问题完全无法归因。
+   */
+  const logPersistFailure = (message: string): void => diagnostics.log(message);
   const store = ExtensionStore.fromContext(context);
   const diffViewer = new DiffViewer();
   // per-folder 会话键控（P1-1.5/P1-2 host 半）：webview 侧 workspaceSessions 与
@@ -299,13 +306,19 @@ export async function createContainer(
     sessionTabsPersistence: {
       read: () => context.workspaceState.get<unknown>(SESSION_TABS_HOST_KEY) ?? null,
       write: (value) => {
-        void context.workspaceState.update(SESSION_TABS_HOST_KEY, value);
+        // 不用 `void .update(...)`：拒绝就是未捕获的 Promise 拒绝（见 stateWrite 头注）。
+        writeStateQuietly(context.workspaceState, SESSION_TABS_HOST_KEY, value, logPersistFailure);
       },
     },
     // 侧栏显隐偏好上行 → globalState。webview 的 localStorage 按 origin 隔离（每个
     // 页签一个），跨页签/重启只能走这条；bootstrap 注入见 setSidebarVisibleSeedProvider。
     onWorkspaceSidebarVisible: (visible) => {
-      void context.globalState.update(WORKSPACE_SIDEBAR_VISIBLE_KEY, visible);
+      writeStateQuietly(
+        context.globalState,
+        WORKSPACE_SIDEBAR_VISIBLE_KEY,
+        visible,
+        logPersistFailure,
+      );
     },
     // 空态「历史会话」CTA 已移除（与 IDE 原生标签视觉重复）；历史入口保留
     // 编辑器 title 按钮 + gode.pickSession 命令面板。
@@ -554,7 +567,7 @@ export async function createContainer(
     presentOnboardingOnce: () => {
       const key = "gode.onboarding.autoPresented";
       if (context.globalState.get<boolean>(key, false)) return;
-      void context.globalState.update(key, true);
+      writeStateQuietly(context.globalState, key, true, logPersistFailure);
       void welcomePage.presentOnboarding({ cli: cliInfo });
     },
     services,
@@ -595,7 +608,7 @@ function buildPlatformMethods(deps: {
     const existing = context.globalState.get<string>(deviceIdKey);
     if (existing) return existing;
     const id = randomUUID();
-    void context.globalState.update(deviceIdKey, id);
+    writeStateQuietly(context.globalState, deviceIdKey, id, deps.log);
     return id;
   };
 

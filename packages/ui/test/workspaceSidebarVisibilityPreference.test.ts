@@ -11,10 +11,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  applyWorkspaceSidebarVisibleFromHost,
   persistWorkspaceSidebarVisible,
   readWorkspaceSidebarVisible,
   setWorkspaceSidebarVisibleReporter,
   setWorkspaceSidebarVisibleSeed,
+  subscribeWorkspaceSidebarVisible,
 } from "../src/hooks/useAppPanels.ts";
 
 const STORAGE_KEY = "zcode:workspace-shell:sidebar-visible";
@@ -101,8 +103,7 @@ test("上报面抛异常不影响本地交互", () => {
   assert.equal(storage.getItem(STORAGE_KEY), "1");
 });
 
-test("localStorage 不可用时不抛异常（读写均静默降级）", () => {
-  (globalThis as { localStorage?: unknown }).localStorage = {
+test("localStorage 不可用时不抛异常（读写均静默降级）", () => {  (globalThis as { localStorage?: unknown }).localStorage = {
     getItem: () => {
       throw new Error("SecurityError");
     },
@@ -114,4 +115,40 @@ test("localStorage 不可用时不抛异常（读写均静默降级）", () => {
   assert.doesNotThrow(() => readWorkspaceSidebarVisible());
   // 同上下文记忆兜住用户这次的选择（即使磁盘写不进去）
   assert.equal(readWorkspaceSidebarVisible(), true);
+});
+
+test("宿主回推的偏好同步本页 + 回写缓存，且不再上报（否则是回声环）", () => {
+  const storage = installStorage();
+  const seen: boolean[] = [];
+  const reported: boolean[] = [];
+  setWorkspaceSidebarVisibleReporter((visible) => reported.push(visible));
+  const unsubscribe = subscribeWorkspaceSidebarVisible((visible) => seen.push(visible));
+
+  applyWorkspaceSidebarVisibleFromHost(true);
+  unsubscribe();
+  // 退订后不再通知订阅者，但缓存与记忆仍要更新（下次重载才不会翻回旧值）。
+  applyWorkspaceSidebarVisibleFromHost(false);
+  setWorkspaceSidebarVisibleReporter(null);
+
+  assert.deepEqual(seen, [true]);
+  assert.equal(storage.getItem(STORAGE_KEY), "0");
+  assert.equal(readWorkspaceSidebarVisible(), false);
+  // 值本来就是宿主推来的：再上报会形成「A 推给 B → B 回报宿主 → 再推给 A」的回声。
+  assert.deepEqual(reported, []);
+});
+
+test("单个订阅者抛异常不影响其它订阅者与本地状态", () => {
+  const storage = installStorage();
+  const seen: boolean[] = [];
+  const off1 = subscribeWorkspaceSidebarVisible(() => {
+    throw new Error("listener boom");
+  });
+  const off2 = subscribeWorkspaceSidebarVisible((visible) => seen.push(visible));
+
+  assert.doesNotThrow(() => applyWorkspaceSidebarVisibleFromHost(true));
+  off1();
+  off2();
+
+  assert.deepEqual(seen, [true]);
+  assert.equal(storage.getItem(STORAGE_KEY), "1");
 });

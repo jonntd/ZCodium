@@ -42,25 +42,35 @@ export interface PlatformEventFrame {
 
 /**
  * host 帧型全集（T02/⑤ + M1 编辑器功能：帧协议集中定义）。
+ *
+ * **唯一定义处**：联合类型由本数组派生，`parseBridgeEnvelope` 的 host 分支也直接按
+ * 本数组判定。此前这条规则被抄成三份（wire 的联合、wire 守卫里 12 条 `||`、
+ * hostFrameKinds 的联合 + 数组），新增帧型漏改任何一处的结果都是**帧被静默丢弃**
+ * （guard 返回 null，webview 收不到且无人报错）——与「当前页判定抄两份」同型缺陷。
  * theme/locale/workspace/visibility 为既有面；diagnostics/restart/open-panel 为
  * v0.2.0 新增（诊断下发、进程换代横幅、面板打开指令）；composer-insert/session-switch
  * 为 M1 编辑器功能新增（编辑器命令 → 对话 composer 预填 / 历史会话切换）；
- * capabilities 为 T07 capabilities 横切新增（agent 就绪后的能力面投影数据，消费面见
- * src/host/hostFrameKinds.ts（载荷形状的唯一 host 侧定义处）。
+ * capabilities 为 T07 capabilities 横切新增（agent 就绪后的能力面投影数据）；
+ * workspace-sidebar-visible 为侧栏显隐偏好回推（多页签同步，见 hostRuntime）。
+ * 载荷形状见 src/host/hostFrameKinds.ts（唯一 host 侧定义处）。
  */
-export type HostFrameKind =
-  | "theme"
-  | "locale"
-  | "workspace"
-  | "visibility"
-  | "diagnostics"
-  | "restart"
-  | "open-panel"
-  | "composer-insert"
-  | "session-switch"
-  | "full-ui-url"
-  | "capabilities"
-  | "session-tabs";
+export const HOST_FRAME_KINDS = [
+  "theme",
+  "locale",
+  "workspace",
+  "visibility",
+  "diagnostics",
+  "restart",
+  "open-panel",
+  "composer-insert",
+  "session-switch",
+  "full-ui-url",
+  "capabilities",
+  "session-tabs",
+  "workspace-sidebar-visible",
+] as const;
+
+export type HostFrameKind = (typeof HOST_FRAME_KINDS)[number];
 
 export interface HostFrame {
   t: "host";
@@ -145,18 +155,10 @@ export function parseBridgeEnvelope(data: unknown): BridgeEnvelope | null {
         : null;
     case "host": {
       const kind = data["kind"];
-      return kind === "theme" ||
-        kind === "locale" ||
-        kind === "workspace" ||
-        kind === "visibility" ||
-        kind === "diagnostics" ||
-        kind === "restart" ||
-        kind === "open-panel" ||
-        kind === "composer-insert" ||
-        kind === "session-switch" ||
-        kind === "full-ui-url" ||
-        kind === "capabilities" ||
-        kind === "session-tabs"
+      // 按 HOST_FRAME_KINDS 判定（单一来源）：手写 `||` 链每次新增帧型都要同步，
+      // 漏一处就是"帧发得出去、webview 一律丢弃"的静默故障。
+      return typeof kind === "string" &&
+        (HOST_FRAME_KINDS as readonly string[]).includes(kind)
         ? (data as unknown as HostFrame)
         : null;
     }

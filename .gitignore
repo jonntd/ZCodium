@@ -82,6 +82,9 @@ __pycache__/
 # 本机工具状态目录（WorkBuddy 记忆 / ZCode 会话计划），不入库。
 .workbuddy-ai/
 /.zcode/
+# 子包里的同名目录也要忽略：`/.zcode/` 只锚定仓库根，apps/*/.zcode 曾因此被
+# `git add -A` 连带提交（会话计划 + 本地 PRD 对比报告，属可再生的本地产物）。
+**/.zcode/
 # OrcaRouter GUI 证据产物：由 `pnpm orca:evidence` 在本地渲染真实组件后生成，
 # 属于可再生的验证输出，随环境变化且不应入库。
 /orca-evidence/

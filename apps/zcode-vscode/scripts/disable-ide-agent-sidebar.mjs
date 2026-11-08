@@ -40,6 +40,7 @@ import {
   closeSync,
   copyFileSync,
   existsSync,
+  fchmodSync,
   fsyncSync,
   mkdirSync,
   openSync,
@@ -152,10 +153,19 @@ function ideVersion() {
 function writeAtomic(file, contents) {
   const dir = dirname(file);
   const tmp = join(dir, `.${basename(file)}.gode-tmp-${process.pid}`);
+  // 权限位必须沿用原文件：临时文件按 umask 新建（通常 644），若原 bundle 是 640/660
+  // 或带 setgid，rename 之后权限就被悄悄改了——IDE 排查这类问题极其费时。
+  let mode = 0o644;
+  try {
+    if (existsSync(file)) mode = statSync(file).mode & 0o7777;
+  } catch {
+    /* 取不到就按默认 */
+  }
   let fd;
   try {
-    fd = openSync(tmp, "w");
+    fd = openSync(tmp, "w", mode);
     writeSync(fd, contents, null, "utf8");
+    fchmodSync(fd, mode);
     fsyncSync(fd);
   } catch (error) {
     if (fd !== undefined) {
@@ -176,6 +186,17 @@ function writeAtomic(file, contents) {
     fail(`临时文件字节数不符（期望 ${expected}，实际 ${size}），已放弃替换。`);
   }
   renameSync(tmp, file);
+  // 目录项也要落盘：rename 只保证"要么旧要么新"，断电后目录项未同步仍可能回到旧名。
+  try {
+    const dirFd = openSync(dir, "r");
+    try {
+      fsyncSync(dirFd);
+    } finally {
+      closeSync(dirFd);
+    }
+  } catch {
+    /* 某些文件系统不支持对目录 fsync：退化为"至少 rename 已成功" */
+  }
 }
 
 function readMeta() {

@@ -403,6 +403,10 @@ describe("可拖动的编辑器标签页形态", () => {
     expect(hostCommands).toContain(
       'deps.hostRuntime.pushHostFrameTo(connectionId, "workspace", payload)',
     );
+    // 无存活页签时**直接建草稿页**，不走 reveal：reveal 是 resume 模式，会先按
+    // per-folder 最近会话建页、再被 new-session 帧清空（"点 + 先闪出上次对话"）。
+    expect(hostCommands).toContain("deps.chatEditorPanel.activeConnectionId() === null");
+    expect(hostCommands).toContain("newSession:无存活页签，直接建草稿页");
     expect(hostCommands).not.toContain("deps.chatPanel.reveal");
     expect(hostCommands).not.toContain("chatPanel: { reveal(): void }");
     // 对话面板**不得再执行任何布局命令**（缺陷回归 2026-11-08）：原收栏兜底会
@@ -456,6 +460,33 @@ describe("可拖动的编辑器标签页形态", () => {
     // 收栏兜底仍挂在编辑器标签的显式打开路径上（命令/状态栏/标题栏按钮）。
     const container = readSource("src/container.ts");
     expect(container).not.toContain("new ChatPanel(context.extensionUri, hostRuntime, resolveInitialSessionId, () => {");
+  });
+
+  it("host 帧型只有一处定义（wire 守卫按数组判定，不手写 || 链）", () => {
+    const wire = readSource("src/bridge/wire.ts");
+    // 联合类型由数组派生：`HostFrameKind = (typeof HOST_FRAME_KINDS)[number]`。
+    expect(wire).toContain("export const HOST_FRAME_KINDS = [");
+    expect(wire).toContain("export type HostFrameKind = (typeof HOST_FRAME_KINDS)[number];");
+    // 守卫必须复用同一份数组。手写 `||` 链意味着新增帧型要同步两处，
+    // 漏一处的结果是「host 发得出去、webview 一律丢弃」且无人报错。
+    expect(wire).toContain("(HOST_FRAME_KINDS as readonly string[]).includes(kind)");
+    expect(wire).not.toContain('kind === "session-tabs"');
+    // host 侧只再导出，不再抄一份联合/清单。
+    const kinds = readSource("src/host/hostFrameKinds.ts");
+    expect(kinds).toContain("export { HOST_FRAME_KINDS };");
+    expect(kinds).toContain("export type HostFrameKindValue = HostFrameKind;");
+    expect(kinds).not.toContain("export const HOST_FRAME_KINDS: readonly");
+  });
+
+  it("侧栏偏好变更回推已开页签（globalState 只覆盖新页签）", () => {
+    // 上行：webview → host 落 globalState + 回推其它连接。
+    const runtime = readSource("src/host/hostRuntime.ts");
+    expect(runtime).toContain('kind: "workspace-sidebar-visible"');
+    expect(runtime).toContain("if (connection.id !== id && connection.readyForFrames)");
+    // webview：订阅回推帧 → 应用到本地（不再回报宿主，避免回声环）。
+    const entry = readSource("src/webview-react/index.tsx");
+    expect(entry).toContain('"workspace-sidebar-visible"');
+    expect(entry).toContain("applyWorkspaceSidebarVisibleFromHost(");
   });
 
   it("X4：无界内存面收敛（审批登记与 quick-edit 快照均有上限）", () => {
@@ -513,11 +544,12 @@ describe("可拖动的编辑器标签页形态", () => {
     );
     // 多页签：ChatEditorPanel 支持并存多面板（Map 管理 + openNew 总是新建）。
     const editorPanel = readSource("src/ui/chatEditorPanel.ts");
-    expect(editorPanel).toContain("openNew(): ChatEditorOpenResult");
+    expect(editorPanel).toContain('openNew(reason = "openNew:状态栏新建页签"): ChatEditorOpenResult');
     expect(editorPanel).toContain("private readonly panels = new Map<string, WebviewPanel>()");
     // 新页签 = 新草稿会话（Claude 同款）：openNew 面板 bootstrap 回草稿态，
-    // 已有会话经共享标签栏切换；reveal 路径仍恢复最近会话。
-    expect(editorPanel).toContain('this.create("draft", "openNew:状态栏新建页签")');
+    // 已有会话经共享标签栏切换；reveal 路径仍恢复最近会话。reason 只进诊断日志
+    // （「新建会话」在无存活页签时也复用 openNew，日志要能区分来源）。
+    expect(editorPanel).toContain('return this.create("draft", reason);');
     expect(editorPanel).toContain('mode === "draft" ? () => null : this.resolveInitialSessionId');
   });
 

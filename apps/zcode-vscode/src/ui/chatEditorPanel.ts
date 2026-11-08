@@ -125,12 +125,14 @@ export class ChatEditorPanel {
   }
 
   /**
-   * 总是新建一个对话页签（状态栏「新建页签」按钮）：多页签并存，**新页签从草稿态
-   * 开始**（Claude 同款：新标签 = 新对话；已有会话经共享标签栏切换）。
-   * 达到上限时退化为聚焦已有页签——每个页签是完整 webview 实例，无限创建会拖垮宿主。
-   * 退化时给一次状态栏提示：否则"点了没反应"会被当成按钮坏了（静默失败）。
+   * 总是新建一个对话页签（状态栏「新建页签」按钮 / 无存活页签时的「新建会话」）：
+   * 多页签并存，**新页签从草稿态开始**（Claude 同款：新标签 = 新对话；已有会话经
+   * 共享标签栏切换）。达到上限时退化为聚焦已有页签——每个页签是完整 webview 实例，
+   * 无限创建会拖垮宿主。退化时给一次状态栏提示：否则"点了没反应"会被当成按钮坏了。
+   *
+   * `reason` 只进诊断日志：新建页签是用户可见的副作用，必须能复盘是谁、为什么建的。
    */
-  openNew(): ChatEditorOpenResult {
+  openNew(reason = "openNew:状态栏新建页签"): ChatEditorOpenResult {
     if (this.panels.size >= MAX_CHAT_EDITOR_TABS) {
       log.info("layout", `新建页签已达上限 ${MAX_CHAT_EDITOR_TABS}：退化为聚焦现有页签`);
       window.setStatusBarMessage?.(
@@ -139,7 +141,7 @@ export class ChatEditorPanel {
       );
       return this.reveal();
     }
-    return this.create("draft", "openNew:状态栏新建页签");
+    return this.create("draft", reason);
   }
 
   /**

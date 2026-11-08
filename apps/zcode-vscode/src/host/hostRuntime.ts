@@ -27,6 +27,8 @@ import type { BridgeEnvelope, HostFrame, HostFrameKind } from "../bridge/wire";
 import { HostBridgeProtocol, type WebviewSender } from "./hostBridgeProtocol";
 import {
   parseSessionTabsPayload,
+  parseWorkspaceSidebarVisiblePayload,
+  type WorkspaceSidebarVisibleHostFramePayload,
 } from "./hostFrameKinds";
 import {
   PlatformRpcHandler,
@@ -329,11 +331,21 @@ export class HostRuntime {
         this.options.onEditorTabUi?.(id, frame.payload);
         return;
       }
-      // 工作区侧栏显隐偏好上行 → 落 globalState（跨 webview 的唯一可靠通道）。
+      // 工作区侧栏显隐偏好上行 → 落 globalState（跨 webview 的唯一可靠通道）
+      // + 回推给**其他**已开页签：globalState 只对新页签的 bootstrap 生效，已开页签
+      // 不推就永远停在旧值（用户在 A 收起，B 里还张着 = 同一界面两个状态）。
       if (frame.event === "notifyWorkspaceSidebarVisible") {
-        const payload = frame.payload as { visible?: unknown } | null | undefined;
-        if (typeof payload?.visible === "boolean") {
-          this.options.onWorkspaceSidebarVisible?.(payload.visible);
+        const visible = parseWorkspaceSidebarVisiblePayload(frame.payload);
+        if (visible === null) return;
+        this.options.onWorkspaceSidebarVisible?.(visible);
+        const echo: HostFrame = {
+          t: "host",
+          kind: "workspace-sidebar-visible",
+          payload: { visible } satisfies WorkspaceSidebarVisibleHostFramePayload,
+        };
+        // 排除来源连接：它自己就是改动方，回推只会触发一次无意义的同值 setState。
+        for (const connection of this.connections.values()) {
+          if (connection.id !== id && connection.readyForFrames) this.post(connection, echo);
         }
         return;
       }
@@ -409,13 +421,18 @@ export class HostRuntime {
     if (this.pendingHostFrames.length === 0) return;
     const frames = this.pendingHostFrames;
     this.pendingHostFrames = [];
+    let delivered = 0;
     for (const frame of frames) {
       for (const connection of this.connections.values()) {
-        if (connection.readyForFrames) this.post(connection, frame);
+        if (!connection.readyForFrames) continue;
+        this.post(connection, frame);
+        delivered += 1;
       }
     }
+    // 日志要报「真的投给了几个就绪连接」：此前打的是 connections.size（含未就绪），
+    // 一个都没投出去也会显示"→ 2 个就绪连接"，排查时按这条误判路径存在。
     this.options.log?.(
-      `[host-bridge] flush 暂存 host 帧 ${frames.length} 条 → ${this.connections.size} 个就绪连接`,
+      `[host-bridge] flush 暂存 host 帧 ${frames.length} 条 → ${delivered} 次投递`,
     );
   }
 

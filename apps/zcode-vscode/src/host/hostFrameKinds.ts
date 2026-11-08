@@ -1,41 +1,19 @@
 /**
  * Host 帧协议集中定义（src/host 独占，T02/⑤）。
  *
- * - 帧型全集（HostFrameKind）的 wire 判定在 src/bridge/wire.ts（内核层，host 帧解析面）；
- * - 本模块是 host 侧的**载荷形状唯一定义处**：chatPanel 可见性帧生产（T02/⑦）、
- *   RuntimeController 进程换代横幅（P1-6）、T09 诊断下发、组1 命令的 open-panel 指令
- *   均按这里的形状生产，组3/4 按形状消费。
+ * - 帧型全集（HostFrameKind）的**唯一定义处是 src/bridge/wire.ts**：本模块只再导出
+ *   同一份数组，不再自己抄一遍联合与清单（此前两处手工枚举，新增帧型漏改一处即
+ *   `parseBridgeEnvelope` 静默丢帧）；
+ * - 本模块是 host 侧的**载荷形状唯一定义处**：RuntimeController 进程换代横幅（P1-6）、
+ *   T09 诊断下发、组1 命令的 open-panel 指令、侧栏显隐回调均按这里的形状生产。
  */
+import { HOST_FRAME_KINDS, type HostFrameKind } from "../bridge/wire";
 
-export type HostFrameKindValue =
-  | "theme"
-  | "locale"
-  | "workspace"
-  | "visibility"
-  | "diagnostics"
-  | "restart"
-  | "open-panel"
-  | "composer-insert"
-  | "session-switch"
-  | "full-ui-url"
-  | "capabilities"
-  | "session-tabs";
+/** 帧型全集（= src/bridge/wire.ts 的同一数组，别名保持既有引用面）。 */
+export { HOST_FRAME_KINDS };
 
-/** host 帧型全集（与 src/bridge/wire.ts 的 HostFrameKind 判定一字不差；测试锁定）。 */
-export const HOST_FRAME_KINDS: readonly HostFrameKindValue[] = [
-  "theme",
-  "locale",
-  "workspace",
-  "visibility",
-  "diagnostics",
-  "restart",
-  "open-panel",
-  "composer-insert",
-  "session-switch",
-  "full-ui-url",
-  "capabilities",
-  "session-tabs",
-];
+/** 帧型别名（历史命名；与 wire.HostFrameKind 同源）。 */
+export type HostFrameKindValue = HostFrameKind;
 
 /** visibility 帧：chatPanel onDidChangeVisibility 生产（webview 隐藏时暂停渲染）。 */
 export interface VisibilityHostFramePayload {
@@ -283,6 +261,27 @@ export function composeEditorTabTitle(
   const body =
     trimmed.length > 0 ? truncateByCodePoints(trimmed, EDITOR_TAB_TITLE_MAX_LENGTH) : baseTitle;
   return payload.busy ? `${EDITOR_TAB_BUSY_PREFIX}${body}` : body;
+}
+
+// ── 侧栏显隐偏好回推（多页签同步） ─────────────────────────────
+
+/**
+ * workspace-sidebar-visible 帧：宿主把**侧栏显隐偏好**回推给其它已开页签。
+ *
+ * 为什么需要：偏好落 `globalState` 后只会经 bootstrap 注入**新**页签；已经开着的
+ * 页签（另一个编辑器页签、侧栏面板）永远停在旧值——用户在 A 收起抽屉，B 里还张着，
+ * 同一份界面两个状态。上行是 plat-evt `notifyWorkspaceSidebarVisible`，回推走本帧，
+ * 且只发**变更来源之外**的连接（发送方自己已是新值，回推反而制造回声/重渲染）。
+ */
+export interface WorkspaceSidebarVisibleHostFramePayload {
+  visible: boolean;
+}
+
+/** 宽松解析回推载荷；形状非法返回 null（webview 丢弃，不猜）。 */
+export function parseWorkspaceSidebarVisiblePayload(payload: unknown): boolean | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const visible = (payload as Record<string, unknown>)["visible"];
+  return typeof visible === "boolean" ? visible : null;
 }
 
 // ── session-tabs 帧（多页签会话标签跨页共享） ────────────────────

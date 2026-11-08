@@ -162,6 +162,15 @@ let workspaceSidebarVisibleSeed: boolean | null = null;
 /** 偏好变更上报面（webview 侧注入 → 回传宿主落盘；桌面形态不注入）。 */
 let workspaceSidebarVisibleReporter: ((visible: boolean) => void) | null = null;
 
+/**
+ * 偏好变更订阅面（宿主回推 → 同一窗口里**其它**已开页签跟随）。
+ *
+ * 缺口背景：偏好落宿主 `globalState` 后只经 bootstrap 注入新页签，已经开着的页签
+ * 永远停在旧值——用户在编辑器页签 A 收起侧栏，侧栏面板 B 里还张着。宿主收到上行后
+ * 向其他连接回推 `workspace-sidebar-visible` 帧，这里把值广播给已挂载的 hook。
+ */
+const workspaceSidebarVisibleListeners = new Set<(visible: boolean) => void>();
+
 /** 宿主 bootstrap 时注入偏好种子（必须在首次渲染前调用）。 */
 export function setWorkspaceSidebarVisibleSeed(visible: boolean | null): void {
   workspaceSidebarVisibleSeed = visible;
@@ -172,6 +181,42 @@ export function setWorkspaceSidebarVisibleReporter(
   next: ((visible: boolean) => void) | null,
 ): void {
   workspaceSidebarVisibleReporter = next;
+}
+
+/** 订阅偏好变更（宿主持久化 → 同窗口其它页签跟随）；返回解除函数。 */
+export function subscribeWorkspaceSidebarVisible(
+  listener: (visible: boolean) => void,
+): () => void {
+  workspaceSidebarVisibleListeners.add(listener);
+  return () => {
+    workspaceSidebarVisibleListeners.delete(listener);
+  };
+}
+
+/**
+ * 应用宿主回推的偏好（**不要**再上报宿主：那是回声环，且宿主本就是本值的来源）。
+ *
+ * 同时回写本 origin 的 localStorage：否则同一页签下次重载会读到旧缓存值，又把
+ * 刚同步过来的状态翻回去（read 的优先级是 localStorage > seed，这是刻意的）。
+ */
+export function applyWorkspaceSidebarVisibleFromHost(visible: boolean): void {
+  workspaceSidebarVisibleMemory = visible;
+  workspaceSidebarVisibleSeed = visible;
+  try {
+    globalThis.localStorage?.setItem(
+      WORKSPACE_SIDEBAR_VISIBLE_STORAGE_KEY,
+      visible ? "1" : "0",
+    );
+  } catch {
+    // 写入失败只会让下次重载回落到宿主 seed（同样是新值），无需处理。
+  }
+  for (const listener of [...workspaceSidebarVisibleListeners]) {
+    try {
+      listener(visible);
+    } catch {
+      // 单个订阅者的异常不能影响其它页签/其他订阅者。
+    }
+  }
 }
 
 /**
@@ -297,6 +342,19 @@ export function useAppPanels(options: {
   const [isSidebarVisible, setIsSidebarVisible] = useState(() =>
     readWorkspaceSidebarVisible(),
   );
+  /**
+   * 侧栏显隐的同步镜像。
+   *
+   * 为什么需要：`persistWorkspaceSidebarVisible` 是**副作用**，不能写进
+   * `setIsSidebarVisible` 的 updater 里——updater 在并发渲染/严格模式下可能被重放或
+   * 被丢弃，副作用一旦落在里面，磁盘/host 状态会和用户实际看到的界面分叉（更糟的是
+   * 连续两次点击会基于同一个过期值算出相同的 next）。改成"先算 next → 先记镜像 →
+   * 再 setState"，快速连点也不会丢一次切换。
+   */
+  const isSidebarVisibleRef = useRef(isSidebarVisible);
+  isSidebarVisibleRef.current = isSidebarVisible;
+  // 宿主回推的偏好（同窗口里其它页签的改动）→ 本页跟随；桌面形态没有推送，恒不触发。
+  useEffect(() => subscribeWorkspaceSidebarVisible(setIsSidebarVisible), []);
   const [browserNavigationRequest, setBrowserNavigationRequest] =
     useState<BrowserNavigationRequest | null>(null);
   const [allRecentClosedSidePaneTabs, setAllRecentClosedSidePaneTabs] = useState<
@@ -1458,13 +1516,14 @@ export function useAppPanels(options: {
   }, [isOfficeMode, workspaceAbsPath]);
 
   const handleToggleSidebar = useCallback(() => {
-    setIsSidebarVisible((visible) => {
-      const next = !visible;
-      // 用户对侧栏的显隐选择必须落盘：否则每次新 webview（IDE 里点「+」新建页签、
-      // 页签重建、重启）都会回到初值——表现就是「侧栏总是自动打开」。
-      persistWorkspaceSidebarVisible(next);
-      return next;
-    });
+    // 不把副作用放进 updater（见 isSidebarVisibleRef 注释）：先算 next，再落盘/上报，
+    // 最后 setState。镜像同步更新，连点两次不会基于同一个过期值算出相同的 next。
+    const next = !isSidebarVisibleRef.current;
+    isSidebarVisibleRef.current = next;
+    // 用户对侧栏的显隐选择必须落盘：否则每次新 webview（IDE 里点「+」新建页签、
+    // 页签重建、重启）都会回到初值——表现就是「侧栏总是自动打开」。
+    persistWorkspaceSidebarVisible(next);
+    setIsSidebarVisible(next);
   }, []);
 
   const handleToggleSidePaneCollapse = useCallback(() => {

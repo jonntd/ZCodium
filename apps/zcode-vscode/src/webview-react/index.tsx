@@ -28,6 +28,7 @@ import {
 } from "./bridge/webviewMessagePort";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import {
+  applyWorkspaceSidebarVisibleFromHost,
   setWorkspaceSidebarVisibleReporter,
   setWorkspaceSidebarVisibleSeed,
 } from "@/hooks/useAppPanels.js";
@@ -40,6 +41,7 @@ import type {
   DiagnosticsHostFramePayload,
   SessionSwitchHostFramePayload,
   WorkspaceHostFramePayload,
+  WorkspaceSidebarVisibleHostFramePayload,
 } from "../host/hostFrameKinds";
 
 declare function acquireVsCodeApi(): {
@@ -211,6 +213,22 @@ function WebviewRoot({
           setWorkspacePath(payload.activeFolder);
         }
       }),
+    [hostFrames],
+  );
+
+  // 侧栏显隐偏好：宿主回推（同窗口其它页签改了抽屉）→ 本页跟随。
+  // 与 bootstrap seed 的分工：seed 管"本页签首次渲染"，本帧管"已经开着的时候别人改了"。
+  useEffect(
+    () =>
+      hostFrames.on<WorkspaceSidebarVisibleHostFramePayload>(
+        "workspace-sidebar-visible",
+        (payload) => {
+          const visible = payload?.visible;
+          if (typeof visible === "boolean") {
+            applyWorkspaceSidebarVisibleFromHost(visible);
+          }
+        },
+      ),
     [hostFrames],
   );
 

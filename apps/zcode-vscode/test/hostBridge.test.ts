@@ -250,6 +250,7 @@ describe("host 帧协议（T02/⑤：visibility/diagnostics/restart/open-panel�
       "full-ui-url",
       "capabilities",
       "session-tabs",
+      "workspace-sidebar-visible",
     ]);
     for (const kind of HOST_FRAME_KINDS) {
       expect(
@@ -654,8 +655,41 @@ describe("编辑器标签 UI 上行 + 会话标签中继（多页签共享）", 
     expect(sidebarVisibleCalls).toEqual([true, false]);
   });
 
-  it("notifyEditorTabUi 携带连接 id 路由到 onEditorTabUi", () => {
-    const { runtime, tabUiCalls } = makeRelayRuntime();
+  it("侧栏偏好回推给其它就绪页签（不含来源、不含未就绪连接）", () => {
+    const { runtime, makeCapture } = makeRelayRuntime();
+    const source = makeCapture("gode.chat.editor");
+    const other = makeCapture("gode.chat.editor.2");
+    // 未就绪连接：连上但没发 ready，不该收到任何帧。
+    const late: unknown[] = [];
+    runtime.attachWebview("gode.chat.editor.3", {
+      postMessage: (message: unknown) => late.push(message),
+    });
+
+    const before = other.frames.length;
+    runtime.handleWebviewMessage("gode.chat.editor", {
+      t: "plat-evt",
+      event: "notifyWorkspaceSidebarVisible",
+      payload: { visible: true },
+    });
+
+    const pushed = other.frames.slice(before) as Array<{
+      t?: string;
+      kind?: string;
+      payload?: unknown;
+    }>;
+    expect(pushed).toEqual([
+      { t: "host", kind: "workspace-sidebar-visible", payload: { visible: true } },
+    ]);
+    // 来源页自己已是新值：回推只会触发一次无意义的同值 setState。
+    expect(
+      (source.frames as Array<{ kind?: string }>).some(
+        (frame) => frame.kind === "workspace-sidebar-visible",
+      ),
+    ).toBe(false);
+    expect(late).toEqual([]);
+  });
+
+  it("notifyEditorTabUi 携带连接 id 路由到 onEditorTabUi", () => {    const { runtime, tabUiCalls } = makeRelayRuntime();
     runtime.attachWebview("gode.chat.editor.2", {
       postMessage: () => {},
     });

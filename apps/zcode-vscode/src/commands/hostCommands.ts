@@ -38,8 +38,11 @@ export interface HostCommandDeps {
       title: string;
       viewColumn?: number;
     };
-    /** 总是新建一个对话页签（状态栏「新建页签」按钮）；多页签并存、内容同显。 */
-    openNew(): {
+    /**
+     * 总是新建一个对话页签（状态栏「新建页签」按钮 / 无存活页签时的「新建会话」）；
+     * 多页签并存、内容同显。`reason` 只进诊断日志（区分是哪个入口建的页）。
+     */
+    openNew(reason?: string): {
       created: boolean;
       viewType: string;
       title: string;
@@ -199,13 +202,19 @@ export function registerHostCommands(deps: HostCommandDeps): Disposable[] {
   disposables.push(
     commands.registerCommand("gode.newSession", () => {
       // 新会话 = 当前页回到草稿态（V4WorkspaceChatArea draft；会话数据保留在会话库）。
-      // 顺序必须是「先 reveal 保证有页 → 再取目标 → 再定向投递」：
-      // - 先取目标再 reveal 时，目标可能在两步之间被销毁（用户手快关标签 / IDE 回收），
-      //   严格定向后会变成一条被丢弃的帧，表现为「点 + 没回到草稿」；
-      // - reveal 真新建了页签时，取到的是**新页**的连接 id（新建页本就是草稿态，
-      //   多投一次 new-session 无害，且保证新旧路径行为一致）。
       // 定向投给「这一页」而不是 pushToActiveHostFrame：后者认「最近活动连接」，
       // 与眼前页签未必同一个，投错会把另一页（含侧栏面板）拉回草稿。
+      //
+      // 无存活页签时**不要**先 reveal()：reveal 走 resume 模式，会按 per-folder 最近
+      // 会话建页，然后才收到 new-session 帧清空——用户看到"点 + 先闪出上次的对话再
+      // 变空"。直接 openNew() 建**草稿页**（draft 模式 bootstrap 不带 sessionId），
+      // 既省一次会话恢复，也没有那一帧闪烁。
+      if (deps.chatEditorPanel.activeConnectionId() === null) {
+        const created = deps.chatEditorPanel.openNew("newSession:无存活页签，直接建草稿页");
+        deps.firstOpen?.();
+        return created;
+      }
+      // 有存活页签：reveal 只是聚焦（不会 create），目标与投递同一块面板。
       const result = deps.chatEditorPanel.reveal();
       const connectionId = deps.chatEditorPanel.activeConnectionId();
       const payload: WorkspaceHostFramePayload = { kind: "new-session" };
