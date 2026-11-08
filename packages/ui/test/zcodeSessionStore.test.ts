@@ -140,11 +140,19 @@ function readModelConfigValue(
   const modelOption = options?.find(
     (option) => option.category === "model" && option.type === "select",
   );
-  return typeof modelOption?.currentValue === "string" ? modelOption.currentValue : null;
+  return typeof modelOption?.currentValue === "string"
+    ? modelOption.currentValue
+    : null;
 }
 
-function readModeConfigOption(options: readonly ZCodeConfigOption[] | null | undefined) {
-  return options?.find((option) => option.category === "mode" && option.type === "select") ?? null;
+function readModeConfigOption(
+  options: readonly ZCodeConfigOption[] | null | undefined,
+) {
+  return (
+    options?.find(
+      (option) => option.category === "mode" && option.type === "select",
+    ) ?? null
+  );
 }
 
 describe("useZCodeSessionStore provider preference", () => {
@@ -193,7 +201,8 @@ describe("useZCodeSessionStore provider preference", () => {
       useZCodeSessionStore
         .getState()
         .getWorkspaceState(workspacePath)
-        .configOptions?.find((option) => option.id === "thought_level")?.currentValue,
+        .configOptions?.find((option) => option.id === "thought_level")
+        ?.currentValue,
     ).toBe("low");
   });
 
@@ -276,53 +285,84 @@ describe("useZCodeSessionStore provider preference", () => {
       supplierMismatchReason: null,
     });
 
-    useZCodeSessionStore.getState().bindRuntimeProvider(workspacePath, "opencode");
+    useZCodeSessionStore
+      .getState()
+      .bindRuntimeProvider(workspacePath, "opencode");
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
-    expect(storage.getItem(LAST_SELECTED_AGENT_PROVIDER_STORAGE_KEY)).toBe("glm");
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
+    expect(storage.getItem(LAST_SELECTED_AGENT_PROVIDER_STORAGE_KEY)).toBe(
+      "glm",
+    );
     expect(workspaceState.selectedProvider).toBe("glm");
     expect(workspaceState.selectedSupplierKey).toBe(customSupplierKey);
   });
 
   it("同路径不同 workspaceIdentity 输入旧 provider 时都应归一为 glm", () => {
     const workspacePath = "/tmp/workspace-identity-isolation";
-    const workspaceIdentityA = "ssh://user@host-a:/tmp/workspace-identity-isolation";
-    const workspaceIdentityB = "ssh://user@host-b:/tmp/workspace-identity-isolation";
+    const workspaceIdentityA =
+      "ssh://user@host-a:/tmp/workspace-identity-isolation";
+    const workspaceIdentityB =
+      "ssh://user@host-b:/tmp/workspace-identity-isolation";
 
-    useZCodeSessionStore.getState().startDraft(workspacePath, "claude", workspaceIdentityA);
-    useZCodeSessionStore.getState().startDraft(workspacePath, "opencode", workspaceIdentityB);
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, "claude", workspaceIdentityA);
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, "opencode", workspaceIdentityB);
 
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityA)
-        .selectedProvider,
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityA).selectedProvider,
     ).toBe("glm");
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityB)
-        .selectedProvider,
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityB).selectedProvider,
     ).toBe("glm");
   });
 
   it("composer 文本插入请求按 workspaceIdentity 隔离且只能由对应版本清理", () => {
     const workspacePath = "/tmp/workspace-composer-prefill";
-    const workspaceIdentityA = "ssh://user@host-a:/tmp/workspace-composer-prefill";
-    const workspaceIdentityB = "ssh://user@host-b:/tmp/workspace-composer-prefill";
+    const workspaceIdentityA =
+      "ssh://user@host-a:/tmp/workspace-composer-prefill";
+    const workspaceIdentityB =
+      "ssh://user@host-b:/tmp/workspace-composer-prefill";
     const store = useZCodeSessionStore.getState();
 
-    expect(store.requestComposerTextInsert(workspacePath, "first", workspaceIdentityA)).toBe(1);
     expect(
-      store.requestComposerTextInsert(workspacePath, "second", workspaceIdentityA, {
-        id: "plugin:demo@mkt",
-        category: "plugins",
-        label: "Demo",
-        value: "demo@mkt",
-        markdown: "[@Demo](plugin://demo@mkt)",
-        data: {
-          pluginId: "demo@mkt",
-          icon: "https://cdn.example.com/demo.png",
+      store.requestComposerTextInsert(
+        workspacePath,
+        "first",
+        workspaceIdentityA,
+      ),
+    ).toBe(1);
+    expect(
+      store.requestComposerTextInsert(
+        workspacePath,
+        "second",
+        workspaceIdentityA,
+        {
+          id: "plugin:demo@mkt",
+          category: "plugins",
+          label: "Demo",
+          value: "demo@mkt",
+          markdown: "[@Demo](plugin://demo@mkt)",
+          data: {
+            pluginId: "demo@mkt",
+            icon: "https://cdn.example.com/demo.png",
+          },
         },
-      }),
+      ),
     ).toBe(2);
-    store.requestComposerTextInsert(workspacePath, "isolated", workspaceIdentityB);
+    store.requestComposerTextInsert(
+      workspacePath,
+      "isolated",
+      workspaceIdentityB,
+    );
     store.requestComposerTextInsert(
       workspacePath,
       "[@Demo](plugin://demo@mkt)",
@@ -339,7 +379,9 @@ describe("useZCodeSessionStore provider preference", () => {
     );
 
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityA)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityA)
         .composerTextInsertRequest,
     ).toEqual({
       requestId: 3,
@@ -357,7 +399,9 @@ describe("useZCodeSessionStore provider preference", () => {
       mode: "prepend-if-missing",
     });
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityB)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityB)
         .composerTextInsertRequest,
     ).toEqual({ requestId: 1, text: "isolated" });
 
@@ -365,25 +409,74 @@ describe("useZCodeSessionStore provider preference", () => {
       .getState()
       .clearComposerTextInsertRequest(workspacePath, 1, workspaceIdentityA);
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityA)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityA)
         .composerTextInsertRequest,
-    ).toEqual(expect.objectContaining({ requestId: 3, mode: "prepend-if-missing" }));
+    ).toEqual(
+      expect.objectContaining({ requestId: 3, mode: "prepend-if-missing" }),
+    );
 
     useZCodeSessionStore
       .getState()
       .clearComposerTextInsertRequest(workspacePath, 2, workspaceIdentityA);
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityA)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityA)
         .composerTextInsertRequest,
-    ).toEqual(expect.objectContaining({ requestId: 3, mode: "prepend-if-missing" }));
+    ).toEqual(
+      expect.objectContaining({ requestId: 3, mode: "prepend-if-missing" }),
+    );
 
     useZCodeSessionStore
       .getState()
       .clearComposerTextInsertRequest(workspacePath, 3, workspaceIdentityA);
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityA)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityA)
         .composerTextInsertRequest,
     ).toBeNull();
+  });
+
+  it("批量 mentions 单帧写入：mentions 优先于单数 mention（spec: composer-insert-delivery）", () => {
+    const workspacePath = "/tmp/workspace-composer-prefill-batch";
+    const store = useZCodeSessionStore.getState();
+    const mentionA = {
+      id: "file:/w/a.ts",
+      category: "files" as const,
+      label: "a.ts",
+      value: "a.ts",
+      markdown: "[a.ts](./a.ts)",
+    };
+    const mentionB = {
+      id: "file:/w/b.ts",
+      category: "files" as const,
+      label: "b.ts",
+      value: "b.ts",
+      markdown: "[b.ts](./b.ts)",
+    };
+
+    expect(
+      store.requestComposerTextInsert(
+        workspacePath,
+        "[a.ts](./a.ts) [b.ts](./b.ts) ",
+        undefined,
+        mentionA,
+        "prepend-if-missing",
+        [mentionA, mentionB],
+      ),
+    ).toBe(1);
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .composerTextInsertRequest,
+    ).toEqual({
+      requestId: 1,
+      text: "[a.ts](./a.ts) [b.ts](./b.ts) ",
+      mentions: [mentionA, mentionB],
+      mode: "prepend-if-missing",
+    });
   });
 
   it("时间线到底请求即使目标 task 未切换也会递增，并且只能由对应版本清理", () => {
@@ -391,34 +484,48 @@ describe("useZCodeSessionStore provider preference", () => {
     const workspaceIdentity = "ssh://user@host:/tmp/workspace-timeline-bottom";
     const store = useZCodeSessionStore.getState();
 
-    expect(store.requestTimelineBottom(workspacePath, "task-1", workspaceIdentity)).toBe(1);
-    expect(store.requestTimelineBottom(workspacePath, "task-1", workspaceIdentity)).toBe(2);
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentity)
+      store.requestTimelineBottom(workspacePath, "task-1", workspaceIdentity),
+    ).toBe(1);
+    expect(
+      store.requestTimelineBottom(workspacePath, "task-1", workspaceIdentity),
+    ).toBe(2);
+    expect(
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentity)
         .timelineBottomRequest,
     ).toEqual({ requestId: 2, taskId: "task-1" });
 
     store.clearTimelineBottomRequest(workspacePath, 1, workspaceIdentity);
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentity)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentity)
         .timelineBottomRequest,
     ).toEqual({ requestId: 2, taskId: "task-1" });
 
     store.clearTimelineBottomRequest(workspacePath, 2, workspaceIdentity);
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentity)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentity)
         .timelineBottomRequest,
     ).toBeNull();
   });
 
   it("bindRuntimeProvider 在同路径不同 workspaceIdentity 下不应互相覆盖 supplier", () => {
     const workspacePath = "/tmp/workspace-runtime-identity";
-    const workspaceIdentityA = "ssh://user@host-a:/tmp/workspace-runtime-identity";
-    const workspaceIdentityB = "ssh://user@host-b:/tmp/workspace-runtime-identity";
+    const workspaceIdentityA =
+      "ssh://user@host-a:/tmp/workspace-runtime-identity";
+    const workspaceIdentityB =
+      "ssh://user@host-b:/tmp/workspace-runtime-identity";
     const customSupplierKeyA = buildCustomSupplierKey("provider-a");
     const customSupplierKeyB = buildCustomSupplierKey("provider-b");
 
-    useZCodeSessionStore.getState().startDraft(workspacePath, "claude", workspaceIdentityA);
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, "claude", workspaceIdentityA);
     useZCodeSessionStore.getState().setModelSelectionResolution(
       workspacePath,
       {
@@ -432,7 +539,9 @@ describe("useZCodeSessionStore provider preference", () => {
       .getState()
       .bindRuntimeProvider(workspacePath, "claude", workspaceIdentityA);
 
-    useZCodeSessionStore.getState().startDraft(workspacePath, "opencode", workspaceIdentityB);
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, "opencode", workspaceIdentityB);
     useZCodeSessionStore.getState().setModelSelectionResolution(
       workspacePath,
       {
@@ -447,18 +556,23 @@ describe("useZCodeSessionStore provider preference", () => {
       .bindRuntimeProvider(workspacePath, "opencode", workspaceIdentityB);
 
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityA)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityA)
         .selectedSupplierKey,
     ).toBe(customSupplierKeyA);
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentityB)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentityB)
         .selectedSupplierKey,
     ).toBe(customSupplierKeyB);
   });
 
   it("同一 remote workspace overlay 连续读取时应复用同一个快照引用", () => {
     const workspacePath = "/tmp/workspace-identity-overlay-snapshot";
-    const workspaceIdentity = "ssh://user@host:/tmp/workspace-identity-overlay-snapshot";
+    const workspaceIdentity =
+      "ssh://user@host:/tmp/workspace-identity-overlay-snapshot";
 
     // M5②：旧 selectDraftProvider 的"归一后 no-op 不写 identity 桶"路径已随动作删除；
     // 这里保留 identity 读取回落 path 桶时快照引用复用的存活语义。
@@ -474,7 +588,9 @@ describe("useZCodeSessionStore provider preference", () => {
     expect(firstSnapshot.selectedProvider).toBe("glm");
     expect(firstSnapshot).toBe(secondSnapshot);
 
-    useZCodeSessionStore.getState().setTaskUnreadIndicator(workspacePath, "task-1", true);
+    useZCodeSessionStore
+      .getState()
+      .setTaskUnreadIndicator(workspacePath, "task-1", true);
 
     const thirdSnapshot = useZCodeSessionStore
       .getState()
@@ -487,19 +603,28 @@ describe("useZCodeSessionStore provider preference", () => {
 
   it("workspaceIdentity overlay 应优先使用 identity 桶的 draftSessionId", () => {
     const workspacePath = "/tmp/workspace-remote-draft-session";
-    const workspaceIdentity = "remote:ssh:localhost:2222:root:/tmp/workspace-remote-draft-session";
+    const workspaceIdentity =
+      "remote:ssh:localhost:2222:root:/tmp/workspace-remote-draft-session";
 
-    useZCodeSessionStore.getState().setDraftSessionId(workspacePath, "sess-path-stale");
     useZCodeSessionStore
       .getState()
-      .setDraftSessionId(workspacePath, "sess-identity-current", workspaceIdentity);
+      .setDraftSessionId(workspacePath, "sess-path-stale");
+    useZCodeSessionStore
+      .getState()
+      .setDraftSessionId(
+        workspacePath,
+        "sess-identity-current",
+        workspaceIdentity,
+      );
 
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).draftSessionId).toBe(
-      "sess-path-stale",
-    );
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentity)
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
         .draftSessionId,
+    ).toBe("sess-path-stale");
+    expect(
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentity).draftSessionId,
     ).toBe("sess-identity-current");
   });
 
@@ -511,29 +636,46 @@ describe("useZCodeSessionStore provider preference", () => {
     const identityOptions = [createModelConfigOption("glm-identity")];
     const pathOptions = [createModelConfigOption("glm-path")];
 
-    useZCodeSessionStore.getState().startDraft(workspacePath, undefined, workspaceIdentity);
-    useZCodeSessionStore.getState().startDraft(workspacePath, undefined, workspaceIdentity);
-    useZCodeSessionStore.getState().bumpTaskListVersion(workspacePath, workspaceIdentity);
-    useZCodeSessionStore.getState().bumpTaskListVersion(workspacePath, workspaceIdentity);
     useZCodeSessionStore
       .getState()
-      .setTaskConfigOptions(workspacePath, taskId, identityOptions, workspaceIdentity);
+      .startDraft(workspacePath, undefined, workspaceIdentity);
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, undefined, workspaceIdentity);
+    useZCodeSessionStore
+      .getState()
+      .bumpTaskListVersion(workspacePath, workspaceIdentity);
+    useZCodeSessionStore
+      .getState()
+      .bumpTaskListVersion(workspacePath, workspaceIdentity);
+    useZCodeSessionStore
+      .getState()
+      .setTaskConfigOptions(
+        workspacePath,
+        taskId,
+        identityOptions,
+        workspaceIdentity,
+      );
     useZCodeSessionStore
       .getState()
       .setTaskUnreadIndicator(workspacePath, taskId, true, workspaceIdentity);
 
     useZCodeSessionStore.getState().startDraft(workspacePath);
     useZCodeSessionStore.getState().bumpTaskListVersion(workspacePath);
-    useZCodeSessionStore.getState().setTaskConfigOptions(workspacePath, taskId, pathOptions);
-    useZCodeSessionStore.getState().setTaskUnreadIndicator(workspacePath, taskId, false);
+    useZCodeSessionStore
+      .getState()
+      .setTaskConfigOptions(workspacePath, taskId, pathOptions);
+    useZCodeSessionStore
+      .getState()
+      .setTaskUnreadIndicator(workspacePath, taskId, false);
 
     const workspaceState = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath, workspaceIdentity);
 
-    expect(readModelConfigValue(workspaceState.taskConfigOptionsByTaskId[taskId])).toBe(
-      "glm-identity",
-    );
+    expect(
+      readModelConfigValue(workspaceState.taskConfigOptionsByTaskId[taskId]),
+    ).toBe("glm-identity");
     expect(workspaceState.taskUnreadByTaskId[taskId]).toBe(true);
     expect(workspaceState.taskListVersion).toBe(2);
     expect(workspaceState.draftFocusVersion).toBe(2);
@@ -545,9 +687,12 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore.getState().startDraft("/tmp/workspace-draft", "codex");
 
-    expect(storage.getItem(LAST_SELECTED_AGENT_PROVIDER_STORAGE_KEY)).toBe("glm");
+    expect(storage.getItem(LAST_SELECTED_AGENT_PROVIDER_STORAGE_KEY)).toBe(
+      "glm",
+    );
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState("/tmp/workspace-draft").selectedProvider,
+      useZCodeSessionStore.getState().getWorkspaceState("/tmp/workspace-draft")
+        .selectedProvider,
     ).toBe("glm");
   });
 
@@ -564,7 +709,9 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore.getState().startDraft(workspacePath, "claude");
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(workspaceState.selectedProvider).toBe("glm");
     expect(workspaceState.selectedSupplierKey).toBe(customSupplierKey);
   });
@@ -574,19 +721,22 @@ describe("useZCodeSessionStore provider preference", () => {
     vi.stubGlobal("window", { localStorage: storage });
 
     const workspacePath = "/tmp/workspace-focus";
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).draftFocusVersion).toBe(
-      0,
-    );
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .draftFocusVersion,
+    ).toBe(0);
 
     useZCodeSessionStore.getState().startDraft(workspacePath);
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).draftFocusVersion).toBe(
-      1,
-    );
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .draftFocusVersion,
+    ).toBe(1);
 
     useZCodeSessionStore.getState().startDraft(workspacePath, "opencode");
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).draftFocusVersion).toBe(
-      2,
-    );
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .draftFocusVersion,
+    ).toBe(2);
   });
 
   it("startDraft 从 active task 新建且透传同 provider 时会继承输入框完整配置", () => {
@@ -597,8 +747,12 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .setConfigOptions(workspacePath, [createModelConfigOption(workspaceModel)]);
-    useZCodeSessionStore.getState().setDraftSessionId(workspacePath, "draft-glm");
+      .setConfigOptions(workspacePath, [
+        createModelConfigOption(workspaceModel),
+      ]);
+    useZCodeSessionStore
+      .getState()
+      .setDraftSessionId(workspacePath, "draft-glm");
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, taskId);
     useZCodeSessionStore
       .getState()
@@ -610,14 +764,19 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore.getState().startDraft(workspacePath, "glm");
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(workspaceState.activeTaskId).toBeNull();
     expect(workspaceState.draftSessionId).toBeNull();
     expect(readModelConfigValue(workspaceState.configOptions)).toBe(taskModel);
-    expect(readModeConfigOption(workspaceState.configOptions)?.currentValue).toBe("yolo");
     expect(
-      workspaceState.configOptions?.find((option) => option.category === "thought_level")
-        ?.currentValue,
+      readModeConfigOption(workspaceState.configOptions)?.currentValue,
+    ).toBe("yolo");
+    expect(
+      workspaceState.configOptions?.find(
+        (option) => option.category === "thought_level",
+      )?.currentValue,
     ).toBe("max");
   });
 
@@ -638,7 +797,9 @@ describe("useZCodeSessionStore provider preference", () => {
     // 模拟 protocol-v4 投影已经更新当前工具条，但尚未写入 legacy task 级缓存。
     useZCodeSessionStore.getState().startDraft(workspacePath, "glm");
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
   });
 
   it("startDraft 在 task 级缓存为空时仍继承当前输入框配置", () => {
@@ -668,7 +829,9 @@ describe("useZCodeSessionStore provider preference", () => {
     // 模拟首轮 session 先以空目录建立，随后 protocol-v4 只更新当前工具条投影。
     useZCodeSessionStore.getState().startDraft(workspacePath, "glm");
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
   });
 
   it("草稿目录水合不应清掉从 active task 继承的预热配置", () => {
@@ -689,9 +852,13 @@ describe("useZCodeSessionStore provider preference", () => {
     // 模拟新草稿 mount 后异步完成的 workspace catalog 水合。
     useZCodeSessionStore
       .getState()
-      .setConfigOptions(workspacePath, [createModelConfigOption("glm/GLM-5.2")]);
+      .setConfigOptions(workspacePath, [
+        createModelConfigOption("glm/GLM-5.2"),
+      ]);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
   });
 
   it("grouped 草稿在不同 New task 入口之间切换时会更新创建位置", () => {
@@ -700,26 +867,36 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .startDraft(workspacePath, undefined, undefined, { groupedDraftPlacement: { type: "top" } });
+      .startDraft(workspacePath, undefined, undefined, {
+        groupedDraftPlacement: { type: "top" },
+      });
     const topDraft = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath).groupedDraftTask;
 
     useZCodeSessionStore
       .getState()
-      .startDraft(workspacePath, undefined, undefined, { groupedDraftPlacement: { type: "top" } });
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).groupedDraftTask).toBe(
-      topDraft,
-    );
+      .startDraft(workspacePath, undefined, undefined, {
+        groupedDraftPlacement: { type: "top" },
+      });
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .groupedDraftTask,
+    ).toBe(topDraft);
 
-    useZCodeSessionStore.getState().startDraft(workspacePath, undefined, undefined, {
-      groupedDraftPlacement: { type: "group", groupId: "group-a" },
-    });
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, undefined, undefined, {
+        groupedDraftPlacement: { type: "group", groupId: "group-a" },
+      });
 
     const groupDraft = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath).groupedDraftTask;
-    expect(groupDraft?.placement).toEqual({ type: "group", groupId: "group-a" });
+    expect(groupDraft?.placement).toEqual({
+      type: "group",
+      groupId: "group-a",
+    });
     expect(groupDraft?.createdAt).toBe(1000);
     expect(nowSpy).toHaveBeenCalledTimes(1);
 
@@ -729,25 +906,30 @@ describe("useZCodeSessionStore provider preference", () => {
   it("grouped 草稿提升位置落库后可以按 task 消费", () => {
     const workspacePath = "/tmp/workspace-grouped-draft-consume";
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(2000);
-    useZCodeSessionStore.getState().startDraft(workspacePath, undefined, undefined, {
-      groupedDraftPlacement: { type: "group", groupId: "group-a" },
-    });
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, undefined, undefined, {
+        groupedDraftPlacement: { type: "group", groupId: "group-a" },
+      });
     const groupedDraftTask = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath).groupedDraftTask;
     expect(groupedDraftTask).not.toBeNull();
     useZCodeSessionStore
       .getState()
-      .promoteGroupedDraftTask(workspacePath, "task-promoted", groupedDraftTask!);
+      .promoteGroupedDraftTask(
+        workspacePath,
+        "task-promoted",
+        groupedDraftTask!,
+      );
 
     expect(
       useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
         .promotedGroupedDraftTaskByTaskId["task-promoted"]?.placement,
     ).toEqual({ type: "group", groupId: "group-a" });
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath).optimisticTaskListByTaskId[
-        "task-promoted"
-      ],
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .optimisticTaskListByTaskId["task-promoted"],
     ).toMatchObject({
       taskId: "task-promoted",
       title: "",
@@ -757,7 +939,9 @@ describe("useZCodeSessionStore provider preference", () => {
       mode: "default",
     });
 
-    useZCodeSessionStore.getState().clearPromotedGroupedDraftTask(workspacePath, "task-promoted");
+    useZCodeSessionStore
+      .getState()
+      .clearPromotedGroupedDraftTask(workspacePath, "task-promoted");
     expect(
       useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
         .promotedGroupedDraftTaskByTaskId["task-promoted"],
@@ -767,18 +951,24 @@ describe("useZCodeSessionStore provider preference", () => {
 
   it("旧创建请求完成时使用原草稿位置且不清除后创建的草稿", () => {
     const workspacePath = "/tmp/workspace-grouped-draft-interleaved-create";
-    useZCodeSessionStore.getState().startDraft(workspacePath, undefined, undefined, {
-      groupedDraftPlacement: { type: "group", groupId: "group-a" },
-    });
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, undefined, undefined, {
+        groupedDraftPlacement: { type: "group", groupId: "group-a" },
+      });
     const originalDraft = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath).groupedDraftTask;
     expect(originalDraft).not.toBeNull();
 
-    useZCodeSessionStore.getState().setActiveTaskId(workspacePath, "existing-task");
-    useZCodeSessionStore.getState().startDraft(workspacePath, undefined, undefined, {
-      groupedDraftPlacement: { type: "group", groupId: "group-b" },
-    });
+    useZCodeSessionStore
+      .getState()
+      .setActiveTaskId(workspacePath, "existing-task");
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, undefined, undefined, {
+        groupedDraftPlacement: { type: "group", groupId: "group-b" },
+      });
     const newerDraft = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath).groupedDraftTask;
@@ -788,9 +978,14 @@ describe("useZCodeSessionStore provider preference", () => {
       .getState()
       .promoteGroupedDraftTask(workspacePath, "created-task-a", originalDraft!);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(workspaceState.groupedDraftTask).toBe(newerDraft);
-    expect(workspaceState.promotedGroupedDraftTaskByTaskId["created-task-a"]?.placement).toEqual({
+    expect(
+      workspaceState.promotedGroupedDraftTaskByTaskId["created-task-a"]
+        ?.placement,
+    ).toEqual({
       type: "group",
       groupId: "group-a",
     });
@@ -798,9 +993,11 @@ describe("useZCodeSessionStore provider preference", () => {
 
   it("grouped 草稿提升不覆盖先于 ACK 到达的 task 元数据", () => {
     const workspacePath = "/tmp/workspace-grouped-draft-meta-race";
-    useZCodeSessionStore.getState().startDraft(workspacePath, undefined, undefined, {
-      groupedDraftPlacement: { type: "top" },
-    });
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, undefined, undefined, {
+        groupedDraftPlacement: { type: "top" },
+      });
     const groupedDraftTask = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath).groupedDraftTask;
@@ -811,30 +1008,40 @@ describe("useZCodeSessionStore provider preference", () => {
       createdAt: 10,
       updatedAt: 20,
     });
-    useZCodeSessionStore.getState().upsertOptimisticTaskListItem(workspacePath, task);
+    useZCodeSessionStore
+      .getState()
+      .upsertOptimisticTaskListItem(workspacePath, task);
 
     useZCodeSessionStore
       .getState()
       .promoteGroupedDraftTask(workspacePath, task.taskId, groupedDraftTask!);
 
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath).optimisticTaskListByTaskId[
-        task.taskId
-      ],
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .optimisticTaskListByTaskId[task.taskId],
     ).toBe(task);
   });
 
   it("grouped 草稿存在时选择已有任务只清除草稿，不生成提升标记", () => {
-    const workspacePath = "/tmp/workspace-grouped-draft-existing-task-navigation";
-    useZCodeSessionStore.getState().startDraft(workspacePath, undefined, undefined, {
-      groupedDraftPlacement: { type: "group", groupId: "group-a" },
-    });
+    const workspacePath =
+      "/tmp/workspace-grouped-draft-existing-task-navigation";
+    useZCodeSessionStore
+      .getState()
+      .startDraft(workspacePath, undefined, undefined, {
+        groupedDraftPlacement: { type: "group", groupId: "group-a" },
+      });
 
-    useZCodeSessionStore.getState().setActiveTaskId(workspacePath, "existing-root-task");
+    useZCodeSessionStore
+      .getState()
+      .setActiveTaskId(workspacePath, "existing-root-task");
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(workspaceState.groupedDraftTask).toBeNull();
-    expect(workspaceState.promotedGroupedDraftTaskByTaskId["existing-root-task"]).toBeUndefined();
+    expect(
+      workspaceState.promotedGroupedDraftTaskByTaskId["existing-root-task"],
+    ).toBeUndefined();
   });
 
   it("切换 workspace 时可以迁移 grouped 草稿位置", () => {
@@ -842,26 +1049,32 @@ describe("useZCodeSessionStore provider preference", () => {
     const targetWorkspacePath = "/tmp/workspace-grouped-draft-target";
     const placement = { type: "group" as const, groupId: "group-a" };
 
-    useZCodeSessionStore.getState().startDraft(sourceWorkspacePath, undefined, undefined, {
-      groupedDraftPlacement: placement,
-    });
+    useZCodeSessionStore
+      .getState()
+      .startDraft(sourceWorkspacePath, undefined, undefined, {
+        groupedDraftPlacement: placement,
+      });
     const sourceDraft = useZCodeSessionStore
       .getState()
       .getWorkspaceState(sourceWorkspacePath).groupedDraftTask;
     expect(sourceDraft).not.toBeNull();
 
-    useZCodeSessionStore.getState().startDraft(targetWorkspacePath, undefined, undefined, {
-      groupedDraftPlacement: sourceDraft!.placement,
-    });
+    useZCodeSessionStore
+      .getState()
+      .startDraft(targetWorkspacePath, undefined, undefined, {
+        groupedDraftPlacement: sourceDraft!.placement,
+      });
     // 修复原因：grouped 左侧 New task 行是创建位置，不是 workspace 本身。
     // 切 workspace 只迁移草稿目标，不能让左侧临时行凭空消失。
     useZCodeSessionStore.getState().clearGroupedDraftTask(sourceWorkspacePath);
 
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(sourceWorkspacePath).groupedDraftTask,
+      useZCodeSessionStore.getState().getWorkspaceState(sourceWorkspacePath)
+        .groupedDraftTask,
     ).toBeNull();
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(targetWorkspacePath).groupedDraftTask,
+      useZCodeSessionStore.getState().getWorkspaceState(targetWorkspacePath)
+        .groupedDraftTask,
     ).toMatchObject({
       workspacePath: targetWorkspacePath,
       placement,
@@ -875,18 +1088,24 @@ describe("useZCodeSessionStore provider preference", () => {
       { name: "review", description: "发起代码审查" },
     ];
 
-    useZCodeSessionStore.getState().setSlashCommands(workspacePath, slashCommands);
+    useZCodeSessionStore
+      .getState()
+      .setSlashCommands(workspacePath, slashCommands);
 
     useZCodeSessionStore.getState().startDraft(workspacePath);
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).slashCommands).toEqual(
-      slashCommands,
-    );
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .slashCommands,
+    ).toEqual(slashCommands);
 
-    useZCodeSessionStore.getState().setActiveTaskId(workspacePath, "task-from-list");
+    useZCodeSessionStore
+      .getState()
+      .setActiveTaskId(workspacePath, "task-from-list");
     useZCodeSessionStore.getState().startDraft(workspacePath);
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).slashCommands).toEqual(
-      [],
-    );
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .slashCommands,
+    ).toEqual([]);
   });
 
   it("workspaceIdentity 会隔离 workspace 级命令、初始化与模型切换状态", () => {
@@ -895,8 +1114,12 @@ describe("useZCodeSessionStore provider preference", () => {
     const identityB = "ssh://host-b/tmp/workspace-same-path-state";
     const slashCommands = [{ name: "review", description: "发起代码审查" }];
 
-    useZCodeSessionStore.getState().setSlashCommands(workspacePath, slashCommands, identityA);
-    useZCodeSessionStore.getState().setWorkspaceInitState(workspacePath, "ready", null, identityA);
+    useZCodeSessionStore
+      .getState()
+      .setSlashCommands(workspacePath, slashCommands, identityA);
+    useZCodeSessionStore
+      .getState()
+      .setWorkspaceInitState(workspacePath, "ready", null, identityA);
     useZCodeSessionStore
       .getState()
       .startModelSwitch(workspacePath, "switch-a", "settingModel", identityA);
@@ -925,11 +1148,17 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .setTaskConfigOptions(workspacePath, "task-1", [createModelConfigOption("glm-path")]);
+      .setTaskConfigOptions(workspacePath, "task-1", [
+        createModelConfigOption("glm-path"),
+      ]);
     useZCodeSessionStore.getState().startDraft(workspacePath, "glm", identityA);
     useZCodeSessionStore
       .getState()
-      .setConfigOptions(workspacePath, [createModelConfigOption("glm-identity-b")], identityB);
+      .setConfigOptions(
+        workspacePath,
+        [createModelConfigOption("glm-identity-b")],
+        identityB,
+      );
     useZCodeSessionStore
       .getState()
       .setTaskConfigOptions(
@@ -940,19 +1169,26 @@ describe("useZCodeSessionStore provider preference", () => {
       );
 
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, identityA)
-        .taskConfigOptionsByTaskId["task-1"]?.[0]?.currentValue,
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, identityA).taskConfigOptionsByTaskId[
+        "task-1"
+      ]?.[0]?.currentValue,
     ).toBe("glm-identity-a");
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, identityB)
-        .taskConfigOptionsByTaskId["task-1"],
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, identityB).taskConfigOptionsByTaskId[
+        "task-1"
+      ],
     ).toBeUndefined();
   });
 
   it("workspaceIdentity 首次写入只迁移明确属于该 identity 的 path task 状态", () => {
     const workspacePath = "/tmp/workspace-same-path-task-cache";
     const workspaceIdentity = "ssh://host-a/tmp/workspace-same-path-task-cache";
-    const otherWorkspaceIdentity = "ssh://host-b/tmp/workspace-same-path-task-cache";
+    const otherWorkspaceIdentity =
+      "ssh://host-b/tmp/workspace-same-path-task-cache";
     const taskId = "identity-task";
     const otherTaskId = "other-task";
     useZCodeSessionStore.getState().setTaskListCache(workspacePath, [
@@ -971,14 +1207,20 @@ describe("useZCodeSessionStore provider preference", () => {
     ]);
     useZCodeSessionStore
       .getState()
-      .setTaskConfigOptions(workspacePath, taskId, [createModelConfigOption("glm-path")]);
-    useZCodeSessionStore.getState().setTaskRuntimeState(workspacePath, taskId, "streaming");
+      .setTaskConfigOptions(workspacePath, taskId, [
+        createModelConfigOption("glm-path"),
+      ]);
+    useZCodeSessionStore
+      .getState()
+      .setTaskRuntimeState(workspacePath, taskId, "streaming");
     useZCodeSessionStore
       .getState()
       .setTaskError(workspacePath, taskId, createZCodeError({ taskId }));
     useZCodeSessionStore
       .getState()
-      .setTaskConfigOptions(workspacePath, otherTaskId, [createModelConfigOption("glm-other")]);
+      .setTaskConfigOptions(workspacePath, otherTaskId, [
+        createModelConfigOption("glm-other"),
+      ]);
 
     useZCodeSessionStore
       .getState()
@@ -992,12 +1234,24 @@ describe("useZCodeSessionStore provider preference", () => {
       .getState()
       .getWorkspaceState(workspacePath, workspaceIdentity);
 
-    expect(workspaceState.configOptions?.[0]?.currentValue).toBe("glm-identity");
-    expect(workspaceState.taskListCache?.map((task) => task.taskId)).toEqual([taskId]);
-    expect(readModelConfigValue(workspaceState.taskConfigOptionsByTaskId[taskId])).toBe("glm-path");
-    expect(getTaskRuntimeState(workspaceState, taskId).status).toBe("streaming");
-    expect(getTaskUiState(workspaceState, taskId).error?.message).toBe("命令执行失败");
-    expect(workspaceState.taskConfigOptionsByTaskId[otherTaskId]).toBeUndefined();
+    expect(workspaceState.configOptions?.[0]?.currentValue).toBe(
+      "glm-identity",
+    );
+    expect(workspaceState.taskListCache?.map((task) => task.taskId)).toEqual([
+      taskId,
+    ]);
+    expect(
+      readModelConfigValue(workspaceState.taskConfigOptionsByTaskId[taskId]),
+    ).toBe("glm-path");
+    expect(getTaskRuntimeState(workspaceState, taskId).status).toBe(
+      "streaming",
+    );
+    expect(getTaskUiState(workspaceState, taskId).error?.message).toBe(
+      "命令执行失败",
+    );
+    expect(
+      workspaceState.taskConfigOptionsByTaskId[otherTaskId],
+    ).toBeUndefined();
   });
 
   it("modelSwitch 状态只允许最新 requestId 生效与收敛", () => {
@@ -1005,22 +1259,34 @@ describe("useZCodeSessionStore provider preference", () => {
     const requestId1 = "switch-1";
     const requestId2 = "switch-2";
 
-    useZCodeSessionStore.getState().startModelSwitch(workspacePath, requestId1, "settingModel");
+    useZCodeSessionStore
+      .getState()
+      .startModelSwitch(workspacePath, requestId1, "settingModel");
     useZCodeSessionStore
       .getState()
       .updateModelSwitchStage(workspacePath, requestId1, "restartingRuntime");
-    useZCodeSessionStore.getState().startModelSwitch(workspacePath, requestId2, "syncingSession");
+    useZCodeSessionStore
+      .getState()
+      .startModelSwitch(workspacePath, requestId2, "syncingSession");
 
     // 旧请求结束不应覆盖新请求状态
-    useZCodeSessionStore.getState().finishModelSwitch(workspacePath, requestId1);
-    let workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    useZCodeSessionStore
+      .getState()
+      .finishModelSwitch(workspacePath, requestId1);
+    let workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(workspaceState.modelSwitchPending).toBe(true);
     expect(workspaceState.modelSwitchRequestId).toBe(requestId2);
     expect(workspaceState.modelSwitchStage).toBe("syncingSession");
 
     // 当前请求结束后才回到 idle
-    useZCodeSessionStore.getState().finishModelSwitch(workspacePath, requestId2);
-    workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    useZCodeSessionStore
+      .getState()
+      .finishModelSwitch(workspacePath, requestId2);
+    workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(workspaceState.modelSwitchPending).toBe(false);
     expect(workspaceState.modelSwitchRequestId).toBeNull();
     expect(workspaceState.modelSwitchStage).toBe("idle");
@@ -1032,15 +1298,24 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .upsertOptimisticTaskListItem(workspacePath, createTaskMeta({ taskId, workspacePath }));
+      .upsertOptimisticTaskListItem(
+        workspacePath,
+        createTaskMeta({ taskId, workspacePath }),
+      );
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, taskId);
-    useZCodeSessionStore.getState().setTaskRuntimeState(workspacePath, taskId, "streaming");
+    useZCodeSessionStore
+      .getState()
+      .setTaskRuntimeState(workspacePath, taskId, "streaming");
 
     useZCodeSessionStore.getState().removeTaskState(workspacePath, taskId);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(workspaceState.activeTaskId).toBeNull();
-    expect(getWorkspaceDisplayedTaskState(workspaceState).taskStatus).toBe("idle");
+    expect(getWorkspaceDisplayedTaskState(workspaceState).taskStatus).toBe(
+      "idle",
+    );
     expect(getWorkspaceDisplayedTaskState(workspaceState).taskError).toBeNull();
     expect(workspaceState.optimisticTaskListByTaskId[taskId]).toBeUndefined();
     expect(workspaceState.taskRuntimeByTaskId[taskId]).toBeUndefined();
@@ -1056,15 +1331,21 @@ describe("useZCodeSessionStore provider preference", () => {
       .getState()
       .setTaskPermissionRequest(workspacePath, firstTaskId, permissionRequest);
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, firstTaskId);
-    useZCodeSessionStore.getState().setActiveTaskId(workspacePath, secondTaskId);
+    useZCodeSessionStore
+      .getState()
+      .setActiveTaskId(workspacePath, secondTaskId);
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, firstTaskId);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(getTaskUiState(workspaceState, firstTaskId)).toEqual({
       ...DEFAULT_TASK_UI_STATE,
       permissionRequest,
     });
-    expect(getTaskUiState(workspaceState, secondTaskId)).toEqual(DEFAULT_TASK_UI_STATE);
+    expect(getTaskUiState(workspaceState, secondTaskId)).toEqual(
+      DEFAULT_TASK_UI_STATE,
+    );
   });
 
   it("问答草稿会按 workspace、task 和 request 隔离，并可在请求收口后清理", () => {
@@ -1082,33 +1363,48 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .setTaskElicitationFormDraft(workspacePath, firstTaskId, requestId, draft, workspaceIdentity);
+      .setTaskElicitationFormDraft(
+        workspacePath,
+        firstTaskId,
+        requestId,
+        draft,
+        workspaceIdentity,
+      );
 
     let workspaceState = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath, workspaceIdentity);
     expect(
-      getTaskUiState(workspaceState, firstTaskId).elicitationFormDraftsByRequestId[requestId],
+      getTaskUiState(workspaceState, firstTaskId)
+        .elicitationFormDraftsByRequestId[requestId],
     ).toEqual(draft);
     expect(
-      getTaskUiState(workspaceState, secondTaskId).elicitationFormDraftsByRequestId[requestId],
+      getTaskUiState(workspaceState, secondTaskId)
+        .elicitationFormDraftsByRequestId[requestId],
     ).toBeUndefined();
     const otherWorkspaceState = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath, "ssh://host-b/workspace");
     expect(
-      getTaskUiState(otherWorkspaceState, firstTaskId).elicitationFormDraftsByRequestId[requestId],
+      getTaskUiState(otherWorkspaceState, firstTaskId)
+        .elicitationFormDraftsByRequestId[requestId],
     ).toBeUndefined();
 
     useZCodeSessionStore
       .getState()
-      .removeTaskElicitationFormDraft(workspacePath, firstTaskId, requestId, workspaceIdentity);
+      .removeTaskElicitationFormDraft(
+        workspacePath,
+        firstTaskId,
+        requestId,
+        workspaceIdentity,
+      );
 
     workspaceState = useZCodeSessionStore
       .getState()
       .getWorkspaceState(workspacePath, workspaceIdentity);
     expect(
-      getTaskUiState(workspaceState, firstTaskId).elicitationFormDraftsByRequestId[requestId],
+      getTaskUiState(workspaceState, firstTaskId)
+        .elicitationFormDraftsByRequestId[requestId],
     ).toBeUndefined();
   });
 
@@ -1133,16 +1429,22 @@ describe("useZCodeSessionStore provider preference", () => {
       .getState()
       .setTaskPermissionRequest(workspacePath, taskId, secondPermissionRequest);
 
-    let workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    let workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(getTaskUiState(workspaceState, taskId)).toEqual({
       ...DEFAULT_TASK_UI_STATE,
       permissionRequest: firstPermissionRequest,
       pendingPermissionRequests: [secondPermissionRequest],
     });
 
-    useZCodeSessionStore.getState().removeTaskPermissionRequest(workspacePath, taskId, "perm-1");
+    useZCodeSessionStore
+      .getState()
+      .removeTaskPermissionRequest(workspacePath, taskId, "perm-1");
 
-    workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(getTaskUiState(workspaceState, taskId)).toEqual({
       ...DEFAULT_TASK_UI_STATE,
       permissionRequest: secondPermissionRequest,
@@ -1152,7 +1454,10 @@ describe("useZCodeSessionStore provider preference", () => {
   it("重复收到相同权限请求时不会重建 task UI state", () => {
     const workspacePath = "/tmp/workspace-task-permission-duplicate";
     const taskId = "task-permission-duplicate";
-    const firstPermissionRequest = createPermissionRequest({ taskId, requestId: "perm-duplicate" });
+    const firstPermissionRequest = createPermissionRequest({
+      taskId,
+      requestId: "perm-duplicate",
+    });
     const duplicatePermissionRequest = createPermissionRequest({
       taskId,
       requestId: "perm-duplicate",
@@ -1162,14 +1467,22 @@ describe("useZCodeSessionStore provider preference", () => {
       .getState()
       .setTaskPermissionRequest(workspacePath, taskId, firstPermissionRequest);
 
-    const firstWorkspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const firstWorkspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     const firstTaskUiState = getTaskUiState(firstWorkspaceState, taskId);
 
     useZCodeSessionStore
       .getState()
-      .setTaskPermissionRequest(workspacePath, taskId, duplicatePermissionRequest);
+      .setTaskPermissionRequest(
+        workspacePath,
+        taskId,
+        duplicatePermissionRequest,
+      );
 
-    const secondWorkspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const secondWorkspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(secondWorkspaceState).toBe(firstWorkspaceState);
     expect(getTaskUiState(secondWorkspaceState, taskId)).toBe(firstTaskUiState);
   });
@@ -1177,7 +1490,10 @@ describe("useZCodeSessionStore provider preference", () => {
   it("重复清理已移除的权限请求时不会重建 task UI state", () => {
     const workspacePath = "/tmp/workspace-task-permission-response-duplicate";
     const taskId = "task-permission-response-duplicate";
-    const permissionRequest = createPermissionRequest({ taskId, requestId: "perm-response" });
+    const permissionRequest = createPermissionRequest({
+      taskId,
+      requestId: "perm-response",
+    });
 
     useZCodeSessionStore
       .getState()
@@ -1186,13 +1502,17 @@ describe("useZCodeSessionStore provider preference", () => {
       .getState()
       .removeTaskPermissionRequest(workspacePath, taskId, "perm-response");
 
-    const firstWorkspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const firstWorkspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
 
     useZCodeSessionStore
       .getState()
       .removeTaskPermissionRequest(workspacePath, taskId, "perm-response");
 
-    const secondWorkspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const secondWorkspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(secondWorkspaceState).toBe(firstWorkspaceState);
   });
 
@@ -1202,12 +1522,18 @@ describe("useZCodeSessionStore provider preference", () => {
     const secondTaskId = "task-other";
     const error = createZCodeError({ taskId: firstTaskId });
 
-    useZCodeSessionStore.getState().setTaskError(workspacePath, firstTaskId, error);
+    useZCodeSessionStore
+      .getState()
+      .setTaskError(workspacePath, firstTaskId, error);
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, firstTaskId);
-    useZCodeSessionStore.getState().setActiveTaskId(workspacePath, secondTaskId);
+    useZCodeSessionStore
+      .getState()
+      .setActiveTaskId(workspacePath, secondTaskId);
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, firstTaskId);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(getTaskUiState(workspaceState, firstTaskId).error).toEqual(error);
     expect(getTaskUiState(workspaceState, secondTaskId).error).toBeNull();
   });
@@ -1217,12 +1543,16 @@ describe("useZCodeSessionStore provider preference", () => {
     const error = createZCodeError({ taskId: undefined });
 
     useZCodeSessionStore.getState().setDraftError(workspacePath, error);
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).draftError).toEqual(
-      error,
-    );
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .draftError,
+    ).toEqual(error);
 
     useZCodeSessionStore.getState().startDraft(workspacePath);
-    expect(useZCodeSessionStore.getState().getWorkspaceState(workspacePath).draftError).toBeNull();
+    expect(
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .draftError,
+    ).toBeNull();
   });
 
   it("当前 task 被右键标记未读后，再次打开会同时清掉 optimistic 蓝点", () => {
@@ -1230,9 +1560,14 @@ describe("useZCodeSessionStore provider preference", () => {
     const taskId = "task-unread";
     useZCodeSessionStore
       .getState()
-      .upsertOptimisticTaskListItem(workspacePath, createTaskMeta({ taskId, workspacePath }));
+      .upsertOptimisticTaskListItem(
+        workspacePath,
+        createTaskMeta({ taskId, workspacePath }),
+      );
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, taskId);
-    useZCodeSessionStore.getState().setTaskUnreadIndicator(workspacePath, taskId, true);
+    useZCodeSessionStore
+      .getState()
+      .setTaskUnreadIndicator(workspacePath, taskId, true);
     useZCodeSessionStore
       .getState()
       .upsertOptimisticTaskListItem(
@@ -1249,22 +1584,36 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, taskId);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(getTaskUnreadIndicator(workspaceState, taskId)).toBe(false);
-    expect(workspaceState.optimisticTaskListByTaskId[taskId]?.unreadAt).toBeUndefined();
+    expect(
+      workspaceState.optimisticTaskListByTaskId[taskId]?.unreadAt,
+    ).toBeUndefined();
   });
 
   it("重复清理已读 task 时不会重建 workspace state", () => {
     const workspacePath = "/tmp/workspace-task-read-noop";
     const taskId = "task-unread-noop";
-    useZCodeSessionStore.getState().setTaskUnreadIndicator(workspacePath, taskId, true);
-    useZCodeSessionStore.getState().setTaskUnreadIndicator(workspacePath, taskId, false);
+    useZCodeSessionStore
+      .getState()
+      .setTaskUnreadIndicator(workspacePath, taskId, true);
+    useZCodeSessionStore
+      .getState()
+      .setTaskUnreadIndicator(workspacePath, taskId, false);
 
-    const firstWorkspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const firstWorkspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
 
-    useZCodeSessionStore.getState().setTaskUnreadIndicator(workspacePath, taskId, false);
+    useZCodeSessionStore
+      .getState()
+      .setTaskUnreadIndicator(workspacePath, taskId, false);
 
-    const secondWorkspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const secondWorkspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(secondWorkspaceState).toBe(firstWorkspaceState);
   });
 
@@ -1276,7 +1625,9 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .setConfigOptions(workspacePath, [createModelConfigOption(staleWorkspaceModel)]);
+      .setConfigOptions(workspacePath, [
+        createModelConfigOption(staleWorkspaceModel),
+      ]);
     useZCodeSessionStore.getState().upsertOptimisticTaskListItem(
       workspacePath,
       createTaskMeta({
@@ -1289,12 +1640,18 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, taskId);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
-    expect(readModelConfigValue(workspaceState.configOptions)).toBe(staleWorkspaceModel);
-    expect(readModelConfigValue(workspaceState.taskConfigOptionsByTaskId[taskId])).toBe(
-      encodeCustomModelValue("bigmodel-api", "GLM-5.1"),
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
+    expect(readModelConfigValue(workspaceState.configOptions)).toBe(
+      staleWorkspaceModel,
     );
-    expect(workspaceState.taskConfigOptionsStatusByTaskId[taskId]).toBe("loading");
+    expect(
+      readModelConfigValue(workspaceState.taskConfigOptionsByTaskId[taskId]),
+    ).toBe(encodeCustomModelValue("bigmodel-api", "GLM-5.1"));
+    expect(workspaceState.taskConfigOptionsStatusByTaskId[taskId]).toBe(
+      "loading",
+    );
   });
 
   it("active task 配置更新只写 task 配置桶，不覆盖 workspace 默认配置", () => {
@@ -1305,16 +1662,28 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .setConfigOptions(workspacePath, [createModelConfigOption(workspaceModel)]);
+      .setConfigOptions(workspacePath, [
+        createModelConfigOption(workspaceModel),
+      ]);
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, taskId);
     useZCodeSessionStore
       .getState()
-      .setTaskConfigOptions(workspacePath, taskId, [createModelConfigOption(taskModel)]);
+      .setTaskConfigOptions(workspacePath, taskId, [
+        createModelConfigOption(taskModel),
+      ]);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
-    expect(readModelConfigValue(workspaceState.configOptions)).toBe(workspaceModel);
-    expect(readModelConfigValue(workspaceState.taskConfigOptionsByTaskId[taskId])).toBe(taskModel);
-    expect(workspaceState.taskConfigOptionsStatusByTaskId[taskId]).toBe("ready");
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
+    expect(readModelConfigValue(workspaceState.configOptions)).toBe(
+      workspaceModel,
+    );
+    expect(
+      readModelConfigValue(workspaceState.taskConfigOptionsByTaskId[taskId]),
+    ).toBe(taskModel);
+    expect(workspaceState.taskConfigOptionsStatusByTaskId[taskId]).toBe(
+      "ready",
+    );
   });
 
   it("相同 workspace 配置不会重复通知订阅者", () => {
@@ -1349,12 +1718,16 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .setTaskConfigOptions(workspacePath, taskId, [createModelConfigOption(modelValue)]);
+      .setTaskConfigOptions(workspacePath, taskId, [
+        createModelConfigOption(modelValue),
+      ]);
     expect(notificationCount).toBe(1);
 
     useZCodeSessionStore
       .getState()
-      .setTaskConfigOptions(workspacePath, taskId, [createModelConfigOption(modelValue)]);
+      .setTaskConfigOptions(workspacePath, taskId, [
+        createModelConfigOption(modelValue),
+      ]);
 
     unsubscribe();
     expect(notificationCount).toBe(1);
@@ -1370,8 +1743,12 @@ describe("useZCodeSessionStore provider preference", () => {
     expect(backEntry?.taskId).toBe("task-a");
     useZCodeSessionStore.getState().setActiveTaskId(workspacePath, "task-a");
 
-    expect(canGoForward(useZCodeSessionStore.getState().taskNavHistory)).toBe(true);
-    expect(useZCodeSessionStore.getState().taskNavGoForward()?.taskId).toBe("task-b");
+    expect(canGoForward(useZCodeSessionStore.getState().taskNavHistory)).toBe(
+      true,
+    );
+    expect(useZCodeSessionStore.getState().taskNavGoForward()?.taskId).toBe(
+      "task-b",
+    );
   });
 
   it("removeTaskState 会同时清理 task 级权限请求", () => {
@@ -1380,11 +1757,17 @@ describe("useZCodeSessionStore provider preference", () => {
 
     useZCodeSessionStore
       .getState()
-      .setTaskPermissionRequest(workspacePath, taskId, createPermissionRequest({ taskId }));
+      .setTaskPermissionRequest(
+        workspacePath,
+        taskId,
+        createPermissionRequest({ taskId }),
+      );
 
     useZCodeSessionStore.getState().removeTaskState(workspacePath, taskId);
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(workspaceState.taskUiByTaskId[taskId]).toBeUndefined();
   });
 
@@ -1397,10 +1780,16 @@ describe("useZCodeSessionStore provider preference", () => {
       size: 200000,
       cost: { amount: 0.045, currency: "USD" },
     });
-    useZCodeSessionStore.getState().setTaskRuntimeState(workspacePath, taskId, "streaming");
-    useZCodeSessionStore.getState().setTaskRuntimeState(workspacePath, taskId, "completed");
+    useZCodeSessionStore
+      .getState()
+      .setTaskRuntimeState(workspacePath, taskId, "streaming");
+    useZCodeSessionStore
+      .getState()
+      .setTaskRuntimeState(workspacePath, taskId, "completed");
 
-    const workspaceState = useZCodeSessionStore.getState().getWorkspaceState(workspacePath);
+    const workspaceState = useZCodeSessionStore
+      .getState()
+      .getWorkspaceState(workspacePath);
     expect(getTaskRuntimeState(workspaceState, taskId)).toEqual({
       ...DEFAULT_TASK_RUNTIME_STATE,
       status: "completed",
@@ -1430,7 +1819,9 @@ describe("useZCodeSessionStore provider preference", () => {
       },
       breakdown: [{ source: "messages", chars: 1200 }],
     });
-    useZCodeSessionStore.getState().setTaskContextWindow(workspacePath, taskId, 1000000);
+    useZCodeSessionStore
+      .getState()
+      .setTaskContextWindow(workspacePath, taskId, 1000000);
 
     const runtime = getTaskRuntimeState(
       useZCodeSessionStore.getState().getWorkspaceState(workspacePath),
@@ -1478,18 +1869,24 @@ describe("useZCodeSessionStore provider preference", () => {
 
   it("configOptionsStatus 写入 workspace identity 时不污染 path 桶", () => {
     const workspacePath = "/tmp/workspace-config-status-identity";
-    const workspaceIdentity = "ssh://host-a/tmp/workspace-config-status-identity";
+    const workspaceIdentity =
+      "ssh://host-a/tmp/workspace-config-status-identity";
 
-    useZCodeSessionStore.getState().setConfigOptionsStatus(workspacePath, "loading");
+    useZCodeSessionStore
+      .getState()
+      .setConfigOptionsStatus(workspacePath, "loading");
     useZCodeSessionStore
       .getState()
       .setConfigOptionsStatus(workspacePath, "error", workspaceIdentity);
 
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath).configOptionsStatus,
+      useZCodeSessionStore.getState().getWorkspaceState(workspacePath)
+        .configOptionsStatus,
     ).toBe("loading");
     expect(
-      useZCodeSessionStore.getState().getWorkspaceState(workspacePath, workspaceIdentity)
+      useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentity)
         .configOptionsStatus,
     ).toBe("error");
   });

@@ -1,84 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import {
   applyExternalTextInsertRequestToComposer,
-  applyComposerRestoreRequestToComposer,
   restorePersistedComposerDraftIntoInput,
-  type ComposerRestoreRequest,
 } from "@/v4/ConversationComposer.js";
-import {
-  resolveQueuedComposerRestore,
-  shouldRestoreQueuedComposerFromAck,
-} from "@/v4/SessionPane.js";
 
-function makeSnapshot(): ConversationSnapshot {
-  return {
-    protocolVersion: 1,
-    sessionId: "session-1",
-    logEpoch: "epoch-1",
-    seq: 1,
-    revision: 7,
-    control: {
-      phase: "running",
-      sessionEnded: false,
-      canStop: true,
-      stopState: "stoppable",
-      stopTargetKind: "primaryTurn",
-      activeWorks: [],
-      lastError: null,
-      apiRetry: null,
-    },
-    availability: {
-      fork: { allowed: true },
-      compact: { allowed: true },
-      switchModelConfig: { allowed: true },
-      setFollowupMode: { allowed: true },
-      queueEdit: { allowed: true },
-      sendQueuedNow: { allowed: true },
-      pauseGoal: { allowed: false, reasonCode: "noGoalToPause" },
-      resumeGoal: { allowed: false, reasonCode: "noGoalToResume" },
-    },
-    inputRouting: { mode: "enqueue" },
-    meta: { title: "Session", titleSource: "generated" },
-    config: { provider: "", model: "", thought: "", followupMode: "queue", mode: "build" },
-    usage: {
-      contextWindow: null,
-      cumulative: {
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheReadTokens: 0,
-        cacheWriteTokens: 0,
-      },
-    },
-    queue: {
-      autoDrain: true,
-      items: [
-        {
-          queueItemId: "q-1",
-          kind: "sendText",
-          text: "排队原文",
-          sourceCommandId: "cmd-q1",
-          clientId: "cli",
-          attachments: [
-            { ref: "ref-b", fileName: "b.png", mime: "image/png", bytes: 2 },
-            { ref: "ref-a", fileName: "a.txt", mime: "text/plain", bytes: 1 },
-          ],
-          delivery: { requested: "queue", admitted: "queue" },
-          order: { admissionSeq: 1, queuePosition: 0 },
-          steer: { state: "notRequested" },
-          dispatch: { state: "queued" },
-          admittedAt: 1,
-        },
-      ],
-    },
-    pendingInteractions: [],
-    pendingCommands: [],
-    backgroundWorks: [],
-    goal: null,
-    plan: null,
-    rows: { window: [], totalCount: 0, firstRowId: null },
-  };
-}
 
 describe("v4 queue edit extraction", () => {
   it("Workspace 插件页重挂载时从共享草稿恢复结构化 mention", () => {
@@ -205,7 +130,10 @@ describe("v4 queue edit extraction", () => {
         updateText,
       }),
     ).toBe(7);
-    expect(inputApi.setMention).toHaveBeenCalledWith(mention, " Diagnose this workspace");
+    expect(inputApi.setMention).toHaveBeenCalledWith(
+      mention,
+      " Diagnose this workspace",
+    );
     expect(inputApi.setText).not.toHaveBeenCalled();
     expect(updateText).toHaveBeenCalledWith(text);
     expect(scheduleDraftPersist).toHaveBeenCalledTimes(1);
@@ -247,7 +175,9 @@ describe("v4 queue edit extraction", () => {
       }),
     ).toBe(8);
     expect(inputApi.prependMentionIfMissing).toHaveBeenCalledWith(mention);
-    expect(updateText).toHaveBeenCalledWith(`${mention.markdown} 用户安装期间编辑后的正文`);
+    expect(updateText).toHaveBeenCalledWith(
+      `${mention.markdown} 用户安装期间编辑后的正文`,
+    );
     expect(inputApi.setMention).not.toHaveBeenCalled();
     expect(inputApi.setText).not.toHaveBeenCalled();
   });
@@ -290,161 +220,135 @@ describe("v4 queue edit extraction", () => {
     expect(updateText).not.toHaveBeenCalled();
   });
 
-  it("PA158 撤回使用队列项自身权限/Plan/模型，不借用当前 Composer 配置", () => {
-    const snapshot = makeSnapshot();
-    Object.assign(snapshot.queue.items[0]!, {
-      mode: "yolo",
-      planEnabled: false,
-      modelSelection: {
-        providerId: "provider",
-        modelId: "model",
-        options: { reasoningLevel: "high" },
-      },
-    });
-    expect(resolveQueuedComposerRestore(snapshot, "q-1")?.config).toEqual({
-      mode: "yolo",
-      planEnabled: false,
-      modelSelection: {
-        providerId: "provider",
-        modelId: "model",
-        options: { reasoningLevel: "high" },
-      },
-    });
-  });
-
-  it("提取完整输入并保持附件顺序，供权威删除后恢复 composer", () => {
-    expect(resolveQueuedComposerRestore(makeSnapshot(), "q-1")).toEqual({
-      baseRevision: 7,
-      queueItemId: "q-1",
-      sourceCommandId: "cmd-q1",
-      inputKind: "sendText",
-      text: "排队原文",
-      attachments: [
-        { ref: "ref-b", fileName: "b.png", mime: "image/png", bytes: 2 },
-        { ref: "ref-a", fileName: "a.txt", mime: "text/plain", bytes: 1 },
-      ],
-    });
-    expect(resolveQueuedComposerRestore(makeSnapshot(), "missing")).toBeNull();
-  });
-
-  it("goal 恢复可见 slash 文本，compact 明确剪枝", () => {
-    const goal = makeSnapshot();
-    goal.queue.items[0] = {
-      ...goal.queue.items[0]!,
-      kind: "sendGoalCommand",
-      text: "修复登录",
+  it("批量 mentions 单帧按逆序前置，最终顺序与传入一致且只 updateText 一次", () => {
+    const mentionA = {
+      id: "file:/w/a.ts",
+      category: "files" as const,
+      label: "a.ts",
+      value: "a.ts",
+      markdown: "[a.ts](./a.ts)",
     };
-    expect(resolveQueuedComposerRestore(goal, "q-1")?.text).toBe("/goal 修复登录");
-
-    const compact = makeSnapshot();
-    compact.queue.items[0] = {
-      ...compact.queue.items[0]!,
-      kind: "compact",
-      text: "/compact",
-      attachments: [],
-    };
-    expect(resolveQueuedComposerRestore(compact, "q-1")).toBeNull();
-  });
-
-  it("只允许 accepted/duplicate 恢复，其他 ACK 分支保持 composer 不变", () => {
-    expect(shouldRestoreQueuedComposerFromAck("accepted")).toBe(true);
-    expect(shouldRestoreQueuedComposerFromAck("duplicate")).toBe(true);
-    expect(shouldRestoreQueuedComposerFromAck("noop")).toBe(false);
-    expect(shouldRestoreQueuedComposerFromAck("stale")).toBe(false);
-    expect(shouldRestoreQueuedComposerFromAck("rejected")).toBe(false);
-    expect(shouldRestoreQueuedComposerFromAck("failed")).toBe(false);
-  });
-
-  it("只在绑定 session/workspace 的空 composer 幂等恢复文字与附件", () => {
-    const request: ComposerRestoreRequest = {
-      requestId: 1,
-      sessionId: "session-1",
-      workspaceKey: "remote:ssh:host:/workspace",
-      inputKind: "sendText",
-      text: "排队原文",
-      attachments: [{ ref: "ref-1", fileName: "a.png", mime: "image/png", bytes: 1 }],
-      config: { mode: "yolo", planEnabled: false },
+    const mentionB = {
+      id: "file:/w/b.ts",
+      category: "files" as const,
+      label: "b.ts",
+      value: "b.ts",
+      markdown: "[b.ts](./b.ts)",
     };
     const inputApi = {
-      focus: vi.fn(),
+      getMarkdown: vi.fn(() => "[b.ts](./b.ts) [a.ts](./a.ts) "),
+      prependMentionIfMissing: vi.fn(() => true),
+      setMention: vi.fn(),
       setText: vi.fn(),
     };
     const updateText = vi.fn();
     const requestFocus = vi.fn();
     const scheduleDraftPersist = vi.fn();
-    const restoreSessionOwnedAttachments = vi.fn(() => true);
-    const restoreDraftConfig = vi.fn();
 
     expect(
-      applyComposerRestoreRequestToComposer({
+      applyExternalTextInsertRequestToComposer({
         appliedRequestId: null,
-        currentSessionId: "session-1",
-        currentWorkspaceKey: "remote:ssh:host:/workspace",
-        hasDraftContent: false,
         inputApi,
-        request,
+        request: {
+          requestId: 10,
+          text: "[a.ts](./a.ts) [b.ts](./b.ts) ",
+          mentions: [mentionA, mentionB],
+          mode: "prepend-if-missing",
+        },
         requestFocus,
-        restoreSessionOwnedAttachments,
-        restoreDraftConfig,
         scheduleDraftPersist,
         updateText,
       }),
-    ).toBe(1);
-    expect(inputApi.setText).toHaveBeenCalledWith("排队原文");
-    expect(updateText).toHaveBeenCalledWith("排队原文");
+    ).toBe(10);
+    // prepend 每次插到最前：按逆序应用（先 b 后 a）后编辑器顺序与传入一致。
+    expect(inputApi.prependMentionIfMissing).toHaveBeenNthCalledWith(
+      1,
+      mentionB,
+    );
+    expect(inputApi.prependMentionIfMissing).toHaveBeenNthCalledWith(
+      2,
+      mentionA,
+    );
+    expect(updateText).toHaveBeenCalledTimes(1);
+    expect(updateText).toHaveBeenCalledWith("[b.ts](./b.ts) [a.ts](./a.ts) ");
     expect(requestFocus).toHaveBeenCalledTimes(1);
     expect(scheduleDraftPersist).toHaveBeenCalledTimes(1);
-    expect(restoreSessionOwnedAttachments).toHaveBeenCalledWith(request.attachments);
+    expect(inputApi.setMention).not.toHaveBeenCalled();
+    expect(inputApi.setText).not.toHaveBeenCalled();
+  });
+
+  it("批量 mentions 全部判重命中时不再 updateText，仅交回焦点作反馈", () => {
+    const mention = {
+      id: "file:/w/a.ts:1-2",
+      category: "files" as const,
+      label: "a.ts 1-2",
+      value: "a.ts",
+      markdown: "[a.ts 1-2](./a.ts)",
+    };
+    const inputApi = {
+      getMarkdown: vi.fn(() => "[a.ts 1-2](./a.ts) "),
+      prependMentionIfMissing: vi.fn(() => false),
+      setMention: vi.fn(),
+      setText: vi.fn(),
+    };
+    const updateText = vi.fn();
+    const requestFocus = vi.fn();
+    const scheduleDraftPersist = vi.fn();
 
     expect(
-      applyComposerRestoreRequestToComposer({
-        appliedRequestId: 1,
-        currentSessionId: "session-1",
-        currentWorkspaceKey: "remote:ssh:host:/workspace",
-        hasDraftContent: false,
+      applyExternalTextInsertRequestToComposer({
+        appliedRequestId: null,
         inputApi,
-        request,
+        request: {
+          requestId: 11,
+          text: "[a.ts 1-2](./a.ts) ",
+          mentions: [mention],
+          mode: "prepend-if-missing",
+        },
         requestFocus,
-        restoreSessionOwnedAttachments,
-        restoreDraftConfig,
         scheduleDraftPersist,
         updateText,
       }),
-    ).toBe(1);
-    expect(inputApi.setText).toHaveBeenCalledTimes(1);
-    expect(restoreSessionOwnedAttachments).toHaveBeenCalledTimes(1);
+    ).toBe(11);
+    expect(updateText).not.toHaveBeenCalled();
+    expect(scheduleDraftPersist).not.toHaveBeenCalled();
+    expect(requestFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it("单数 mention 在批量字段缺省时保持既有 prepend 行为", () => {
+    const mention = {
+      id: "file:/w/a.ts",
+      category: "files" as const,
+      label: "a.ts",
+      value: "a.ts",
+      markdown: "[a.ts](./a.ts)",
+    };
+    const inputApi = {
+      getMarkdown: vi.fn(() => "[a.ts](./a.ts) "),
+      prependMentionIfMissing: vi.fn(() => true),
+      setMention: vi.fn(),
+      setText: vi.fn(),
+    };
+    const updateText = vi.fn();
+    const requestFocus = vi.fn();
+    const scheduleDraftPersist = vi.fn();
 
     expect(
-      applyComposerRestoreRequestToComposer({
+      applyExternalTextInsertRequestToComposer({
         appliedRequestId: null,
-        currentSessionId: "session-other",
-        currentWorkspaceKey: "remote:ssh:host:/workspace",
-        hasDraftContent: false,
         inputApi,
-        request,
+        request: {
+          requestId: 12,
+          text: "[a.ts](./a.ts) ",
+          mention,
+          mode: "prepend-if-missing",
+        },
         requestFocus,
-        restoreSessionOwnedAttachments,
-        restoreDraftConfig,
         scheduleDraftPersist,
         updateText,
       }),
-    ).toBeNull();
-    expect(
-      applyComposerRestoreRequestToComposer({
-        appliedRequestId: null,
-        currentSessionId: "session-1",
-        currentWorkspaceKey: "remote:ssh:host:/workspace",
-        hasDraftContent: true,
-        inputApi,
-        request,
-        requestFocus,
-        restoreSessionOwnedAttachments,
-        restoreDraftConfig,
-        scheduleDraftPersist,
-        updateText,
-      }),
-    ).toBeNull();
-    expect(inputApi.setText).toHaveBeenCalledTimes(1);
-    expect(restoreDraftConfig).toHaveBeenCalledExactlyOnceWith(request.config);
+    ).toBe(12);
+    expect(inputApi.prependMentionIfMissing).toHaveBeenCalledTimes(1);
+    expect(updateText).toHaveBeenCalledWith("[a.ts](./a.ts) ");
   });
 });

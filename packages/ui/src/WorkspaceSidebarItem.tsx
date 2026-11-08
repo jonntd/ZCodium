@@ -654,11 +654,23 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
         return null;
       }
       const previousTask = findCurrentTaskItem(taskId);
-      const meta = await zcodeTaskService.archiveTask({
-        taskId,
-        workspacePath: tab.workspacePath,
-        ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
-      });
+      let meta: Awaited<ReturnType<typeof zcodeTaskService.archiveTask>>;
+      try {
+        meta = await zcodeTaskService.archiveTask({
+          taskId,
+          workspacePath: tab.workspacePath,
+          ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+        });
+      } catch (error) {
+        // 诊断（应用反馈「归档任务失败」双侧零日志）：拒绝原因此前被上层 catch 吞掉。
+        logger.error("[task-archive] 侧栏条目归档被拒绝", {
+          taskId,
+          workspacePath: tab.workspacePath,
+          workspaceIdentity: tab.workspaceIdentity ?? null,
+          error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+        });
+        throw error;
+      }
       removeTaskState(tab.workspacePath, taskId, tab.workspaceIdentity);
       if (tab.workspaceIdentity) {
         useRemoteTimelineTaskStore

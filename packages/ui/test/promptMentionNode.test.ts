@@ -18,6 +18,50 @@ import {
 } from "../src/mentions/nodes/PromptMentionNode.js";
 
 describe("PromptMentionNode", () => {
+  it("文件类 pill 展示带 @ 前缀；选区 data 追加行号（spec: composer-insert-delivery）", async () => {
+    const editor = createEditor({ nodes: [PromptMentionNode] });
+    await new Promise<void>((resolve) => {
+      editor.update(
+        () => {
+          $getRoot().append(
+            $createParagraphNode().append(
+              $createPromptMentionNode({
+                id: "file:/tmp/droptest.txt",
+                category: "files",
+                label: "droptest.txt",
+                value: "droptest.txt",
+                markdown: "[droptest.txt](./droptest.txt)",
+                data: {
+                  kind: "file",
+                  path: "/tmp/droptest.txt",
+                  relativePath: "droptest.txt",
+                },
+              }),
+              $createPromptMentionNode({
+                id: "file:/tmp/droptest.txt:1-2",
+                category: "files",
+                label: "droptest.txt 1-2",
+                value: "droptest.txt",
+                markdown: "[droptest.txt 1-2](./droptest.txt)",
+                data: {
+                  kind: "file",
+                  path: "/tmp/droptest.txt",
+                  relativePath: "droptest.txt",
+                  startLine: 1,
+                  endLine: 2,
+                },
+              }),
+            ),
+          );
+        },
+        { onUpdate: resolve },
+      );
+    });
+    expect(
+      editor.getEditorState().read(() => $getRoot().getTextContent()),
+    ).toBe("@droptest.txt@droptest.txt 1-2");
+  });
+
   async function renderPluginMention(icon: string) {
     const editor = createEditor({ nodes: [PromptMentionNode] });
     const rootElement = document.createElement("div");
@@ -45,15 +89,21 @@ describe("PromptMentionNode", () => {
   }
 
   it("keeps native selection offsets aligned with the visible label", async () => {
-    const { editor, rootElement } = await renderPluginMention("https://cdn.example.com/demo.png");
-    expect(editor.getEditorState().read(() => $getRoot().getTextContent())).toBe("Demo");
-    expect(rootElement.querySelector("[data-mention-id]")?.firstChild?.nodeType).toBe(
-      Node.TEXT_NODE,
+    const { editor, rootElement } = await renderPluginMention(
+      "https://cdn.example.com/demo.png",
     );
+    expect(
+      editor.getEditorState().read(() => $getRoot().getTextContent()),
+    ).toBe("Demo");
+    expect(
+      rootElement.querySelector("[data-mention-id]")?.firstChild?.nodeType,
+    ).toBe(Node.TEXT_NODE);
   });
 
   it("renders a trusted original Plugin icon and keeps canonical text content", async () => {
-    const { editor, rootElement } = await renderPluginMention("https://cdn.example.com/demo.png");
+    const { editor, rootElement } = await renderPluginMention(
+      "https://cdn.example.com/demo.png",
+    );
 
     expect(
       rootElement
@@ -68,7 +118,9 @@ describe("PromptMentionNode", () => {
   });
 
   it("rejects an untrusted Plugin icon URL and falls back to Cable", async () => {
-    const { rootElement } = await renderPluginMention("http://cdn.example.com/demo.png");
+    const { rootElement } = await renderPluginMention(
+      "http://cdn.example.com/demo.png",
+    );
 
     expect(rootElement.querySelector("img")).toBeNull();
     expect(
@@ -92,7 +144,9 @@ describe("PromptMentionNode", () => {
       },
     );
     try {
-      const { rootElement } = await renderPluginMention("https://cdn.example.com/fail.png");
+      const { rootElement } = await renderPluginMention(
+        "https://cdn.example.com/fail.png",
+      );
       const chip = rootElement.querySelector<HTMLElement>("[data-mention-id]")!;
       const text = chip.firstChild;
       document.body.append(rootElement);
@@ -104,7 +158,9 @@ describe("PromptMentionNode", () => {
       rootElement.remove();
       expect(chip.firstChild).toBe(text);
       expect(chip.textContent).toBe("Demo");
-      expect(chip.style.getPropertyValue("--mention-mask")).toContain("data:image/svg+xml");
+      expect(chip.style.getPropertyValue("--mention-mask")).toContain(
+        "data:image/svg+xml",
+      );
       expect(chip.style.getPropertyValue("--mention-image")).toBe("");
     } finally {
       vi.unstubAllGlobals();
@@ -114,12 +170,22 @@ describe("PromptMentionNode", () => {
   it("uses the lucide Cable icon node for Plugin fallbacks", () => {
     expect(PLUGIN_MENTION_LUCIDE_ICON_NAME).toBe("Cable");
     expect(PLUGIN_MENTION_ICON_NODE).toEqual([
-      ["path", { d: "M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1z" }],
+      [
+        "path",
+        {
+          d: "M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1z",
+        },
+      ],
       ["path", { d: "M17 21v-2" }],
       ["path", { d: "M19 14V6.5a1 1 0 0 0-7 0v11a1 1 0 0 1-7 0V10" }],
       ["path", { d: "M21 21v-2" }],
       ["path", { d: "M3 5V3" }],
-      ["path", { d: "M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2z" }],
+      [
+        "path",
+        {
+          d: "M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2z",
+        },
+      ],
       ["path", { d: "M7 5V3" }],
     ]);
   });
@@ -169,8 +235,12 @@ describe("PromptMentionNode", () => {
         "sess_visible_target",
       ),
     ).toBe("Review mailbox flow");
-    expect(normalizePromptMentionDisplayLabel("skills", "code-review", "code-review")).toBe(
-      "code-review",
-    );
+    expect(
+      normalizePromptMentionDisplayLabel(
+        "skills",
+        "code-review",
+        "code-review",
+      ),
+    ).toBe("code-review");
   });
 });

@@ -69,6 +69,13 @@ export interface RootProps {
   /** 初始要打开的 task，从全局 task 列表进入时透传 */
   initialTaskId?: string;
   initialTaskDraft?: CreateTaskOptions;
+  /**
+   * 一次性设置页深链（FR-B14「在完整界面查看/撤销权限规则」入口）：
+   * undefined 不动作；`true` 仅打开设置 tab（保留上次停留分区）；具体分区先写
+   * settings-section 意图再开 tab。URL hash 的解析在 lib/settingsNavigation 的
+   * readSettingsSectionFromLocationHash，入口壳（web/插件）只负责把结果传进来。
+   */
+  initialSettingsDeepLink?: true | import("@/lib/settingsNavigation.js").SettingsSectionId;
   composerClientNamespace?: string;
   /** Electron renderer 传 true，用于启用自绘标题栏 */
   isDesktop?: boolean;

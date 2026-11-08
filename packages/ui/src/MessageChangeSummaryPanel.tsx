@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type {
   ZCodePersistedFileChange,
   ZCodeTaskChangeSummary,
@@ -22,6 +22,7 @@ import {
   buildChangeSummaryDiffViewerSource,
   buildChangeSummaryFilePreviewSource,
   openChangeSummaryDiffViewer,
+  resolveChangeSummaryViewerSource,
 } from "@/messageChangeSummaryPreview.js";
 export {
   buildChangeSummaryDiffViewerSource,
@@ -70,6 +71,19 @@ export function MessageChangeSummaryPanel({
     return buildTurnChangeSummary(changeDetails) ?? summary;
   }, [changeDetails, summary]);
 
+  // 窄侧栏（VS Code webview）里卡片默认收起时只露一行聚合计数，「审查 / 打开」
+  // 入口被完全藏起来，用户看到的就是「点卡片没反应」。单文件改动只多一行，
+  // 自动展开让操作路径直接可见；多文件仍默认收起，避免把最新回复挤走。
+  // changeDetails 可能异步到达（历史消息二次校验），所以用 effect 而不是 useState 初值。
+  const [autoExpandDone, setAutoExpandDone] = useState(false);
+  useEffect(() => {
+    if (autoExpandDone || compactForRemoteControl) return;
+    if (turnSummary.fileCount === 1) {
+      setIsFileListOpen(true);
+      setAutoExpandDone(true);
+    }
+  }, [autoExpandDone, compactForRemoteControl, turnSummary.fileCount]);
+
   const filesChangedLabel = intl.formatMessage(
     {
       id:
@@ -94,6 +108,8 @@ export function MessageChangeSummaryPanel({
     id: isFileListOpen ? "chat.changeSummary.collapse" : "chat.changeSummary.expand",
   });
   const reviewDiffLabel = intl.formatMessage({ id: "chat.changeSummary.review" });
+  const openInEditorLabel = intl.formatMessage({ id: "chat.changeSummary.openInEditor" });
+  const diffUnavailableLabel = intl.formatMessage({ id: "chat.changeSummary.diffUnavailable" });
   const canRequestFileRewind = Boolean(onToggleFiles);
 
   return (
@@ -185,32 +201,44 @@ export function MessageChangeSummaryPanel({
               workspaceIdentity,
               workspaceRemoteSessionId,
             });
-            const canOpenDiff = Boolean(diffViewerSource && onOpenCodeViewer);
-            const openDiffViewer = () => {
-              openChangeSummaryDiffViewer(diffViewerSource, onOpenCodeViewer);
+            // diff 源（patch 或 before/after 快照）可能缺席。旧实现此时把整行和
+            // 「审查」按钮一起 disabled，点击毫无反馈——这是「无响应」的主要来源之一。
+            // 现在降级为在编辑器里打开当前文件：点击始终有可见结果，并用文案说明
+            // 当前是「审查」还是「在编辑器中打开」。
+            const viewerSource = resolveChangeSummaryViewerSource(
+              diffViewerSource,
+              filePreviewSource,
+            );
+            const canOpenViewer = Boolean(viewerSource && onOpenCodeViewer);
+            const openViewer = () => {
+              openChangeSummaryDiffViewer(viewerSource, onOpenCodeViewer);
             };
+            const reviewLabel = diffViewerSource ? reviewDiffLabel : openInEditorLabel;
+            const reviewHint = diffViewerSource ? reviewDiffLabel : diffUnavailableLabel;
 
             return (
               <div key={file.path} className="w-full bg-background/50 overflow-hidden">
                 <div
-                  aria-disabled={!canOpenDiff}
+                  aria-disabled={!canOpenViewer}
                   className={cn(
-                    "flex w-full items-center gap-1 px-2 py-2 text-left transition-colors",
-                    canOpenDiff ? "cursor-pointer hover:bg-hover/30" : "cursor-default",
+                    // 窄侧栏适配：文件信息与操作按钮分列两行。「审查 / 打开」原先与长路径
+                    // 挤在同一行，300px 侧栏里被裁切，看起来就是按钮不存在/点了没反应。
+                    "flex w-full flex-col gap-1.5 px-2 py-2 text-left transition-colors",
+                    canOpenViewer ? "cursor-pointer hover:bg-hover/30" : "cursor-default",
                   )}
-                  onClick={openDiffViewer}
+                  onClick={openViewer}
                   onKeyDown={(event) => {
                     if (event.key !== "Enter" && event.key !== " ") {
                       return;
                     }
                     event.preventDefault();
-                    openDiffViewer();
+                    openViewer();
                   }}
                   role="button"
-                  tabIndex={canOpenDiff ? 0 : -1}
+                  tabIndex={canOpenViewer ? 0 : -1}
                   title={file.path}
                 >
-                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div className="flex w-full min-w-0 items-center justify-between gap-2">
                     <div className="min-w-0 flex items-center">
                       <FileDisplayInline
                         path={file.path}
@@ -232,22 +260,22 @@ export function MessageChangeSummaryPanel({
                       ) : null}
                     </span>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1.5">
+                  <div className="flex w-full shrink-0 items-center justify-end gap-1.5">
                     <Button
                       type="button"
                       variant="outline"
                       size="default"
-                      aria-label={reviewDiffLabel}
-                      title={reviewDiffLabel}
-                      disabled={!canOpenDiff}
+                      aria-label={reviewLabel}
+                      title={reviewHint}
+                      disabled={!canOpenViewer}
                       className="h-7 gap-1.5 rounded-lg bg-input px-2 text-ui-base"
                       onClick={(event) => {
                         event.stopPropagation();
-                        openDiffViewer();
+                        openViewer();
                       }}
                       onPointerDown={(event) => event.stopPropagation()}
                     >
-                      <span>{reviewDiffLabel}</span>
+                      <span>{reviewLabel}</span>
                     </Button>
                     <OpenSplitButton
                       target={{

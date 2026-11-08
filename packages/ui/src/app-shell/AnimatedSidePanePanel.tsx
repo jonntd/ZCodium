@@ -1,5 +1,6 @@
 /* eslint-disable max-lines -- Side pane 当前集中承载 tabs、browser/git/code-viewer 内容；完整拆分需按 pane 功能边界继续推进。 */
 import { ServiceProvider, useComposerClientNamespace } from "@/hooks/useServices.js";
+import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { composerScopeKey, resolveComposerScope } from "@/v4/composer/composerDraftStore.js";
 import {
@@ -468,6 +469,9 @@ export function AnimatedSidePanePanel({
   mobileOverlay?: boolean;
   mobileStacked?: boolean;
 }) {
+  // VS Code 插件宿主用 IDE 原生终端：即便历史布局里残留 terminal tab，也不挂载
+  // 应用内嵌的 xterm/PTY 面板（插件运行时没有 node-pty）。
+  const nativeTerminalHost = Boolean(useOptionalPlatform()?.nativeTerminalHost);
   const onOpenPluginUi = useOpenPluginUi();
   const { intl } = useZCodeIntl();
   const isOfficeMode = useIsOfficeMode();
@@ -1626,15 +1630,17 @@ export function AnimatedSidePanePanel({
                             />
                           </ServiceProvider>
                         ) : tab.type === "terminal" ? (
-                          <SidePaneTerminalPane
-                            services={services}
-                            sessionId={tab.id}
-                            workspaceKey={workspaceKey}
-                            cwd={tab.cwd ?? workspaceAbsPath}
-                            isVisible={isVisible && tab.id === contentActiveTabId}
-                            isWindowsDesktop={isWindowsDesktop}
-                            onOpenBrowserUrl={onOpenBrowserUrl}
-                          />
+                          nativeTerminalHost ? null : (
+                            <SidePaneTerminalPane
+                              services={services}
+                              sessionId={tab.id}
+                              workspaceKey={workspaceKey}
+                              cwd={tab.cwd ?? workspaceAbsPath}
+                              isVisible={isVisible && tab.id === contentActiveTabId}
+                              isWindowsDesktop={isWindowsDesktop}
+                              onOpenBrowserUrl={onOpenBrowserUrl}
+                            />
+                          )
                         ) : tab.type === "browser-permissions" ? (
                           <BrowserSitePermissionsPage
                             origin={tab.origin}

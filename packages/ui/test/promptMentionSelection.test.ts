@@ -9,8 +9,14 @@ import {
   $isRangeSelection,
   createEditor,
 } from "lexical";
-import { $createPromptMentionNode, PromptMentionNode } from "@/mentions/nodes/PromptMentionNode.js";
-import { $getPromptMarkdown, $getPromptSelectionMarkdown } from "@/mentions/promptSerialization.js";
+import {
+  $createPromptMentionNode,
+  PromptMentionNode,
+} from "@/mentions/nodes/PromptMentionNode.js";
+import {
+  $getPromptMarkdown,
+  $getPromptSelectionMarkdown,
+} from "@/mentions/promptSerialization.js";
 
 const canonical = "[demo.ts](src/demo.ts)";
 function setup(run: () => void) {
@@ -38,8 +44,8 @@ describe("mention selection contract", () => {
     setup(() => {
       const node = mention();
       $getRoot().append($createParagraphNode().append(node));
-      expect(node.getTextContent()).toBe("demo.ts");
-      expect(node.getTextContentSize()).toBe(7);
+      expect(node.getTextContent()).toBe("@demo.ts");
+      expect(node.getTextContentSize()).toBe(8);
       expect($getPromptMarkdown()).toBe(canonical);
       const dom = node.createDOM({ namespace: "test", theme: {} });
       expect(dom.textContent).toBe(node.getTextContent());
@@ -82,7 +88,7 @@ describe("mention selection contract", () => {
         }),
       );
       state.read(() => {
-        expect($getRoot().getTextContent()).toBe("demo.ts");
+        expect($getRoot().getTextContent()).toBe("@demo.ts");
         expect($getPromptMarkdown()).toBe(canonical);
         expect($getRoot().getFirstDescendant()?.exportJSON()).toMatchObject({
           mentionId: legacy.mentionId,
@@ -112,10 +118,15 @@ describe("mention selection contract", () => {
           markdown: "CANONICAL_IDENTITY",
         });
         $getRoot().append($createParagraphNode().append(node));
-        expect(node.getTextContent()).toBe("演示🙂");
+        // files 类展示带 @ 前缀（spec: composer-insert-delivery）；其余类别不变。
+        expect(node.getTextContent()).toBe(
+          category === "files" ? "@演示🙂" : "演示🙂",
+        );
         expect($getPromptMarkdown()).toBe("CANONICAL_IDENTITY");
         const selection = node.select(0, node.getTextContentSize());
-        expect($getPromptSelectionMarkdown(selection)).toBe("CANONICAL_IDENTITY");
+        expect($getPromptSelectionMarkdown(selection)).toBe(
+          "CANONICAL_IDENTITY",
+        );
       }));
   }
 
@@ -147,7 +158,9 @@ describe("mention selection contract", () => {
           selection.anchor.set(right.getKey(), 3, "text");
           selection.focus.set(left.getKey(), 2, "text");
         }
-        expect($getPromptSelectionMarkdown(selection)).toBe(`llo ${canonical} wo`);
+        expect($getPromptSelectionMarkdown(selection)).toBe(
+          `llo ${canonical} wo`,
+        );
       }));
   }
 
@@ -161,9 +174,13 @@ describe("mention selection contract", () => {
       expect($getPromptSelectionMarkdown(selection)).toBe("hello ");
       node.select(2, 2);
       const collapsed = $getSelection();
-      expect($isRangeSelection(collapsed) && $getPromptSelectionMarkdown(collapsed)).toBe("");
+      expect(
+        $isRangeSelection(collapsed) && $getPromptSelectionMarkdown(collapsed),
+      ).toBe("");
       node.select(1, 3);
       const partial = $getSelection();
-      expect($isRangeSelection(partial) && $getPromptSelectionMarkdown(partial)).toBe(canonical);
+      expect(
+        $isRangeSelection(partial) && $getPromptSelectionMarkdown(partial),
+      ).toBe(canonical);
     }));
 });

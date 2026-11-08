@@ -73,6 +73,8 @@ export interface V4ChatPaneProps {
   onConversationFindMatchStateChange?: (state: ConversationFindMatchState) => void;
   searchResultHighlightRequest?: ChatSearchResultHighlightRequest | null;
   onSearchResultHighlightDone?: (requestId: number) => void;
+  /** 发送前 prompt 增强（FR-B22 宿主自动上下文）：透传 SessionPane 的 sendText 分流。 */
+  augmentSendPrompt?: (text: string) => Promise<string | null | undefined>;
 }
 
 /**
@@ -120,6 +122,7 @@ export function V4ChatPane({
   onConversationFindMatchStateChange,
   searchResultHighlightRequest,
   onSearchResultHighlightDone,
+  augmentSendPrompt,
 }: V4ChatPaneProps) {
   return (
     <V4ConversationProvider workspacePath={workspacePath} workspaceIdentity={workspaceIdentity}>
@@ -165,6 +168,7 @@ export function V4ChatPane({
         onConversationFindMatchStateChange={onConversationFindMatchStateChange}
         searchResultHighlightRequest={searchResultHighlightRequest}
         onSearchResultHighlightDone={onSearchResultHighlightDone}
+        augmentSendPrompt={augmentSendPrompt}
       />
     </V4ConversationProvider>
   );

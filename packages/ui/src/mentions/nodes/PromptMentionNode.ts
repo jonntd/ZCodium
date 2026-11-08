@@ -12,17 +12,35 @@ import {
   PROMPT_MENTION_BASE_CLASS_NAME,
 } from "@/mentions/mentionChip.js";
 import { normalizePromptMentionDisplayLabel } from "@/mentions/promptMentionLabel.js";
-import type { MentionCategory, MentionItemData } from "@/mentions/mentionTypes.js";
+import type {
+  MentionCategory,
+  MentionItemData,
+} from "@/mentions/mentionTypes.js";
 import { decoratePromptMention } from "@/mentions/nodes/promptMentionDecoration.js";
 export * from "@/mentions/nodes/mentionIconDom.js";
 
 function displayLabel(payload: PromptMentionPayload): string {
-  const label = normalizePromptMentionDisplayLabel(payload.category, payload.label, payload.value);
-  return payload.category === "files"
-    ? resolveFileDisplayDescriptor(
-        payload.data?.path ?? payload.data?.relativePath ?? payload.value,
-      ).fileName || label
-    : label;
+  const label = normalizePromptMentionDisplayLabel(
+    payload.category,
+    payload.label,
+    payload.value,
+  );
+  if (payload.category !== "files") {
+    return label;
+  }
+  const fileName =
+    resolveFileDisplayDescriptor(
+      payload.data?.path ?? payload.data?.relativePath ?? payload.value,
+    ).fileName || label;
+  // 文件类 pill 展示统一带 @ 前缀（Claude Code/Augment 口径，应用反馈）：
+  // `@name` / 选区上下文 `@name start-end`。@ 只进展示文案；canonical markdown
+  // 的 label/链接目标不变（消息回显 parseMentionMarkdown 亦按原 label 还原）。
+  const { startLine, endLine } = payload.data ?? {};
+  const withRange =
+    startLine != null && endLine != null
+      ? `${fileName} ${startLine}-${endLine}`
+      : fileName;
+  return `@${withRange}`;
 }
 
 export interface PromptMentionPayload {
@@ -73,7 +91,9 @@ export class PromptMentionNode extends TextNode {
     );
   }
 
-  static importJSON(serializedNode: SerializedPromptMentionNode): PromptMentionNode {
+  static importJSON(
+    serializedNode: SerializedPromptMentionNode,
+  ): PromptMentionNode {
     const node = $createPromptMentionNode({
       id: serializedNode.mentionId,
       category: serializedNode.category,
@@ -113,10 +133,16 @@ export class PromptMentionNode extends TextNode {
     return dom;
   }
 
-  updateDOM(prevNode: PromptMentionNode, dom: HTMLElement, config: EditorConfig): boolean {
+  updateDOM(
+    prevNode: PromptMentionNode,
+    dom: HTMLElement,
+    config: EditorConfig,
+  ): boolean {
     const shouldUpdate = super.updateDOM(prevNode as this, dom, config);
     if (prevNode.__category !== this.__category) {
-      const variantClassName = getPromptMentionVariantClassName(this.__category);
+      const variantClassName = getPromptMentionVariantClassName(
+        this.__category,
+      );
       dom.className = `prompt-mention ${PROMPT_MENTION_BASE_CLASS_NAME} ${variantClassName}`;
       dom.setAttribute("data-mention-category", this.__category);
     }
@@ -185,7 +211,9 @@ export class PromptMentionNode extends TextNode {
   }
 }
 
-export function $createPromptMentionNode(payload: PromptMentionPayload): PromptMentionNode {
+export function $createPromptMentionNode(
+  payload: PromptMentionPayload,
+): PromptMentionNode {
   const node = new PromptMentionNode(payload);
   node.setMode("token");
   return $applyNodeReplacement(node);

@@ -21,6 +21,12 @@ export interface MentionItemData {
   pluginId?: string;
   /** Plugin 商店 listing 原始图标；仅用于 UI，必须经 HTTPS 校验后加载。 */
   icon?: string;
+  /**
+   * 选区上下文的 1-based 起止行（spec: composer-insert-delivery）：仅影响 pill 展示
+   * 文案（`basename start-end`），canonical markdown 的链接目标仍是纯路径。
+   */
+  startLine?: number;
+  endLine?: number;
 }
 
 export interface MentionItem {

@@ -31,6 +31,8 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
  */
 
 const STATUS_POLL_INTERVAL_MS = 5_000;
+/** 草稿预览防抖（spec §21）：低于打字间隔的感知阈值，又不至于每键一次 IPC。 */
+const PREVIEW_DEBOUNCE_MS = 250;
 
 /** setConfig 是整体覆写：显式挑白名单字段，避免把轮询状态里的杂质写进配置文件。 */
 function pickPersistedConfig(file: RemoteRelayFileConfig | null): RemoteRelayFileConfig {
@@ -164,10 +166,66 @@ export function RemoteRelayAccessPanel() {
     };
   }, [supported, refresh]);
 
-  const lanShareUrl = status?.lanShareUrl ?? null;
-  const publicShareUrl = status?.publicShareUrl ?? null;
+  const statusLanShareUrl = status?.lanShareUrl ?? null;
+  const statusPublicShareUrl = status?.publicShareUrl ?? null;
 
-  // 链接一变就重编码两条二维码；依赖是字符串原始值，5s 轮询不会因对象重建而重编码。
+  // ── v6 主卡：开关 + 中继地址（spec §19 对齐官方「一个开关」体验）──────────────
+  // 地址草稿只在用户编辑过（dirty）时独立于轮询；未 dirty 时跟随配置回显。
+  const configUrl = status?.fileConfig?.url ?? "";
+  const [addressDraft, setAddressDraft] = useState("");
+  const [scenarioDraft, setScenarioDraft] = useState<"lan" | "public">("lan");
+  const addressDirtyRef = useRef(false);
+  const [savingAddress, setSavingAddress] = useState(false);
+  const [rotatingKeys, setRotatingKeys] = useState(false);
+
+  useEffect(() => {
+    if (addressDirtyRef.current) return;
+    setAddressDraft(stripRelayScheme(configUrl));
+    setScenarioDraft(resolveRelayScenario(configUrl));
+  }, [configUrl]);
+
+  // ── 草稿实时预览（spec §21）：地址/协议草稿有效变化后（防抖）按草稿地址重算两条
+  // 链接与二维码，不等失焦、不落盘。纯派生 IPC（Main 用当前密钥签名，渲染层无密钥）；
+  // 失败静默回退到已保存链接，不打断输入。
+  const remoteRelayPreviewShareUrls = platform.remoteRelayPreviewShareUrls;
+  const [previewUrls, setPreviewUrls] = useState<{
+    lan: string | null;
+    public: string | null;
+  } | null>(null);
+  // 过期结果防护：IPC 无序返回时只接受最新一次请求的响应（spec §21 并发规则）。
+  const previewSeqRef = useRef(0);
+
+  useEffect(() => {
+    if (!remoteRelayPreviewShareUrls) return;
+    const host = addressDraft.trim();
+    if (!host) {
+      // 草稿清空 = 回退到已保存配置的链接。
+      previewSeqRef.current += 1;
+      setPreviewUrls(null);
+      return;
+    }
+    const relayUrl = buildRelayUrl(scenarioDraft, host);
+    const seq = ++previewSeqRef.current;
+    const timer = setTimeout(() => {
+      remoteRelayPreviewShareUrls({ relayUrl })
+        .then((next) => {
+          if (previewSeqRef.current !== seq) return;
+          setPreviewUrls({ lan: next.lanShareUrl, public: next.publicShareUrl });
+        })
+        .catch((error) => {
+          console.warn("[remote-relay] preview failed", error);
+          if (previewSeqRef.current === seq) setPreviewUrls(null);
+        });
+    }, PREVIEW_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [addressDraft, scenarioDraft, remoteRelayPreviewShareUrls]);
+
+  // 预览优先；无预览（草稿为空 / IPC 失败 / 平台不支持）时跟随已保存状态。
+  const lanShareUrl = previewUrls ? previewUrls.lan : statusLanShareUrl;
+  const publicShareUrl = previewUrls ? previewUrls.public : statusPublicShareUrl;
+
+  // 链接一变就重编码两条二维码；依赖是字符串原始值，5s 轮询不会因对象重建而重编码；
+  // 草稿预览刷新（spec §21）也走这里，二维码自动跟随。
   useEffect(() => {
     let cancelled = false;
     const encode = (url: string | null) =>
@@ -185,21 +243,6 @@ export function RemoteRelayAccessPanel() {
       cancelled = true;
     };
   }, [lanShareUrl, publicShareUrl]);
-
-  // ── v6 主卡：开关 + 中继地址（spec §19 对齐官方「一个开关」体验）──────────────
-  // 地址草稿只在用户编辑过（dirty）时独立于轮询；未 dirty 时跟随配置回显。
-  const configUrl = status?.fileConfig?.url ?? "";
-  const [addressDraft, setAddressDraft] = useState("");
-  const [scenarioDraft, setScenarioDraft] = useState<"lan" | "public">("lan");
-  const addressDirtyRef = useRef(false);
-  const [savingAddress, setSavingAddress] = useState(false);
-  const [rotatingKeys, setRotatingKeys] = useState(false);
-
-  useEffect(() => {
-    if (addressDirtyRef.current) return;
-    setAddressDraft(stripRelayScheme(configUrl));
-    setScenarioDraft(resolveRelayScenario(configUrl));
-  }, [configUrl]);
 
   const remoteRelaySetConfig = platform.remoteRelaySetConfig;
   const remoteRelayStart = platform.remoteRelayStart;
@@ -452,7 +495,7 @@ export function RemoteRelayAccessPanel() {
         </div>
       </div>
 
-      {status == null ? null : status.configured ? (
+      {status == null ? null : status.configured || previewUrls != null ? (
         <div className="grid min-w-0 grid-cols-1 gap-2">
           <AccessLinkRow
             label={t("webRemoteControl.browser.lan")}
@@ -478,8 +521,8 @@ export function RemoteRelayAccessPanel() {
           />
         </div>
       ) : (
-        // 未配置时明确交代「为什么没有链接」+「去哪里填」：只留一句灰字时用户会以为功能坏了
-        // （实测反馈：「二维码和链接都不显示」）。
+        // 未配置且无草稿预览时明确交代「为什么没有链接」+「去哪里填」：只留一句灰字时
+        // 用户会以为功能坏了（实测反馈：「二维码和链接都不显示」）。
         <div className="flex items-start gap-2 rounded-lg border border-border bg-surface px-3 py-2.5 text-ui-sm leading-5 text-foreground-subtle">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
           <span className="min-w-0 flex-1">{t("webRemoteControl.browser.notConfigured")}</span>

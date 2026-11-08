@@ -59,7 +59,10 @@ import {
   XIcon,
 } from "lucide-react";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
-import { ChatErrorBanner, shouldSuppressChatErrorBanner } from "@/ChatErrorBanner.js";
+import {
+  ChatErrorBanner,
+  shouldSuppressChatErrorBanner,
+} from "@/ChatErrorBanner.js";
 import {
   Attachment,
   Attachments,
@@ -92,10 +95,14 @@ import { ComposerStatsRow } from "@/v4/composer/ComposerStatsRow.js";
 import "@/v4/composer/composerStats.css";
 import type { AppSlashCommand } from "@/slashCommandHelpers.js";
 import { useOptionalServices } from "@/hooks/useServices.js";
+import { usePlatform } from "@/hooks/usePlatform.js";
 import { logger } from "@/logger.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import type { ComposerMentionPrefill } from "@/store/zcodeSessionStoreTypes.js";
-import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
+import {
+  FileDisplayIcon,
+  resolveFileDisplayDescriptor,
+} from "@/lib/fileDisplay.js";
 import {
   isImageChatComposerAttachment,
   isPdfChatComposerAttachment,
@@ -116,11 +123,17 @@ import {
   readPromptHistoryEntries,
 } from "@/lib/promptHistoryStorage.js";
 import {
+  FILE_URI_LIST_MIME,
   WORKSPACE_FILE_ADD_TO_CHAT_EVENT,
+  hasExplorerResourceDragSignal,
+  parseFileUriList,
   readWorkspaceFileDragPayload,
   isWorkspaceFileAddToChatEvent,
 } from "@/lib/workspaceFileDrag.js";
-import { appendWorkspaceFileMentionToComposer } from "@/lib/workspaceFileComposer.js";
+import {
+  appendExplorerFileDropMentionsToComposer,
+  appendWorkspaceFileMentionToComposer,
+} from "@/lib/workspaceFileComposer.js";
 import type { ModelSelectionView } from "@zcode/services";
 import type { ModelSelectionState } from "@/hooks/useModelSelectionView.js";
 import type { ZCodeUiError } from "@/lib/zcodeUiError.js";
@@ -128,7 +141,10 @@ import {
   resolveComposerAutoFocus,
   type ComposerAutoFocusOptions,
 } from "@/v4/composer/composerAutoFocus.js";
-import { V4_DRAFT_SCOPE_ROOT, type V4ComposerDraft } from "@/v4/composer/composerDraftStore.js";
+import {
+  V4_DRAFT_SCOPE_ROOT,
+  type V4ComposerDraft,
+} from "@/v4/composer/composerDraftStore.js";
 import {
   buildComposerContinueText,
   canComposerContinueSend,
@@ -180,7 +196,9 @@ import type { AttachmentPutFn } from "@/v4/composer/attachmentUpload.js";
 import type { ComposerSubmissionConfig } from "@/v4/composer/composerSubmissionConfig.js";
 import { resolveAttachableShareContext } from "@/lib/conversationShareContext.js";
 
-const MODEL_SELECTION_LOADING_STATE: ModelSelectionState = { status: "loading" };
+const MODEL_SELECTION_LOADING_STATE: ModelSelectionState = {
+  status: "loading",
+};
 
 export interface ConversationComposerSendOptions {
   /** 原始正文用于接纳恢复对账；协议正文可能附带提及与页面上下文。 */
@@ -197,11 +215,20 @@ export interface ConversationComposerSendOptions {
   contextAttachmentCount?: number;
   /** 本次 busy input 的一次性投递覆盖，不改 session 偏好。 */
   requestedDelivery?: "startNow" | "queue" | "guide";
-  sharedContextRefs?: Array<{ kind: "shared_context_import"; context_id: string }>;
+  sharedContextRefs?: Array<{
+    kind: "shared_context_import";
+    context_id: string;
+  }>;
 }
 
-export type ConversationComposerSendResult = "sent" | "blocked" | "confirmationRequired";
-function getComposerAttachmentTypeLabel(filename: string, mimeType: string): string {
+export type ConversationComposerSendResult =
+  | "sent"
+  | "blocked"
+  | "confirmationRequired";
+function getComposerAttachmentTypeLabel(
+  filename: string,
+  mimeType: string,
+): string {
   const leaf = filename.split(/[\\/]/u).at(-1) ?? filename;
   const dotIndex = leaf.lastIndexOf(".");
   if (dotIndex > 0 && dotIndex < leaf.length - 1) {
@@ -214,10 +241,13 @@ interface ExternalTextInsertRequest {
   requestId: number;
   text: string;
   mention?: ComposerMentionPrefill;
+  /** 批量注入（spec: composer-insert-delivery）；与 mention 互斥，批量优先。 */
+  mentions?: ComposerMentionPrefill[];
   mode?: "replace" | "prepend-if-missing";
 }
 
-function restorePersistedComposerDraftIntoInput({
+/** 导出供 vitest 直接驱动（v4QueueEditExtraction.test.ts），纯函数无 React 依赖。 */
+export function restorePersistedComposerDraftIntoInput({
   draft,
   inputApi,
   onEditorStateError,
@@ -240,14 +270,18 @@ function restorePersistedComposerDraftIntoInput({
   if (draft.mention && draft.text.startsWith(draft.mention.markdown)) {
     // Workspace 插件详情会卸载聊天 Composer。结构化 mention 必须从共享草稿事实源恢复，
     // 不能只依赖一次性插入事件，否则重挂载时会退化成 canonical 普通文本。
-    inputApi.setMention(draft.mention, draft.text.slice(draft.mention.markdown.length));
+    inputApi.setMention(
+      draft.mention,
+      draft.text.slice(draft.mention.markdown.length),
+    );
     return draft.text;
   }
   inputApi.setText(draft.text);
   return draft.text;
 }
 
-function applyExternalTextInsertRequestToComposer({
+/** 导出供 vitest 直接驱动（v4QueueEditExtraction.test.ts），纯函数无 React 依赖。 */
+export function applyExternalTextInsertRequestToComposer({
   appliedRequestId,
   inputApi,
   request,
@@ -275,8 +309,21 @@ function applyExternalTextInsertRequestToComposer({
   if (!inputApi) {
     return appliedRequestId;
   }
-  if (request.mode === "prepend-if-missing" && request.mention) {
-    if (!inputApi.prependMentionIfMissing(request.mention)) {
+  // 批量优先，单数 mention 视为长度 1 的批量（spec: composer-insert-delivery）。
+  const batchMentions =
+    request.mentions ?? (request.mention ? [request.mention] : []);
+  if (request.mode === "prepend-if-missing" && batchMentions.length > 0) {
+    // prepend 每次插到最前：按逆序逐条应用，最终顺序与传入一致。
+    const ordered = [...batchMentions].reverse();
+    let appliedCount = 0;
+    for (const mention of ordered) {
+      if (inputApi.prependMentionIfMissing(mention)) {
+        appliedCount += 1;
+      }
+    }
+    if (appliedCount === 0) {
+      // 全部被判重命中（重复加入同一上下文）时编辑器零变化，至少交回焦点作反馈。
+      requestFocus();
       return request.requestId;
     }
     // Bug 原因：安装完成后若回放点击时保存的旧 prompt，会覆盖用户安装期间的编辑。
@@ -286,10 +333,21 @@ function applyExternalTextInsertRequestToComposer({
     requestFocus();
     return request.requestId;
   }
+  if (batchMentions.length > 1) {
+    // 批量 + replace 类：host 已把各 markdown 依序拼进 text，按纯文本重建。
+    inputApi.setText(request.text);
+    updateText(request.text);
+    scheduleDraftPersist();
+    requestFocus();
+    return request.requestId;
+  }
   if (request.mention && request.text.startsWith(request.mention.markdown)) {
     // 根因：商店试用以前只传 canonical 文本，Lexical 无法知道开头链接是结构化 Plugin mention。
     // request 同时携带 display-only 节点数据；发送与草稿事实源仍使用 request.text 原文。
-    inputApi.setMention(request.mention, request.text.slice(request.mention.markdown.length));
+    inputApi.setMention(
+      request.mention,
+      request.text.slice(request.mention.markdown.length),
+    );
   } else if (request.text.includes("](plugin://")) {
     // 推荐任务可在正文中组合多个插件；按原位置构造成真实提及节点。
     inputApi.setTextWithPluginMentions(request.text);
@@ -332,8 +390,12 @@ function applyComposerRestoreRequestToComposer({
   inputApi: Pick<LexicalChatInputHandle, "setText"> | null;
   request: ComposerRestoreRequest | null | undefined;
   requestFocus: () => void;
-  restoreSessionOwnedAttachments: (attachments: readonly AttachmentRef[]) => boolean;
-  restoreDraftConfig?: (config: NonNullable<ComposerRestoreRequest["config"]>) => void;
+  restoreSessionOwnedAttachments: (
+    attachments: readonly AttachmentRef[],
+  ) => boolean;
+  restoreDraftConfig?: (
+    config: NonNullable<ComposerRestoreRequest["config"]>,
+  ) => void;
   scheduleDraftPersist: () => void;
   updateText: (text: string) => void;
 }): number | null {
@@ -359,8 +421,14 @@ function applyComposerRestoreRequestToComposer({
   return request.requestId;
 }
 
-function arePromptHistoryEntriesEqual(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((entry, index) => entry === right[index]);
+function arePromptHistoryEntriesEqual(
+  left: readonly string[],
+  right: readonly string[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((entry, index) => entry === right[index])
+  );
 }
 
 export interface ConversationComposerProps {
@@ -424,7 +492,9 @@ export interface ConversationComposerProps {
   attachmentPut: AttachmentPutFn;
   onRuntimeRestart?: (listener: () => void) => () => void;
   /** 承载 transport 暴露 runtime 存活态时优先用它，替代 onRuntimeRestart。 */
-  onRuntimeLifecycle?: (listener: (state: "available" | "unavailable") => void) => () => void;
+  onRuntimeLifecycle?: (
+    listener: (state: "available" | "unavailable") => void,
+  ) => () => void;
   provider?: ZCodeProvider;
   onSendText: (
     text: string,
@@ -442,7 +512,10 @@ export interface ConversationComposerProps {
     sourceModel: ModelSelectionSource | null,
   ) => void;
   /** 选中思考深度；同时带上用户操作时看到的模型，避免异步回流后把 thought 归到另一模型。 */
-  onSelectThought: (thought: string, modelContext: { provider: string; model: string }) => void;
+  onSelectThought: (
+    thought: string,
+    modelContext: { provider: string; model: string },
+  ) => void;
   onSwitchMode: (mode: string) => void;
   /** 打开当前 session 的 Status panel，并直达 Running 明细。 */
   onOpenRunningBackgroundWorks?: () => void;
@@ -488,12 +561,19 @@ export interface ConversationComposerProps {
   /** App 层本地斜杠命令（如 `/side`），由 SessionPane 按门禁组装后透传。 */
   appSlashCommands?: readonly AppSlashCommand[];
   /** 把 composer 的 drop 路由暴露给整个对话 pane / 桌面草稿标题栏。 */
-  onDropTargetControllerChange?: (controller: ConversationDropTargetController | null) => void;
+  onDropTargetControllerChange?: (
+    controller: ConversationDropTargetController | null,
+  ) => void;
 }
 
-function formatAttachmentLineCount(attachment: ChatComposerAttachment, locale: string): string {
+function formatAttachmentLineCount(
+  attachment: ChatComposerAttachment,
+  locale: string,
+): string {
   const formatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
-  return formatter.format(typeof attachment.lineCount === "number" ? attachment.lineCount : 0);
+  return formatter.format(
+    typeof attachment.lineCount === "number" ? attachment.lineCount : 0,
+  );
 }
 
 function ConversationComposerImpl({
@@ -555,9 +635,12 @@ function ConversationComposerImpl({
 }: ConversationComposerProps) {
   const { intl, locale } = useZCodeIntl();
   const services = useOptionalServices();
+  const platform = usePlatform();
   const draftScopeId =
     sessionId ??
-    (rootDraftScopeKey ? `${V4_DRAFT_SCOPE_ROOT}:${rootDraftScopeKey}` : V4_DRAFT_SCOPE_ROOT);
+    (rootDraftScopeKey
+      ? `${V4_DRAFT_SCOPE_ROOT}:${rootDraftScopeKey}`
+      : V4_DRAFT_SCOPE_ROOT);
   const workspaceKey = workspaceIdentity?.trim() || workspacePath;
   const configPickerScopeKey = `${workspaceKey}\0${draftScopeId}`;
   const [text, setText] = useState("");
@@ -579,7 +662,9 @@ function ConversationComposerImpl({
     });
   }
   const activeConfigPicker =
-    configPickerState.scopeKey === configPickerScopeKey ? configPickerState.activePicker : null;
+    configPickerState.scopeKey === configPickerScopeKey
+      ? configPickerState.activePicker
+      : null;
   const handleConfigPickerOpenChange = useCallback(
     (picker: V4ComposerConfigPicker, open: boolean) => {
       // composer 内容为导航 rail 恢复 pointer-events 后，三个 Radix modal
@@ -591,7 +676,11 @@ function ConversationComposerImpl({
         }
         return {
           scopeKey: current.scopeKey,
-          activePicker: resolveV4ComposerConfigPickerState(current.activePicker, picker, open),
+          activePicker: resolveV4ComposerConfigPickerState(
+            current.activePicker,
+            picker,
+            open,
+          ),
         };
       });
     },
@@ -611,8 +700,11 @@ function ConversationComposerImpl({
   // 这条线断过一次：composer 原本读一个平行的 sharedContextImport prop，而 SessionPane 从没
   // 传过它（全仓 `sharedContextImport=` 零命中），于是首条消息永远不带 sharedContextRefs。
   // 现在从必然拿到的 snapshot 推导，理由与边界见 resolveAttachableShareContext。
-  const activeShareContext = resolveAttachableShareContext(snapshot?.sharedContextImport);
-  const pendingShareContext = activeShareContext?.status === "pending" ? activeShareContext : null;
+  const activeShareContext = resolveAttachableShareContext(
+    snapshot?.sharedContextImport,
+  );
+  const pendingShareContext =
+    activeShareContext?.status === "pending" ? activeShareContext : null;
   const inputApiRef = useRef<LexicalChatInputHandle | null>(null);
   const isMobileTextInputViewport = useIsMobileTextInputViewport();
   const primaryModifierPressed = usePrimaryFollowupModifier();
@@ -632,7 +724,8 @@ function ConversationComposerImpl({
   });
   // Bugfix：手机远控把完整能力说明放进绝对定位 placeholder 后，三行英文会越过
   // 40px 编辑区并覆盖工具栏。手机端改用短文案并限制两行；桌面端继续保留完整提示。
-  const compactMobilePlaceholder = isWebRemoteControl && isMobileTextInputViewport;
+  const compactMobilePlaceholder =
+    isWebRemoteControl && isMobileTextInputViewport;
   const sendShortcut = resolveChatEnterShortcut({ enterSubmits });
   const updateText = useCallback(
     (next: string) => {
@@ -660,10 +753,11 @@ function ConversationComposerImpl({
   });
   // 对齐旧版 useChatComposer：窗口级 dragover 会在指针进入 ChatView 前预先点亮
   // 整个聊天区与桌面草稿标题栏；workspace payload 的文案优先于系统附件。
-  const { externalFileDragging, workspaceFileDragging } = usePromptEditorDragState({
-    enableExternalFileDrop: true,
-    enableWorkspaceFileDrop: true,
-  });
+  const { externalFileDragging, workspaceFileDragging } =
+    usePromptEditorDragState({
+      enableExternalFileDrop: true,
+      enableWorkspaceFileDrop: true,
+    });
   const handleConversationDragOver = useCallback(
     (event: DragEvent<HTMLElement>) => {
       attachmentsApi.handleDragOverComposer(event);
@@ -678,14 +772,17 @@ function ConversationComposerImpl({
   );
   const handleConversationDrop = useCallback(
     (event: DragEvent<HTMLElement>) => {
-      const workspaceFilePayload = readWorkspaceFileDragPayload(event.dataTransfer);
+      const workspaceFilePayload = readWorkspaceFileDragPayload(
+        event.dataTransfer,
+      );
       if (workspaceFilePayload) {
         // 文件树 payload 与 OS File[] 语义不同：只插入 mention，绝不能进入上传队列。
         event.preventDefault();
         attachmentsApi.handleDropComposer(event);
         appendWorkspaceFileMentionToComposer({
           inputApiRef,
-          currentMarkdown: inputApiRef.current?.getMarkdown() ?? textRef.current,
+          currentMarkdown:
+            inputApiRef.current?.getMarkdown() ?? textRef.current,
           payload: workspaceFilePayload,
           workspacePath,
           workspaceIdentity,
@@ -693,9 +790,64 @@ function ConversationComposerImpl({
         });
         return;
       }
+      // VS Code 资源管理器拖拽（spec: composer-explorer-file-drop v2）：uri-list +
+      // vnd.code.tree → 解析本地文件后批量插入 @mention pill，与文件树拖拽语义对齐；
+      // 多选拖拽 uri-list 多行，天然一次 N 个。纯链接/平台未实现时落回 Files/默认分支。
+      const dropTypes = Array.from(event.dataTransfer.types);
+      const fileUris = parseFileUriList(
+        event.dataTransfer.getData(FILE_URI_LIST_MIME),
+      );
+      if (
+        hasExplorerResourceDragSignal(dropTypes) &&
+        fileUris.length > 0 &&
+        platform.resolveFileDropPaths
+      ) {
+        event.preventDefault();
+        // 复位拖拽反馈即可；不得调 hook 的 drop（其 Files 分支会把带 Files 的拖拽
+        // 再附成卡片，造成 pill+卡片双出）。
+        attachmentsApi.resetDragFeedback();
+        void platform
+          .resolveFileDropPaths(fileUris)
+          .then((resolved) => {
+            const paths = (resolved ?? []).map((entry) => entry.path);
+            if (paths.length === 0) return;
+            appendExplorerFileDropMentionsToComposer({
+              inputApiRef,
+              currentMarkdown:
+                inputApiRef.current?.getMarkdown() ?? textRef.current,
+              resolvedPaths: paths,
+              workspacePath,
+              workspaceIdentity,
+              onTextChange: updateText,
+            });
+          })
+          .catch((error) => {
+            logger.warn("[v4-composer] 解析资源管理器拖拽文件失败", error);
+            attachmentsApi.setAttachmentError(
+              intl.formatMessage(
+                { id: "chat.attachments.readFailed" },
+                {
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                },
+              ),
+            );
+          });
+        return;
+      }
       attachmentsApi.handleDropComposer(event);
     },
-    [attachmentsApi.handleDropComposer, updateText, workspaceIdentity, workspacePath],
+    [
+      attachmentsApi.handleDropComposer,
+      attachmentsApi.resetDragFeedback,
+      attachmentsApi.setAttachmentError,
+      inputApiRef,
+      intl,
+      platform,
+      updateText,
+      workspaceIdentity,
+      workspacePath,
+    ],
   );
   const conversationDragKind = workspaceFileDragging
     ? "workspace"
@@ -726,7 +878,8 @@ function ConversationComposerImpl({
   const [attachmentPreviewOpen, setAttachmentPreviewOpen] = useState(false);
   const [pdfAttachmentPreview, setPdfAttachmentPreview] =
     useState<ChatMediaAttachmentPreviewTarget | null>(null);
-  const [pdfAttachmentPreviewOpen, setPdfAttachmentPreviewOpen] = useState(false);
+  const [pdfAttachmentPreviewOpen, setPdfAttachmentPreviewOpen] =
+    useState(false);
   const attachmentPreviewTitle = intl.formatMessage({
     id: "chat.attachments.preview.open",
   });
@@ -775,7 +928,8 @@ function ConversationComposerImpl({
     workspaceKey,
     draftScopeKey: rootDraftScopeKey,
   });
-  const hasConversationSelectionReferences = conversationSelectionReferences.length > 0;
+  const hasConversationSelectionReferences =
+    conversationSelectionReferences.length > 0;
 
   // ── 草稿 per-session 持久化（切会话/刷新不丢；mention pill 经 editorStateJson 保真）──
   const draftScopeRef = useRef(draftScopeId);
@@ -801,9 +955,13 @@ function ConversationComposerImpl({
     let editorStateJson: string | undefined;
     try {
       const editorState = inputApiRef.current?.getEditorState();
-      editorStateJson = editorState ? JSON.stringify(editorState.toJSON()) : undefined;
+      editorStateJson = editorState
+        ? JSON.stringify(editorState.toJSON())
+        : undefined;
     } catch (error) {
-      logger.warn(`[v4-composer] 草稿 editorState 序列化失败: ${String(error)}`);
+      logger.warn(
+        `[v4-composer] 草稿 editorState 序列化失败: ${String(error)}`,
+      );
     }
     return currentText.trim()
       ? { text: currentText, ...(editorStateJson ? { editorStateJson } : {}) }
@@ -816,7 +974,12 @@ function ConversationComposerImpl({
       draft: { ...ownerDraftRef.current.draft, ...snapshotDraftOfEditor() },
       attachments: attachmentsApi.attachments,
     }));
-  }, [draftScopeId, workspaceKey, snapshotDraftOfEditor, attachmentsApi.attachments]);
+  }, [
+    draftScopeId,
+    workspaceKey,
+    snapshotDraftOfEditor,
+    attachmentsApi.attachments,
+  ]);
 
   const persistDraftNow = useCallback(
     (scopeId: string) => {
@@ -827,7 +990,12 @@ function ConversationComposerImpl({
         return;
       }
     },
-    [snapshotDraftOfEditor, updateComposerContent, workspaceIdentity, workspacePath],
+    [
+      snapshotDraftOfEditor,
+      updateComposerContent,
+      workspaceIdentity,
+      workspacePath,
+    ],
   );
 
   const scheduleDraftPersist = useCallback(() => {
@@ -846,13 +1014,23 @@ function ConversationComposerImpl({
   // sessionId→draftScopeId 变化（切会话/切草稿）、以及挂载。三者置位聚焦意图；因切到需
   // 连接的会话时 composer 短暂 disabled，聚焦意图暂存，待可编辑时兑现一次。
   const draftFocusVersion = useZCodeSessionStore(
-    (state) => state.getWorkspaceState(workspacePath, workspaceIdentity).draftFocusVersion,
+    (state) =>
+      state.getWorkspaceState(workspacePath, workspaceIdentity)
+        .draftFocusVersion,
   );
   useEffect(() => {
     if (!draftScopeId.startsWith(V4_DRAFT_SCOPE_ROOT)) return;
-    const attachments = consumeV4ComposerDraftAttachments(workspaceKey, draftFocusVersion);
+    const attachments = consumeV4ComposerDraftAttachments(
+      workspaceKey,
+      draftFocusVersion,
+    );
     if (attachments) attachmentsApi.restoreDraftAttachments(attachments);
-  }, [draftFocusVersion, draftScopeId, workspaceKey, attachmentsApi.restoreDraftAttachments]);
+  }, [
+    draftFocusVersion,
+    draftScopeId,
+    workspaceKey,
+    attachmentsApi.restoreDraftAttachments,
+  ]);
   const pendingFocusRef = useRef(false);
   // 修饰键点击先于 form submit；这里只保存这一拍的 delivery 反转意图，submit 消费后清零。
   const reversePointerDeliveryRef = useRef(false);
@@ -925,7 +1103,8 @@ function ConversationComposerImpl({
         inputApi: inputApiRef.current,
         request: composerRestoreRequest,
         requestFocus: requestComposerFocus,
-        restoreSessionOwnedAttachments: attachmentsApi.restoreSessionOwnedAttachments,
+        restoreSessionOwnedAttachments:
+          attachmentsApi.restoreSessionOwnedAttachments,
         // 撤回项携带独立 Submission 配置；沿用草稿 owner，一次恢复且保留已处理授权标记。
         restoreDraftConfig: (config) =>
           replaceComposerDraft({
@@ -940,9 +1119,11 @@ function ConversationComposerImpl({
       });
       const appliedNow =
         nextAppliedRequestId === composerRestoreRequest.requestId &&
-        appliedComposerRestoreRequestRef.current !== composerRestoreRequest.requestId;
+        appliedComposerRestoreRequestRef.current !==
+          composerRestoreRequest.requestId;
       appliedComposerRestoreRequestRef.current = nextAppliedRequestId;
-      if (appliedNow) onComposerRestoreApplied?.(composerRestoreRequest.requestId);
+      if (appliedNow)
+        onComposerRestoreApplied?.(composerRestoreRequest.requestId);
       return nextAppliedRequestId === composerRestoreRequest.requestId;
     };
     if (applyRequest()) return;
@@ -973,7 +1154,8 @@ function ConversationComposerImpl({
       previousTarget.scopeId !== draftScopeId ||
       previousTarget.workspacePath !== workspacePath ||
       previousTarget.workspaceIdentity !== workspaceIdentity;
-    let transferredDraft: ReturnType<typeof snapshotDraftOfEditor> | null = null;
+    let transferredDraft: ReturnType<typeof snapshotDraftOfEditor> | null =
+      null;
     if (targetChanged && !suppressDraftPersistRef.current) {
       if (draftPersistTimerRef.current !== null) {
         window.clearTimeout(draftPersistTimerRef.current);
@@ -991,7 +1173,10 @@ function ConversationComposerImpl({
         });
       if (shouldTransferDraft) {
         // 项目解绑只改变草稿的 cwd；输入正文、mention editor state 和组件内附件继续保留。
-        replaceComposerDraft({ ...ownerDraftRef.current.draft, ...previousDraft });
+        replaceComposerDraft({
+          ...ownerDraftRef.current.draft,
+          ...previousDraft,
+        });
         transferredDraft = previousDraft;
       }
     }
@@ -1016,7 +1201,9 @@ function ConversationComposerImpl({
           draft,
           inputApi: api,
           onEditorStateError: (error) => {
-            logger.warn(`[v4-composer] 草稿 editorState 恢复失败，退纯文本: ${String(error)}`);
+            logger.warn(
+              `[v4-composer] 草稿 editorState 恢复失败，退纯文本: ${String(error)}`,
+            );
           },
         }),
       );
@@ -1070,7 +1257,8 @@ function ConversationComposerImpl({
         scheduleDraftPersist,
         updateText,
       });
-      const applied = nextAppliedRequestId === externalTextInsertRequest.requestId;
+      const applied =
+        nextAppliedRequestId === externalTextInsertRequest.requestId;
       appliedExternalTextInsertRequestRef.current = nextAppliedRequestId;
       if (applied) {
         onExternalTextInsertApplied?.(externalTextInsertRequest.requestId);
@@ -1161,7 +1349,8 @@ function ConversationComposerImpl({
   // choice 保留正常发送按钮；提交后由 SessionPane 按 slash 语义决定是否弹确认框。
   // V4 重构时把 guide 当成“不可提交”状态，导致按钮和 Enter 同时失效；
   // guide 是 CLI 已授权的 busy 输入路由，是否最终 steer 或回退 queue 由命令层裁决。
-  const routingAllowsSend = draftMode || (snapshot !== null && mode !== "reject");
+  const routingAllowsSend =
+    draftMode || (snapshot !== null && mode !== "reject");
   const attachmentsReady = !attachmentsApi.hasUnreadyAttachments;
   const canSend =
     !disabled &&
@@ -1197,13 +1386,16 @@ function ConversationComposerImpl({
         snapshotRef.current?.queue.items.map((item) => item.queueItemId) ?? [];
       const hasPendingAttachments = attachmentsApi.attachments.length > 0;
       const currentCodeCommentContexts = getCodeCommentContexts();
-      const hasPendingCodeCommentContexts = currentCodeCommentContexts.length > 0;
+      const hasPendingCodeCommentContexts =
+        currentCodeCommentContexts.length > 0;
       const currentWebElementContexts = webElementContexts;
       const hasPendingWebElementContexts = currentWebElementContexts.length > 0;
       const currentPptxElementReferences = pptxElementReferences;
-      const hasPendingPptxElementReferences = currentPptxElementReferences.length > 0;
+      const hasPendingPptxElementReferences =
+        currentPptxElementReferences.length > 0;
       const currentConversationSelections = conversationSelectionReferences;
-      const hasPendingConversationSelections = currentConversationSelections.length > 0;
+      const hasPendingConversationSelections =
+        currentConversationSelections.length > 0;
       const submittedShareContext = pendingShareContext;
       // 草稿首发 accepted 后同一 composer 会原地从 __draft__ promotion 到
       // session scope；若成功清理时再读可变 ref，会误清新 scope，并把首条输入残留在
@@ -1211,7 +1403,9 @@ function ConversationComposerImpl({
       const submittedDraft = snapshotDraftOfEditor();
       let cleanupRevision = contentRevisionRef.current;
       const submission = createSubmissionFromComposer?.() ?? null;
-      const submittedAttachmentIds = attachmentsApi.attachments.map((item) => item.id);
+      const submittedAttachmentIds = attachmentsApi.attachments.map(
+        (item) => item.id,
+      );
       if (
         (!trimmed &&
           !hasPendingAttachments &&
@@ -1254,9 +1448,14 @@ function ConversationComposerImpl({
         }
         suppressDraftPersistRef.current = false;
         draftSubmissionClaimed = false;
-        if (editorClearedOptimistically && contentRevisionRef.current === cleanupRevision) {
+        if (
+          editorClearedOptimistically &&
+          contentRevisionRef.current === cleanupRevision
+        ) {
           if (submittedDraft.editorStateJson) {
-            inputApiRef.current?.setEditorStateJson(submittedDraft.editorStateJson);
+            inputApiRef.current?.setEditorStateJson(
+              submittedDraft.editorStateJson,
+            );
           } else {
             inputApiRef.current?.setText(submittedDraft.text);
           }
@@ -1270,11 +1469,20 @@ function ConversationComposerImpl({
         draftSubmissionClaimed = false;
       };
       const rollbackPromptHistory = () => {
-        if (!promptHistoryWasPersisted || !promptHistoryBeforeSend || !promptHistoryAfterAppend) {
+        if (
+          !promptHistoryWasPersisted ||
+          !promptHistoryBeforeSend ||
+          !promptHistoryAfterAppend
+        ) {
           return;
         }
         const currentPromptHistory = readPromptHistoryEntries(workspacePath);
-        if (arePromptHistoryEntriesEqual(currentPromptHistory, promptHistoryAfterAppend)) {
+        if (
+          arePromptHistoryEntriesEqual(
+            currentPromptHistory,
+            promptHistoryAfterAppend,
+          )
+        ) {
           persistPromptHistoryEntries(workspacePath, promptHistoryBeforeSend);
           setPromptHistory(promptHistoryBeforeSend);
           return;
@@ -1309,13 +1517,24 @@ function ConversationComposerImpl({
           }) + (submittedShareContext ? 1 : 0);
         if (trimmed) {
           promptHistoryBeforeSend = readPromptHistoryEntries(workspacePath);
-          promptHistoryAfterAppend = appendPromptHistoryEntry(promptHistoryBeforeSend, trimmed);
-          if (!arePromptHistoryEntriesEqual(promptHistoryBeforeSend, promptHistoryAfterAppend)) {
+          promptHistoryAfterAppend = appendPromptHistoryEntry(
+            promptHistoryBeforeSend,
+            trimmed,
+          );
+          if (
+            !arePromptHistoryEntriesEqual(
+              promptHistoryBeforeSend,
+              promptHistoryAfterAppend,
+            )
+          ) {
             // 预热首发 accepted 后，SessionPane 会立即 promote 到新 session，
             // draft composer 可能在 await 恢复前卸载；不能把写盘藏在 React state updater 里。
             // 这里继续沿用旧 UI 的 localStorage history，不接 input_history 数据库：
             // 发起真实发送前先同步写盘，若发送失败再恢复到发送前快照。
-            persistPromptHistoryEntries(workspacePath, promptHistoryAfterAppend);
+            persistPromptHistoryEntries(
+              workspacePath,
+              promptHistoryAfterAppend,
+            );
             promptHistoryWasPersisted = true;
             setPromptHistory(promptHistoryAfterAppend);
           }
@@ -1336,7 +1555,9 @@ function ConversationComposerImpl({
           ...(requestedDelivery ? { requestedDelivery } : {}),
           ...(heldQueueDisposition ? { heldQueueDisposition } : {}),
           ...(expectedHeldQueueItemIds ? { expectedHeldQueueItemIds } : {}),
-          ...(readyAttachmentRefs.length > 0 ? { attachments: readyAttachmentRefs } : {}),
+          ...(readyAttachmentRefs.length > 0
+            ? { attachments: readyAttachmentRefs }
+            : {}),
           ...(contextAttachmentCount > 0 ? { contextAttachmentCount } : {}),
           ...(submittedShareContext
             ? {
@@ -1360,12 +1581,15 @@ function ConversationComposerImpl({
           rollbackPromptHistory();
           restoreSubmittedDraft();
           const latestQueueItemIds =
-            snapshotRef.current?.queue.items.map((item) => item.queueItemId) ?? [];
+            snapshotRef.current?.queue.items.map((item) => item.queueItemId) ??
+            [];
           // 首次提交冻结当前队列；跨端 stale 后用最新投影替换，要求用户重新确认。
           setHeldQueueConfirmation({
             ...(requestedDelivery ? { requestedDelivery } : {}),
             queueItemIds:
-              latestQueueItemIds.length > 0 ? latestQueueItemIds : submittedQueueItemIds,
+              latestQueueItemIds.length > 0
+                ? latestQueueItemIds
+                : submittedQueueItemIds,
           });
           return "confirmationRequired";
         }
@@ -1380,7 +1604,9 @@ function ConversationComposerImpl({
         attachmentsApi.clearAttachments(submittedAttachmentIds);
         // 与附件相同，只移除本次冻结的引用；等待期间新加入的引用属于下一条消息。
         currentCodeCommentContexts.forEach(removeCodeCommentContext);
-        currentWebElementContexts.forEach((context) => removeWebElementContext(context.id));
+        currentWebElementContexts.forEach((context) =>
+          removeWebElementContext(context.id),
+        );
         currentPptxElementReferences.forEach((reference) =>
           removePptxElementReference(reference.id),
         );
@@ -1450,7 +1676,9 @@ function ConversationComposerImpl({
       void submit(
         undefined,
         undefined,
-        reverseDelivery && followupMode ? resolveOppositeFollowupDelivery(followupMode) : undefined,
+        reverseDelivery && followupMode
+          ? resolveOppositeFollowupDelivery(followupMode)
+          : undefined,
       );
       return false;
     },
@@ -1466,7 +1694,9 @@ function ConversationComposerImpl({
       void submit(
         undefined,
         undefined,
-        followupMode ? resolveOppositeFollowupDelivery(followupMode) : undefined,
+        followupMode
+          ? resolveOppositeFollowupDelivery(followupMode)
+          : undefined,
       );
       return false;
     },
@@ -1499,12 +1729,13 @@ function ConversationComposerImpl({
   // submit，故这里只置标记，由 submit() 读取并复位。
   const handleSendButtonClick = useCallback(
     (event: ReactMouseEvent<HTMLButtonElement>) => {
-      reversePointerDeliveryRef.current = shouldReverseFollowupDeliveryForPointer({
-        enabled: modifiedEnterReversesDelivery,
-        metaKey: event.metaKey,
-        ctrlKey: event.ctrlKey,
-        isApplePlatform: appleKeyboardPlatform,
-      });
+      reversePointerDeliveryRef.current =
+        shouldReverseFollowupDeliveryForPointer({
+          enabled: modifiedEnterReversesDelivery,
+          metaKey: event.metaKey,
+          ctrlKey: event.ctrlKey,
+          isApplePlatform: appleKeyboardPlatform,
+        });
     },
     [appleKeyboardPlatform, modifiedEnterReversesDelivery],
   );
@@ -1536,13 +1767,18 @@ function ConversationComposerImpl({
       return;
     }
     const draft = textRef.current;
-    const continueText = intl.formatMessage({ id: "chat.composer.continue.text" });
+    const continueText = intl.formatMessage({
+      id: "chat.composer.continue.text",
+    });
     const next = buildComposerContinueText(draft, continueText);
     handleReplaceComposerDraft(next);
     void submit().then((outcome) => {
       // 非 sent/confirmationRequired（rejected/blocked/failed）时回滚本次合成的
       // 「继续」；等待期间用户已再输入（正文不再是本次填入串）则以用户输入为准。
-      if (shouldRollbackComposerContinueDraft(outcome) && textRef.current === next) {
+      if (
+        shouldRollbackComposerContinueDraft(outcome) &&
+        textRef.current === next
+      ) {
         handleReplaceComposerDraft(draft);
       }
     });
@@ -1570,13 +1806,19 @@ function ConversationComposerImpl({
       // composer disabled（队列认领等待 ACK 等）与按钮 disabled 同一门槛：
       // 键盘快捷键不得绕过禁用态（bugfix：按钮设了 disabled，快捷键路径漏判）。
       if (disabled) return;
-      if (event.key === "/" && event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (
+        event.key === "/" &&
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey
+      ) {
         event.preventDefault();
         enhanceRunRef.current?.();
         return;
       }
       if (event.key !== "j" && event.key !== "J") return;
-      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey) return;
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey || event.altKey)
+        return;
       event.preventDefault();
       handleContinue();
     },
@@ -1602,9 +1844,15 @@ function ConversationComposerImpl({
         onTextChange: updateText,
       });
     };
-    window.addEventListener(WORKSPACE_FILE_ADD_TO_CHAT_EVENT, handleWorkspaceFileAddToChat);
+    window.addEventListener(
+      WORKSPACE_FILE_ADD_TO_CHAT_EVENT,
+      handleWorkspaceFileAddToChat,
+    );
     return () => {
-      window.removeEventListener(WORKSPACE_FILE_ADD_TO_CHAT_EVENT, handleWorkspaceFileAddToChat);
+      window.removeEventListener(
+        WORKSPACE_FILE_ADD_TO_CHAT_EVENT,
+        handleWorkspaceFileAddToChat,
+      );
     };
   }, [listenAddToChatEvents, updateText, workspaceIdentity, workspacePath]);
 
@@ -1616,7 +1864,10 @@ function ConversationComposerImpl({
       ? formatConversationWorkDuration(workingDurationMs, intl, locale)
       : null;
   const normalPlaceholder = workingDurationLabel
-    ? intl.formatMessage({ id: "chat.history.workingFor" }, { duration: workingDurationLabel })
+    ? intl.formatMessage(
+        { id: "chat.history.workingFor" },
+        { duration: workingDurationLabel },
+      )
     : intl.formatMessage({
         id: resolveChatPlaceholderKey({
           hasHistoryMessages: (snapshot?.rows.totalCount ?? 0) > 0,
@@ -1640,7 +1891,8 @@ function ConversationComposerImpl({
     : sendTooltipTitle;
   const resolvedSendTooltipShortcut = modifierTooltip?.shortcut ?? sendShortcut;
   const stopTooltipTitle = intl.formatMessage({ id: "chat.stop" });
-  const visibleError = error && !shouldSuppressChatErrorBanner(error) ? error : null;
+  const visibleError =
+    error && !shouldSuppressChatErrorBanner(error) ? error : null;
 
   const attachmentAction = useMemo(
     () => ({
@@ -1659,7 +1911,9 @@ function ConversationComposerImpl({
     const media: (typeof composerAttachments)[number][] = [];
     const files: (typeof composerAttachments)[number][] = [];
     for (const attachment of composerAttachments) {
-      (isMediaChatComposerAttachment(attachment) ? media : files).push(attachment);
+      (isMediaChatComposerAttachment(attachment) ? media : files).push(
+        attachment,
+      );
     }
     return [...media, ...files];
   }, [composerAttachments]);
@@ -1698,9 +1952,12 @@ function ConversationComposerImpl({
             data-composer-file-attachments-row="true"
           >
             {orderedComposerAttachments.map((attachment) => {
-              const isClipboardTextAttachment = attachment.sourceKind === "clipboard-text";
-              const isMediaAttachment = isMediaChatComposerAttachment(attachment);
-              const isVideoAttachment = isVideoChatComposerAttachment(attachment);
+              const isClipboardTextAttachment =
+                attachment.sourceKind === "clipboard-text";
+              const isMediaAttachment =
+                isMediaChatComposerAttachment(attachment);
+              const isVideoAttachment =
+                isVideoChatComposerAttachment(attachment);
               const isPdfAttachment = isPdfChatComposerAttachment(attachment);
               const mediaType = attachment.objectUrl
                 ? attachment.mimeType
@@ -1708,9 +1965,12 @@ function ConversationComposerImpl({
                   ? "application/octet-stream"
                   : attachment.mimeType;
               const canPreviewImageAttachment =
-                Boolean(attachment.objectUrl) && isImageChatComposerAttachment(attachment);
-              const canPreviewVideoAttachment = Boolean(attachment.objectUrl) && isVideoAttachment;
-              const canPreviewPdfAttachment = Boolean(attachment.objectUrl) && isPdfAttachment;
+                Boolean(attachment.objectUrl) &&
+                isImageChatComposerAttachment(attachment);
+              const canPreviewVideoAttachment =
+                Boolean(attachment.objectUrl) && isVideoAttachment;
+              const canPreviewPdfAttachment =
+                Boolean(attachment.objectUrl) && isPdfAttachment;
               const fileDisplayDescriptor = resolveFileDisplayDescriptor(
                 attachment.localPath ?? attachment.filename,
               );
@@ -1730,7 +1990,8 @@ function ConversationComposerImpl({
                       });
               const showUploadStatus =
                 !attachment.localZeroCopy &&
-                (attachment.uploadStatus !== "ready" || attachment.showComplete);
+                (attachment.uploadStatus !== "ready" ||
+                  attachment.showComplete);
               return (
                 <Attachment
                   key={attachment.id}
@@ -1762,7 +2023,10 @@ function ConversationComposerImpl({
                               id: "chat.attachments.clipboardText.description",
                             },
                             {
-                              lineCount: formatAttachmentLineCount(attachment, locale),
+                              lineCount: formatAttachmentLineCount(
+                                attachment,
+                                locale,
+                              ),
                             },
                           ),
                           displayName: intl.formatMessage({
@@ -1774,7 +2038,9 @@ function ConversationComposerImpl({
                     mediaType,
                     url: attachment.objectUrl ?? "",
                   }}
-                  onRemove={() => attachmentsApi.removeAttachment(attachment.id)}
+                  onRemove={() =>
+                    attachmentsApi.removeAttachment(attachment.id)
+                  }
                   // 附件支持非图片格式，PDF 走独立 PdfViewer，
                   // 其他文件展示类型图标和文件名，避免 doc 等普通文件被当成图片渲染失败。
                   // 图片与视频统一按添加顺序进入发送前 gallery，
@@ -1782,9 +2048,10 @@ function ConversationComposerImpl({
                   onOpen={
                     canPreviewImageAttachment || canPreviewVideoAttachment
                       ? () => {
-                          const previewIndex = composerMediaPreviewItems.findIndex(
-                            (item) => item.src === attachment.objectUrl,
-                          );
+                          const previewIndex =
+                            composerMediaPreviewItems.findIndex(
+                              (item) => item.src === attachment.objectUrl,
+                            );
                           if (previewIndex < 0) return;
                           setAttachmentPreviewIndex(previewIndex);
                           setAttachmentPreviewOpen(true);
@@ -1806,19 +2073,25 @@ function ConversationComposerImpl({
                       : canPreviewImageAttachment
                         ? attachmentPreviewTitle
                         : canPreviewPdfAttachment
-                          ? intl.formatMessage({ id: "chat.attachments.preview.openPdf" })
+                          ? intl.formatMessage({
+                              id: "chat.attachments.preview.openPdf",
+                            })
                           : undefined
                   }
                 >
                   <div
                     className={cn(
                       "relative shrink-0",
-                      isMediaAttachment ? "size-full" : "size-9 rounded-md bg-background",
+                      isMediaAttachment
+                        ? "size-full"
+                        : "size-9 rounded-md bg-background",
                     )}
                   >
                     <AttachmentPreview
                       className={cn(
-                        isMediaAttachment ? "size-full rounded-none" : "size-9 rounded-md",
+                        isMediaAttachment
+                          ? "size-full rounded-none"
+                          : "size-9 rounded-md",
                       )}
                       fallbackIcon={
                         isClipboardTextAttachment ? (
@@ -1834,8 +2107,15 @@ function ConversationComposerImpl({
                     />
                     {showUploadStatus && isMediaAttachment ? (
                       <span
-                        data-testid={testId(TID_V4_ATTACHMENT_UPLOAD_PROGRESS, attachment.id)}
-                        role={attachment.uploadStatus === "failed" ? "alert" : "status"}
+                        data-testid={testId(
+                          TID_V4_ATTACHMENT_UPLOAD_PROGRESS,
+                          attachment.id,
+                        )}
+                        role={
+                          attachment.uploadStatus === "failed"
+                            ? "alert"
+                            : "status"
+                        }
                         aria-label={uploadStatusLabel}
                         className="absolute inset-0 grid place-items-center rounded-lg bg-background/85 text-[7px] font-semibold text-foreground"
                       >
@@ -1889,19 +2169,30 @@ function ConversationComposerImpl({
                           {attachment.filename}
                         </span>
                         <span className="block truncate text-ui-sm font-normal text-foreground-subtle">
-                          {getComposerAttachmentTypeLabel(attachment.filename, attachment.mimeType)}
+                          {getComposerAttachmentTypeLabel(
+                            attachment.filename,
+                            attachment.mimeType,
+                          )}
                         </span>
                       </div>
                     )
                   ) : null}
                   {showUploadStatus && !isMediaAttachment ? (
                     <span
-                      data-testid={testId(TID_V4_ATTACHMENT_UPLOAD_PROGRESS, attachment.id)}
-                      role={attachment.uploadStatus === "failed" ? "alert" : "status"}
+                      data-testid={testId(
+                        TID_V4_ATTACHMENT_UPLOAD_PROGRESS,
+                        attachment.id,
+                      )}
+                      role={
+                        attachment.uploadStatus === "failed"
+                          ? "alert"
+                          : "status"
+                      }
                       title={uploadStatusLabel}
                       className={cn(
                         "max-w-28 truncate text-ui-sm font-normal text-foreground-subtle",
-                        attachment.uploadStatus === "failed" && "text-destructive",
+                        attachment.uploadStatus === "failed" &&
+                          "text-destructive",
                       )}
                     >
                       {attachment.uploadStatus === "uploading"
@@ -1912,7 +2203,10 @@ function ConversationComposerImpl({
                   {attachment.uploadStatus === "failed" ? (
                     <button
                       type="button"
-                      data-testid={testId(TID_V4_ATTACHMENT_UPLOAD_RETRY, attachment.id)}
+                      data-testid={testId(
+                        TID_V4_ATTACHMENT_UPLOAD_RETRY,
+                        attachment.id,
+                      )}
                       aria-label={intl.formatMessage({
                         id: "chat.attachments.upload.retry",
                       })}
@@ -2015,8 +2309,11 @@ function ConversationComposerImpl({
   const composerUsage = snapshot?.usage ?? null;
   const composerPhase = snapshot?.control.phase ?? null;
   const handleSelectModelTrace = useCallback(
-    (nextProvider: string, nextModel: string, sourceModel: ModelSelectionSource | null) =>
-      onSelectModel(nextProvider, nextModel, sourceModel),
+    (
+      nextProvider: string,
+      nextModel: string,
+      sourceModel: ModelSelectionSource | null,
+    ) => onSelectModel(nextProvider, nextModel, sourceModel),
     [onSelectModel],
   );
   const submitControlNode = useMemo(
@@ -2077,7 +2374,11 @@ function ConversationComposerImpl({
               aria-label={resolvedSendTooltipTitle}
               className="cursor-pointer gap-1 rounded-lg bg-brand text-ui-base text-foreground-inverse hover:bg-brand/80"
             >
-              {pending ? <Spinner className="size-4" /> : <ArrowUpIcon className="size-4" />}
+              {pending ? (
+                <Spinner className="size-4" />
+              ) : (
+                <ArrowUpIcon className="size-4" />
+              )}
               <span className="sr-only">{resolvedSendTooltipTitle}</span>
             </Button>
           </ControlHintTooltip>
@@ -2123,7 +2424,9 @@ function ConversationComposerImpl({
   // 左下：模式选择 + ✨增强 + 继续 + CUA 入口 + 后台任务入口 + 最近一轮统计胶囊。
   // followupMode 由 app 设置页同步到 CLI，不在 composer 暴露局部开关；后台入口
   // 只消费同一 snapshot，不维护第二份任务状态。
-  const continueLabel = intl.formatMessage({ id: "chat.composer.continue.label" });
+  const continueLabel = intl.formatMessage({
+    id: "chat.composer.continue.label",
+  });
   const leadingActionsNode = useMemo(
     () => (
       <>
@@ -2145,7 +2448,9 @@ function ConversationComposerImpl({
           disabled={disabled}
           onRegisterRun={handleRegisterEnhanceRun}
         />
-        <ControlHintTooltip title={intl.formatMessage({ id: "chat.composer.continue.tooltip" })}>
+        <ControlHintTooltip
+          title={intl.formatMessage({ id: "chat.composer.continue.tooltip" })}
+        >
           <Button
             type="button"
             variant="ghost"
@@ -2251,7 +2556,9 @@ function ConversationComposerImpl({
       >
         {contextHeader ? (
           // 旧 ChatViewComposer contextHeaderContent 同款包装（workspace 菜单 + Git 分支）。
-          <div className="p-1.5 flex min-w-0 flex-wrap items-center gap-0">{contextHeader}</div>
+          <div className="p-1.5 flex min-w-0 flex-wrap items-center gap-0">
+            {contextHeader}
+          </div>
         ) : null}
         {conversationSelectionLimitReason ? (
           <div
@@ -2271,7 +2578,12 @@ function ConversationComposerImpl({
           placeholder={normalPlaceholder}
           disabled={disabled || mode === "reject"}
           submitting={pending}
-          submitDisabled={pending || !routingAllowsSend || !attachmentsReady || !submissionReady}
+          submitDisabled={
+            pending ||
+            !routingAllowsSend ||
+            !attachmentsReady ||
+            !submissionReady
+          }
           allowSubmitWhenEmpty={
             // 发送按钮已把代码评论视为可发送上下文，但这里曾漏掉同一状态，
             // 导致空文本仅附代码评论时 Enter 被编辑器判为空，必须改点发送按钮。
@@ -2284,7 +2596,9 @@ function ConversationComposerImpl({
           enterSubmits={enterSubmits}
           avoidIosInputFocusZoom={avoidIosInputFocusZoom}
           compactPlaceholder={compactMobilePlaceholder}
-          onModifiedSubmit={modifiedEnterSubmits ? handleModifiedEditorSubmit : undefined}
+          onModifiedSubmit={
+            modifiedEnterSubmits ? handleModifiedEditorSubmit : undefined
+          }
           submitLabel={sendTooltipTitle}
           showSlashButton
           // @ 是 Plugin / 文件 / 对话 / 画板主入口；# 会话与 $ / ¥ / ￥ Skills
@@ -2297,7 +2611,9 @@ function ConversationComposerImpl({
           promptHistory={promptHistory}
           // 命令目录必须完整来自 CLI workspace slash catalog；UI 只在
           // secondary pane 按产品能力隐藏 goal，不再追加任何内建命令或别名。
-          excludedSlashCommandNames={suppressGoalCommands ? ["goal"] : undefined}
+          excludedSlashCommandNames={
+            suppressGoalCommands ? ["goal"] : undefined
+          }
           appSlashCommands={appSlashCommands}
           enableMentionPanel
           leadingActions={leadingActionsNode}
@@ -2306,7 +2622,9 @@ function ConversationComposerImpl({
           className="p-0"
           onChange={handleEditorChange}
           onSubmit={handleEditorSubmit}
-          onWhiteboardMentionSelected={attachmentsApi.handleWhiteboardMentionSelected}
+          onWhiteboardMentionSelected={
+            attachmentsApi.handleWhiteboardMentionSelected
+          }
           onPaste={attachmentsApi.handlePaste}
         />
         <div className="composer-stats-root" data-composer-stats>
@@ -2315,7 +2633,11 @@ function ConversationComposerImpl({
               ComposerStatsRow）的滑动窗口/基线/冻结速度 refs 必须随会话整体
               重挂载重置，否则切换会话后的首帧会显示上一会话的速度
               （spec §5 数据所有权）。 */}
-          <ComposerStatsRow key={snapshot?.sessionId} snapshot={snapshot} draftMode={draftMode} />
+          <ComposerStatsRow
+            key={snapshot?.sessionId}
+            snapshot={snapshot}
+            draftMode={draftMode}
+          />
         </div>
         {attachmentsApi.attachmentError ? (
           <p className="flex items-start gap-2 p-3 text-ui-base text-warning">
@@ -2371,7 +2693,9 @@ function ConversationComposerImpl({
               {intl.formatMessage(
                 { id: "chat.queue.sendConfirm.description" },
                 {
-                  count: String(heldQueueConfirmation?.queueItemIds.length ?? 0),
+                  count: String(
+                    heldQueueConfirmation?.queueItemIds.length ?? 0,
+                  ),
                 },
               )}
             </DialogDescription>

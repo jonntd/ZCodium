@@ -69,6 +69,16 @@ function installMinimalDom() {
     HTMLElement: function HTMLElement() {},
     Node: function Node() {},
     removeEventListener: () => {},
+    // pending task draft 身份写 localStorage（composer.draft-storage-unavailable 守卫）；
+    // workspace-first 新建任务链路会经 ensurePendingTaskDraft，需要可用的内存存储。
+    localStorage: {
+      getItem: () => null,
+      setItem: () => {},
+      removeItem: () => {},
+      clear: () => {},
+      key: () => null,
+      length: 0,
+    },
   };
   Object.defineProperty(globalThis, "document", {
     configurable: true,
@@ -110,10 +120,13 @@ function renderRootActions({
   activeWorkspacePath = "/workspace-a",
   activeWorkspaceIdentity = null,
   workbenchGroupClientMode = "desktop-continuous",
+  withoutActiveWorkspaceDraftProject = false,
 }: {
   activeWorkspacePath?: string;
   activeWorkspaceIdentity?: string | null;
   workbenchGroupClientMode?: "desktop-continuous" | "web-remote-replayable";
+  /** 模拟 workspace-first 入口（IDE 插件）：活动工作区没有 draftProjectId。 */
+  withoutActiveWorkspaceDraftProject?: boolean;
 } = {}) {
   let handleCreateTask: ((request?: CreateTaskRequest) => void) | null = null;
   let handleSelectConversationWorkspace: ((path: string) => void) | null = null;
@@ -180,7 +193,12 @@ function renderRootActions({
         ...current.workspaces,
         [identity || path]: {
           ...state,
-          draftProjectId: path === "/workspace-b" ? "project-b" : "project-a",
+          draftProjectId:
+            path === "/workspace-b"
+              ? "project-b"
+              : withoutActiveWorkspaceDraftProject
+                ? null
+                : "project-a",
         },
       },
     }));
@@ -222,6 +240,7 @@ function renderRootActions({
   });
   return {
     addTab,
+    prepareSession: services.projectService.prepareSession,
     getHandleCreateTask: () => {
       if (!handleCreateTask) {
         throw new Error("handleCreateTask was not captured");
@@ -387,5 +406,22 @@ describe("root new task workbench context", () => {
     expect(addTab).toHaveBeenCalledWith("/Users/demo/.zcode/workspace/default", {
       workspacePurpose: "conversation",
     });
+  });
+
+  it("workspace-first 新建任务：本地无项目时草稿留在活动工作区，不经 prepareSession 铸 draft 目录", async () => {
+    // spec: ide-workspace-project-binding。IDE 插件入口（活动工作区无 draftProjectId）：
+    // prepareSession 无 projectId 会铸造 ~/.zcodium/workspace/draft-<uuid> 当 cwd，
+    // 草稿被抢离当前工程，任务也因 cwd 不匹配落不进工程分组。
+    const { getHandleCreateTask, tabState, prepareSession } = renderRootActions({
+      withoutActiveWorkspaceDraftProject: true,
+    });
+
+    await act(async () => {
+      await getHandleCreateTask()();
+    });
+
+    expect(prepareSession).not.toHaveBeenCalled();
+    expect(tabState.activeWorkspacePath).toBe("/workspace-a");
+    expect(workspaceState("/workspace-a").draftFocusVersion).toBe(1);
   });
 });

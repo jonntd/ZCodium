@@ -446,6 +446,35 @@ export function shouldFallbackSettingsUsageTabToApp({
   );
 }
 
+/**
+ * URL hash 深链（FR-B14「在完整界面查看/撤销权限规则」入口，VS Code 插件跳转用）：
+ * `#settings=<sectionId>`，值缺省或未注册时只表达「打开设置页」。
+ *
+ * 只读不写 hash：fragment 里可能同时承载 E2EE 的 `#k=`（spec vps-relay-bridge.md §16，
+ * autoReconnect 的整页重载依赖 URL 原样保留），深链绝不能清除或改写地址栏；
+ * 一次性语义由 Root 侧的 ref 守卫保证，刷新后同 URL 再触发一次属于深链的自然语义。
+ */
+export function readSettingsSectionFromLocationHash(): {
+  requested: boolean;
+  section?: SettingsSectionId;
+} {
+  if (typeof window === "undefined") {
+    return { requested: false };
+  }
+  const hash = window.location.hash;
+  if (!hash.startsWith("#")) {
+    return { requested: false };
+  }
+  const raw = new URLSearchParams(hash.slice(1)).get("settings");
+  if (raw === null) {
+    return { requested: false };
+  }
+  return {
+    requested: true,
+    ...(isSettingsSectionId(raw) ? { section: resolveSettingsSection(raw) } : {}),
+  };
+}
+
 export function addPendingSettingsSectionListener(
   listener: (section: SettingsSectionId, detail?: SettingsSectionIntentEventDetail) => void,
 ): () => void {

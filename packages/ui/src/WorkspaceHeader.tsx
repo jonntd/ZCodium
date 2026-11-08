@@ -2,14 +2,15 @@ import type {
   ZCodeProvider,
   ZCodeTaskMeta,
   ZCodeTaskChangeSummary,
-  EditorInfo,
   GitRepositorySummary,
   RemoteTarget,
   UserInfo,
 } from "@zcode/shared";
-import { useState } from "react";
+import { AlertTriangleIcon, InfoIcon } from "lucide-react";
 import { TID_WORKSPACE_HEADER } from "@zcode/shared/test-ids";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
+import { useWorkspaceHeaderHint } from "@/store/workspaceHeaderHintStore.js";
+import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { cn } from "@/components/lib/utils.js";
 import {
   WorkspaceHeaderActionSection,
@@ -145,7 +146,12 @@ export function WorkspaceHeader({
   onOpenWorkspace: () => void;
   allowOpenWorkspace?: boolean;
 }) {
-  const [selectedEditor, setSelectedEditor] = useState<EditorInfo | null>(null);
+  // VS Code 插件宿主：IDE 原生标题栏已占一排，webview 顶栏压到最紧凑的一行，
+  // 与原生标题栏对齐、不换行、不重叠，减少纵向占用。其它宿主保持 h-12 不变。
+  const nativeTerminalHost = Boolean(useOptionalPlatform()?.nativeTerminalHost);
+  // 顶栏状态提示（spec: workspace-header-status-hint）：宿主壳层经 store 写入，
+  // 桌面/Web 从不写入 → 恒 null → 这里零渲染，其余行为不变。
+  const headerHint = useWorkspaceHeaderHint();
   // Linux 与 Windows 共用内联窗控，不再预留旧悬浮窗控的标题栏区域。
   const usesInlineWindowControls = Boolean(isWindowsDesktop || (isDesktop && !isMacDesktop));
   const headerWindowControlsPaddingClass = resolveTopOverlayLeadingPaddingClass({
@@ -160,7 +166,8 @@ export function WorkspaceHeader({
       data-testid={TID_WORKSPACE_HEADER}
       data-workspace-header-variant={variant}
       className={cn(
-        "@container/workspace-header relative flex w-full shrink-0 h-12 border-b",
+        "@container/workspace-header relative flex w-full shrink-0 border-b",
+        nativeTerminalHost ? "h-9 min-w-0 flex-nowrap overflow-hidden" : "h-12",
         variant === "draft" ? "border-transparent" : "border-border/50",
       )}
     >
@@ -215,7 +222,6 @@ export function WorkspaceHeader({
             isWindowsDesktop={isWindowsDesktop}
             isWebRemoteControl={isWebRemoteControl}
             simplifyForNarrowRemote={simplifyForNarrowRemote}
-            selectedEditor={selectedEditor}
             onReloadSession={onReloadSession}
             reloadSessionDisabled={reloadSessionDisabled}
             reloadSessionPending={reloadSessionPending}
@@ -224,6 +230,30 @@ export function WorkspaceHeader({
         ) : (
           <div className="min-w-0 flex-1" aria-hidden="true" />
         )}
+        {headerHint ? (
+          <div
+            role="status"
+            data-testid="workspace-header-hint"
+            title={headerHint.message}
+            className={cn(
+              // 状态提示收进 header 单排（spec: workspace-header-status-hint）：
+              // 独立横幅行已移除，文案以紧凑 chip 贴操作区左侧。
+              // 窄容器（侧栏拖窄 <24rem）整枚隐藏，不挤压标题截断；title 兜底全文。
+              "ml-auto hidden h-6 max-w-[45%] shrink-0 items-center gap-1.5 rounded-md border px-2",
+              "@sm/workspace-header:flex",
+              headerHint.tone === "warning"
+                ? "border-transparent bg-warning-surface text-warning-surface-foreground"
+                : "border-card-border bg-card text-foreground-subtle",
+            )}
+          >
+            {headerHint.tone === "warning" ? (
+              <AlertTriangleIcon className="size-3.5 shrink-0" />
+            ) : (
+              <InfoIcon className="size-3.5 shrink-0" />
+            )}
+            <span className="truncate text-ui-xs">{headerHint.message}</span>
+          </div>
+        ) : null}
         <WorkspaceHeaderActionSection
           variant={variant}
           activeTaskId={activeTaskId}
@@ -244,7 +274,6 @@ export function WorkspaceHeader({
           hideHelpMenu={false}
           showWindowControls={usesInlineWindowControls}
           // 面板操作按钮沿用 macOS 紧凑样式，Windows/Linux 窗控跟随最右侧 Header。
-          onSelectedEditorChange={setSelectedEditor}
         />
       </div>
     </header>

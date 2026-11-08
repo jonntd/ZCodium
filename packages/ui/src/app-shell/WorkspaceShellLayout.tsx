@@ -8,6 +8,7 @@ import type {
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { GripHorizontal, LoaderIcon } from "lucide-react";
 import { TID_APP_HEADER } from "@zcode/shared";
+import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 // 保活：workspace tab 真正关闭时，按 workspaceKey 回收 side pane terminal 的常驻 PTY/xterm。
 // 对称下侧 Terminal.tsx 的 openWorkspaceKeys 回收。
 import { sidePaneTerminalSessionRegistry } from "@/terminal/sidePaneTerminalSessionRegistry.js";
@@ -429,6 +430,9 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
   setGitSelectedSourceId,
   taskFindDialogProps,
 }: WorkspaceShellLayoutProps) {
+  // VS Code 插件宿主用 IDE 原生终端：不挂载应用内嵌的 xterm/node-pty 面板，
+  // 否则在插件运行时里会显示 "Terminal failed to start / node-pty is unavailable"。
+  const nativeTerminalHost = Boolean(useOptionalPlatform()?.nativeTerminalHost);
   const { intl } = useZCodeIntl();
   const isOfficeMode = useIsOfficeMode();
   const baseServices = useBaseWorkspaceServices();
@@ -2677,9 +2681,10 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
                         </div>
                       </section>
                     </ResizablePanel>
-                    {isWebRemoteControlShell ||
-                    (workspaceMainView !== "automations" &&
-                      workspaceMainView !== "plugin-store") ? (
+                    {!nativeTerminalHost &&
+                    (isWebRemoteControlShell ||
+                      (workspaceMainView !== "automations" &&
+                        workspaceMainView !== "plugin-store")) ? (
                       <AnimatedTerminalPanel
                         frameClassName={cn(
                           isSidePaneVisible

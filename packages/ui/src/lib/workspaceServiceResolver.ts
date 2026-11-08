@@ -95,3 +95,33 @@ export function buildWorkspaceServiceLookup(
 
   return lookup;
 }
+
+/**
+ * 任务维度的服务解析（归档/删除/重命名/置顶等按 task 取服务的操作统一走这里）。
+ *
+ * 修复原因：lookup 只为「已打开的 workspace tab」建条目——跨工作区任务区/归档区里
+ * 属于未开 tab 的本地任务查不到条目，各操作静默 return，表现为「归档失败、删除不了
+ * 任务」且 host 侧零日志（IDE 插件单 tab 场景几乎必现）。本地任务的正确服务就是
+ * baseServices（与 resolveWorkspaceServices 对本地 tab 的回落一致）；远端目标不在
+ * lookup = session 未恢复，必须保持 null 禁止落回本机 services（用本机 sqlite 查远端
+ * workspace 会缓存空结果，见 resolveWorkspaceServices 注释）。
+ */
+export function resolveTaskWorkspaceServices(
+  task: { workspacePath: string; workspaceIdentity?: string; hostId?: string },
+  lookup: Map<string, ResolvedWorkspaceServices>,
+  baseServices: IServiceAccessor,
+): ResolvedWorkspaceServices | null {
+  const resolved = lookup.get(
+    buildTaskWorkspaceKey(task.workspacePath, task.workspaceIdentity),
+  );
+  if (resolved) {
+    return resolved;
+  }
+  if (task.workspaceIdentity?.trim()) {
+    return null;
+  }
+  if (task.hostId && task.hostId !== "local") {
+    return null;
+  }
+  return { services: baseServices, isRemoteWorkspace: false };
+}

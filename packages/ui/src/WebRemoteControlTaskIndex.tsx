@@ -277,6 +277,10 @@ export function WebRemoteControlTaskIndex({
       const taskWorkspaceKey = resolveWebRemoteControlWorkspaceKey(task);
       const workspaceServices = workspaceServiceLookup.get(taskWorkspaceKey);
       if (!workspaceServices) {
+        // 修复（spec: sidebar-task-service-resolution P1-3）：miss 是有意的守卫（bridge 为
+        // 远端时本地任务不得映射到远端库），但对用户表现为点击无反应——补一条明确反馈，
+        // 守卫语义不变。
+        toast(intl.formatMessage({ id: "taskList.workspaceServiceUnavailable" }));
         return;
       }
 
@@ -323,6 +327,7 @@ export function WebRemoteControlTaskIndex({
       const taskWorkspaceKey = resolveWebRemoteControlWorkspaceKey(task);
       const workspaceServices = workspaceServiceLookup.get(taskWorkspaceKey);
       if (!workspaceServices) {
+        toast(intl.formatMessage({ id: "taskList.workspaceServiceUnavailable" }));
         return;
       }
 

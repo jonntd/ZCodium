@@ -96,6 +96,10 @@ export {
 } from "./lib/fileDisplay.js";
 export type { FileDisplayDescriptor, FileDisplayOptions } from "./lib/fileDisplay.js";
 export { playTaskNotificationSound } from "./lib/taskNotificationSound.js";
+export {
+  isMermaidRenderingEnabled,
+  setMermaidRenderingEnabled,
+} from "./lib/mermaidRendering.js";
 export { installDocumentHiddenMotionPause } from "./lib/documentHiddenMotionPause.js";
 export {
   applyUiFontSizePx,
@@ -103,6 +107,9 @@ export {
   subscribeToUiFontSizeStorageChanges,
 } from "./lib/uiFontSize.js";
 export { generateMobileDeviceFingerprint, setStreamClientId } from "./lib/streamClientId.js";
+// 设置页 hash 深链（FR-B14 权限规则入口）：入口壳解析后经 Root.initialSettingsDeepLink 消费。
+export { readSettingsSectionFromLocationHash } from "./lib/settingsNavigation.js";
+export type { SettingsSectionId } from "./lib/settingsNavigation.js";
 export { GlobalDatabaseStartupLoading } from "./root/GlobalDatabaseStartupLoading.js";
 // 非桌面入口（Web 远控）的启动兜底：桌面用 RootStartupLoading 阻塞启动渲染，
 // Web 侧不阻塞，改为在 workspace tab 注入前把它当作 initialWorkspaceLoadingFallback，

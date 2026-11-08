@@ -20,6 +20,11 @@ const mocks = vi.hoisted(() => ({
     canSelectFilePath: true,
     createTempTextAttachment: vi.fn(),
     getPathForFile: vi.fn(),
+    resolveFileDropPaths: vi.fn<
+      (
+        uris: readonly string[],
+      ) => Promise<{ path: string; sizeBytes: number }[] | null>
+    >(async () => []),
     selectFiles: vi.fn(async () => [] as string[]),
   },
   service: null as IPromptAttachmentTransferService | null,
@@ -61,7 +66,10 @@ function deferred<T>(): Deferred<T> {
 }
 
 function createTransferService() {
-  const listeners = new Map<string, Set<(event: PromptAttachmentTransferProgress) => void>>();
+  const listeners = new Map<
+    string,
+    Set<(event: PromptAttachmentTransferProgress) => void>
+  >();
   const stage = vi.fn<IPromptAttachmentTransferService["stage"]>();
   const service: IPromptAttachmentTransferService = {
     adopt: vi.fn(async () => {}),
@@ -76,7 +84,10 @@ function createTransferService() {
     stage,
   };
   return {
-    fire(operationId: string, event: Omit<PromptAttachmentTransferProgress, "operationId">) {
+    fire(
+      operationId: string,
+      event: Omit<PromptAttachmentTransferProgress, "operationId">,
+    ) {
       for (const listener of listeners.get(operationId) ?? []) {
         listener({ operationId, ...event });
       }
@@ -108,7 +119,8 @@ function createMinimalElement(ownerDocument: Document) {
       return child;
     },
     removeEventListener: () => {},
-    setAttribute: (name: string, value: string) => element.attributes.set(name, value),
+    setAttribute: (name: string, value: string) =>
+      element.attributes.set(name, value),
     style: {},
     tagName: "DIV",
   };
@@ -121,11 +133,17 @@ function installMinimalDom() {
   const documentMock = {
     addEventListener: documentTarget.addEventListener.bind(documentTarget),
     createComment: () => ({ nodeType: 8, parentNode: null }),
-    createElement: () => createMinimalElement(documentMock as unknown as Document),
-    createTextNode: (nodeValue: string) => ({ nodeType: 3, nodeValue, parentNode: null }),
+    createElement: () =>
+      createMinimalElement(documentMock as unknown as Document),
+    createTextNode: (nodeValue: string) => ({
+      nodeType: 3,
+      nodeValue,
+      parentNode: null,
+    }),
     defaultView: null as unknown,
     nodeType: 9,
-    removeEventListener: documentTarget.removeEventListener.bind(documentTarget),
+    removeEventListener:
+      documentTarget.removeEventListener.bind(documentTarget),
   };
   const windowMock = {
     addEventListener: windowTarget.addEventListener.bind(windowTarget),
@@ -138,8 +156,14 @@ function installMinimalDom() {
     setTimeout,
   };
   documentMock.defaultView = windowMock;
-  Object.defineProperty(globalThis, "document", { configurable: true, value: documentMock });
-  Object.defineProperty(globalThis, "window", { configurable: true, value: windowMock });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: documentMock,
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: windowMock,
+  });
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
     configurable: true,
     value: true,
@@ -151,7 +175,9 @@ interface ProbeOptions {
   attachmentSessionId: string | null;
   localDesktop?: boolean;
   onRuntimeRestart?: (listener: () => void) => () => void;
-  onRuntimeLifecycle?: (listener: (state: "available" | "unavailable") => void) => () => void;
+  onRuntimeLifecycle?: (
+    listener: (state: "available" | "unavailable") => void,
+  ) => () => void;
   remoteSessionId?: string | null;
   scopeId: string;
   workspaceIdentity?: string;
@@ -194,7 +220,9 @@ function renderProbe(options: ProbeOptions) {
 async function addPaths(paths: string[]) {
   mocks.platform.selectFiles.mockResolvedValueOnce(paths);
   act(() => latestApi?.openAttachmentPicker());
-  await vi.waitFor(() => expect(latestApi?.attachments).toHaveLength(paths.length));
+  await vi.waitFor(() =>
+    expect(latestApi?.attachments).toHaveLength(paths.length),
+  );
 }
 
 function resultFor(operationId: string) {
@@ -210,6 +238,7 @@ beforeEach(() => {
   latestApi = null;
   mocks.platform.createTempTextAttachment.mockReset();
   mocks.platform.getPathForFile.mockReset();
+  mocks.platform.resolveFileDropPaths.mockReset();
   mocks.platform.selectFiles.mockReset();
   mocks.toast.mockClear();
   useComposerAttachmentUploadStore.setState({ scopes: {} });
@@ -223,14 +252,23 @@ afterEach(async () => {
   await new Promise<void>((resolve) => setImmediate(resolve));
   delete (globalThis as { document?: unknown }).document;
   delete (globalThis as { window?: unknown }).window;
-  delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: unknown }).IS_REACT_ACT_ENVIRONMENT;
+  delete (globalThis as { IS_REACT_ACT_ENVIRONMENT?: unknown })
+    .IS_REACT_ACT_ENVIRONMENT;
 });
 
 describe("useComposerAttachments eager upload", () => {
   it("同 cwd 项目附件独立，显式交接重新建立目标上传 owner", async () => {
     mocks.service = createTransferService().service;
-    const p = { attachmentSessionId: "session-p", scopeId: "__draft__:p", localDesktop: true };
-    const q = { attachmentSessionId: "session-q", scopeId: "__draft__:q", localDesktop: true };
+    const p = {
+      attachmentSessionId: "session-p",
+      scopeId: "__draft__:p",
+      localDesktop: true,
+    };
+    const q = {
+      attachmentSessionId: "session-q",
+      scopeId: "__draft__:q",
+      localDesktop: true,
+    };
     const { root, rerender } = renderProbe(p);
     await addPaths(["/workspace/p.txt"]);
     const original = latestApi!.attachments[0]!;
@@ -239,7 +277,9 @@ describe("useComposerAttachments eager upload", () => {
     act(() => latestApi!.restoreDraftAttachments([original]));
     expect(latestApi!.attachments[0]!.filename).toBe("p.txt");
     expect(latestApi!.attachments[0]!.id).not.toBe(original.id);
-    expect(latestApi!.attachments[0]!.operationId).not.toBe(original.operationId);
+    expect(latestApi!.attachments[0]!.operationId).not.toBe(
+      original.operationId,
+    );
     rerender(p);
     expect(latestApi!.attachments[0]!.id).toBe(original.id);
     act(() => root.unmount());
@@ -278,10 +318,14 @@ describe("useComposerAttachments eager upload", () => {
     }
     expect(mocks.toast).toHaveBeenCalledTimes(3);
     expect(latestApi?.attachments).toHaveLength(8);
-    expect(latestApi?.attachments.some((item) => item.filename === "extra.txt")).toBe(false);
+    expect(
+      latestApi?.attachments.some((item) => item.filename === "extra.txt"),
+    ).toBe(false);
 
     act(() => latestApi?.removeAttachment(latestApi.attachments[0]!.id));
-    mocks.platform.selectFiles.mockResolvedValueOnce(["/workspace/replacement.txt"]);
+    mocks.platform.selectFiles.mockResolvedValueOnce([
+      "/workspace/replacement.txt",
+    ]);
     await act(async () => latestApi?.openAttachmentPicker());
     await vi.waitFor(() => expect(latestApi?.attachments).toHaveLength(8));
     expect(mocks.platform.selectFiles).toHaveBeenCalledTimes(1);
@@ -318,18 +362,25 @@ describe("useComposerAttachments eager upload", () => {
   it("只把 video inline 超限视为不可重试，不改变 image 的既有重试判定", () => {
     const options = { filename: "media.bin", maxSizeBytes: 1, sizeBytes: 2 };
 
-    expect(isTransientAttachmentUploadError(new OversizedInlineVideoAttachmentError(options))).toBe(
-      false,
-    );
-    expect(isTransientAttachmentUploadError(new OversizedInlineImageAttachmentError(options))).toBe(
-      true,
-    );
+    expect(
+      isTransientAttachmentUploadError(
+        new OversizedInlineVideoAttachmentError(options),
+      ),
+    ).toBe(false);
+    expect(
+      isTransientAttachmentUploadError(
+        new OversizedInlineImageAttachmentError(options),
+      ),
+    ).toBe(true);
   });
 
   it("Excel 多表示剪贴板优先保留文本，不把合成 PNG 加为附件", () => {
     const transfer = createTransferService();
     mocks.service = transfer.service;
-    const { root } = renderProbe({ attachmentSessionId: null, scopeId: "excel-paste" });
+    const { root } = renderProbe({
+      attachmentSessionId: null,
+      scopeId: "excel-paste",
+    });
     const preventDefault = vi.fn();
     const stopPropagation = vi.fn();
     const image = new File(["preview"], "image.png", { type: "image/png" });
@@ -367,7 +418,10 @@ describe("useComposerAttachments eager upload", () => {
       mimeType: "text/plain",
       sizeBytes: 15_361,
     });
-    const { root } = renderProbe({ attachmentSessionId: null, scopeId: "excel-long-paste" });
+    const { root } = renderProbe({
+      attachmentSessionId: null,
+      scopeId: "excel-long-paste",
+    });
     const preventDefault = vi.fn();
     const text = `${"A".repeat(15_359)}\tB`;
 
@@ -396,7 +450,10 @@ describe("useComposerAttachments eager upload", () => {
   it("截图和真实 xlsx 文件仍按附件处理", () => {
     const transfer = createTransferService();
     mocks.service = transfer.service;
-    const { root } = renderProbe({ attachmentSessionId: null, scopeId: "real-file-paste" });
+    const { root } = renderProbe({
+      attachmentSessionId: null,
+      scopeId: "real-file-paste",
+    });
     const screenshotPreventDefault = vi.fn();
 
     act(() =>
@@ -411,7 +468,9 @@ describe("useComposerAttachments eager upload", () => {
       }),
     );
     expect(screenshotPreventDefault).toHaveBeenCalledOnce();
-    expect(latestApi?.attachments.map((item) => item.filename)).toEqual(["screenshot.png"]);
+    expect(latestApi?.attachments.map((item) => item.filename)).toEqual([
+      "screenshot.png",
+    ]);
 
     act(() => latestApi?.clearAttachments());
     const xlsxPreventDefault = vi.fn();
@@ -423,7 +482,8 @@ describe("useComposerAttachments eager upload", () => {
               type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             }),
           ],
-          getData: (type: string) => (type === "text/plain" ? "/tmp/book.xlsx" : ""),
+          getData: (type: string) =>
+            type === "text/plain" ? "/tmp/book.xlsx" : "",
           types: ["text/plain", "Files"],
         } as unknown as DataTransfer,
         preventDefault: xlsxPreventDefault,
@@ -431,14 +491,19 @@ describe("useComposerAttachments eager upload", () => {
       }),
     );
     expect(xlsxPreventDefault).toHaveBeenCalledOnce();
-    expect(latestApi?.attachments.map((item) => item.filename)).toEqual(["book.xlsx"]);
+    expect(latestApi?.attachments.map((item) => item.filename)).toEqual([
+      "book.xlsx",
+    ]);
     act(() => root.unmount());
   });
 
   it("兼容只暴露 Files type 的 dragover，并保留 workspace/attachment 分类", () => {
     const transfer = createTransferService();
     mocks.service = transfer.service;
-    const { root } = renderProbe({ attachmentSessionId: null, scopeId: "task-a" });
+    const { root } = renderProbe({
+      attachmentSessionId: null,
+      scopeId: "task-a",
+    });
     const preventDefault = vi.fn();
     const attachmentTransfer = {
       dropEffect: "none",
@@ -522,7 +587,9 @@ describe("useComposerAttachments eager upload", () => {
 
     rerender({ attachmentSessionId: "session-1", scopeId: "task-a" });
     await vi.waitFor(() => expect(transfer.stage).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     act(() => root.unmount());
   });
 
@@ -549,8 +616,12 @@ describe("useComposerAttachments eager upload", () => {
       scopeId: "remote-session-wait",
     });
     await vi.waitFor(() => expect(transfer.stage).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
-    expect(latestApi?.attachments[0]?.attachmentRef?.ref).toBe("/remote/remote-session-ready");
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
+    expect(latestApi?.attachments[0]?.attachmentRef?.ref).toBe(
+      "/remote/remote-session-ready",
+    );
     act(() => root.unmount());
   });
 
@@ -580,7 +651,9 @@ describe("useComposerAttachments eager upload", () => {
       workspaceIdentity,
     });
     await vi.waitFor(() => expect(transfer.stage).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     expect(latestApi?.attachments[0]?.attachmentRef?.ref).toBe(
       "/remote/noncanonical-remote-identity",
     );
@@ -596,10 +669,15 @@ describe("useComposerAttachments eager upload", () => {
       ref: "C:\\Users\\tester\\attachment.png",
       staged: false,
     }));
-    const { root } = renderProbe({ attachmentSessionId: "session-1", scopeId: "fail-closed" });
+    const { root } = renderProbe({
+      attachmentSessionId: "session-1",
+      scopeId: "fail-closed",
+    });
 
     await addPaths(["C:\\Users\\tester\\attachment.png"]);
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("failed"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("failed"),
+    );
 
     expect(transfer.stage).toHaveBeenCalledTimes(1);
     expect(latestApi?.attachments[0]).toMatchObject({
@@ -621,7 +699,10 @@ describe("useComposerAttachments eager upload", () => {
       pending.set(params.operationId, request);
       return request.promise;
     });
-    const { root } = renderProbe({ attachmentSessionId: "session-1", scopeId: "task-a" });
+    const { root } = renderProbe({
+      attachmentSessionId: "session-1",
+      scopeId: "task-a",
+    });
 
     await addPaths(["/tmp/a.png", "/tmp/b.png", "/tmp/c.png"]);
     await vi.waitFor(() => expect(transfer.stage).toHaveBeenCalledTimes(2));
@@ -632,13 +713,17 @@ describe("useComposerAttachments eager upload", () => {
     ]);
 
     const firstOperation = transfer.stage.mock.calls[0]?.[0].operationId ?? "";
-    await act(async () => pending.get(firstOperation)?.resolve(resultFor(firstOperation)));
+    await act(async () =>
+      pending.get(firstOperation)?.resolve(resultFor(firstOperation)),
+    );
     await vi.waitFor(() => expect(transfer.stage).toHaveBeenCalledTimes(3));
     for (const [operationId, request] of pending) {
       request.resolve(resultFor(operationId));
     }
     await vi.waitFor(() =>
-      expect(latestApi?.attachments.every((item) => item.uploadStatus === "ready")).toBe(true),
+      expect(
+        latestApi?.attachments.every((item) => item.uploadStatus === "ready"),
+      ).toBe(true),
     );
     act(() => root.unmount());
   });
@@ -664,16 +749,28 @@ describe("useComposerAttachments eager upload", () => {
     await vi.waitFor(() => expect(transfer.stage).toHaveBeenCalledTimes(1));
     const operationId = transfer.stage.mock.calls[0]?.[0].operationId ?? "";
 
-    rerender({ attachmentSessionId: "session-2", onRuntimeRestart, scopeId: "task-b" });
+    rerender({
+      attachmentSessionId: "session-2",
+      onRuntimeRestart,
+      scopeId: "task-b",
+    });
     expect(latestApi?.attachments).toEqual([]);
     await act(async () => pending.resolve(resultFor(operationId)));
-    rerender({ attachmentSessionId: "session-1", onRuntimeRestart, scopeId: "task-a" });
+    rerender({
+      attachmentSessionId: "session-1",
+      onRuntimeRestart,
+      scopeId: "task-a",
+    });
 
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     expect(transfer.service.cancel).not.toHaveBeenCalled();
     await expect(latestApi?.prepareForSend()).resolves.toHaveLength(1);
     expect(transfer.service.adopt).not.toHaveBeenCalled();
-    await latestApi?.adoptSentAttachments(latestApi.attachments.map((item) => item.id));
+    await latestApi?.adoptSentAttachments(
+      latestApi.attachments.map((item) => item.id),
+    );
     expect(transfer.service.adopt).toHaveBeenCalledWith(operationId);
     act(() => root.unmount());
   });
@@ -681,16 +778,25 @@ describe("useComposerAttachments eager upload", () => {
   it("发送接纳只移交和清理本次附件，等待期间新增的附件仍属于草稿", async () => {
     const transfer = createTransferService();
     mocks.service = transfer.service;
-    transfer.stage.mockImplementation(async ({ operationId }) => resultFor(operationId));
-    const { root } = renderProbe({ attachmentSessionId: "session-1", scopeId: "task-a" });
+    transfer.stage.mockImplementation(async ({ operationId }) =>
+      resultFor(operationId),
+    );
+    const { root } = renderProbe({
+      attachmentSessionId: "session-1",
+      scopeId: "task-a",
+    });
     await addPaths(["/tmp/sent.png"]);
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     const submitted = latestApi!.attachments.map((item) => item.id);
     const submittedOperation = latestApi!.attachments[0]!.operationId;
     mocks.platform.selectFiles.mockResolvedValueOnce(["/tmp/next.png"]);
     act(() => latestApi!.openAttachmentPicker());
     await vi.waitFor(() => expect(latestApi!.attachments).toHaveLength(2));
-    await vi.waitFor(() => expect(latestApi!.attachments[1]!.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi!.attachments[1]!.uploadStatus).toBe("ready"),
+    );
     await act(async () => {
       await latestApi!.adoptSentAttachments(submitted);
       latestApi!.clearAttachments(submitted);
@@ -699,7 +805,10 @@ describe("useComposerAttachments eager upload", () => {
     expect(transfer.service.adopt).toHaveBeenCalledWith(submittedOperation);
     expect(transfer.service.cleanup).not.toHaveBeenCalled();
     expect(latestApi!.attachments).toHaveLength(1);
-    expect(latestApi!.attachments[0]).toMatchObject({ filename: "next.png", adopted: false });
+    expect(latestApi!.attachments[0]).toMatchObject({
+      filename: "next.png",
+      adopted: false,
+    });
     act(() => root.unmount());
   });
 
@@ -708,7 +817,10 @@ describe("useComposerAttachments eager upload", () => {
     mocks.service = transfer.service;
     const pending = deferred<ReturnType<typeof resultFor>>();
     transfer.stage.mockImplementation(() => pending.promise);
-    const firstMount = renderProbe({ attachmentSessionId: "session-1", scopeId: "task-a" });
+    const firstMount = renderProbe({
+      attachmentSessionId: "session-1",
+      scopeId: "task-a",
+    });
     await addPaths(["/tmp/a.png"]);
     await vi.waitFor(() => expect(transfer.stage).toHaveBeenCalledTimes(1));
     const operationId = transfer.stage.mock.calls[0]?.[0].operationId ?? "";
@@ -718,11 +830,16 @@ describe("useComposerAttachments eager upload", () => {
     await act(async () => pending.resolve(resultFor(operationId)));
     await vi.waitFor(() =>
       expect(
-        Object.values(useComposerAttachmentUploadStore.getState().scopes)[0]?.[0]?.uploadStatus,
+        Object.values(
+          useComposerAttachmentUploadStore.getState().scopes,
+        )[0]?.[0]?.uploadStatus,
       ).toBe("ready"),
     );
 
-    const secondMount = renderProbe({ attachmentSessionId: "session-1", scopeId: "task-a" });
+    const secondMount = renderProbe({
+      attachmentSessionId: "session-1",
+      scopeId: "task-a",
+    });
     expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready");
     act(() => secondMount.root.unmount());
   });
@@ -733,16 +850,31 @@ describe("useComposerAttachments eager upload", () => {
     mocks.service = transfer.service;
     const pending = deferred<ReturnType<typeof resultFor>>();
     transfer.stage.mockImplementation(() => pending.promise);
-    const { root } = renderProbe({ attachmentSessionId: "session-1", scopeId: "task-a" });
+    const { root } = renderProbe({
+      attachmentSessionId: "session-1",
+      scopeId: "task-a",
+    });
     mocks.platform.selectFiles.mockResolvedValueOnce(["/tmp/a.png"]);
     act(() => latestApi?.openAttachmentPicker());
     await act(async () => Promise.resolve());
     const operationId = latestApi?.attachments[0]?.operationId ?? "";
 
     act(() => {
-      transfer.fire(operationId, { phase: "uploading", uploadedBytes: 50, totalBytes: 100 });
-      transfer.fire(operationId, { phase: "uploading", uploadedBytes: 20, totalBytes: 100 });
-      transfer.fire(operationId, { phase: "committing", uploadedBytes: 100, totalBytes: 100 });
+      transfer.fire(operationId, {
+        phase: "uploading",
+        uploadedBytes: 50,
+        totalBytes: 100,
+      });
+      transfer.fire(operationId, {
+        phase: "uploading",
+        uploadedBytes: 20,
+        totalBytes: 100,
+      });
+      transfer.fire(operationId, {
+        phase: "committing",
+        uploadedBytes: 100,
+        totalBytes: 100,
+      });
     });
     expect(latestApi?.attachments[0]).toMatchObject({
       uploadProgress: 99,
@@ -755,7 +887,9 @@ describe("useComposerAttachments eager upload", () => {
       uploadProgress: 100,
       uploadStatus: "ready",
     });
-    await act(async () => vi.advanceTimersByTimeAsync(COMPOSER_ATTACHMENT_COMPLETE_VISIBLE_MS));
+    await act(async () =>
+      vi.advanceTimersByTimeAsync(COMPOSER_ATTACHMENT_COMPLETE_VISIBLE_MS),
+    );
     expect(latestApi?.attachments[0]?.showComplete).toBe(false);
     act(() => root.unmount());
   });
@@ -768,7 +902,10 @@ describe("useComposerAttachments eager upload", () => {
       .mockRejectedValueOnce(new Error("ECONNRESET"))
       .mockRejectedValueOnce(new Error("ECONNRESET"))
       .mockResolvedValueOnce(resultFor("manual"));
-    const { root } = renderProbe({ attachmentSessionId: "session-1", scopeId: "task-a" });
+    const { root } = renderProbe({
+      attachmentSessionId: "session-1",
+      scopeId: "task-a",
+    });
     mocks.platform.selectFiles.mockResolvedValueOnce(["/tmp/a.png"]);
     act(() => latestApi?.openAttachmentPicker());
     await act(async () => Promise.resolve());
@@ -796,10 +933,15 @@ describe("useComposerAttachments eager upload", () => {
     const transfer = createTransferService();
     mocks.service = transfer.service;
     transfer.stage.mockRejectedValue(new Error("EACCES permission denied"));
-    const { root } = renderProbe({ attachmentSessionId: "session-1", scopeId: "task-a" });
+    const { root } = renderProbe({
+      attachmentSessionId: "session-1",
+      scopeId: "task-a",
+    });
 
     await addPaths(["/tmp/secret.png"]);
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("failed"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("failed"),
+    );
 
     expect(transfer.stage).toHaveBeenCalledTimes(1);
     expect(latestApi?.attachments[0]).toMatchObject({
@@ -832,12 +974,18 @@ describe("useComposerAttachments eager upload", () => {
     await addPaths(["/tmp/a.png"]);
     const firstItem = latestApi?.attachments[0];
     act(() => latestApi?.removeAttachment(firstItem?.id ?? ""));
-    expect(transfer.service.cancel).toHaveBeenCalledWith(firstItem?.operationId);
-    await act(async () => first.resolve(resultFor(firstItem?.operationId ?? "")));
+    expect(transfer.service.cancel).toHaveBeenCalledWith(
+      firstItem?.operationId,
+    );
+    await act(async () =>
+      first.resolve(resultFor(firstItem?.operationId ?? "")),
+    );
 
     await addPaths(["/tmp/b.png"]);
     const readyOperation = transfer.stage.mock.calls[1]?.[0].operationId ?? "";
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     act(() => restart?.());
     await vi.waitFor(() => expect(transfer.stage).toHaveBeenCalledTimes(3));
     expect(transfer.service.cleanup).toHaveBeenCalledWith(readyOperation);
@@ -883,8 +1031,13 @@ describe("useComposerAttachments eager upload", () => {
       },
     ];
 
-    act(() => expect(latestApi?.restoreSessionOwnedAttachments(refs)).toBe(true));
-    expect(latestApi?.attachments.map((item) => item.filename)).toEqual(["b.png", "a.txt"]);
+    act(() =>
+      expect(latestApi?.restoreSessionOwnedAttachments(refs)).toBe(true),
+    );
+    expect(latestApi?.attachments.map((item) => item.filename)).toEqual([
+      "b.png",
+      "a.txt",
+    ]);
     expect(latestApi?.attachments[1]).toMatchObject({
       sourceKind: "topic-history",
       messageCount: 2,
@@ -902,18 +1055,24 @@ describe("useComposerAttachments eager upload", () => {
       ),
     );
     await expect(latestApi?.prepareForSend()).resolves.toEqual(refs);
-    await latestApi?.adoptSentAttachments(latestApi.attachments.map((item) => item.id));
+    await latestApi?.adoptSentAttachments(
+      latestApi.attachments.map((item) => item.id),
+    );
     expect(transfer.service.adopt).not.toHaveBeenCalled();
 
     act(() => restart?.());
     expect(transfer.stage).not.toHaveBeenCalled();
     expect(transfer.service.cleanup).not.toHaveBeenCalled();
-    expect(latestApi?.attachments.every((item) => item.uploadStatus === "ready")).toBe(true);
+    expect(
+      latestApi?.attachments.every((item) => item.uploadStatus === "ready"),
+    ).toBe(true);
 
     act(() => latestApi?.removeAttachment(latestApi.attachments[0]?.id ?? ""));
     expect(transfer.service.cancel).not.toHaveBeenCalled();
     expect(transfer.service.cleanup).not.toHaveBeenCalled();
-    expect(latestApi?.attachments.map((item) => item.filename)).toEqual(["a.txt"]);
+    expect(latestApi?.attachments.map((item) => item.filename)).toEqual([
+      "a.txt",
+    ]);
     act(() => root.unmount());
   });
 
@@ -936,11 +1095,17 @@ describe("useComposerAttachments eager upload", () => {
       scopeId: "rebuild-requeue",
     });
     await addPaths(["/tmp/a.png"]);
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     expect(transfer.stage).toHaveBeenCalledTimes(1);
 
     // 预热会话被 retire：effectiveSessionId 回落 null，此时换代不能拿任何 id 去入队。
-    probe.rerender({ attachmentSessionId: null, onRuntimeRestart, scopeId: "rebuild-requeue" });
+    probe.rerender({
+      attachmentSessionId: null,
+      onRuntimeRestart,
+      scopeId: "rebuild-requeue",
+    });
     act(() => restart?.());
 
     expect(latestApi?.attachments[0]?.uploadStatus).toBe("waitingSession");
@@ -976,11 +1141,15 @@ describe("useComposerAttachments eager upload", () => {
       scopeId: "rebuild-quota",
     });
     await addPaths(["/tmp/c.png"]);
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
 
     for (let round = 1; round <= 5; round += 1) {
       act(() => restart?.());
-      await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+      await vi.waitFor(() =>
+        expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+      );
       expect(latestApi?.attachments[0]).toMatchObject({
         autoRetryCount: 0,
         runtimeRebuildRetryCount: round,
@@ -1004,7 +1173,9 @@ describe("useComposerAttachments eager upload", () => {
       resultFor(`lifecycle-${transfer.stage.mock.calls.length}`),
     );
     let lifecycle: ((state: "available" | "unavailable") => void) | null = null;
-    const onRuntimeLifecycle = (listener: (state: "available" | "unavailable") => void) => {
+    const onRuntimeLifecycle = (
+      listener: (state: "available" | "unavailable") => void,
+    ) => {
       lifecycle = listener;
       return () => {
         lifecycle = null;
@@ -1016,7 +1187,9 @@ describe("useComposerAttachments eager upload", () => {
       scopeId: "lifecycle-rebuild",
     });
     await addPaths(["/tmp/a.png"]);
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     expect(transfer.stage).toHaveBeenCalledTimes(1);
 
     // dispose 当场作废，但不入队：旧 CLI 已死、新的还没起来。
@@ -1037,7 +1210,9 @@ describe("useComposerAttachments eager upload", () => {
       onRuntimeLifecycle,
       scopeId: "lifecycle-rebuild",
     });
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     expect(transfer.stage).toHaveBeenCalledTimes(2);
     probe.root.unmount();
   });
@@ -1049,7 +1224,9 @@ describe("useComposerAttachments eager upload", () => {
       resultFor(`lifecycle-live-${transfer.stage.mock.calls.length}`),
     );
     let lifecycle: ((state: "available" | "unavailable") => void) | null = null;
-    const onRuntimeLifecycle = (listener: (state: "available" | "unavailable") => void) => {
+    const onRuntimeLifecycle = (
+      listener: (state: "available" | "unavailable") => void,
+    ) => {
       lifecycle = listener;
       return () => {
         lifecycle = null;
@@ -1061,7 +1238,9 @@ describe("useComposerAttachments eager upload", () => {
       scopeId: "lifecycle-live",
     });
     await addPaths(["/tmp/b.png"]);
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
 
     act(() => lifecycle?.("unavailable"));
     expect(latestApi?.attachments[0]?.uploadStatus).toBe("waitingSession");
@@ -1069,7 +1248,9 @@ describe("useComposerAttachments eager upload", () => {
 
     // 正式会话态 sessionId 不变，唤醒只能靠 available（= 新进程已 spawn，入队才安全）。
     act(() => lifecycle?.("available"));
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
     expect(transfer.stage).toHaveBeenCalledTimes(2);
     act(() => root.unmount());
   });
@@ -1082,7 +1263,9 @@ describe("useComposerAttachments eager upload", () => {
     );
     let lifecycle: ((state: "available" | "unavailable") => void) | null = null;
     let restart: (() => void) | null = null;
-    const onRuntimeLifecycle = (listener: (state: "available" | "unavailable") => void) => {
+    const onRuntimeLifecycle = (
+      listener: (state: "available" | "unavailable") => void,
+    ) => {
       lifecycle = listener;
       return () => {
         lifecycle = null;
@@ -1101,7 +1284,9 @@ describe("useComposerAttachments eager upload", () => {
       scopeId: "lifecycle-dedup",
     });
     await addPaths(["/tmp/c.png"]);
-    await vi.waitFor(() => expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"));
+    await vi.waitFor(() =>
+      expect(latestApi?.attachments[0]?.uploadStatus).toBe("ready"),
+    );
 
     act(() => lifecycle?.("unavailable"));
     // 真实时序里 restarted 紧跟新进程 spawn 到达；两条都处理会白烧一次重传配额。
@@ -1109,6 +1294,98 @@ describe("useComposerAttachments eager upload", () => {
 
     expect(latestApi?.attachments[0]?.runtimeRebuildRetryCount).toBe(1);
     expect(restart).toBeNull();
+    act(() => root.unmount());
+  });
+});
+
+describe("useComposerAttachments 资源管理器拖拽（spec: composer-explorer-file-drop v2）", () => {
+  const EXPLORER_TYPES = [
+    "text/uri-list",
+    "application/vnd.code.tree.workbench.edit.files",
+  ];
+  const URI_LIST =
+    "file:///workspace/a.md\r\nfile:///workspace/b.md some title";
+
+  function dragEvent(
+    dataTransfer: Record<string, unknown>,
+    preventDefault = vi.fn(),
+  ) {
+    return {
+      dataTransfer: { getData: () => "", ...dataTransfer },
+      preventDefault,
+    } as unknown as DragEvent<HTMLElement>;
+  }
+
+  it("dragover 识别 uri-list + vnd.code.tree，点亮 attachment 反馈", () => {
+    mocks.service = createTransferService().service;
+    const { root } = renderProbe({
+      attachmentSessionId: null,
+      scopeId: "explorer-a",
+    });
+    const preventDefault = vi.fn();
+    act(() =>
+      latestApi?.handleDragOverComposer(
+        dragEvent(
+          { dropEffect: "none", items: [], types: EXPLORER_TYPES },
+          preventDefault,
+        ),
+      ),
+    );
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    expect(latestApi?.composerDragKind).toBe("attachment");
+    act(() => root.unmount());
+  });
+
+  it("纯链接拖拽（仅 uri-list）不点亮反馈", () => {
+    mocks.service = createTransferService().service;
+    const { root } = renderProbe({
+      attachmentSessionId: null,
+      scopeId: "explorer-b",
+    });
+    const preventDefault = vi.fn();
+    act(() =>
+      latestApi?.handleDragOverComposer(
+        dragEvent(
+          {
+            dropEffect: "none",
+            items: [],
+            types: ["text/uri-list", "text/plain"],
+          },
+          preventDefault,
+        ),
+      ),
+    );
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(latestApi?.composerDragKind).toBeNull();
+    act(() => root.unmount());
+  });
+
+  it("explorer drop 的 mention 语义由 ConversationComposer 承担：hook 不进附件队列、不 preventDefault", async () => {
+    mocks.service = createTransferService().service;
+    mocks.platform.resolveFileDropPaths.mockResolvedValueOnce([
+      { path: "/workspace/a.md", sizeBytes: 1 },
+    ]);
+    const { root } = renderProbe({
+      attachmentSessionId: null,
+      scopeId: "explorer-c",
+    });
+    const preventDefault = vi.fn();
+    act(() =>
+      latestApi?.handleDropComposer({
+        dataTransfer: {
+          files: [],
+          getData: (type: string) => (type === "text/uri-list" ? URI_LIST : ""),
+          types: EXPLORER_TYPES,
+        },
+        preventDefault,
+      } as unknown as DragEvent<HTMLElement>),
+    );
+    // 复位拖拽反馈；不 preventDefault（由 composer 层做）、不调 resolve、不产生附件。
+    expect(latestApi?.composerDragKind).toBeNull();
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(mocks.platform.resolveFileDropPaths).not.toHaveBeenCalled();
+    expect(latestApi?.attachments).toEqual([]);
+    expect(latestApi?.attachmentError).toBeNull();
     act(() => root.unmount());
   });
 });

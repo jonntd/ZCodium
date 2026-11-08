@@ -11,7 +11,10 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getTaskTimelineGroupMessage, groupTaskTimelineItems } from "@/lib/taskTimelineGroups.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
 import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
-import { buildWorkspaceServiceLookup } from "@/lib/workspaceServiceResolver.js";
+import {
+  buildWorkspaceServiceLookup,
+  resolveTaskWorkspaceServices,
+} from "@/lib/workspaceServiceResolver.js";
 import { logger } from "@/logger.js";
 import { MemoTaskItem, TaskListItemContextMenuContent } from "@/TaskListItem.js";
 import { TaskListLoadingHint } from "@/TaskListLoadingHint.js";
@@ -556,9 +559,7 @@ export function WorkspaceTimelineTasksSection({
   );
   const contextMenuItem = contextMenuItemKey ? findItemByKey(contextMenuItemKey) : null;
   const contextMenuWorkspaceServices = contextMenuItem
-    ? workspaceServiceLookup.get(
-        buildTaskWorkspaceKey(contextMenuItem.workspacePath, contextMenuItem.workspaceIdentity),
-      )
+    ? resolveTaskWorkspaceServices(contextMenuItem, workspaceServiceLookup, baseServices)
     : null;
 
   useEffect(() => {
@@ -632,8 +633,10 @@ export function WorkspaceTimelineTasksSection({
               handleCancelRenameTask();
               return;
             }
-            const workspaceServices = workspaceServiceLookup.get(
-              buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity),
+            const workspaceServices = resolveTaskWorkspaceServices(
+              item,
+              workspaceServiceLookup,
+              baseServices,
             );
             if (!workspaceServices) {
               handleCancelRenameTask();
@@ -690,8 +693,10 @@ export function WorkspaceTimelineTasksSection({
                         item.taskId,
                         item.workspaceIdentity,
                       );
-                      const workspaceServices = workspaceServiceLookup.get(
-                        buildTaskWorkspaceKey(item.workspacePath, item.workspaceIdentity),
+                      const workspaceServices = resolveTaskWorkspaceServices(
+                        item,
+                        workspaceServiceLookup,
+                        baseServices,
                       );
                       if (!workspaceServices) {
                         return null;

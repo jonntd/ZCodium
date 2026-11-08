@@ -361,18 +361,30 @@ export function useRootWorkspaceActions({
           return;
         }
         if (!services.projectService) throw new Error("project.service-unavailable");
-        const pendingDraft =
-          !projectId && (!hostId || hostId === "local")
-            ? ensurePendingTaskDraft(resolveComposerScope(null, undefined, composerClientNamespace))
-            : null;
-        const target = await services.projectService.prepareSession({
-          ...(projectId ? { projectId } : {}),
-          ...(hostId ? { hostId } : {}),
-          // 显式 local 与省略 Host 是同一入口，不能漏掉待发送身份而另建目录。
-          ...(pendingDraft
-            ? { draftId: pendingDraft.draftId, reuseDraft: Boolean(pendingDraft.workspacePath) }
-            : {}),
-        });
+        const localNoProject = !projectId && (!hostId || hostId === "local");
+        const pendingDraft = localNoProject
+          ? ensurePendingTaskDraft(resolveComposerScope(null, undefined, composerClientNamespace))
+          : null;
+        // workspace-first 入口（spec: ide-workspace-project-binding）：本地且未显式指定项目
+        // 时，活动工作区在场就必须把新任务草稿留在活动工作区——prepareSession 无 projectId
+        // 会铸造 draft-* 目录当 cwd（实测「新建任务」后草稿被抢到 draft-uuid，IDE 当前工程
+        // 上下文全丢，任务也因 cwd 不匹配落不进工程分组）。仅无活动工作区的全局新建入口
+        // 才走 prepareSession 的草稿目录机制。
+        const target = localNoProject && activeWorkspacePath
+          ? {
+              workspacePath: activeWorkspacePath,
+              workspaceIdentity: activeWorkspaceIdentity ?? undefined,
+              projectId: null,
+              additionalDirectories: [] as string[],
+            }
+          : await services.projectService.prepareSession({
+              ...(projectId ? { projectId } : {}),
+              ...(hostId ? { hostId } : {}),
+              // 显式 local 与省略 Host 是同一入口，不能漏掉待发送身份而另建目录。
+              ...(pendingDraft
+                ? { draftId: pendingDraft.draftId, reuseDraft: Boolean(pendingDraft.workspacePath) }
+                : {}),
+            });
         if (!isCurrent()) return;
         const activateDraft = () => {
           startDraftInWorkspace(target.workspacePath, target.workspaceIdentity, {

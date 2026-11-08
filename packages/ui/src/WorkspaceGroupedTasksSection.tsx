@@ -33,7 +33,11 @@ import { toast } from "@/components/ui/toast.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { selectWorkspaceZCodeState, useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { useRemoteWorkspaceSessionStore } from "@/store/remoteWorkspaceSessionStore.js";
-import { buildWorkspaceServiceLookup } from "@/lib/workspaceServiceResolver.js";
+import {
+  buildWorkspaceServiceLookup,
+  resolveTaskWorkspaceServices,
+} from "@/lib/workspaceServiceResolver.js";
+import { logger } from "@/logger.js";
 import { applyTaskQueryCacheMutation } from "@/store/taskQueryCacheStore.js";
 import { useRemotePinnedTaskStore } from "@/store/remotePinnedTaskStore.js";
 import { useRemoteTimelineTaskStore } from "@/store/remoteTimelineTaskStore.js";
@@ -988,8 +992,10 @@ export function WorkspaceGroupedTasksSection({
       handleCancelRenameTask();
       return;
     }
-    const workspaceServices = workspaceServiceLookup.get(
-      buildTaskWorkspaceKey(task.workspacePath, task.workspaceIdentity),
+    const workspaceServices = resolveTaskWorkspaceServices(
+      task,
+      workspaceServiceLookup,
+      baseServices,
     );
     if (!workspaceServices) {
       handleCancelRenameTask();
@@ -1040,8 +1046,10 @@ export function WorkspaceGroupedTasksSection({
 
   const handleMarkTaskAsUnread = useCallback(
     (task: ZCodeTaskMeta) => {
-      const workspaceServices = workspaceServiceLookup.get(
-        buildTaskWorkspaceKey(task.workspacePath, task.workspaceIdentity),
+      const workspaceServices = resolveTaskWorkspaceServices(
+        task,
+        workspaceServiceLookup,
+        baseServices,
       );
       if (!workspaceServices) {
         return;
@@ -1074,8 +1082,10 @@ export function WorkspaceGroupedTasksSection({
 
   const handleCloseTask = useCallback(
     (task: ZCodeTaskMeta) => {
-      const workspaceServices = workspaceServiceLookup.get(
-        buildTaskWorkspaceKey(task.workspacePath, task.workspaceIdentity),
+      const workspaceServices = resolveTaskWorkspaceServices(
+        task,
+        workspaceServiceLookup,
+        baseServices,
       );
       if (!workspaceServices) {
         return;
@@ -1115,7 +1125,7 @@ export function WorkspaceGroupedTasksSection({
             nextState: { pinned: false, archived: true },
           });
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           setArchivingTaskKeys((current) => {
             if (!current.has(closingTaskKey)) {
               return current;
@@ -1125,6 +1135,13 @@ export function WorkspaceGroupedTasksSection({
             return next;
           });
           toast(intl.formatMessage({ id: "taskList.archiveFailed" }));
+          // 诊断（应用反馈「归档任务失败」）：此前 catch 丢弃 error 导致双侧零日志。
+          logger.error("[task-archive] grouped 归档被拒绝", {
+            taskId: task.taskId,
+            workspacePath: task.workspacePath,
+            workspaceIdentity: task.workspaceIdentity ?? null,
+            error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+          });
         });
     },
     [intl, removeTaskState, workspaceServiceLookup],

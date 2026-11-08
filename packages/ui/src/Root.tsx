@@ -10,6 +10,7 @@ import {
 } from "@zcode/shared";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { Button } from "@/components/ui/button.js";
+import { setPendingSettingsSection } from "@/lib/settingsNavigation.js";
 import { PlatformProvider } from "@/hooks/usePlatform.js";
 import { ServiceProvider } from "@/hooks/useServices.js";
 import { useDynamicWorkflowAvailabilityLoader } from "@/hooks/useDynamicWorkflowAvailability.js";
@@ -175,6 +176,7 @@ function RootInner({
   initialWebRemoteControlWorkspaceList,
   webRemoteControlTerminalTransportState,
   initialTaskDraft,
+  initialSettingsDeepLink,
 }: RootProps) {
   useEffect(() => {
     setMcpStorePlatform(platform);
@@ -606,6 +608,18 @@ function RootInner({
     appliedInitialDraft.current = true;
     startDraftInWorkspace(initialWorkspaceAbsPath, initialWorkspaceIdentity, initialTaskDraft);
   }, [initialTaskDraft, initialWorkspaceAbsPath, initialWorkspaceIdentity, startDraftInWorkspace]);
+
+  // 设置页深链（FR-B14 权限规则入口）：与 initialTaskDraft 同款的一次性 ref 守卫——
+  // 只消费一次 prop，不响应运行中的变更。分区意图缺失（`true`）时保留「上次停留分区」语义。
+  const appliedSettingsDeepLink = useRef(false);
+  useEffect(() => {
+    if (!initialSettingsDeepLink || appliedSettingsDeepLink.current) return;
+    appliedSettingsDeepLink.current = true;
+    if (initialSettingsDeepLink !== true) {
+      setPendingSettingsSection(initialSettingsDeepLink);
+    }
+    tabStoreApi.getState().openSettingsTab();
+  }, [initialSettingsDeepLink, tabStoreApi]);
 
   async function openPreparedRemoteProjectWorkspace(target: {
     hostId: string;

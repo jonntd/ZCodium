@@ -14,6 +14,7 @@ import { code } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
 import { mermaid } from "@streamdown/mermaid";
 import type { EditorInfo, FileStat, OpenInEditorOptions } from "@zcode/shared";
+import { isMermaidRenderingEnabled } from "@/lib/mermaidRendering.js";
 import type { UIMessage } from "ai";
 import { ChevronLeftIcon, ChevronRightIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 import remarkCjkFriendlyGfmStrikethrough from "remark-cjk-friendly-gfm-strikethrough";
@@ -425,7 +426,34 @@ const messageCjkPlugin: typeof cjk = {
   remarkPlugins: [...cjk.remarkPluginsBefore, ...messageCjkRemarkPluginsAfter],
   remarkPluginsAfter: messageCjkRemarkPluginsAfter,
 };
-const streamdownPlugins = { cjk: messageCjkPlugin, code, math: messageMathPlugin, mermaid };
+const streamdownPluginsWithMermaid = {
+  cjk: messageCjkPlugin,
+  code,
+  math: messageMathPlugin,
+  mermaid,
+};
+const streamdownPluginsWithoutMermaid = {
+  cjk: messageCjkPlugin,
+  code,
+  math: messageMathPlugin,
+};
+// mermaid 插件随运行时开关（§4.4.5 降级）二选一；按开关值缓存引用，避免每次
+// 渲染产出新对象破坏 Streamdown 的 memo 比较（自定义比较函数逐字段比 plugins）。
+const streamdownPluginsCache = new Map<
+  boolean,
+  typeof streamdownPluginsWithMermaid | typeof streamdownPluginsWithoutMermaid
+>();
+function streamdownPluginsFor():
+  | typeof streamdownPluginsWithMermaid
+  | typeof streamdownPluginsWithoutMermaid {
+  const enabled = isMermaidRenderingEnabled();
+  let plugins = streamdownPluginsCache.get(enabled);
+  if (!plugins) {
+    plugins = enabled ? streamdownPluginsWithMermaid : streamdownPluginsWithoutMermaid;
+    streamdownPluginsCache.set(enabled, plugins);
+  }
+  return plugins;
+}
 const messageLinkSafety = { enabled: false } as const;
 // `decoration-dashed` 会把原有的细圆点下划线绘制成短线段；这里只改变下划线的
 // 出现时机，继续使用 `dotted` 保留原视觉形态。
@@ -1567,7 +1595,9 @@ export const MessageResponse = memo(
               enableSyntaxHighlighting={!renderStreaming}
               fontSizePx={codePreviewSettings.fontSizePx}
               language={language}
-              renderMermaid={!renderStreaming}
+              // §4.4.5 降级：宿主运行时开关（zcodium.mermaidRendering）关闭时
+              // mermaid 围栏退化为普通代码块，不再拉起 mermaid 引擎。
+              renderMermaid={!renderStreaming && isMermaidRenderingEnabled()}
               theme={codeBlockTheme}
               appTheme={theme}
               wrapLongLines={wrapLongLines}
@@ -1639,7 +1669,7 @@ export const MessageResponse = memo(
           // 说明：这里继续关掉 Streamdown 默认链接行为，统一改由上面的自定义 a 渲染器接管。
           // 这样工作区文件链接和 http/https 外链都能走我们自己的安全分流，其它协议仍保持不可点击。
           linkSafety={messageLinkSafety}
-          plugins={streamdownPlugins}
+          plugins={streamdownPluginsFor()}
           controls={STREAMDOWN_CONTROLS}
           // Streamdown 的 harden 插件会在自定义 a renderer 之前把 file:// 标成 [blocked]。
           // 这里先把 file URI 规整成本地路径 href，让后续 resolveMarkdownFileLink 统一走预览/文件树打开逻辑。
