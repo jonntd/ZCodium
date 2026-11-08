@@ -7,6 +7,8 @@ import type {
   MigrateLegacyCommonMcpResult,
   SaveCliMcpToUserDirectoryRequest,
   RemoteRelaySetConfigRequest,
+  RemoteRelayPreviewShareUrlsRequest,
+  RemoteRelayPreviewShareUrlsResponse,
   RemoteRelayShareLink,
   RemoteRelayShareLinkRequest,
   RemoteRelayStatus,
@@ -261,6 +263,8 @@ export const PlatformChannels = {
   RemoteRelaySetConfig: "zcode:remote-relay-set-config",
   /** Renderer → Main：生成分享链接（时效签名链接或永久 token 链接，spec §18） */
   RemoteRelayGetShareLink: "zcode:remote-relay-get-share-link",
+  /** Renderer → Main：按草稿地址实时预览分享链接（spec §21，不落盘不重启） */
+  RemoteRelayPreviewShareUrls: "zcode:remote-relay-preview-share-urls",
   /** Renderer → Main：列出本机可用的 WSL 发行版 */
   ListWSLDistros: "zcode:list-wsl-distros",
   /** Renderer → Main：列出当前可连接的 Docker 容器 */
@@ -1317,6 +1321,10 @@ export interface PlatformChannelMap {
   [PlatformChannels.RemoteRelayGetShareLink]: {
     request: RemoteRelayShareLinkRequest;
     response: RemoteRelayShareLink;
+  };
+  [PlatformChannels.RemoteRelayPreviewShareUrls]: {
+    request: RemoteRelayPreviewShareUrlsRequest;
+    response: RemoteRelayPreviewShareUrlsResponse;
   };
   [PlatformChannels.SelectDirectories]: {
     request: void;

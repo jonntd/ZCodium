@@ -756,6 +756,13 @@ export type RemoteConnectionContext = {
 };
 
 export interface IPlatformService {
+  /**
+   * VS Code 插件宿主：终端、帮助等由 IDE 原生提供。为 true 时 UI 隐藏应用内嵌的
+   * 终端面板/切换入口、帮助菜单与链路降级提示，避免与 IDE 原生能力重复且
+   * 在 node-pty 不可用的插件运行时里报错。桌面端/远控端不设置，行为不变。
+   */
+  readonly nativeTerminalHost?: boolean;
+
   /** 是否支持当前客户端本机文件的默认应用与目录操作；Web 不具备此能力。 */
   canOpenLocalFiles?: boolean;
 

@@ -200,6 +200,24 @@ export interface RemoteRelayShareLink {
 }
 
 /**
+ * `zcode:remote-relay-preview-share-urls` 的请求（spec §21）：按**草稿**地址实时
+ * 预览分享链接。只做派生，不写配置、不动运行中的客户端。
+ */
+export interface RemoteRelayPreviewShareUrlsRequest {
+  /** 草稿中继地址（完整 `ws://host[:port]` / `wss://host[:port]`，由 UI `buildRelayUrl` 产出）。 */
+  relayUrl: string;
+}
+
+/**
+ * `zcode:remote-relay-preview-share-urls` 的响应：两条链接的形状与 null 边界
+ * （§18.6）与 `RemoteRelayStatus` 完全一致，由 Main 侧同一推导函数产出。
+ */
+export interface RemoteRelayPreviewShareUrlsResponse {
+  lanShareUrl: string | null;
+  publicShareUrl: string | null;
+}
+
+/**
  * 由中继地址推导手机浏览器可访问的公开地址：`wss://` → `https://`、`ws://` → `http://`，
  * 并去掉结尾斜杠。
  *
