@@ -141,8 +141,14 @@ export function buildChatWebviewHtml(
   <!-- CSP 硬约束（docs/conversation-share-v1.md 同源教训）：script-src 必须带
        'wasm-unsafe-eval'，否则 shiki 的 oniguruma wasm 无法实例化，@pierre/diffs
        拿不到高亮 token → 聊天面板代码块只剩 header、代码体空白。它只放开 wasm
-       编译，eval / new Function 仍被挡。worker-src 放行 blob:（diff worker 池兜底）。 -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource} 'wasm-unsafe-eval'; worker-src ${webview.cspSource} blob:; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
+       编译，eval / new Function 仍被挡。worker-src 放行 blob:（diff worker 池兜底）。
+       style-src 必须带 'unsafe-inline'：@pierre/diffs 在 Shadow DOM 里用 innerHTML
+       字符串渲染 token，语法高亮颜色、行距、字号全是 style="..." 属性（非 React
+       CSSOM），没有 'unsafe-inline' 时浏览器整批拒绝应用 —— 实测 token computed
+       color 全部退成继承色（代码块纯白无高亮）且行内布局错乱。这与 VS Code 官方
+       webview CSP 模板一致（style-src 本就需要 unsafe-inline），只放开样式，不放开
+       script/eval。 -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}' ${webview.cspSource} 'wasm-unsafe-eval'; worker-src ${webview.cspSource} blob:; img-src ${webview.cspSource} data:; font-src ${webview.cspSource};">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="${styleUri}">
   <title>Gode Agent</title>
