@@ -119,6 +119,13 @@ export function buildChatWebviewHtml(
   const scriptUri = webview.asWebviewUri(
     Uri.joinPath(extensionUri, "dist", "webview", "main.js"),
   );
+  // 文件图标素材基址：webview 文档 URL 不是扩展目录，源码侧的 BASE_URL 相对路径
+  // 全部落空（每个图标 2 次失败请求后退到内置占位）。素材目录由 esbuild 构建期
+  // 拷进 dist/webview/material-icons，这里以 asWebviewUri 注入，CSP img-src
+  // cspSource 放行；webview 入口读取后调 setMaterialIconBasePath。
+  const materialIconBaseUri = webview.asWebviewUri(
+    Uri.joinPath(extensionUri, "dist", "webview", "material-icons"),
+  ).toString();
   const styleUri = webview.asWebviewUri(
     Uri.joinPath(extensionUri, "dist", "webview", "styles.css"),
   );
@@ -161,6 +168,7 @@ export function buildChatWebviewHtml(
     data-theme-kind="${themeKind}"
     data-locale="${escapeAttr(locale)}"
     data-session-id="${escapeAttr(sessionId ?? "")}"
+    data-icon-base="${escapeAttr(materialIconBaseUri)}"
     data-sidebar-visible="${sidebarVisibleAttr}"></script>
   <!-- ESM 入口（esbuild splitting，§7.2 ④懒加载）：chunk 经 cspSource 白名单加载。 -->
   <script nonce="${nonce}" type="module" src="${scriptUri}"></script>

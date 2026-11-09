@@ -49,7 +49,23 @@ const extensionOptions = {
 
 /** @type {import("esbuild").BuildOptions} */
 const webviewOptions = {
-  entryPoints: ["src/webview-react/index.tsx"],
+  // 对象形式入口：main 是页面装配面；两个 worker 由 esbuild 以独立 entry 打包成
+  // dist/webview/workers/*.js。esbuild 不重写 `new Worker(new URL(...))` 模式
+  // （0.25 实测：输出里保留源码路径、零 chunk），运行时 worker URL 404 →
+  // WorkerPoolManager 只 console.error 不降级 → 代码块高亮渲染永久挂起、
+  // 文件搜索永远走降级路径。所以 worker 必须显式作为 entry 打包，
+  // 源码侧用运行时拼接的 URL 指向打包产物（见 DiffsWorkerPoolProvider 注释）。
+  entryPoints: [
+    { in: "src/webview-react/index.tsx", out: "main" },
+    {
+      in: resolve(repoRoot, "packages/ui/src/workers/diffs.worker.ts"),
+      out: "workers/diffs.worker",
+    },
+    {
+      in: resolve(repoRoot, "packages/ui/src/workspace-file-search/workspaceFileSearchFilter.worker.ts"),
+      out: "workers/workspaceFileSearchFilter.worker",
+    },
+  ],
   bundle: true,
   // §7.2 ④懒加载：ESM + code splitting 把 mermaid/echarts/shiki 重语言等
   // dynamic-import 子树拆出首屏 main.js（webview CSP 允许同目录 chunk 经
@@ -59,8 +75,8 @@ const webviewOptions = {
   platform: "browser",
   target: "es2022",
   outdir: "dist/webview",
-  // 入口固定为 main.js（check-bundle-size.mjs 与 chatPanel 的产物契约）。
-  entryNames: "main",
+  // 主入口固定为 main.js（check-bundle-size.mjs 与 chatPanel 的产物契约）；
+  // 其余入口名由 entryPoints 的 out 决定，不能用全局 entryNames 覆盖。
   sourcemap: false,
   // §7.2 ③：minify（未压缩 ≤8MB / gzip ≤2.5MB 门禁）。
   minify: true,
@@ -191,6 +207,7 @@ if (watch) {
   const ctxExt = await esbuild.context(extensionOptions);
   const ctxWeb = await esbuild.context(webviewOptions);
   await Promise.all([ctxExt.watch(), ctxWeb.watch()]);
+  await copyMaterialFileIcons();
   console.log("[esbuild] watch 模式已启动");
 } else {
   // ZCODE_WEBVIEW_METAFILE=<path>：产出 webview metafile 供 §7.2 体积分析
@@ -200,6 +217,7 @@ if (watch) {
   const webResult = await esbuild.build(webviewOptions);
   await esbuild.build(extensionOptions);
   await buildStyles();
+  await copyMaterialFileIcons();
   if (metafilePath && webResult.metafile) {
     const { writeFile } = await import("node:fs/promises");
     await writeFile(metafilePath, JSON.stringify(webResult.metafile), "utf8");
@@ -208,4 +226,25 @@ if (watch) {
   console.log(
     "[esbuild] 构建完成：dist/extension.js + dist/webview/main.js + dist/webview/styles.css",
   );
+}
+
+/**
+ * 文件图标素材（fileDisplay.buildMaterialFileIconSrc）在 web/desktop 由 public/
+ * material-icons 静态目录承担；VS Code webview 的文档 URL 不是扩展目录（相对路径
+ * 全部落空），素材必须随产物携带。这里整体拷进 dist/webview/material-icons，
+ * 运行时基址由 buildChatWebviewHtml 经 bootstrap data-icon-base 注入
+ * （webview.asWebviewUri），CSP img-src cspSource 放行。
+ */
+async function copyMaterialFileIcons() {
+  const { cpSync } = await import("node:fs");
+  const source = resolve(repoRoot, "packages/web/public/material-icons");
+  try {
+    cpSync(source, resolve(here, "dist/webview/material-icons"), { recursive: true });
+    console.log("[esbuild] material-icons 已拷入 dist/webview/");
+  } catch (error) {
+    console.warn(
+      "[esbuild] material-icons 拷贝失败（文件图标将回退内置占位）：",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }

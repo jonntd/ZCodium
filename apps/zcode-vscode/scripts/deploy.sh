@@ -29,11 +29,18 @@ if [ ! -f "$SRC_DIST/extension.js" ] || [ ! -f "$SRC_DIST/webview/main.js" ]; th
 fi
 
 # 闭包校验：从 main.js 出发，BFS 所有相对 import 的 js，必须全部存在于 dist/webview。
+# worker chunk（workers/*.js）不被 import（运行时经 Worker URL 引用），作为额外种子
+# 纳入校验——worker 404 会让代码块高亮渲染永久挂起（WorkerPoolManager 无降级）。
 check_closure() {
   node - "$1" <<'NODE'
 const fs = require("fs"), path = require("path");
 const root = process.argv[2];
-const seen = new Set(), queue = ["main.js"], missing = [];
+const seen = new Set(), missing = [];
+const queue = [
+  "main.js",
+  "workers/diffs.worker.js",
+  "workers/workspaceFileSearchFilter.worker.js",
+];
 while (queue.length) {
   const f = queue.pop();
   if (seen.has(f)) continue;
@@ -41,8 +48,9 @@ while (queue.length) {
   const p = path.join(root, f);
   if (!fs.existsSync(p)) { missing.push(f); continue; }
   const src = fs.readFileSync(p, "utf8");
-  for (const dep of new Set(src.match(/\.\/[A-Za-z0-9._-]+\.js/g) || [])) {
-    const name = dep.slice(2);
+  const dir = path.posix.dirname(f);
+  for (const dep of new Set(src.match(/(?:\.\/|\.\.\/)[A-Za-z0-9._-]+\.js/g) || [])) {
+    const name = path.posix.normalize(path.posix.join(dir, dep));
     if (!seen.has(name)) queue.push(name);
   }
 }
@@ -50,7 +58,7 @@ if (missing.length) {
   console.error(`[deploy] webview 依赖闭包不完整，缺 ${missing.length} 个：`, missing.slice(0, 10));
   process.exit(1);
 }
-console.log(`[deploy] webview 依赖闭包完整（${seen.size} 个文件）`);
+console.log(`[deploy] webview 依赖闭包完整（${seen.size} 个文件，含 worker chunk）`);
 NODE
 }
 

@@ -32,6 +32,9 @@ import {
   setWorkspaceSidebarVisibleReporter,
   setWorkspaceSidebarVisibleSeed,
 } from "@/hooks/useAppPanels.js";
+import { setMaterialIconBasePath } from "@/lib/fileDisplay.js";
+import { setDiffsWorkerUrlFactory } from "@/root/DiffsWorkerPoolProvider.js";
+import { setWorkspaceFileSearchWorkerUrlFactory } from "@/workspace-file-search/workspaceFileSearchFilterBackend.js";
 import { VscodePlatformService } from "./platform/vscodePlatformService";
 import { mapVscodeLanguage } from "./i18nSetup";
 import type { VscodeThemeKind } from "./themeBridge";
@@ -61,6 +64,8 @@ interface BootstrapData {
    * 必须由宿主注入——webview 的 localStorage 按 origin 隔离，跨页签读不到。
    */
   sidebarVisible: boolean | null;
+  /** 文件图标素材基址（asWebviewUri）：webview 文档 URL 不是扩展目录。 */
+  iconBase: string | null;
 }
 
 function readBootstrapData(): BootstrapData {
@@ -82,6 +87,7 @@ function readBootstrapData(): BootstrapData {
         : data?.sidebarVisible === "0"
           ? false
           : null,
+    iconBase: data?.iconBase ? data.iconBase : null,
   };
 }
 
@@ -148,6 +154,17 @@ async function bootstrap(): Promise<void> {
   setWorkspaceSidebarVisibleSeed(bootstrapData.sidebarVisible);
   setWorkspaceSidebarVisibleReporter((visible) =>
     platformService.notifyWorkspaceSidebarVisible(visible),
+  );
+
+  // 文件图标素材基址 + worker chunk URL：两者都依赖"webview 文档 URL 不是扩展
+  // 目录"的同一事实——源码侧 Vite 语义的相对路径在本产物里不可达。icon-base 由
+  // bootstrap 注入；worker URL 指向 esbuild 额外 entry 打包的 workers/*.js。
+  // 不注入的话：图标 404 退占位，diffs worker 404 会让代码块高亮渲染永久挂起
+  // （WorkerPoolManager 对 worker error 只 console.error、无主线程降级）。
+  setMaterialIconBasePath(bootstrapData.iconBase);
+  setDiffsWorkerUrlFactory(() => new URL("workers/diffs.worker.js", import.meta.url));
+  setWorkspaceFileSearchWorkerUrlFactory(
+    () => new URL("workers/workspaceFileSearchFilter.worker.js", import.meta.url),
   );
 
   // 4. React 装配树（App 内先同步应用主题 class，避免首帧闪白）。

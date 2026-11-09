@@ -57,6 +57,21 @@ export function createSyncWorkspaceFileSearchFilterBackend(): WorkspaceFileSearc
   };
 }
 
+// esbuild 不重写 `new Worker(new URL(...))` 模式（0.25 实测：输出保留源码路径、
+// 不产 worker chunk），而 Vite（web/desktop 端）原生支持该模式并自动产出 worker
+// chunk。所以默认 factory 保留 Vite 语义的源码路径；VS Code webview 构建把
+// workspaceFileSearchFilter.worker.ts 作为额外 entry 打包成
+// dist/webview/workers/workspaceFileSearchFilter.worker.js（apps/zcode-vscode/
+// esbuild.mjs），并在 webview 入口经 setWorkspaceFileSearchWorkerUrlFactory 注入
+// 运行时 URL。注意：new Worker 的 404 是**异步** error 事件，下方 try/catch
+// 接不住——worker chunk 必须真实存在于产物里。
+let workspaceFileSearchWorkerUrlFactory: () => URL = () =>
+  new URL("./workspaceFileSearchFilter.worker.ts", import.meta.url);
+
+export function setWorkspaceFileSearchWorkerUrlFactory(factory: () => URL): void {
+  workspaceFileSearchWorkerUrlFactory = factory;
+}
+
 export function createWorkerWorkspaceFileSearchFilterBackend(): WorkspaceFileSearchFilterBackend {
   // Node 测试环境（vitest node project）没有 module worker 运行时，直接走同步路径；
   // jsdom 等有 document 但 Worker 未实现的环境由下方 try/catch 兜底降级。
@@ -65,7 +80,7 @@ export function createWorkerWorkspaceFileSearchFilterBackend(): WorkspaceFileSea
   }
   let worker: Worker;
   try {
-    worker = new Worker(new URL("./workspaceFileSearchFilter.worker.ts", import.meta.url), {
+    worker = new Worker(workspaceFileSearchWorkerUrlFactory(), {
       type: "module",
       name: "zcode-workspace-file-search",
     });

@@ -37,7 +37,21 @@ export function setDefaultFileDisplayBasePath(basePath: string | null) {
   defaultFileDisplayBasePath = basePath;
 }
 
+// 文件图标素材基址。web/desktop 由 public/material-icons 静态目录承担（Vite base
+// 语义）；VS Code webview 的文档 URL 不是扩展目录（相对路径全落空），必须由
+// buildChatWebviewHtml 经 bootstrap data-icon-base 注入 asWebviewUri 基址，
+// webview 入口启动时调 setMaterialIconBasePath 覆盖。
+let materialIconBasePathOverride: string | null = null;
+
+export function setMaterialIconBasePath(basePath: string | null): void {
+  materialIconBasePathOverride = basePath;
+}
+
 function resolveMaterialIconBasePath(): string {
+  if (materialIconBasePathOverride !== null) {
+    return materialIconBasePathOverride.replace(/\/?$/, "/");
+  }
+
   const baseUrl =
     typeof import.meta !== "undefined" && typeof import.meta.env?.BASE_URL === "string"
       ? import.meta.env.BASE_URL
