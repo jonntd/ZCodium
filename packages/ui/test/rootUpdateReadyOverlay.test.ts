@@ -71,6 +71,8 @@ vi.mock("@/hooks/usePlatform.js", () => ({
 
 vi.mock("@/hooks/useServices.js", () => ({
   ServiceProvider: ({ children }: { children: unknown }) => children,
+  // useRootWorkspaceActions 读取草稿命名空间（默认 desktop，与 Provider 缺省一致）。
+  useComposerClientNamespace: () => "desktop",
   useServices: () => ({
     systemService: {
       probeIntranet: vi.fn(async () => ({
