@@ -61,12 +61,15 @@ export class ChangesTracker {
   private sessionId: string | undefined;
   private logEpoch: string | undefined;
   private revision: number | undefined;
-  private readonly turns = new Map<number, TurnRecord>();
-  /** rawPath → pending。 */
+  /** workspaceRoot（明细加载时可知）：撤销路径同形收敛需要它把相对路径解析成绝对形态。 */
+  private workspaceRoot: string | null = null;
+  private readonly turns = new Map<number, TurnRecord>();  /** rawPath → pending。 */
   private readonly pending = new Map<string, PendingFileChange>();
   /** rowId → 历史轮。 */
   private readonly history = new Map<number, HistoryTurnEntry>();
   private readonly listeners = new Set<(snapshot: ChangesSnapshot) => void>();
+  /** 诊断出口（可选）：观测撤销路径收敛的帧级证据，由宿主接日志。 */
+  diagnosticSink?: (message: string) => void;
 
   /** CAS 水位（查询与命令信封统一取用；帧流未就绪时为 undefined，调用方必须等待）。 */
   get currentRevision(): number | undefined {
@@ -141,6 +144,7 @@ export class ChangesTracker {
     this.sessionId = sessionId;
     this.logEpoch = undefined;
     this.revision = undefined;
+    this.workspaceRoot = null;
     this.turns.clear();
     this.pending.clear();
     this.history.clear();
@@ -153,6 +157,16 @@ export class ChangesTracker {
    */
   seedLogEpoch(logEpoch: string): void {
     if (!this.logEpoch) this.logEpoch = logEpoch;
+  }
+
+  /**
+   * 注入工作区根：撤销路径同形收敛（revertedPaths 相对形态 → 绝对形态）依赖它。
+   * 必须在 importPersisted / 订阅快照到达**之前**注入——重启重放时 ingestTurns
+   * 先于首个 applyTurnDetails 执行，没有它相对 revertedPaths 匹配不上绝对
+   * pending 键，已撤销文件会复活进待审（实机 2026-11-13 验证过的盲点）。
+   */
+  setWorkspaceRoot(root: string | null): void {
+    this.workspaceRoot = root;
   }
 
   /**
@@ -192,11 +206,12 @@ export class ChangesTracker {
   }
 
   applyFrame(frame: TrackedFrame): TrackerEffects {
+    let mutated = false;
     if (frame.kind === "snapshot") {
       if (frame.sessionId !== this.sessionId) this.resetForSession(frame.sessionId);
       this.logEpoch = frame.logEpoch;
       this.revision = frame.revision;
-      this.ingestTurns(frame.turnHeaders);
+      mutated = this.ingestTurns(frame.turnHeaders);
       this.ingestUserTexts(frame.userTexts);
     } else {
       if (frame.sessionId !== this.sessionId) return {};
@@ -204,9 +219,12 @@ export class ChangesTracker {
       if (frame.removedFromRowId !== undefined) {
         this.invalidateFromRow(frame.removedFromRowId);
       }
-      this.ingestTurns(frame.turnHeaders);
+      mutated = this.ingestTurns(frame.turnHeaders);
       this.ingestUserTexts(frame.userTexts);
     }
+    // 帧驱动变更必须广播：撤销清账发生在帧消费里（applyTurnDetails/markReverted
+    // 之外的路径都不 emit，角标与持久化会静默失真——实机 2026-11-14 验证）。
+    if (mutated) this.emit();
     return { turnsNeedingDetails: this.collectTurnsNeedingDetails() };
   }
 
@@ -222,6 +240,7 @@ export class ChangesTracker {
     fromPersistence?: boolean;
   }): void {
     void params.fromPersistence; // 预留：持久化重放与实时明细将来可区分呈现。
+    this.workspaceRoot = params.workspaceRoot;
     const record = this.turns.get(params.target.rowId);
     if (!record) {
       // snapshot 窗口外的持久化重放：按持久化轮信息自建记录（细节以预检为准）。
@@ -242,14 +261,25 @@ export class ChangesTracker {
     const title = record?.userText;
     // CLI 权威账本：部分撤销（state 仍 active + revertedPaths）后重建时，
     // 已撤销路径不得重新入 pending（真实 bug：重启恢复会把已撤销文件复活）。
-    const revertedPaths = new Set(record?.fileChanges?.revertedPaths ?? []);
+    const revertedPaths = new Set(
+      (() => {
+        const forms = new Set(record?.fileChanges?.revertedPaths ?? []);
+        if (this.workspaceRoot) {
+          for (const path of forms) {
+            const resolved = resolveChangePath(path, params.workspaceRoot);
+            if (resolved !== null) forms.add(resolved);
+          }
+        }
+        return forms;
+      })(),
+    );
     for (const item of params.items) {
       const resolvedPath = resolveChangePath(item.path, params.workspaceRoot);
       if (resolvedPath === null) {
         // S2：解析结果逃逸 workspaceRoot → 脏数据不入账（撤销预检也会拦截外部路径）。
         continue;
       }
-      if (revertedPaths.has(item.path)) {
+      if (revertedPaths.has(item.path) || revertedPaths.has(resolvedPath)) {
         this.setHistoryFileState(params.target.rowId, item.path, "reverted");
         continue;
       }
@@ -304,21 +334,47 @@ export class ChangesTracker {
     this.emit();
   }
 
+  /** 撤销路径的匹配形态集合：raw 原样 + 解析后的绝对形态（需 workspaceRoot 已知）。 */
+  private revertedPathForms(rawPaths: readonly string[]): Set<string> {
+    const forms = new Set(rawPaths);
+    if (this.workspaceRoot) {
+      for (const path of rawPaths) {
+        const resolved = resolveChangePath(path, this.workspaceRoot);
+        if (resolved !== null) forms.add(resolved);
+      }
+    }
+    return forms;
+  }
+
   /**
    * 消费 CLI 投影的 revertedPaths（row.upserted 的 fileChanges）：撤销可来自本宿主、
    * 聊天内文件卡片或另一窗口——账本以 CLI 事件为权威，幂等收敛。
+   *
+   * 路径同形收敛（实测 bug：聊天卡片撤销发的 rewind payload 是相对路径，CLI 原样
+   * 放进 revertedPaths；而 pending 键来自 fileChanges 查询的绝对路径），单形态匹配
+   * 会漏删 → 文件已还原但「待审」角标不消失。
    */
   consumeRevertedPaths(turnRowId: number, rawPaths: readonly string[]): void {
+    const forms = this.revertedPathForms(rawPaths);
     let touched = false;
-    for (const path of rawPaths) {
-      if (this.pending.has(path)) {
+    for (const [path, entry] of this.pending) {
+      if (forms.has(path) || (entry.resolvedPath !== undefined && forms.has(entry.resolvedPath))) {
         this.pending.delete(path);
+        this.setHistoryFileState(turnRowId, path, "reverted");
         touched = true;
       }
-      const turn = this.history.get(turnRowId);
-      const file = turn?.files.find((candidate) => candidate.path === path);
-      if (turn && file && file.state !== "reverted") {
-        this.setHistoryFileState(turnRowId, path, "reverted");
+    }
+    const turn = this.history.get(turnRowId);
+    if (turn) {
+      const files = turn.files.map(
+        (file): HistoryFileEntry =>
+          forms.has(file.path) ||
+          (file.resolvedPath !== undefined && forms.has(file.resolvedPath))
+            ? { ...file, state: "reverted" }
+            : file,
+      );
+      if (files.some((file, index) => file !== turn.files[index])) {
+        this.history.set(turnRowId, { ...turn, files });
         touched = true;
       }
     }
@@ -330,8 +386,9 @@ export class ChangesTracker {
   /** userInput 行 → 轮标题：先到先得（edit 重发的新文本不回写旧标题，保持稳定）。 */
   private ingestUserTexts(
     userTexts: readonly { turnId: string; text: string }[] | undefined,
-  ): void {
-    if (!userTexts || userTexts.length === 0) return;
+  ): boolean {
+    if (!userTexts || userTexts.length === 0) return false;
+    let mutated = false;
     for (const { turnId, text } of userTexts) {
       if (!turnId || !text) continue;
       const title = text.length > 80 ? `${text.slice(0, 80)}…` : text;
@@ -341,13 +398,17 @@ export class ChangesTracker {
         const turn = this.history.get(record.rowId);
         if (turn && !turn.turnTitle) {
           this.history.set(record.rowId, { ...turn, turnTitle: title });
+          mutated = true;
         }
         break;
       }
     }
+    return mutated;
   }
 
-  private ingestTurns(headers: readonly TrackedTurnHeader[]): void {
+  /** @returns 是否发生了 pending/history 变更（applyFrame 据此决定是否 emit）。 */
+  private ingestTurns(headers: readonly TrackedTurnHeader[]): boolean {
+    let mutated = false;
     for (const header of headers) {
       const existing = this.turns.get(header.rowId);
       const record: TurnRecord = {
@@ -364,19 +425,42 @@ export class ChangesTracker {
       };
       this.turns.set(header.rowId, record);
 
-      // CLI 权威账本：revertedPaths 幂等收敛。
+      // 诊断：fileChanges 轮头的帧级证据（撤销路径收敛排查用）。
+      if (header.fileChanges) {
+        this.diagnosticSink?.(
+          `[账本诊断] rowId=${header.rowId} state=${header.state} ` +
+            `fileChanges=${JSON.stringify(header.fileChanges)} ` +
+            `pendingKeys=[${[...this.pending.keys()].join(", ")}] ` +
+            `workspaceRoot=${this.workspaceRoot ?? "未注入"}`,
+        );
+      }
+
+      // CLI 权威账本：revertedPaths 幂等收敛（双形态匹配，见 consumeRevertedPaths 注释）。
       const reverted = header.fileChanges?.revertedPaths;
       if (reverted && reverted.length > 0) {
-        for (const path of reverted) {
-          if (this.pending.has(path)) this.pending.delete(path);
+        const forms = this.revertedPathForms(reverted);
+        for (const [path, entry] of this.pending) {
+          if (
+            forms.has(path) ||
+            (entry.resolvedPath !== undefined && forms.has(entry.resolvedPath))
+          ) {
+            this.pending.delete(path);
+            mutated = true;
+          }
         }
         const turn = this.history.get(header.rowId);
         if (turn) {
           const files = turn.files.map(
             (file): HistoryFileEntry =>
-              reverted.includes(file.path) ? { ...file, state: "reverted" } : file,
+              forms.has(file.path) ||
+              (file.resolvedPath !== undefined && forms.has(file.resolvedPath))
+                ? { ...file, state: "reverted" }
+                : file,
           );
-          this.history.set(header.rowId, { ...turn, files });
+          if (files.some((file, index) => file !== turn.files[index])) {
+            this.history.set(header.rowId, { ...turn, files });
+            mutated = true;
+          }
         }
       }
       // 整轮 reverted：pending 全清（旧事件兼容面）。
@@ -385,10 +469,12 @@ export class ChangesTracker {
           if (entry.turnRowId === header.rowId) {
             this.pending.delete(path);
             this.setHistoryFileState(header.rowId, path, "reverted");
+            mutated = true;
           }
         }
       }
     }
+    return mutated;
   }
 
   private collectTurnsNeedingDetails(): NonNullable<TrackerEffects["turnsNeedingDetails"]> {

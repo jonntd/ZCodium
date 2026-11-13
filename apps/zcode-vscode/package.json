@@ -231,24 +231,9 @@
           "group": "navigation@1"
         },
         {
-          "command": "gode.restartAgent",
-          "when": "view == gode.chat",
-          "group": "1_manage@1"
-        },
-        {
-          "command": "gode.switchWorkspace",
-          "when": "view == gode.chat",
-          "group": "1_manage@2"
-        },
-        {
           "command": "gode.pickSession",
           "when": "view == gode.chat",
           "group": "navigation@2"
-        },
-        {
-          "command": "gode.stop",
-          "when": "view == gode.chat",
-          "group": "1_manage@3"
         },
         {
           "command": "gode.openChatInEditor",
@@ -471,7 +456,8 @@
     "test": "vitest run",
     "size": "node scripts/check-bundle-size.mjs",
     "package": "node esbuild.mjs && vsce package --no-dependencies --out dist/ && node scripts/check-bundle-size.mjs",
-    "test:host": "bash scripts/run-extension-host-smoke.sh"
+    "test:host": "bash scripts/run-extension-host-smoke.sh",
+    "test:pending-changes": "vitest run test/pendingChangesDataPipeline.test.ts test/beforeContent.test.ts test/beforeContentRoundTrip.test.ts test/changesTracker.test.ts test/changesService.test.ts test/debouncedPersister.test.ts test/historyTree.test.ts"
   },
   "dependencies": {
     "@zcode/client": "workspace:*",

@@ -56,6 +56,15 @@
       "global": false
     },
     {
+      "rule": "max-file-lines",
+      "file": "apps/zcode-vscode/src/container.ts",
+      "module": "zcode-vscode",
+      "detail": "1192",
+      "message": "文件 1192 行，超过上限 800 行",
+      "fingerprint": "4716d89ab0d2497a",
+      "global": false
+    },
+    {
       "rule": "unmanaged-new-file",
       "file": "packages/desktop/src/main/remoteOfficialDeviceClient.ts",
       "module": "desktop",
@@ -494,15 +503,6 @@
       "detail": "zcode-cli",
       "message": "新文件落在未受管模块 zcode-cli；请放入 managed 模块，或用 pnpm architecture:adopt <id> --root <dir> 为它所在目录登记模块",
       "fingerprint": "c49cec02204c1a96",
-      "global": false
-    },
-    {
-      "rule": "max-file-lines",
-      "file": "apps/zcode-vscode/src/container.ts",
-      "module": "zcode-vscode",
-      "detail": "1080",
-      "message": "文件 1080 行，超过上限 800 行",
-      "fingerprint": "cbe5c526b5d4458f",
       "global": false
     },
     {

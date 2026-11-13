@@ -66,12 +66,7 @@ import {
 } from "./host/hostSettingsBridge";
 import { SessionsIndexBridge } from "./host/sessionsIndexBridge";
 import { HostRuntime } from "./host/hostRuntime";
-import {
-  builtinProviderConfigPath,
-  createPluginServices,
-  EMPTY_ZCODE_BUILTIN_RELEASE_JSON,
-  type PluginServiceAssembly,
-} from "./host/serviceAssembly";
+import { createPluginServices, type PluginServiceAssembly } from "./host/serviceAssembly";
 import type { PlatformMethodHandler } from "./host/platformRpcHandler";
 import { RuntimeController } from "./runtimeController";
 import { probeCapabilitiesFrame } from "./webview-react/capabilities";
@@ -85,6 +80,10 @@ import type { WorkspaceHostFramePayload } from "./host/hostFrameKinds";
 import { registerHostCommands } from "./commands/hostCommands";
 import { ChangesDiffOpener } from "./host/pendingChanges/diffOpener";
 import { parsePatchHunks } from "./host/pendingChanges/beforeContent";
+import { ChangesService } from "./host/pendingChanges/changesService";
+import type { ChangesAgentService, PersistedChanges } from "./host/pendingChanges/changesService";
+import { DebouncedPersister } from "./host/pendingChanges/debouncedPersister";
+import { SessionDiscovery } from "./host/pendingChanges/sessionDiscovery";
 
 /** 指令导入的单文件内容上限（importWorkspaceInstructions，组4 一次性导入面）。 */
 const INSTRUCTION_IMPORT_LIMIT_BYTES = 512 * 1024;
@@ -117,6 +116,8 @@ export interface Container {
   statusBar: StatusBar;
   diagnostics: Diagnostics;
   diffViewer: DiffViewer;
+  /** pending-changes 追踪服务（notifySessionCreated 直传驱动）。 */
+  changesService: ChangesService;
   /** onboarding 引导面（P1-10.2/P1-10.3；CLI 未找到时自动呈现，T13）。 */
   welcomePage: WelcomePage;
   /** 3 步上手卡命令面（P1-10.2「随时可看」入口；CLI 实况由容器闭包读取）。 */
@@ -250,6 +251,7 @@ export async function createContainer(
   const runtimeControllerPlaceholder: { current?: RuntimeController } = {};
   // 聊天卡片「审查」用的原生双栏 diff，装配晚于平台方法表，占位懒解引用。
   const diffOpenerPlaceholder: { current?: ChangesDiffOpener } = {};
+  const changesServicePlaceholder: { current?: ChangesService } = {};
   const platformMethods = new Map<string, PlatformMethodHandler>(
     Object.entries(
       buildPlatformMethods({
@@ -262,6 +264,7 @@ export async function createContainer(
         runtimeController: () => runtimeControllerPlaceholder.current,
         resolveWorkspaceUri,
         diffOpener: () => diffOpenerPlaceholder.current,
+        changesService: () => changesServicePlaceholder.current,
         primaryFolder: () => listFolders()[0],
         // exportLogs 聚合源（§7.10）：输出通道内存镜像读取面（Diagnostics 持有）。
         diagnosticsSnapshot: () => diagnostics.snapshotLines(),
@@ -358,6 +361,52 @@ export async function createContainer(
   diffOpenerPlaceholder.current = changesDiffOpener;
   context.subscriptions.push(changesDiffOpener.register(), {
     dispose: () => changesDiffOpener.dispose(),
+  });
+
+  // ── pending-changes 追踪（spec: docs/spec/vscode-pending-changes.md；用户重构版）──
+  // ChangesService 追踪当前会话的轮级文件改动（pending/history）；通过
+  // notifySessionCreated/Deleted + restore 双钩子直传 sessionId+folder。
+  const agentServiceForChanges: ChangesAgentService = hostRuntime.agentService;
+  const changesPersister = new DebouncedPersister(
+    (state: unknown) => store.setPendingChanges(state as PersistedChanges),
+    250,
+  );
+  const pendingChangesService = new ChangesService({
+    agentService: agentServiceForChanges,
+    sessionId: "",
+    workspaceRoot: () => listFolders()[0] ?? null,
+    readFile: async (absPath: string) =>
+      new TextDecoder().decode(await workspace.fs.readFile(Uri.file(absPath))),
+    clientId: store.getChangesClientId(),
+    persist: (state) => changesPersister.push(state),
+    loadPersisted: () => store.getPendingChanges(),
+    showWarning: (message) => void window.showWarningMessage(`Gode：${message}`),
+    openDiff: (request) => changesDiffOpener.openPendingDiff(request),
+    log: (message) => diagnostics.log(message),
+  });
+  changesServicePlaceholder.current = pendingChangesService;
+  // 账本诊断：撤销路径收敛的帧级证据 → 扩展输出通道。
+  pendingChangesService.trackerDiagnostics = (message) => diagnostics.log(`[pending-changes] ${message}`);
+  // 状态栏待审角标：pending 数量变化 → statusBar（重构时丢失的投影面，恢复接线）。
+  pendingChangesService.onChange((snapshot) => {
+    statusBar.setPendingChanges(snapshot.pending.length);
+  });
+  const sessionDiscovery = new SessionDiscovery({
+    agentService: agentServiceForChanges,
+    workspaceRoot: () => listFolders()[0] ?? null,
+    onSessionDiscovered: (sessionId, _root) => {
+      // index 发现的新会话自动重指（notifySessionCreated 不可靠时的兜底发现层）。
+      pendingChangesService.setSession(sessionId, listFolders()[0] ?? null);
+    },
+    log: (message) => diagnostics.log(message),
+  });
+  sessionDiscovery.start();
+  context.subscriptions.push({
+    dispose: () => {
+      sessionDiscovery.dispose();
+      changesPersister.flush();
+      pendingChangesService.dispose();
+    },
   });
 
   // ── 状态栏投影（P0-2/P0-9）：Agent 生命周期事件 → setState（审批角标接 plat 上报面） ──
@@ -491,7 +540,17 @@ export async function createContainer(
   );
 
   // ── activate 后：per-folder 最近会话恢复（P1-1.5 host 半；resume 恒带约束面） ──
-  void runtimeController.restoreWorkspaceSessions().catch(() => undefined);
+  void runtimeController
+    .restoreWorkspaceSessions()
+    .then((restored) => {
+      const folder = listFolders()[0] ?? null;
+      const sessionId =
+        folder
+          ? (restored.restored.at(-1) ?? workspaceSessions.get(folderKey(folder)) ?? null)
+          : null;
+      pendingChangesService.setSession(sessionId ?? undefined, folder);
+    })
+    .catch(() => pendingChangesService.setSession(undefined, null));
 
   // ── P1-10.2：CLI 未找到 → 呈现安装引导与「重新检测」入口（P0-1 引导语义） ──
   if (!cliInfo) void welcomePage.presentCliMissing();
@@ -565,6 +624,7 @@ export async function createContainer(
     statusBar,
     diagnostics,
     diffViewer,
+    changesService: pendingChangesService,
     welcomePage,
     presentOnboarding: () => welcomePage.presentOnboarding({ cli: cliInfo }),
     // 一次性上手卡：首次打开对话（任一打开入口）自动呈现，之后只在用户主动调
@@ -580,11 +640,37 @@ export async function createContainer(
       chatEditorPanel.dispose();
       runtimeController.dispose();
       hostRuntime.dispose();
+      // diff 内容 provider 的注册 Disposable 必须注销（2026-11-10 审查：旧实现
+      // void 丢弃后无法注销，违反「注册 Disposable 全量入 subscriptions」约定）。
+      diffViewer.dispose();
       await services.dispose();
       statusBar.dispose();
       diagnostics.dispose();
     },
   };
+}
+
+// ── 打开/读取向平台方法的路径收口（安全审查 S1 同口径，2026-11-10 审查 A1） ──
+// openPatchDiffInEditor 已按 S1 fail-closed，但 showDiff/showTextDocument/
+// openFileInEditor 三个兄弟入口漏了：webview 被攻破后可先 showTextDocument 任意
+// 文件再经 getActiveEditorSelection 取全文，构成「任意文件读取」链。校验范围 =
+// workspace folders ∪ context.additionalDirectories（审批流可能触及附加目录内的
+// 文件，不能只收 workspace）；两者皆空时一律拒绝（fail-closed，与 S1 一致）。
+// 置于模块级：buildPlatformMethods 本就是模块级函数，只依赖模块级导入。
+/** 打开/读取向平台方法的允许根：workspace folders ∪ 附加目录。 */
+function allowedReadRoots(): string[] {
+  const raw = readGodeSetting("context.additionalDirectories");
+  return [
+    ...(workspace.workspaceFolders ?? []).map((folder) => folder.uri.fsPath),
+    ...normalizeAdditionalDirectories(Array.isArray(raw) ? raw : []),
+  ];
+}
+
+/** S1 同口径路径收口：不在任何允许根内即抛参数错误（fail-closed）。 */
+function assertPathInsideAllowedRoots(path: string, method: string): void {
+  if (!isPathInsideWorkspace(path, allowedReadRoots())) {
+    throw new Error(`${method}: 路径不在 workspace/附加目录内，已拒绝`);
+  }
 }
 
 /** host 端平台方法实现表（webview plat-req 白名单内方法的 VS Code 落地）。 */
@@ -600,14 +686,23 @@ function buildPlatformMethods(deps: {
   resolveWorkspaceUri: (path: string) => Uri;
   /** 原生双栏 diff（聊天卡片「审查」）；装配顺序晚于本表，闭包延迟解引用。 */
   diffOpener: () => ChangesDiffOpener | undefined;
+  /** pending-changes 追踪服务（会话通知直传）；装配顺序晚于本表，闭包延迟解引用。 */
+  changesService: () => ChangesService | undefined;
   primaryFolder: () => string | undefined;
   /** per-folder 最近会话键表（P1-1.1 降级列表数据源；M18）。 */
   latestSessionIdByFolder: () => Record<string, string | undefined>;
   /** exportLogs 聚合源（§7.10）：输出通道内存镜像快照读取面（Diagnostics 持有）。 */
   diagnosticsSnapshot: () => string[];
 }): Record<string, PlatformMethodHandler> {
-  const { context, diffViewer, store, statusBar, sessionsIndex, resolveWorkspaceUri, diffOpener } =
-    deps;
+  const {
+    context,
+    diffViewer,
+    store,
+    statusBar,
+    sessionsIndex,
+    resolveWorkspaceUri,
+    diffOpener,
+  } = deps;
   const deviceIdKey = "gode.deviceId";
   const getDeviceId = (): string => {
     const existing = context.globalState.get<string>(deviceIdKey);
@@ -658,12 +753,14 @@ function buildPlatformMethods(deps: {
         throw new Error("openExternal: url 必须为字符串");
       const parsed = Uri.parse(url);
       // scheme 白名单：杜绝 webview 侧借 openExternal 触发任意 scheme（command:/javascript: 等）。
+      // file: 已移除（2026-11-10 审查 A3）：macOS LaunchServices / Windows ShellExecute
+      // 会把 file 指向的可执行文件/脚本交给 OS 直接打开执行，等同任意本机程序执行面。
+      // 打开目录走 openInFileManager；打开文件走 showTextDocument（有路径收口）。
       if (
         ![
           "http",
           "https",
           "mailto",
-          "file",
           "vscode",
           "vscode-insiders",
         ].includes(parsed.scheme)
@@ -697,12 +794,18 @@ function buildPlatformMethods(deps: {
       const proposed = typeof args[1] === "string" ? args[1] : undefined;
       if (typeof path !== "string")
         throw new Error("showDiff: path 必须为字符串");
-      return diffViewer.open(`plat-${Date.now()}`, path, proposed);
+      // 安全审查 S1 同口径（见 allowedReadRoots）：webview 可达的文件打开面 fail-closed。
+      assertPathInsideAllowedRoots(path, "showDiff");
+      // requestId 用随机 UUID：旧实现 plat-${Date.now()} 在同毫秒两次 showDiff 时
+      // 会互相覆盖 provider 内容与 openTabs 映射。
+      return diffViewer.open(randomUUID(), path, proposed);
     },
     showTextDocument: async (args) => {
       const path = args[0];
       if (typeof path !== "string")
         throw new Error("showTextDocument: path 必须为字符串");
+      // 安全审查 S1 同口径（见 allowedReadRoots）。
+      assertPathInsideAllowedRoots(path, "showTextDocument");
       await window.showTextDocument(Uri.file(path), { preview: true });
       return true;
     },
@@ -711,6 +814,8 @@ function buildPlatformMethods(deps: {
       const path = args[0];
       if (typeof path !== "string")
         throw new Error("openFileInEditor: path 必须为字符串");
+      // 安全审查 S1 同口径（见 allowedReadRoots）：先按既有语义解析相对路径再校验。
+      assertPathInsideAllowedRoots(resolveWorkspaceUri(path).fsPath, "openFileInEditor");
       await commands.executeCommand("vscode.open", resolveWorkspaceUri(path), {
         preview: true,
       });
@@ -906,6 +1011,8 @@ function buildPlatformMethods(deps: {
       if (!folder)
         throw new Error("notifySessionCreated: 无 workspace folder 可归属");
       deps.runtimeController()?.setActiveSession(folder, sessionId);
+      // pending-changes 会话直传（共享 ext host 多窗口下唯一可靠的会话发现源）。
+      deps.changesService()?.setSession(sessionId, folder);
       return { folder: folderKey(folder), sessionId };
     },
     /** 会话删除上报：反查持有该会话的 folder 并清键。 */
@@ -919,6 +1026,7 @@ function buildPlatformMethods(deps: {
         store.setSessionId(folder, undefined);
         deps.runtimeController()?.setActiveSession(folder, undefined);
       }
+      deps.changesService()?.setSession(undefined, null);
       return { sessionId, folders };
     },
     /** 审批角标上报面（P0-9：数据源尽力面，缺上报时状态栏保持状态机部分）。 */
@@ -1005,6 +1113,10 @@ function buildPlatformMethods(deps: {
     },
     /** 活动编辑器选区（@-引用/上下文注入面）。 */
     getActiveEditorSelection: async () => {
+      // 不做路径收口（2026-11-10 审查 A1 结论）：本方法镜像用户自己打开/选中的编辑器，
+      // 与用户复制粘贴同权；webview 无法自行定位编辑器——showTextDocument/showDiff/
+      // openFileInEditor 已收口，「打开任意文件再取选区」的链路已断。强行限定
+      // workspace 内会误伤「用户主动引用 workspace 外文件」的合法用法。
       const editor = window.activeTextEditor;
       if (!editor) return null;
       const { start, end, isEmpty } = editor.selection;

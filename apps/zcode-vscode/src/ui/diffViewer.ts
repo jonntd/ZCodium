@@ -6,22 +6,34 @@
  * - 应用后关闭对应 diff 标签页并提示。
  */
 
+import { basename } from "node:path";
 import type { TextDocumentContentProvider } from "vscode";
-import { Disposable, Uri, window, workspace } from "vscode";
+import { commands, Disposable, Uri, window, workspace } from "vscode";
 
 const SCHEME = "zcodium-proposed";
 
 /** 提议内容的内容提供器（diff 右侧虚拟文档）。 */
 export class ProposedContentProvider implements TextDocumentContentProvider {
+  /**
+   * 内容上限（LRU）：审批 diff 的 close() 在审批流尚未接线时可能长期无人调用，
+   * 无上限会随每次审批无界增长。范式同 pendingChanges/diffOpener（LRU 8）。
+   */
+  private static readonly MAX_CONTENTS = 8;
   private readonly contents = new Map<string, string>();
-  private readonly emitter: Disposable | null = null;
 
   provideTextDocumentContent(uri: Uri): string {
     return this.contents.get(uri.query) ?? "";
   }
 
   set(key: string, content: string): void {
+    // Map 迭代按插入序：先删后放即 LRU 淘汰语义。
+    this.contents.delete(key);
     this.contents.set(key, content);
+    while (this.contents.size > ProposedContentProvider.MAX_CONTENTS) {
+      const oldest = this.contents.keys().next().value;
+      if (oldest === undefined) break;
+      this.contents.delete(oldest);
+    }
   }
 
   clear(key: string): void {
@@ -30,11 +42,27 @@ export class ProposedContentProvider implements TextDocumentContentProvider {
 }
 
 export class DiffViewer {
+  /**
+   * openTabs 上限：close() 尚未接入审批流（2026-11-10 审查发现无调用方），
+   * 超限时淘汰最老条目，防止 Map 随审批次数无界增长。
+   */
+  private static readonly MAX_OPEN_TABS = 16;
   private readonly openTabs = new Map<string, Uri>();
   private readonly provider = new ProposedContentProvider();
+  private readonly providerDisposable: Disposable;
 
   constructor() {
-    void workspace.registerTextDocumentContentProvider(SCHEME, this.provider);
+    // 注册返回的 Disposable 必须留存并在 dispose() 注销：旧实现 void 丢弃后
+    // provider 永远无法注销，违反「注册 Disposable 全量入 subscriptions」约定。
+    this.providerDisposable = workspace.registerTextDocumentContentProvider(
+      SCHEME,
+      this.provider,
+    );
+  }
+
+  dispose(): void {
+    this.providerDisposable.dispose();
+    this.openTabs.clear();
   }
 
   /** 从 permission.input 提取 {path, proposedContent}（键名按保守顺序探测）。 */
@@ -77,11 +105,27 @@ export class DiffViewer {
       }
       return false;
     }
+    if (this.openTabs.size >= DiffViewer.MAX_OPEN_TABS) {
+      const oldest = this.openTabs.keys().next().value;
+      if (oldest !== undefined) {
+        this.provider.clear(oldest);
+        this.openTabs.delete(oldest);
+      }
+    }
     const proposedUri = Uri.parse(`${SCHEME}://proposal/${encodeURIComponent(path)}?${requestId}`);
     this.provider.set(requestId, proposedContent);
     this.openTabs.set(requestId, proposedUri);
     await workspace.openTextDocument(proposedUri);
-    await window.showTextDocument(fileUri, { preview: true, viewColumn: 1 });
+    // 修复（2026-11-10 审查 B3）：旧实现只 openTextDocument(proposedUri)（内存建
+    // 文档从不显示）+ showTextDocument(fileUri)，从未调用 vscode.diff——用户看到的
+    // 是磁盘现状而非提议内容。补上原生双栏 diff（范式同 features/quickEdit.ts）。
+    await commands.executeCommand(
+      "vscode.diff",
+      fileUri,
+      proposedUri,
+      `[待审批] ${basename(path)}`,
+      { preview: true },
+    );
     return true;
   }
 
@@ -92,7 +136,10 @@ export class DiffViewer {
     this.openTabs.delete(requestId);
     if (proposedUri === undefined) return;
     for (const editor of window.tabGroups.all.flatMap((group) => group.tabs)) {
-      const tabUri = (editor.input as { uri?: Uri } | undefined)?.uri;
+      const input = editor.input as { uri?: Uri; modified?: Uri } | undefined;
+      // vscode.diff 页签的 input 是 TabInputTextDiff（modified = proposedUri）；
+      // 旧实现只取 input.uri，对 diff 页签永远匹配不上、永远关不掉。
+      const tabUri = input?.modified ?? input?.uri;
       if (tabUri?.toString() === proposedUri.toString()) {
         await window.tabGroups.close(editor);
       }

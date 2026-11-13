@@ -99,8 +99,7 @@ describe("ChangesTracker", () => {
   it("keepFiles：pending 移除、历史标记 kept", () => {
     const tracker = new ChangesTracker();
     tracker.resetForSession("s-1");
-    tracker.applyFrame(deltaFrame([turnHeader({ rowId: 7, fileChanges: { additions: 3, deletions: 1, files: 1, state: "active" } })]));
-    tracker.applyTurnDetails({
+    tracker.applyFrame(deltaFrame([turnHeader({ rowId: 7, fileChanges: { additions: 3, deletions: 1, files: 1, state: "active" } })]));    tracker.applyTurnDetails({
       sessionId: "s-1",
       target: { rowId: 7, entityId: "entity-7" },
       workspaceRoot: "/ws",
@@ -156,6 +155,26 @@ describe("ChangesTracker", () => {
         }),
       ]),
     );
+    expect(tracker.snapshot().pending).toHaveLength(0);
+    expect(tracker.snapshot().history[0]?.files[0]?.state).toBe("reverted");
+  });
+
+  it("路径同形收敛：pending 绝对路径 + revertedPaths 相对路径也要收敛", () => {
+    // 回归（实机 2026-11-13）：fileChanges 查询返回绝对路径作 pending 键，聊天卡片
+    // 撤销的 rewind payload 是相对路径、CLI 原样放进 revertedPaths。单形态匹配漏删
+    // → 文件已还原但「待审」角标不消失。
+    const tracker = new ChangesTracker();
+    tracker.resetForSession("s-1");
+    tracker.applyFrame(deltaFrame([turnHeader({ rowId: 7, fileChanges: { additions: 3, deletions: 1, files: 1, state: "active" } })]));
+    tracker.applyTurnDetails({
+      sessionId: "s-1",
+      target: { rowId: 7, entityId: "entity-7" },
+      workspaceRoot: "/ws",
+      items: detailItems(["/ws/src/a.ts"]),
+    });
+    expect(tracker.snapshot().pending).toHaveLength(1);
+
+    tracker.consumeRevertedPaths(7, ["src/a.ts"]);
     expect(tracker.snapshot().pending).toHaveLength(0);
     expect(tracker.snapshot().history[0]?.files[0]?.state).toBe("reverted");
   });
@@ -223,6 +242,114 @@ describe("ChangesTracker", () => {
     expect(effects.turnsNeedingDetails).toEqual([
       { sessionId: "s-1", target: { rowId: 9, entityId: "entity-9" } },
     ]);
+  });
+
+  it("重放时序盲点：setWorkspaceRoot 先注入后，快照相对 revertedPaths 也能清掉持久化 pending", () => {
+    // 回归（实机 2026-11-13）：重启重放时 ingestTurns 先于首个 applyTurnDetails
+    // 执行，tracker 没有workspaceRoot 时无法把相对 revertedPaths 解析成绝对形态，
+    // 已撤销文件复活进待审。
+    const tracker = new ChangesTracker();
+    tracker.resetForSession("s-1");
+    tracker.setWorkspaceRoot("/ws");
+    tracker.importPersisted(
+      {
+        pending: [
+          {
+            path: "/ws/src/a.ts",
+            resolvedPath: "/ws/src/a.ts",
+            sessionId: "s-1",
+            target: { rowId: 7, entityId: "entity-7" },
+            turnRowId: 7,
+            additions: 3,
+            deletions: 1,
+            patches: [],
+          },
+        ],
+        history: [
+          {
+            sessionId: "s-1",
+            target: { rowId: 7, entityId: "entity-7" },
+            rowId: 7,
+            endedAt: 7000,
+            files: [
+              {
+                path: "/ws/src/a.ts",
+                resolvedPath: "/ws/src/a.ts",
+                additions: 3,
+                deletions: 1,
+                state: "pending",
+              },
+            ],
+          },
+        ],
+      },
+      "s-1",
+    );
+    expect(tracker.snapshot().pending).toHaveLength(1);
+
+    // 订阅帧到达（此时还没有任何 applyTurnDetails）：轮头带相对 revertedPaths
+    tracker.applyFrame(
+      deltaFrame([
+        turnHeader({
+          rowId: 7,
+          fileChanges: {
+            additions: 3,
+            deletions: 1,
+            files: 1,
+            state: "active",
+            revertedPaths: ["src/a.ts"],
+          },
+        }),
+      ]),
+    );
+    expect(tracker.snapshot().pending).toHaveLength(0);
+    expect(tracker.snapshot().history[0]?.files[0]?.state).toBe("reverted");
+  });
+
+  it("帧驱动的撤销清账必须触发 onChange（applyFrame 的 revert 消费不可静默）", () => {
+    // 回归（实机 2026-11-14）：applyFrame 消费快照/增量里的 revertedPaths 清掉
+    // pending 后不 emit，角标与持久化静默失真（账已清、角标仍挂）。
+    const tracker = new ChangesTracker();
+    tracker.resetForSession("s-1");
+    tracker.setWorkspaceRoot("/ws");
+    tracker.importPersisted(
+      {
+        pending: [
+          {
+            path: "/ws/src/a.ts",
+            resolvedPath: "/ws/src/a.ts",
+            sessionId: "s-1",
+            target: { rowId: 7, entityId: "entity-7" },
+            turnRowId: 7,
+            additions: 3,
+            deletions: 1,
+            patches: [],
+          },
+        ],
+        history: [],
+      },
+      "s-1",
+    );
+    const seen: number[] = [];
+    tracker.onChange((snapshot) => seen.push(snapshot.pending.length));
+    expect(seen).toEqual([]);
+
+    tracker.applyFrame(
+      deltaFrame([
+        turnHeader({
+          rowId: 7,
+          fileChanges: {
+            additions: 3,
+            deletions: 1,
+            files: 1,
+            state: "reverted",
+            revertedPaths: ["src/a.ts"],
+          },
+        }),
+      ]),
+    );
+    expect(tracker.snapshot().pending).toHaveLength(0);
+    expect(seen).toEqual([0]);
   });
 
   it("row.removed：该 rowId 及之后全部失效（含 pending 与历史）", () => {

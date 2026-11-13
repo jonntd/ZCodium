@@ -74,6 +74,19 @@ onDynamicConversationFrame ───▶ ChangesService（订阅编排）
 - CAS 水位：Tracker 从 snapshot 取 `{logEpoch, revision}`，随后每个结构性 delta 批次
   末尾的 `state.updated{revision}` 递增（product-projection.ts `attachRevision` 保证）。
   查询（fileChanges/rewindPreview）与命令信封统一用该水位。
+- **订阅所有权（话题级监听，2026-11-13 修复帧断流）**：CLI 的 topic 订阅语义是
+  「同 connectionId 重复 subscribe 即作废旧订阅」。聊天 webview 连接后会在同一条
+  连接上订阅同一 topic，把扩展宿主的后台订阅顶掉（实测 wire subId 由 `-1` 变 `-2`，
+  旧流此后停帧）。因此 Service 侧按 **topic 采纳当前活跃流**，不按 subId 过滤：
+  每当出现新 subId 就换新 `TopicWireFrameAssembler` 从头接收（新订阅者首帧是完整
+  resume/snapshot，`applyFrame` 对 snapshot 幂等，状态可重建），并且**永不主动重
+  订阅**——否则会反过来顶掉聊天面，陷入订阅所有权战争。
+- **帧驱动的账本变更必须广播（2026-11-14 修复角标不消）**：撤销清账有两条路径——
+  宿主自己的命令回流（`markReverted`）与 CLI 投影帧回流（`applyFrame` 的
+  revertedPaths/reverted 消费）。后者同样改变了 pending/history，`applyFrame` 必须
+  在发生账本变更时 `emit()`，否则角标与持久化静默失真（账已清、角标仍挂）。
+  撤销路径同形收敛依赖 `setWorkspaceRoot` 注入（必须在 importPersisted / 订阅快照
+  之前）。
 
 ## 4. 数据形状与路径形态契约
 

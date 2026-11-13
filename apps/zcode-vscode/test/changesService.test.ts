@@ -324,6 +324,27 @@ describe("ChangesService", () => {
     expect(harness.persisted?.pending).toHaveLength(1);
   });
 
+  it("订阅被顶掉（webview 新 subId）→ 话题级采纳新流，帧继续处理不断流", async () => {
+    // 回归：CLI 语义「同 connectionId 重复 subscribe 作废旧订阅」，聊天 webview
+    // 会在同连接上订阅同一 topic（subId 由 -1 变 -2），旧流停帧。按 subId 过滤
+    // 会导致永久断流；正确行为是采纳新活跃流（spec §3 订阅所有权）。
+    const harness = makeHarness();
+    harness.service.start();
+    await settle(harness);
+
+    // webview 顶掉我们之后：帧以新 subId 到达
+    harness.frameListeners.forEach((listener) =>
+      listener(deltaWire([turnHeaderDelta(9), REVISION_DELTA], "sub-2-webview", 1)),
+    );
+    await waitFor(() =>
+      harness.calls.fileChanges.length === 1 ? harness.calls.fileChanges : undefined,
+    );
+    expect(harness.calls.fileChanges[0]).toMatchObject({
+      target: { rowId: 9, entityId: "entity-9" },
+    });
+    expect(harness.service.snapshot().pending[0]).toMatchObject({ path: "src/a.ts", turnRowId: 9 });
+  });
+
   it("撤销：整轮预检 safe → CAS 信封正确 → pending 收敛", async () => {
     const harness = makeHarness();
     harness.service.start();

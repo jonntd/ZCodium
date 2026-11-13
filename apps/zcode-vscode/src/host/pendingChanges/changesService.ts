@@ -35,6 +35,10 @@ import type {
 
 /** 服务用到的 services 面（结构化子集，测试注内存实现）。 */
 export interface ChangesAgentService {
+  /** sessions-index 观察者三件套（sessionDiscovery 用；可选） */
+  subscribeSessionsIndexV4?: IZCodeAgentService["subscribeSessionsIndexV4"];
+  unsubscribeSessionsIndexV4?: IZCodeAgentService["unsubscribeSessionsIndexV4"];
+  onDynamicSessionsIndexFrame?: IZCodeAgentService["onDynamicSessionsIndexFrame"];
   subscribeConversationV4: IZCodeAgentService["subscribeConversationV4"];
   unsubscribeConversationV4: IZCodeAgentService["unsubscribeConversationV4"];
   onDynamicConversationFrame: IZCodeAgentService["onDynamicConversationFrame"];
@@ -87,6 +91,13 @@ interface Subscription {
 
 export class ChangesService {
   private readonly tracker = new ChangesTracker();
+  /** 诊断出口：暴露给宿主接日志（撤销路径收敛的帧级证据）。 */
+  get trackerDiagnostics(): (message: string) => void {
+    return (message: string) => this.tracker.diagnosticSink?.(message);
+  }
+  set trackerDiagnostics(sink: (message: string) => void | undefined) {
+    this.tracker.diagnosticSink = sink ?? undefined;
+  }
   private readonly options: ChangesServiceOptions;
   private subscription: Subscription | null = null;
   private subscribed = false;
@@ -362,6 +373,10 @@ export class ChangesService {
     this.tracker.resetForSession(sessionId);
     const workspaceRoot = this.effectiveFolder();
     if (!sessionId || !workspaceRoot) return;
+    // 路径同形收敛的前提：撤销匹配需要 workspaceRoot 把相对 revertedPaths 解析成
+    // 绝对形态。必须在 importPersisted / 订阅快照之前注入（否则重启重放时
+    // ingestTurns 解析不了相对路径，已撤销文件复活进待审）。
+    this.tracker.setWorkspaceRoot(workspaceRoot);
 
     // 重启恢复（spec §8）：先重放持久化（含 patches），真实帧随后幂等校验。
     const persisted = this.options.loadPersisted();
@@ -373,6 +388,15 @@ export class ChangesService {
     const topic = `conversation/${sessionId}`;
     const early: ConversationTopicWireCandidate[] = [];
     let subscriptionId: string | undefined;
+    // 话题级监听（修复帧断流）：CLI 的订阅所有权语义是「同 connectionId 重复
+    // subscribe 即作废旧订阅」，聊天 webview 连接后会在同一条连接上订阅同一
+    // topic，把我们的后台订阅顶掉（实测 wire subId 从 -1 变 -2，旧流停帧）。
+    // 如果按 subId 过滤就会永久断流；如果反过来重订阅又会顶掉聊天面，陷入
+    // 所有权战争。因此这里按 topic 采纳「当前活跃流」：每当出现新 subId 就
+    // 换新组装器从头接收（新订阅者的首帧是完整 resume/snapshot，状态可重建，
+    // tracker.applyFrame 对 snapshot 幂等），永不主动重订阅。
+    let activeSubId: string | undefined;
+    let assemblerActive = assembler;
     const accept = (wire: ConversationTopicWireCandidate): void => {
       if (wire.topic !== topic) return;
       if (subscriptionId === undefined) {
@@ -380,8 +404,14 @@ export class ChangesService {
         if (early.length < 128) early.push(wire);
         return;
       }
-      if (wire.subscriptionId !== subscriptionId) return;
-      for (const event of assembler.accept(wire)) {
+      if (wire.subscriptionId !== activeSubId) {
+        activeSubId = wire.subscriptionId;
+        assemblerActive = new TopicWireFrameAssembler(conversationTopicFrameSchema);
+        this.options.log(
+          `[pending-changes] 采纳会话流 subId=${activeSubId ?? "无"}（自有订阅=${subscriptionId}）`,
+        );
+      }
+      for (const event of assemblerActive.accept(wire)) {
         if (event.kind === "fault") {
           this.options.log(`[pending-changes] 帧组装故障：${event.fault.reasonCode ?? "unknown"}`);
           continue;

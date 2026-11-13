@@ -185,9 +185,21 @@ export function registerEditorCommands(
   });
 
   register("gode.pickSession", async () => {
+    log.info("editor-commands", "gode.pickSession 触发");
     const sessionId = await pickSession(() => listSessions(deps));
-    if (!sessionId) return;
+    if (!sessionId) {
+      log.info("editor-commands", "gode.pickSession 未选择会话（取消或读取失败）");
+      return;
+    }
     deps.pushFrame("session-switch", { sessionId });
+    log.info("editor-commands", `gode.pickSession → session-switch ${sessionId}`);
+    // 帧是「发后不理」的：webview 尚未 ready 时它会进 host 暂存队列，用户眼前
+    // 可能毫无变化。给一条状态栏回执，把「命令到底跑没跑」这个信息显式化，
+    // 排障时也能据此区分是命令没触发还是帧没被 webview 消费。
+    void vscode.window.setStatusBarMessage(
+      `Gode：正在切换到历史会话 ${sessionId.slice(0, 8)}…`,
+      3000,
+    );
     // 已有对话面（编辑器页签 / 侧栏视图）时不再 openChat：帧已经送到眼前这一面，
     // 多余的一次 openChat 会在"没有编辑器页签"时新开一个对话 TAB（用户反馈 2026-11-08
     // 「点加号创建出一个 TAB 窗口」的同类现象）。只有一面都没有时才需要打开。
@@ -327,6 +339,12 @@ export function registerEditorCommands(
     await codeActionEntry.addContext(contexts);
   });
 
+  // 排障锚点：扩展激活期是否真的走到了命令注册。若 Output 里没有这一行，
+  // 「点按钮没反应」就不是 pickSession 的问题，而是激活被前置步骤（如 CLI 探测）挡住了。
+  log.info(
+    "editor-commands",
+    `编辑器命令注册完成（${disposables.length} 条，含 gode.pickSession）`,
+  );
   return disposables;
 }
 
