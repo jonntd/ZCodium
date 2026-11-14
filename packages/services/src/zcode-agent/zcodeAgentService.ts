@@ -1,8 +1,23 @@
-import { isAuxiliarySessionKind } from "@zcode/shared";
+import {
+  isAuxiliarySessionKind,
+  sessionLifecycleSnapshotSchema,
+  type SessionLifecycleSnapshot,
+  zcodeSessionReleaseUnderDirectoryResultSchema,
+  zcodeWorkspaceMcpTrustResultSchema,
+} from "@zcode/shared";
+import { assertOfficialServiceRemoved, isOfficialServiceRemoved } from "@zcode/shared";
 import {
   pluginUiToolResultNotificationSchema,
   type PluginUiToolResultNotification,
 } from "@zcode/shared/mcp-apps";
+import type { RemoteConversationTelemetryEvent } from "@zcode/shared";
+import type {
+  ZCodeAgentConversationInputPredictionParams,
+  ZCodeAgentRuntimeExitedEvent,
+} from "./zcodeAgent.js";
+import { createContextCompositionClient } from "#src/zcode-agent/contextCompositionClient.js";
+import { createPluginHostQueriesClient } from "#src/zcode-agent/pluginHostQueriesClient.js";
+import { isRemoteInputPredictionEnabled } from "./inputPredictionSwitch.js";
 import { supportsHistoryFirst } from "./independentPlanSupport.js";
 import {
   offPeakControlParamsSchema,
@@ -360,6 +375,10 @@ import {
   type SessionsIndexTopicWireCandidate,
   type WorkspaceConfigTopicWireCandidate,
   type CommandEnvelope,
+  emptyInputPredictionResult,
+  v4ConversationInputPredictionResultSchema,
+  v4SessionDataPurgeResultSchema,
+  v4SessionDeletionPreviewSchema,
 } from "@zcode/shared/zcode-protocol-v4";
 import {
   readTrustedZCodeAgentV4Connection,
@@ -1308,10 +1327,22 @@ export function createZCodeAgentService(
     string,
     Emitter<ZCodePluginOperationProgressNotification>
   >();
+  // fork 恢复：上游 v3.18.2 的 sessionLifecycle emitter（lifecycle 成员群的消费源）。
+  const sessionLifecycleEmitter = new Emitter<{
+    workspaceKey: string;
+    snapshot: SessionLifecycleSnapshot;
+  }>();
   // v4 conversation 帧 fan-out：workspace 级 emitter，renderer 侧按 topic 自行路由。
   const conversationFrameEmitters = new Map<string, Emitter<ConversationTopicWireCandidate>>();
   const conversationTelemetryFactEmitters = new Map<string, Emitter<ConversationTelemetryFact>>();
   const offPeakLifecycleEmitters = new Map<string, Emitter<OffPeakLifecycleNotification>>();
+  // fork 恢复：上游 v3.18.2 的 localTtft/插件降级/遥测 emitter 群（并集时丢失，行模型升级后重新落地）。
+  const localTtftFactsEmitter = new Emitter<{ workspaceKey: string; facts: LocalTtftFacts }>();
+  const pluginStartupDegradedEmitter = new Emitter<{
+    workspaceKey: string;
+    client: ZCodeProtocolClient;
+  }>();
+  const remoteConversationTelemetryEmitter = new Emitter<RemoteConversationTelemetryEvent>();
   const pluginUiToolResultEmitter = new Emitter<
     PluginUiToolResultNotification & ZCodeAgentWorkspaceTarget
   >();
@@ -6880,6 +6911,115 @@ export function createZCodeAgentService(
       disposeLocalState();
     },
 
+    async setWorkspaceMcpTrust(params) {
+      const client = await getReadOnlyClient(params);
+      return client.request(
+        zcodeProtocolMethods.workspaceMcpTrust,
+        {
+          workspace: buildWorkspaceRef(params),
+          serverName: params.serverName,
+          declarationDigest: params.declarationDigest,
+          trusted: params.trusted,
+        },
+        zcodeWorkspaceMcpTrustResultSchema,
+      );
+    },
+    onDynamicPluginStartupDegraded(params: ZCodeAgentWorkspaceTarget) {
+      return (listener) => {
+        const key = resolveWorkspaceKey(params);
+        let seen: ZCodeProtocolClient | undefined;
+        const accept = (client: ZCodeProtocolClient) => {
+          if (client.isDisposed || !client.pluginStartupDegraded || seen === client) return;
+          seen = client;
+          listener();
+        };
+        const disposable = pluginStartupDegradedEmitter.event((event) => {
+          if (event.workspaceKey === key) accept(event.client);
+        });
+        // 先订阅再回放，覆盖预热早于 UI 挂载和手机晚接入；只读取当前工作区进程。
+        for (const runtime of processManager.listManagedProcesses()) {
+          if (resolveWorkspaceKey(runtime) === key) accept(runtime.client);
+        }
+        return disposable;
+      };
+    },
+    onDynamicRemoteConversationTelemetry() {
+      return remoteConversationTelemetryEmitter.event;
+    },
+    async conversationInputPredictionV4(params: ZCodeAgentConversationInputPredictionParams) {
+      if (!isRemoteInputPredictionEnabled()) {
+        return emptyInputPredictionResult("unavailable", params.requestId);
+      }
+      try {
+        const client = await getReadOnlyClient(params, "existing-only");
+        return await client.request(
+          V4_METHODS.conversationInputPrediction,
+          {
+            sessionId: params.sessionId,
+            revision: params.revision,
+            ...(params.draft !== undefined ? { draft: params.draft } : {}),
+            ...(params.requestId !== undefined ? { requestId: params.requestId } : {}),
+          },
+          v4ConversationInputPredictionResultSchema,
+        );
+      } catch {
+        return emptyInputPredictionResult("unavailable", params.requestId);
+      }
+    },
+    async releaseSessionsUnderDirectory(params) {
+      // 绝不为卸载拉起 CLI：没有进程时没有驻留会话。
+      const client = processManager.getExistingClient(params);
+      if (!client || client.isDisposed) return { released: [], busy: [] };
+      return await client.request(
+        zcodeProtocolMethods.sessionReleaseUnderDirectory,
+        { directory: params.directory },
+        zcodeSessionReleaseUnderDirectoryResultSchema,
+      );
+    },
+    async queryCommandResult(params) {
+      // 命令结果是 CLI 的事实；进程已退出时以只读方式拉起，读取持久化的命令记录。
+      const client = await getReadOnlyClient(params);
+      const result = await client.request(
+        V4_METHODS.commandsQuery,
+        commandsQueryParamsSchema.parse({ commands: [params.key] }),
+        commandsQueryResultSchema,
+      );
+      return result.results[0]?.result ?? "unknown";
+    },
+    async getSessionLifecycle(params) {
+      const client = await getReadOnlyClient(params);
+      try {
+        return await client.sessionLifecycle.getState(params.sessionId);
+      } catch (error) {
+        // 较旧 CLI 尚无该协议；只对 method-not-found 回落旧订阅，不吞掉断线或真实初始化错误。
+        if (error instanceof Error && "code" in error && error.code === -32601) return null;
+        throw error;
+      }
+    },
+    async ensureSessionReady(params) {
+      const client = await getClient(params);
+      await client.sessionLifecycle.ensureReady(params.sessionId, buildWorkspaceRef(params));
+    },
+    async stopSessionRuntime(params) {
+      const client = await getClient(params);
+      await client.sessionLifecycle.stop(params.sessionId);
+    },
+    async restartSessionRuntime(params) {
+      const client = await getClient(params);
+      try {
+        await client.sessionLifecycle.restart(params.sessionId, buildWorkspaceRef(params));
+      } catch (error) {
+        if (error instanceof Error && "code" in error && error.code === -32601)
+          throw new Error("fault.sessionLifecycle.unsupported", { cause: error });
+        throw error;
+      }
+    },
+    onDynamicSessionLifecycle(params) {
+      return (listener: (snapshot: SessionLifecycleSnapshot) => void) =>
+        sessionLifecycleEmitter.event((event) => {
+          if (event.workspaceKey === resolveWorkspaceKey(params)) listener(event.snapshot);
+        });
+    },
     async disposeAllAndWait(): Promise<void> {
       await Promise.all([
         processManager.disposeAllAndWait(),

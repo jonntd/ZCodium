@@ -7,10 +7,20 @@ import type {
   ZCodeProtocolRequest,
   ZCodeProtocolRequestId,
   ZCodeProtocolTrace,
+  ZCodeWorkspaceRef,
+} from "@zcode/shared";
+import {
+  sessionLifecycleActivationParamsSchema,
+  sessionLifecycleParamsSchema,
+  sessionLifecycleSnapshotSchema,
+  sessionLifecycleResultSchema,
+  zcodeProtocolMethods,
+  zcodeRuntimeCapabilitiesSchema,
 } from "@zcode/shared";
 import type { V4Method } from "@zcode/shared/zcode-protocol-v4";
 import type { z } from "zod";
 import type { ZCodeProtocolTransport } from "./zcodeProtocolTransport.js";
+import { zcodeProtocolNotifications, zcodePluginStartupDegradedSchema } from "@zcode/shared";
 
 /** 客户端可发的方法名：旧 zcodeProtocolMethods + v4/*（M3 起并存，M5 波次 2 收敛为 v4）。 */
 export type ZCodeProtocolClientMethod = ZCodeProtocolMethod | V4Method;
@@ -40,6 +50,8 @@ interface PendingRequest<T> {
 }
 
 interface ZCodeProtocolClientRequestOptions {
+  /** 单 session 操作超时不能擅自回收整个 workspace；后端仍持有操作，可另行查询。 */
+  invalidateConnectionOnTimeout?: boolean;
   /** 观测不得参与 runtime 健康判定或业务空闲续期；默认保持业务请求语义。 */
   lifecycle?: "operation" | "observation";
   signal?: AbortSignal;
@@ -95,7 +107,40 @@ export class ZCodeProtocolClient implements IDisposable {
     return this.disposed;
   }
 
+  /** 与已连接 workspace 的 CLI 生命周期 owner 通信；此入口不拉起或重启整个进程。 */
+  readonly sessionLifecycle = {
+    getState: (sessionId: string) =>
+      this.request(
+        zcodeProtocolMethods.sessionLifecycleGetState,
+        sessionLifecycleParamsSchema.parse({ sessionId }),
+        sessionLifecycleSnapshotSchema,
+        { lifecycle: "observation" },
+      ),
+    ensureReady: (sessionId: string, workspace?: ZCodeWorkspaceRef) =>
+      this.requestSessionActivation(
+        zcodeProtocolMethods.sessionLifecycleEnsureReady,
+        sessionId,
+        workspace,
+      ),
+    stop: async (sessionId: string): Promise<void> => {
+      await this.request(
+        zcodeProtocolMethods.sessionLifecycleStop,
+        sessionLifecycleParamsSchema.parse({ sessionId }),
+        sessionLifecycleResultSchema,
+        { invalidateConnectionOnTimeout: false },
+      );
+    },
+    restart: (sessionId: string, workspace?: ZCodeWorkspaceRef) =>
+      this.requestSessionActivation(
+        zcodeProtocolMethods.sessionLifecycleRestart,
+        sessionId,
+        workspace,
+      ),
+  };
+
   readonly onNotification = this.notificationEmitter.event;
+  /** 当前连接的降级投影；新进程的新连接自然重置，不跨进程保存。 */
+  pluginStartupDegraded = false;
   readonly onRequest = this.requestEmitter.event;
   readonly onRequestTimeout = this.requestTimeoutEmitter.event;
   readonly onPendingRequestsDrained = this.pendingDrainedEmitter.event;
@@ -330,6 +375,14 @@ export class ZCodeProtocolClient implements IDisposable {
     }
 
     if ("method" in message) {
+      // 上游 v3.18.x：插件启动降级投影通知（extensions 链的 onDynamicPluginStartupDegraded 消费）。
+      if (
+        message.method === zcodeProtocolNotifications.pluginStartupDegraded &&
+        zcodePluginStartupDegradedSchema.safeParse((message as ZCodeProtocolNotification).params)
+          .success
+      ) {
+        this.pluginStartupDegraded = true;
+      }
       if (
         message.method === "startup/storageState" &&
         this.storageStartup.accept((message as ZCodeProtocolNotification).params)
@@ -400,6 +453,33 @@ export class ZCodeProtocolClient implements IDisposable {
     if (hadPending && !this.disposed) {
       this.pendingDrainedEmitter.fire();
     }
+  }
+
+  private async requestSessionActivation(
+    method:
+      | typeof zcodeProtocolMethods.sessionLifecycleEnsureReady
+      | typeof zcodeProtocolMethods.sessionLifecycleRestart,
+    sessionId: string,
+    workspace?: ZCodeWorkspaceRef,
+  ) {
+    if (workspace) {
+      // 旧 CLI 的严格参数不接受 workspace；不能退回会丢失归属的重启，也不能重启整个进程。
+      const capabilities = await this.request(
+        zcodeProtocolMethods.runtimeCapabilities,
+        {},
+        zcodeRuntimeCapabilitiesSchema,
+        // 能力查询是观察请求，等待超时不能淘汰共享 CLI 连接。
+        { lifecycle: "observation" },
+      );
+      if (!capabilities.sessionLifecycleWorkspace)
+        throw new Error("fault.sessionLifecycle.unsupported");
+    }
+    return this.request(
+      method,
+      sessionLifecycleActivationParamsSchema.parse({ sessionId, workspace }),
+      sessionLifecycleResultSchema,
+      { invalidateConnectionOnTimeout: false },
+    );
   }
 
   private deletePending(requestKey: string): void {
