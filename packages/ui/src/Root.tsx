@@ -13,7 +13,10 @@ import { Button } from "@/components/ui/button.js";
 import { setPendingSettingsSection } from "@/lib/settingsNavigation.js";
 import { PlatformProvider } from "@/hooks/usePlatform.js";
 import { ServiceProvider } from "@/hooks/useServices.js";
-import { useDynamicWorkflowAvailabilityLoader } from "@/hooks/useDynamicWorkflowAvailability.js";
+import {
+  useDynamicWorkflowAvailabilityLoader,
+  useDynamicWorkflowUserModeSync,
+} from "@/hooks/useDynamicWorkflowAvailability.js";
 import { DirectoryBrowser } from "@/DirectoryBrowser.js";
 import { useTabPersistence } from "@/hooks/useTabPersistence.js";
 import { useTokenRefresh } from "@/hooks/useTokenRefresh.js";
@@ -202,9 +205,22 @@ function RootInner({
   const markOAuthSuccess = useZCodeStore((state) => state.markOAuthSuccess);
   const {
     settings: appSettings,
+    loading: appSettingsLoading,
     refresh: refreshAppSettings,
     update: updateAppSettings,
   } = useSettings();
+  // 「动态工作流」用户选择变化后：通知 Host 重发 CLI 策略，并 reload 灰度快照。
+  // 这个 hook 此前只有定义和测试、从未挂到 Root：设置文件其实写成功了
+  // （~/.zcodium/v2/setting.json 里能看到 dynamicWorkflowMode），但快照只在启动时
+  // 取一次，下拉框永远显示启动时的值——用户看到的就是「怎么改不了」。
+  // 首次读到的值只作基线（不发声），之后每次选择变化才串行「同步 → 重读」。
+  const dynamicWorkflowUserMode = appSettings?.dynamicWorkflowMode || undefined;
+  useDynamicWorkflowUserModeSync({
+    settingsLoaded: !appSettingsLoading && appSettings !== null,
+    userMode: dynamicWorkflowUserMode,
+    zcodeAgentService: services.zcodeAgentService,
+    codingPlanSubscriptionService: services.codingPlanSubscriptionService,
+  });
   // 智谱账号体系移除后欢迎屏（套餐/API Key 引导）不可达：reason 恒 null。
   // JWT 重启标记仍消费，防止陈旧标记跨启动残留。
   const [welcomeScreenOpenReason, setWelcomeScreenOpenReason] =
