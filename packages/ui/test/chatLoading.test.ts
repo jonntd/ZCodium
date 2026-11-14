@@ -20,14 +20,18 @@ function renderChatLoading() {
 }
 
 describe("ChatLoading", () => {
-  it("只展示旋转 loading 图标，不渲染可见文案", () => {
+  // 对齐 upstream v3.18.2：Z 点阵球体动效 + 扫光状态词 + 等宽用时，不再是裸转圈。
+  it("渲染 Z 球动效、状态词与用时", () => {
     const html = renderChatLoading();
 
-    expect(html).toContain("animate-spin");
     expect(html).toContain('data-zcode-chat-loading-animate="true"');
     expect(html).toContain('role="status"');
     expect(html).toContain('aria-label="加载中..."');
-    expect(html).not.toContain('data-testid="chat-loading-text"');
+    expect(html).toContain("data-chat-loading-icon");
+    expect(html).toContain("animated-gradient-text");
+    expect(html).toContain("tabular-nums");
+    expect(html).toContain("工作中");
+    expect(html).not.toContain("animate-spin");
     expect(html).not.toContain("正在思考");
   });
 

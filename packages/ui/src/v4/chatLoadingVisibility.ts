@@ -60,33 +60,3 @@ export function shouldShowTurnChatLoading({
     !hasChatLoadingBlockingMaintenanceRow(rows)
   );
 }
-
-/**
- * 运行中的「仍在工作」反馈已由状态胶囊承载（AssistantHistoryStatus → working pill，
- * docs/spec/assistant-working-status-pill.md），胶囊可见时尾部裸 ChatLoading 是重复状态。
- * apiRetry 状态有自己的显示阈值（第 3 次起），不经过这条规则，保持独立。
- */
-export function shouldShowTurnChatLoadingWithRunningPill(options: {
-  showLoading: boolean;
-  hasRunningWorkSegment: boolean;
-}): boolean {
-  return options.showLoading && !options.hasRunningWorkSegment;
-}
-
-/**
- * 贴底兜底：胶囊挂在运行轮 work history 头部（消息层普通文档流），长对话里会被上方历史
- * 与持续增长的本轮工作行顶出视口。运行中胶囊行已改为 sticky 吸顶
- * （`resolveAssistantHistoryStatusStickyClass`），本轮内任意滚动位置都可见；因此这枚
- * dock 上方按钮只负责「本轮整体已滚出视口」这一种情况。
- *
- * `backToBottomVisible` 仍保留：贴底时内容末端就在眼前，不需要额外的回跳入口。
- * `workingPillInViewport` 由 IntersectionObserver 提供（不读滚动几何、不参与跟随判定），
- * 让吸顶胶囊可见时不再重复渲染同一状态控件。
- */
-export function shouldShowTimelineWorkingPillChip(options: {
-  showLoading: boolean;
-  backToBottomVisible: boolean;
-  workingPillInViewport: boolean;
-}): boolean {
-  return options.backToBottomVisible && options.showLoading && !options.workingPillInViewport;
-}

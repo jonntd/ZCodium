@@ -20,7 +20,6 @@ const nodeRunTestFiles = [
   "packages/shared/test/remoteRelayHostSecret.test.ts",
   "packages/shared/test/systemPromptSegments.test.ts",
   "packages/ui/test/appRuntimePreferences.test.ts",
-  "packages/ui/test/chatLoadingVisibility.test.ts",
   "packages/ui/test/cuaPermissionStatusStore.test.ts",
   "packages/ui/test/desktopTopOverlayModel.test.ts",
   "packages/ui/test/fileRewindSelection.test.ts",

@@ -73,12 +73,7 @@ import {
   type AssistantCodeCommentCard,
 } from "@/lib/assistantCodeComment.js";
 import { useAssistantPreviewCardsForAssistantTextRow } from "@/v4/useAssistantPreviewCardsForRow.js";
-import {
-  shouldShowTurnChatLoading,
-  shouldShowTurnChatLoadingWithRunningPill,
-} from "@/v4/chatLoadingVisibility.js";
-import { ConversationWorkingStatusPill } from "@/v4/ConversationWorkingStatusPill.js";
-import { resolveAssistantHistoryStatusStickyClass } from "@/v4/conversationWorkingStatusPillModel.js";
+import { shouldShowTurnChatLoading } from "@/v4/chatLoadingVisibility.js";
 import {
   buildAssistantWorkRenderItems,
   ENABLE_CHANGES_TOOL_CALL_GROUPING,
@@ -222,9 +217,11 @@ function toRetryStatus(apiRetry: ApiRetryState): ZCodeApiRetryStatus {
 function TurnChatLoadingSlot({
   apiRetry,
   eligible,
+  initialElapsedMs,
 }: {
   apiRetry: ApiRetryState | null;
   eligible: boolean;
+  initialElapsedMs: number;
 }) {
   const { intl, locale } = useZCodeIntl();
   const retryStatus = useMemo(() => (apiRetry ? toRetryStatus(apiRetry) : null), [apiRetry]);
@@ -241,7 +238,7 @@ function TurnChatLoadingSlot({
       ) : (
         // running 是 ChatLoading 的权威事实；额外静默计时会让 projection
         // 更新反复重启可见性，并使 UI 晚于真实状态。
-        <ChatLoading loading data-testid={TID_CHAT_LOADING} size="sm" />
+        <ChatLoading loading data-testid={TID_CHAT_LOADING} initialElapsedMs={initialElapsedMs} />
       )}
     </div>
   );
@@ -662,9 +659,6 @@ function AssistantHistoryStatus({
     intl,
     locale,
   );
-  // 运行中改用 DeepSeek 风格状态胶囊承载「工作中 + 用时」（docs/spec/assistant-working-status-pill.md）；
-  // 完成态/中断态维持纯文本——胶囊只在运行中存在。
-  const isRunning = segment.workStatus?.state === "running";
   const savedDurationLabel =
     segment.workStatus?.state === "completed" &&
     highspeedMeta?.savedDurationMs !== undefined &&
@@ -686,10 +680,6 @@ function AssistantHistoryStatus({
     <div
       className={cn(
         "flex w-full flex-wrap items-center justify-between gap-2 border-b",
-        // 运行中吸顶：胶囊挂在本轮工作历史头部，工作行持续追加会把它向上顶出视口；
-        // 贴底跟随恰恰是最常见的停留位置，只靠离屏兜底覆盖不到。吸顶让
-        // 「工作中 + 用时」在本轮内始终可见，本轮结束回归普通文档流自动释放。
-        resolveAssistantHistoryStatusStickyClass(segment.workStatus?.state),
         highspeed ? "border-icon-purple/30 pb-3 pl-1" : "border-[var(--color-border)]/50 pb-2",
       )}
     >
@@ -700,16 +690,12 @@ function AssistantHistoryStatus({
           data-history-open={String(open)}
           className="group/history-message inline-flex max-w-full items-center gap-2 text-start text-ui-base text-foreground-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-input-border-focused)]"
         >
-  {isRunning ? (
-    <ConversationWorkingStatusPill durationLabel={durationLabel} />
-  ) : (
-    <span
-      className={cn("truncate", highspeed && "font-medium leading-5 text-icon-purple")}
-      data-highspeed-duration={highspeed ? "true" : undefined}
-    >
-      {label}
-    </span>
-  )}
+          <span
+            className={cn("truncate", highspeed && "font-medium leading-5 text-icon-purple")}
+            data-highspeed-duration={highspeed ? "true" : undefined}
+          >
+            {label}
+          </span>
           {!segment.assistantHistoryDefaultOpen ? (
             <ChevronRightIcon
               aria-hidden
@@ -985,7 +971,11 @@ function ConversationTurnFlow({
           stageTailIsRunning={unit.isRunning}
           assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
         />
-        <TurnChatLoadingSlot apiRetry={apiRetry} eligible={showLoading} />
+        <TurnChatLoadingSlot
+          apiRetry={apiRetry}
+          eligible={showLoading}
+          initialElapsedMs={unit.workStatus?.durationMs ?? 0}
+        />
       </div>
     );
   }
@@ -1028,10 +1018,6 @@ function ConversationTurnFlow({
 
   // 即使恢复了 guide 的 row 全序，也不能让所有 history chunk 共享同一个
   // Collapsible。accepted guide 现在由 CLI workSegments 定界，每段组件自行维护折叠状态。
-  // 运行中的状态胶囊已承载「工作中/用时」，尾部裸 ChatLoading 只在胶囊缺席时兜底。
-  const hasRunningWorkSegment = workSegments.some(
-    (segment) => segment.workStatus?.state === "running",
-  );
   return (
     <div className="flex flex-col gap-5">
       {workSegments.map((segment) => (
@@ -1068,7 +1054,8 @@ function ConversationTurnFlow({
       ))}
       <TurnChatLoadingSlot
         apiRetry={apiRetry}
-        eligible={shouldShowTurnChatLoadingWithRunningPill({ showLoading, hasRunningWorkSegment })}
+        eligible={showLoading}
+        initialElapsedMs={unit.workStatus?.durationMs ?? 0}
       />
     </div>
   );
@@ -1277,7 +1264,11 @@ function ConversationBackgroundResultWork({
           assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
         />
       ) : null}
-      <TurnChatLoadingSlot apiRetry={apiRetry} eligible={showLoading} />
+      <TurnChatLoadingSlot
+        apiRetry={apiRetry}
+        eligible={showLoading}
+        initialElapsedMs={unit.workStatus?.durationMs ?? 0}
+      />
     </div>
   );
 }

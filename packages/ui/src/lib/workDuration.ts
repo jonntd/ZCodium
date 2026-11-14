@@ -57,3 +57,22 @@ export function formatWorkDuration(
     .map((part) => `${part.value}${separator}${part.unit}`)
     .join(" ");
 }
+
+/** 按已完整经过的秒拆分，不显示小数；运行中耗时保持原有格式（对齐 upstream v3.18.2）。 */
+export function formatRunningWorkDuration(
+  durationMs: number,
+  formatMessage: FormatMessage,
+  locale: string,
+): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const separator = workDurationUnitSeparator(locale);
+  const parts: string[] = [];
+  if (hours) parts.push(`${hours}${separator}${formatMessage({ id: UNIT_IDS.hour })}`);
+  if (hours || minutes)
+    parts.push(`${minutes}${separator}${formatMessage({ id: UNIT_IDS.minute })}`);
+  parts.push(`${seconds}${separator}${formatMessage({ id: UNIT_IDS.second })}`);
+  return parts.join(" ");
+}
