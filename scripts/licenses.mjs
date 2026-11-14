@@ -14,6 +14,7 @@
 import { generateThirdPartyNotices } from "./generate-third-party-notices.mjs";
 import { readVerifiedNotices } from "./third-party-notices.mjs";
 import {
+  isReviewedBuildBinaryLicense,
   isReviewedLegacyLicense,
   isReviewedBundledFontLicense,
   legacyLicenseIdentifier,
@@ -130,7 +131,12 @@ function weakAllowReason(r) {
 if (command === "check") {
   const bad = [];
   for (const r of installed.values()) {
-    if (r.bucket === "green" || isReviewedLegacyLicense(r) || isReviewedBundledFontLicense(r))
+    if (
+      r.bucket === "green" ||
+      isReviewedLegacyLicense(r) ||
+      isReviewedBundledFontLicense(r) ||
+      isReviewedBuildBinaryLicense(r)
+    )
       continue;
     if (r.bucket.startsWith("yellow") && weakAllowReason(r)) continue;
     bad.push(r);

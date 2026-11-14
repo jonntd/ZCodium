@@ -10,6 +10,25 @@ export function isReviewedLegacyLicense(pkg) {
   return reviewed.has(`${pkg.name}@${pkg.version}`) && pkg.license === "MIT/X11";
 }
 
+// 构建期专有二进制工具的逐项复核：name@version 精确锁定（版本升级重新阻断，
+// 需按新分发物重新核对许可文本后更新）。微软官方 VSIX 签名工具（@vscode/vsce
+// 的平台二进制，license 字段为 "SEE LICENSE IN LICENSE.txt" 即 MS Software
+// License Terms）：仅在打包/发布扩展时使用，产物为扩展文件本身、该二进制不随
+// 产品分发。人工复核 2026-11-14。
+const reviewedBuildBinaries = new Set([
+  "@vscode/vsce-sign@2.1.0",
+  "@vscode/vsce-sign-darwin-arm64@2.0.6",
+  "@vscode/vsce-sign-darwin-x64@2.0.6",
+  "@vscode/vsce-sign-linux-arm64@2.0.6",
+  "@vscode/vsce-sign-linux-x64@2.0.6",
+  "@vscode/vsce-sign-win32-arm64@2.0.6",
+  "@vscode/vsce-sign-win32-x64@2.0.6",
+]);
+
+export function isReviewedBuildBinaryLicense(pkg) {
+  return reviewedBuildBinaries.has(`${pkg.name}@${pkg.version}`);
+}
+
 // 文档查看器原样分发字体分片并附完整许可；通用分类未收录 OFL 导致导出误阻断。
 // 仅接受已核验的精确依赖，不将所有 OFL 字体放行；材料与分发方式见 third-party/README.md。
 export function isReviewedBundledFontLicense(pkg) {

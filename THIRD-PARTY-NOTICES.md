@@ -334,7 +334,11 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 
 - @napi-rs/canvas-linux-arm64-gnu@0.1.100 — MIT
 
+- @napi-rs/canvas-linux-arm64-musl@0.1.100 — MIT
+
 - @napi-rs/canvas-linux-x64-gnu@0.1.100 — MIT
+
+- @napi-rs/canvas-linux-x64-musl@0.1.100 — MIT
 
 - @napi-rs/canvas-win32-arm64-msvc@0.1.100 — MIT
 
@@ -2043,6 +2047,8 @@ Original copyright, license and NOTICE text is retained below. Identical text is
 - tailwind-scrollbar-hide@4.0.0 — MIT
 
 - tailwindcss@4.2.2 — MIT
+
+- tailwindcss@4.3.4 — MIT
 
 - tiny-invariant@1.3.3 — MIT
 
@@ -4477,7 +4483,7 @@ SOFTWARE.
 
 - @lydell/node-pty-linux-x64@1.2.0-beta.10: LICENSE
 
-- node-pty@1.1.0: LICENSE
+- node-pty@1.1.0: https://raw.githubusercontent.com/microsoft/node-pty/v1.1.0/LICENSE
 
 
 
@@ -4932,7 +4938,11 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 - @napi-rs/canvas-linux-arm64-gnu@0.1.100: https://raw.githubusercontent.com/Brooooooklyn/canvas/db337893b9b53483050ca7b24c6d306e4da06741/LICENSE
 
+- @napi-rs/canvas-linux-arm64-musl@0.1.100: https://raw.githubusercontent.com/Brooooooklyn/canvas/db337893b9b53483050ca7b24c6d306e4da06741/LICENSE
+
 - @napi-rs/canvas-linux-x64-gnu@0.1.100: https://raw.githubusercontent.com/Brooooooklyn/canvas/db337893b9b53483050ca7b24c6d306e4da06741/LICENSE
+
+- @napi-rs/canvas-linux-x64-musl@0.1.100: https://raw.githubusercontent.com/Brooooooklyn/canvas/db337893b9b53483050ca7b24c6d306e4da06741/LICENSE
 
 - @napi-rs/canvas-win32-arm64-msvc@0.1.100: https://raw.githubusercontent.com/Brooooooklyn/canvas/db337893b9b53483050ca7b24c6d306e4da06741/LICENSE
 
@@ -27858,52 +27868,6 @@ MIT
 
 ````
 
-### Notice c39e428064b4f3e4fe81a975bf0fd3b845922b431bc4d9a7ffc8bfb091981836
-
-- node-pty@1.1.0: deps/winpty/LICENSE
-
-
-
-````text
-The MIT License (MIT)
-
-Copyright (c) 2011-2016 Ryan Prichard
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to
-deal in the Software without restriction, including without limitation the
-rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-sell copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-IN THE SOFTWARE.
-
-````
-
-### Notice 7cd68f9b7b52db9a94cad7bfa663abdae9833a9136f72caff5303db425fb47da
-
-- node-pty@1.1.0: README.md (license section)
-
-
-
-````text
-## License
-
-Copyright (c) 2012-2015, Christopher Jeffrey (MIT License).<br>
-Copyright (c) 2016, Daniel Imms (MIT License).<br>
-Copyright (c) 2018, Microsoft Corporation (MIT License).
-
-````
-
 ### Notice 3706296ed611888111ceccc1dff4712844dea4bde0b185c82d718c3b69895abe
 
 - node-releases@2.0.37: LICENSE
@@ -34217,6 +34181,8 @@ SOFTWARE.
 ### Notice 60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985
 
 - tailwindcss@4.2.2: LICENSE
+
+- tailwindcss@4.3.4: LICENSE
 
 
 
