@@ -2,11 +2,13 @@
   "name": "zcode-plugins",
   "description": "Official ZCode plugin packages, published for the open-source ZCode build.",
   "version": 1,
-  "metadata": { "pluginRoot": "plugins" },
+  "metadata": {
+    "pluginRoot": "plugins"
+  },
   "plugins": [
     {
       "name": "android-emulator",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "description": "Provides Android development workflows and emulator automation for ZCode.",
       "source": "./android-emulator-plugin"
     },
@@ -18,7 +20,7 @@
     },
     {
       "name": "documents",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "DOCX document production skills and a Word viewer panel, published as an official ZCode plugin.",
       "source": "./documents-plugin"
     },
@@ -36,7 +38,7 @@
     },
     {
       "name": "pdf",
-      "version": "0.2.2",
+      "version": "0.2.3",
       "description": "PDF production skills and a PDF viewer panel, published as an official ZCode plugin.",
       "source": "./pdf-plugin"
     },
@@ -48,7 +50,7 @@
     },
     {
       "name": "presentations",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "PPTX presentation production skills and a PowerPoint viewer panel, published as an official ZCode plugin.",
       "source": "./presentations-plugin"
     },
@@ -66,13 +68,13 @@
     },
     {
       "name": "spreadsheets",
-      "version": "0.2.1",
+      "version": "0.2.2",
       "description": "XLSX spreadsheet production skills and an Excel viewer panel, published as an official ZCode plugin.",
       "source": "./spreadsheets-plugin"
     },
     {
       "name": "visualize",
-      "version": "0.1.1",
+      "version": "0.1.2",
       "description": "Create interactive explanations, charts and design previews in ZCode conversations.",
       "source": "./visualize-plugin"
     },
@@ -81,6 +83,36 @@
       "version": "0.3.0",
       "description": "ZCode usage guidance, diagnostics and best-practice answers.",
       "source": "./zcode-guide-plugin"
+    },
+    {
+      "name": "browser-use",
+      "version": "0.5.1",
+      "description": "Built-in browser automation runtime and guidance for Desktop IAB and explicitly enabled CLI-managed headless CDP: open, navigate, inspect, click, type, screenshot, record workspace WebM videos, and verify web pages and local dev targets.",
+      "source": "./browser-use-plugin"
+    },
+    {
+      "name": "design",
+      "version": "0.7.2",
+      "description": "Design workflow for UI, web, app prototypes and HTML decks, delivered as workspace files.",
+      "source": "./design-plugin"
+    },
+    {
+      "name": "document-skills",
+      "version": "0.1.5",
+      "description": "Built-in DOCX and PDF document production skills, published as an official ZCode plugin.",
+      "source": "./document-skills-plugin"
+    },
+    {
+      "name": "node-repl-host",
+      "version": "0.7.0",
+      "description": "Shared node_repl runtime host for ZCode official capabilities. Not user-facing: it carries no skill and appears in no marketplace listing; Browser Use and Computer Use enable it and contribute their own skills, docs and runtime assets.",
+      "source": "./node-repl-host-plugin"
+    },
+    {
+      "name": "zcode-site",
+      "version": "0.5.0",
+      "description": "Publish new or throwaway web projects to ZCode Sites for a quick preview or share link, and manage the site.",
+      "source": "./zcode-site-plugin"
     }
   ]
 }

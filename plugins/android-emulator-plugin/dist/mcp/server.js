@@ -878,10 +878,10 @@ function mergeDefs(...defs) {
 function cloneDef(schema) {
   return mergeDefs(schema._zod.def);
 }
-function getElementAtPath(obj, path8) {
-  if (!path8)
+function getElementAtPath(obj, path9) {
+  if (!path9)
     return obj;
-  return path8.reduce((acc, key2) => acc?.[key2], obj);
+  return path9.reduce((acc, key2) => acc?.[key2], obj);
 }
 function promiseAllObject(promisesObj) {
   const keys = Object.keys(promisesObj);
@@ -1221,11 +1221,11 @@ function explicitlyAborted(x, startIndex = 0) {
   }
   return false;
 }
-function prefixIssues(path8, issues) {
+function prefixIssues(path9, issues) {
   return issues.map((iss) => {
     var _a3;
     (_a3 = iss).path ?? (_a3.path = []);
-    iss.path.unshift(path8);
+    iss.path.unshift(path9);
     return iss;
   });
 }
@@ -1675,16 +1675,16 @@ function flattenError(error62, mapper = (issue2) => issue2.message) {
 }
 function formatError(error62, mapper = (issue2) => issue2.message) {
   const fieldErrors = { _errors: [] };
-  const processError = (error63, path8 = []) => {
+  const processError = (error63, path9 = []) => {
     for (const issue2 of error63.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path8, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path8, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path8, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
       } else {
-        const fullpath = [...path8, ...issue2.path];
+        const fullpath = [...path9, ...issue2.path];
         if (fullpath.length === 0) {
           fieldErrors._errors.push(mapper(issue2));
         } else {
@@ -1723,17 +1723,17 @@ function formatError(error62, mapper = (issue2) => issue2.message) {
 }
 function treeifyError(error62, mapper = (issue2) => issue2.message) {
   const result = { errors: [] };
-  const processError = (error63, path8 = []) => {
+  const processError = (error63, path9 = []) => {
     var _a3;
     for (const issue2 of error63.issues) {
       if (issue2.code === "invalid_union" && issue2.errors.length) {
-        issue2.errors.map((issues) => processError({ issues }, [...path8, ...issue2.path]));
+        issue2.errors.map((issues) => processError({ issues }, [...path9, ...issue2.path]));
       } else if (issue2.code === "invalid_key") {
-        processError({ issues: issue2.issues }, [...path8, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
       } else if (issue2.code === "invalid_element") {
-        processError({ issues: issue2.issues }, [...path8, ...issue2.path]);
+        processError({ issues: issue2.issues }, [...path9, ...issue2.path]);
       } else {
-        const fullpath = [...path8, ...issue2.path];
+        const fullpath = [...path9, ...issue2.path];
         if (fullpath.length === 0) {
           result.errors.push(mapper(issue2));
           continue;
@@ -1772,8 +1772,8 @@ function treeifyError(error62, mapper = (issue2) => issue2.message) {
 }
 function toDotPath(_path) {
   const segs = [];
-  const path8 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
-  for (const seg of path8) {
+  const path9 = _path.map((seg) => typeof seg === "object" ? seg.key : seg);
+  for (const seg of path9) {
     if (typeof seg === "number")
       segs.push(`[${seg}]`);
     else if (typeof seg === "symbol")
@@ -18875,13 +18875,13 @@ function resolveRef(ref, ctx) {
   if (!ref.startsWith("#")) {
     throw new Error("External $ref is not supported, only local refs (#/...) are allowed");
   }
-  const path8 = ref.slice(1).split("/").filter(Boolean);
-  if (path8.length === 0) {
+  const path9 = ref.slice(1).split("/").filter(Boolean);
+  if (path9.length === 0) {
     return ctx.rootSchema;
   }
   const defsKey = ctx.version === "draft-2020-12" ? "$defs" : "definitions";
-  if (path8[0] === defsKey) {
-    const key2 = path8[1] === void 0 ? void 0 : decodeJSONPointerSegment(path8[1]);
+  if (path9[0] === defsKey) {
+    const key2 = path9[1] === void 0 ? void 0 : decodeJSONPointerSegment(path9[1]);
     if (!key2 || !ctx.defs[key2]) {
       throw new Error(`Reference not found: ${ref}`);
     }
@@ -23289,9 +23289,9 @@ var rev2026Codec = {
     });
     const parsed = buildSchemas2026().RequestMetaEnvelopeSchema.safeParse(meta3);
     if (!parsed.success) for (const issue2 of parsed.error.issues) {
-      const path8 = issue2.path.map(String);
-      const key2 = path8.length > 0 ? path8.join(".") : "_meta";
-      if (path8.length === 1 && issues.some((existing) => existing.key === key2 && existing.problem === "missing")) continue;
+      const path9 = issue2.path.map(String);
+      const key2 = path9.length > 0 ? path9.join(".") : "_meta";
+      if (path9.length === 1 && issues.some((existing) => existing.key === key2 && existing.problem === "missing")) continue;
       issues.push({
         key: key2,
         problem: issue2.message
@@ -23593,29 +23593,29 @@ var PERMITTED_X_MCP_HEADER_TYPES = /* @__PURE__ */ new Set([
 function scanXMcpHeaderDeclarations(inputSchema) {
   const declarations = [];
   const seenLower = /* @__PURE__ */ new Map();
-  const visit2 = (node2, path8, reachable) => {
+  const visit2 = (node2, path9, reachable) => {
     if (node2 === null || typeof node2 !== "object") return void 0;
     const schema = node2;
     if (X_MCP_HEADER_KEY in schema) {
-      if (!reachable || path8.length === 0) return `${pathName(path8)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
+      if (!reachable || path9.length === 0) return `${pathName(path9)}: x-mcp-header is only permitted on properties statically reachable via a chain of 'properties' keys (not under items, additionalProperties, oneOf/anyOf/allOf/not, if/then/else, or $ref)`;
       const raw = schema[X_MCP_HEADER_KEY];
-      if (typeof raw !== "string" || raw.length === 0) return `${pathName(path8)}: x-mcp-header MUST be a non-empty string`;
-      if (!RFC9110_TOKEN.test(raw)) return `${pathName(path8)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
+      if (typeof raw !== "string" || raw.length === 0) return `${pathName(path9)}: x-mcp-header MUST be a non-empty string`;
+      if (!RFC9110_TOKEN.test(raw)) return `${pathName(path9)}: x-mcp-header '${raw}' is not a valid RFC 9110 token (no spaces, control characters or HTTP delimiters)`;
       const type = typeof schema.type === "string" ? schema.type : void 0;
-      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path8)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
+      if (type === void 0 || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) return `${pathName(path9)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? "<none>"}`;
       const lower = raw.toLowerCase();
       const prior = seenLower.get(lower);
       if (prior !== void 0) return `x-mcp-header '${raw}' is not case-insensitively unique (also declared as '${prior}')`;
       seenLower.set(lower, raw);
       declarations.push({
-        path: path8,
+        path: path9,
         headerName: raw,
         type
       });
     }
     const properties = schema.properties;
     if (properties !== null && typeof properties === "object") for (const [key2, child] of Object.entries(properties)) {
-      const fault$1 = visit2(child, [...path8, key2], reachable);
+      const fault$1 = visit2(child, [...path9, key2], reachable);
       if (fault$1 !== void 0) return fault$1;
     }
     for (const k of NON_REACHABLE_SUBSCHEMA_KEYWORDS) {
@@ -23623,7 +23623,7 @@ function scanXMcpHeaderDeclarations(inputSchema) {
       if (sub === void 0) continue;
       const branches = Array.isArray(sub) ? sub : sub !== null && typeof sub === "object" && OBJECT_VALUED_SUBSCHEMA_KEYWORDS.has(k) ? Object.values(sub) : [sub];
       for (const branch of branches) {
-        const fault$1 = visit2(branch, [...path8, `<${k}>`], false);
+        const fault$1 = visit2(branch, [...path9, `<${k}>`], false);
         if (fault$1 !== void 0) return fault$1;
       }
     }
@@ -23663,8 +23663,8 @@ var OBJECT_VALUED_SUBSCHEMA_KEYWORDS = /* @__PURE__ */ new Set([
   "$defs",
   "definitions"
 ]);
-function pathName(path8) {
-  return path8.length === 0 ? "<root>" : path8.join(".");
+function pathName(path9) {
+  return path9.length === 0 ? "<root>" : path9.join(".");
 }
 var HEADER_MISMATCH_ERROR_CODE = -32020;
 var INBOUND_VALIDATION_LADDER = [
@@ -23914,7 +23914,7 @@ var PROPERTY_KEYS_BY_TYPE = {
   array: shapeKeys([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema])
 };
 var SUPPORTED_STRING_FORMATS = new Set(StringSchemaSchema.shape.format.unwrap().options);
-function walkProperty(node2, path8, vendor, unsupported) {
+function walkProperty(node2, path9, vendor, unsupported) {
   if (!isJsonObject(node2)) return node2;
   const allowedKeys = typeof node2.type === "string" && Object.hasOwn(PROPERTY_KEYS_BY_TYPE, node2.type) ? PROPERTY_KEYS_BY_TYPE[node2.type] : void 0;
   if (allowedKeys === void 0) return node2;
@@ -23922,8 +23922,8 @@ function walkProperty(node2, path8, vendor, unsupported) {
   for (const [key2, value] of Object.entries(node2)) if (allowedKeys.has(key2) || isAnnotationOnlyJsonSchemaKeyword(key2)) pruned[key2] = value;
   else if (key2 === "pattern" && node2.type === "string" && typeof node2.format === "string") {
     if (!SUPPORTED_STRING_FORMATS.has(node2.format)) pruned[key2] = value;
-    else if (typeof value !== "string" || !isLibraryFormatPattern(node2.format, value, vendor)) unsupported.push(`${path8}.${key2}`);
-  } else unsupported.push(`${path8}.${key2}`);
+    else if (typeof value !== "string" || !isLibraryFormatPattern(node2.format, value, vendor)) unsupported.push(`${path9}.${key2}`);
+  } else unsupported.push(`${path9}.${key2}`);
   return pruned;
 }
 function walkRequestedSchema(converted, vendor) {
@@ -23940,11 +23940,11 @@ function describeUnsupportedProperties(pruned, fallback) {
   const offenders = Object.entries(pruned.properties).filter(([, node2]) => !parseSchema(PrimitiveSchemaDefinitionSchema, node2).success).map(([name]) => `properties.${name}`);
   return offenders.length > 0 ? offenders.join(", ") : fallback;
 }
-function findDroppedConstraintPaths(original, parsed, path8 = "") {
-  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path8}[${index}]`));
+function findDroppedConstraintPaths(original, parsed, path9 = "") {
+  if (Array.isArray(original) && Array.isArray(parsed)) return original.flatMap((item, index) => findDroppedConstraintPaths(item, parsed[index], `${path9}[${index}]`));
   if (!isJsonObject(original) || !isJsonObject(parsed)) return [];
   return Object.entries(original).flatMap(([key2, value]) => {
-    const childPath = path8 ? `${path8}.${key2}` : key2;
+    const childPath = path9 ? `${path9}.${key2}` : key2;
     if (!Object.prototype.hasOwnProperty.call(parsed, key2)) return isAnnotationOnlyJsonSchemaKeyword(key2) ? [] : [childPath];
     return findDroppedConstraintPaths(value, parsed[key2], childPath);
   });
@@ -25616,9 +25616,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       const rhs = this.rhs === void 0 ? "" : ` = ${this.rhs}`;
       return `${varKind} ${this.name}${rhs};` + _n;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       if (!names[this.name.str]) return;
-      if (this.rhs) this.rhs = optimizeExpr(this.rhs, names, constants);
+      if (this.rhs) this.rhs = optimizeExpr(this.rhs, names, constants2);
       return this;
     }
     get names() {
@@ -25635,9 +25635,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     render({ _n }) {
       return `${this.lhs} = ${this.rhs};` + _n;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       if (this.lhs instanceof code_1.Name && !names[this.lhs.str] && !this.sideEffects) return;
-      this.rhs = optimizeExpr(this.rhs, names, constants);
+      this.rhs = optimizeExpr(this.rhs, names, constants2);
       return this;
     }
     get names() {
@@ -25696,8 +25696,8 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     optimizeNodes() {
       return `${this.code}` ? this : void 0;
     }
-    optimizeNames(names, constants) {
-      this.code = optimizeExpr(this.code, names, constants);
+    optimizeNames(names, constants2) {
+      this.code = optimizeExpr(this.code, names, constants2);
       return this;
     }
     get names() {
@@ -25723,12 +25723,12 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       }
       return nodes.length > 0 ? this : void 0;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       const { nodes } = this;
       let i = nodes.length;
       while (i--) {
         const n = nodes[i];
-        if (n.optimizeNames(names, constants)) continue;
+        if (n.optimizeNames(names, constants2)) continue;
         subtractNames(names, n.names);
         nodes.splice(i, 1);
       }
@@ -25775,11 +25775,11 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       if (cond === false || !this.nodes.length) return void 0;
       return this;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       var _a3;
-      this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants);
-      if (!(super.optimizeNames(names, constants) || this.else)) return;
-      this.condition = optimizeExpr(this.condition, names, constants);
+      this.else = (_a3 = this.else) === null || _a3 === void 0 ? void 0 : _a3.optimizeNames(names, constants2);
+      if (!(super.optimizeNames(names, constants2) || this.else)) return;
+      this.condition = optimizeExpr(this.condition, names, constants2);
       return this;
     }
     get names() {
@@ -25801,9 +25801,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     render(opts) {
       return `for(${this.iteration})` + super.render(opts);
     }
-    optimizeNames(names, constants) {
-      if (!super.optimizeNames(names, constants)) return;
-      this.iteration = optimizeExpr(this.iteration, names, constants);
+    optimizeNames(names, constants2) {
+      if (!super.optimizeNames(names, constants2)) return;
+      this.iteration = optimizeExpr(this.iteration, names, constants2);
       return this;
     }
     get names() {
@@ -25838,9 +25838,9 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
     render(opts) {
       return `for(${this.varKind} ${this.name} ${this.loop} ${this.iterable})` + super.render(opts);
     }
-    optimizeNames(names, constants) {
-      if (!super.optimizeNames(names, constants)) return;
-      this.iterable = optimizeExpr(this.iterable, names, constants);
+    optimizeNames(names, constants2) {
+      if (!super.optimizeNames(names, constants2)) return;
+      this.iterable = optimizeExpr(this.iterable, names, constants2);
       return this;
     }
     get names() {
@@ -25879,11 +25879,11 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       (_b = this.finally) === null || _b === void 0 || _b.optimizeNodes();
       return this;
     }
-    optimizeNames(names, constants) {
+    optimizeNames(names, constants2) {
       var _a3, _b;
-      super.optimizeNames(names, constants);
-      (_a3 = this.catch) === null || _a3 === void 0 || _a3.optimizeNames(names, constants);
-      (_b = this.finally) === null || _b === void 0 || _b.optimizeNames(names, constants);
+      super.optimizeNames(names, constants2);
+      (_a3 = this.catch) === null || _a3 === void 0 || _a3.optimizeNames(names, constants2);
+      (_b = this.finally) === null || _b === void 0 || _b.optimizeNames(names, constants2);
       return this;
     }
     get names() {
@@ -26132,7 +26132,7 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
   function addExprNames(names, from) {
     return from instanceof code_1._CodeOrName ? addNames(names, from.names) : names;
   }
-  function optimizeExpr(expr, names, constants) {
+  function optimizeExpr(expr, names, constants2) {
     if (expr instanceof code_1.Name) return replaceName(expr);
     if (!canOptimize(expr)) return expr;
     return new code_1._Code(expr._items.reduce((items, c) => {
@@ -26142,13 +26142,13 @@ var require_codegen = /* @__PURE__ */ __commonJSMin(((exports) => {
       return items;
     }, []));
     function replaceName(n) {
-      const c = constants[n.str];
+      const c = constants2[n.str];
       if (c === void 0 || names[n.str] !== 1) return n;
       delete names[n.str];
       return c;
     }
     function canOptimize(e) {
-      return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants[c.str] !== void 0);
+      return e instanceof code_1._Code && e._items.some((c) => c instanceof code_1.Name && names[c.str] === 1 && constants2[c.str] !== void 0);
     }
   }
   function subtractNames(names, from) {
@@ -28019,8 +28019,8 @@ var require_utils = /* @__PURE__ */ __commonJSMin(((exports, module) => {
     for (let i = 0; i < str.length; i++) if (str[i] === token) ind++;
     return ind;
   }
-  function removeDotSegments(path8) {
-    let input2 = path8;
+  function removeDotSegments(path9) {
+    let input2 = path9;
     const output2 = [];
     let nextSlash = -1;
     let len = 0;
@@ -28173,8 +28173,8 @@ var require_schemes = /* @__PURE__ */ __commonJSMin(((exports, module) => {
       wsComponent.secure = void 0;
     }
     if (wsComponent.resourceName) {
-      const [path8, query] = wsComponent.resourceName.split("?");
-      wsComponent.path = path8 && path8 !== "/" ? path8 : void 0;
+      const [path9, query] = wsComponent.resourceName.split("?");
+      wsComponent.path = path9 && path9 !== "/" ? path9 : void 0;
       wsComponent.query = query;
       wsComponent.resourceName = void 0;
     }
@@ -33694,19 +33694,70 @@ function image(value, data2, mimeType = "image/png") {
 }
 
 // src/providers/preflight.ts
-import path5 from "node:path";
+import path6 from "node:path";
 
 // src/lib/run.ts
 import { spawn as spawnChild } from "node:child_process";
-async function run(cmd, opts = {}) {
-  const env = Object.fromEntries(
-    Object.entries({ ...process.env, ...opts.env ?? {} }).filter(
-      (item) => {
-        return typeof item[1] === "string";
-      }
-    )
+import path2 from "node:path";
+
+// src/lib/path.ts
+import { constants } from "node:fs";
+import { access, mkdir, realpath, stat } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+async function data(...part) {
+  const dir = path.join(
+    process.env.ANDROID_PLUGIN_DATA || path.join(os.tmpdir(), "android-emulator-plugin"),
+    ...part
   );
-  const actual = commandForPlatform(cmd);
+  await mkdir(dir, { recursive: true });
+  return dir;
+}
+function inside(base, raw) {
+  const out = path.resolve(base, raw);
+  if (out === base || out.startsWith(base + path.sep)) return out;
+  throw new Error(`Path escapes project root: ${raw}`);
+}
+function rel(file2) {
+  return path.relative(process.cwd(), file2) || ".";
+}
+async function externalPath(candidate, kind) {
+  if (!path.isAbsolute(candidate)) return void 0;
+  if (process.platform === "win32" && path.parse(candidate).root.length === 1) return void 0;
+  const workspace = process.cwd();
+  const within = (base, file2) => {
+    const relative = path.relative(base, file2);
+    return relative === "" || !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`);
+  };
+  if (within(workspace, path.resolve(candidate))) return void 0;
+  try {
+    const [root, resolved] = await Promise.all([realpath(workspace), realpath(candidate)]);
+    if (within(root, resolved)) return void 0;
+    const info = await stat(resolved);
+    if (kind === "directory") return info.isDirectory() ? resolved : void 0;
+    if (!info.isFile()) return void 0;
+    await access(resolved, process.platform === "win32" ? constants.F_OK : constants.X_OK);
+    return resolved;
+  } catch {
+    return void 0;
+  }
+}
+
+// src/lib/run.ts
+async function run(cmd, opts = {}) {
+  const merged = Object.fromEntries(
+    // Windows 环境变量不区分大小写；先合并同名键，再删除 undefined，避免保留旧 Path/JAVA_HOME。
+    Object.entries({ ...process.env, ...opts.env }).map(([key2, value]) => [
+      process.platform === "win32" ? key2.toUpperCase() : key2,
+      value
+    ])
+  );
+  const env = Object.fromEntries(
+    Object.entries(merged).filter((item) => {
+      return typeof item[1] === "string";
+    })
+  );
+  const actual = await commandForPlatform(cmd, env);
   const child = spawn(actual, opts.cwd, env, opts.input !== void 0);
   if (child instanceof Error) {
     return {
@@ -33776,10 +33827,13 @@ async function collect(stream) {
   }
   return Buffer.concat(chunks).toString("utf8");
 }
-function commandForPlatform(cmd) {
+async function commandForPlatform(cmd, env) {
   const head = cmd[0];
   if (process.platform !== "win32" || !head || !/\.(bat|cmd)$/i.test(head)) return cmd;
-  return ["cmd.exe", "/d", "/s", "/c", cmd.map(cmdQuote).join(" ")];
+  const root = env.SYSTEMROOT;
+  const interpreter = root ? await externalPath(path2.join(root, "System32", "cmd.exe"), "executable") : void 0;
+  if (!interpreter) throw new Error("Missing trusted Windows command interpreter");
+  return [interpreter, "/d", "/s", "/c", cmd.map(cmdQuote).join(" ")];
 }
 function cmdQuote(value) {
   if (!/[ \t&()^|<>"]/.test(value)) return value;
@@ -33831,9 +33885,9 @@ function intEnv(name, fallback) {
 }
 
 // src/providers/sdk.ts
-import { access, readdir } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { readdir } from "node:fs/promises";
+import os2 from "node:os";
+import path3 from "node:path";
 var TOOL_PATHS = {
   adb: ["platform-tools/adb"],
   emulator: ["emulator/emulator"],
@@ -33849,14 +33903,15 @@ var TOOL_PATHS = {
   ],
   apkanalyzer: ["cmdline-tools/latest/bin/apkanalyzer", "cmdline-tools/bin/apkanalyzer"]
 };
+var JAVA_TOOLS = /* @__PURE__ */ new Set(["sdkmanager", "avdmanager", "apkanalyzer", "gradle"]);
 function sdkRoots(env = process.env) {
   const configured = [env.ANDROID_PLUGIN_SDK_PATH, env.ANDROID_HOME, env.ANDROID_SDK_ROOT].filter(
     (item) => Boolean(item && item.trim())
   );
   return unique([
     ...configured,
-    path.join(os.homedir(), "Library", "Android", "sdk"),
-    path.join(os.homedir(), "Android", "Sdk"),
+    path3.join(os2.homedir(), "Library", "Android", "sdk"),
+    path3.join(os2.homedir(), "Android", "Sdk"),
     ...windowsSdkRoots(env),
     "/opt/android-sdk",
     "/usr/local/share/android-sdk",
@@ -33865,19 +33920,29 @@ function sdkRoots(env = process.env) {
 }
 async function sdkRoot() {
   for (const item of sdkRoots()) {
-    if (await exists(item)) return item;
+    const root = await externalPath(item, "directory");
+    if (root) return root;
   }
   return void 0;
 }
 async function findTool(name) {
-  const viaPath = await which(name);
-  if (viaPath) return viaPath;
+  if (path3.basename(name) !== name) return void 0;
+  if (JAVA_TOOLS.has(name) && !await javaHome()) return void 0;
   const rels = TOOL_PATHS[name] ?? [];
-  for (const root of sdkRoots()) {
+  for (const item of sdkRoots()) {
+    const root = await externalPath(item, "directory");
+    if (!root) continue;
     for (const rel2 of rels) {
-      for (const candidate of executableCandidates(path.join(root, rel2))) {
-        if (await exists(candidate)) return candidate;
+      for (const candidate of executableCandidates(path3.join(root, rel2))) {
+        const found = await externalPath(candidate, "executable");
+        if (found) return found;
       }
+    }
+  }
+  for (const root of await pathDirectories()) {
+    for (const candidate of executableCandidates(path3.join(root, name))) {
+      const found = await externalPath(candidate, "executable");
+      if (found) return found;
     }
   }
   return void 0;
@@ -33908,53 +33973,60 @@ async function androidEnv() {
   const root = await sdkRoot();
   const java = await javaHome();
   const paths = [
-    java ? path.join(java, "bin") : void 0,
-    root ? path.join(root, "platform-tools") : void 0,
-    root ? path.join(root, "emulator") : void 0,
-    root ? path.join(root, "cmdline-tools", "latest", "bin") : void 0,
-    root ? path.join(root, "cmdline-tools", "bin") : void 0,
-    root ? path.join(root, "tools", "bin") : void 0,
-    process.env.PATH
+    java ? path3.join(java, "bin") : void 0,
+    root ? path3.join(root, "platform-tools") : void 0,
+    root ? path3.join(root, "emulator") : void 0,
+    root ? path3.join(root, "cmdline-tools", "latest", "bin") : void 0,
+    root ? path3.join(root, "cmdline-tools", "bin") : void 0,
+    root ? path3.join(root, "tools", "bin") : void 0,
+    ...await pathDirectories()
   ].filter((item) => Boolean(item));
+  const safePaths = await Promise.all(paths.map((item) => externalPath(item, "directory")));
   return {
     JAVA_HOME: java,
     ANDROID_HOME: root,
     ANDROID_SDK_ROOT: root,
-    PATH: paths.join(path.delimiter)
+    PATH: unique(safePaths.filter((item) => Boolean(item))).join(path3.delimiter)
   };
 }
 async function javaHome() {
   const version2 = javaMajorVersion();
   const configured = process.env.JAVA_HOME?.trim();
-  if (configured && await exists(path.join(configured, "bin", javaBin()))) return configured;
+  const configuredHome = configured ? await validJavaHome(configured) : void 0;
+  if (configuredHome) return configuredHome;
   if (process.platform === "darwin") {
     const home = await run(["/usr/libexec/java_home", "-v", version2], { timeout: 5e3 });
     if (ok(home)) {
       const value = home.stdout.trim();
-      if (value) return value;
+      const valid = value ? await validJavaHome(value) : void 0;
+      if (valid) return valid;
     }
   }
   for (const candidate of await javaHomes(version2)) {
-    if (await exists(path.join(candidate, "bin", javaBin()))) return candidate;
+    const valid = await validJavaHome(candidate);
+    if (valid) return valid;
   }
   return void 0;
 }
-async function which(name) {
-  const out = await run(process.platform === "win32" ? ["where", name] : ["which", name], {
-    timeout: 5e3
-  });
-  if (!ok(out)) return void 0;
-  const found = out.stdout.trim().split("\n")[0];
-  return found || void 0;
+async function validJavaHome(candidate) {
+  const root = await externalPath(candidate, "directory");
+  if (!root || !await externalPath(path3.join(root, "bin", javaBin()), "executable"))
+    return void 0;
+  return root;
 }
-async function exists(file2) {
-  return access(file2).then(() => true).catch(() => false);
+async function pathDirectories() {
+  const paths = (process.env.PATH ?? "").split(path3.delimiter).map(
+    (item) => process.platform === "win32" && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item
+  );
+  const checked = await Promise.all(paths.map((item) => externalPath(item, "directory")));
+  return unique(checked.filter((item) => Boolean(item)));
 }
 function unique(items) {
   const seen = /* @__PURE__ */ new Set();
   const out = [];
   for (const item of items) {
-    const resolved = path.resolve(item);
+    if (!path3.isAbsolute(item)) continue;
+    const resolved = path3.normalize(item);
     if (seen.has(resolved)) continue;
     seen.add(resolved);
     out.push(resolved);
@@ -33963,7 +34035,7 @@ function unique(items) {
 }
 function executableCandidates(base) {
   if (process.platform !== "win32") return [base];
-  const ext = path.extname(base);
+  const ext = path3.extname(base);
   if (ext) return [base];
   return [".exe", ".bat", ".cmd", ""].map((suffix) => `${base}${suffix}`);
 }
@@ -33972,29 +34044,29 @@ function javaBin() {
 }
 function windowsSdkRoots(env) {
   return [
-    env.LOCALAPPDATA ? path.join(env.LOCALAPPDATA, "Android", "Sdk") : void 0,
-    path.join(os.homedir(), "AppData", "Local", "Android", "Sdk")
+    env.LOCALAPPDATA ? path3.join(env.LOCALAPPDATA, "Android", "Sdk") : void 0,
+    path3.join(os2.homedir(), "AppData", "Local", "Android", "Sdk")
   ].filter((item) => Boolean(item));
 }
 async function javaHomes(version2) {
   const fixed = [
     `/opt/homebrew/opt/openjdk@${version2}/libexec/openjdk.jdk/Contents/Home`,
     `/Library/Java/JavaVirtualMachines/openjdk-${version2}.jdk/Contents/Home`,
-    path.join(process.env.ProgramFiles || "", "Eclipse Adoptium", `jdk-${version2}`),
-    path.join(process.env.ProgramFiles || "", "Java", `jdk-${version2}`)
+    path3.join(process.env.ProgramFiles || "", "Eclipse Adoptium", `jdk-${version2}`),
+    path3.join(process.env.ProgramFiles || "", "Java", `jdk-${version2}`)
   ].filter(Boolean);
   if (process.platform !== "win32") return fixed;
   const pattern = new RegExp(`^jdk-${escapeRegex2(version2)}`, "i");
   return unique([
     ...fixed,
-    ...await childDirs(path.join(process.env.ProgramFiles || "", "Eclipse Adoptium"), pattern),
-    ...await childDirs(path.join(process.env.ProgramFiles || "", "Java"), pattern)
+    ...await childDirs(path3.join(process.env.ProgramFiles || "", "Eclipse Adoptium"), pattern),
+    ...await childDirs(path3.join(process.env.ProgramFiles || "", "Java"), pattern)
   ]);
 }
 async function childDirs(root, pattern) {
   if (!root) return [];
   const items = await readdir(root, { withFileTypes: true }).catch(() => []);
-  return items.filter((item) => item.isDirectory() && pattern.test(item.name)).map((item) => path.join(root, item.name));
+  return items.filter((item) => item.isDirectory() && pattern.test(item.name)).map((item) => path3.join(root, item.name));
 }
 function escapeRegex2(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -34249,45 +34321,24 @@ function defaultSystemImage() {
 
 // src/providers/project.ts
 import { access as access2, mkdir as mkdir2, readdir as readdir2, readFile, writeFile } from "node:fs/promises";
-import path4 from "node:path";
-
-// src/lib/path.ts
-import { mkdir } from "node:fs/promises";
-import os2 from "node:os";
-import path2 from "node:path";
-async function data(...part) {
-  const dir = path2.join(
-    process.env.ANDROID_PLUGIN_DATA || path2.join(os2.tmpdir(), "android-emulator-plugin"),
-    ...part
-  );
-  await mkdir(dir, { recursive: true });
-  return dir;
-}
-function inside(base, raw) {
-  const out = path2.resolve(base, raw);
-  if (out === base || out.startsWith(base + path2.sep)) return out;
-  throw new Error(`Path escapes project root: ${raw}`);
-}
-function rel(file2) {
-  return path2.relative(process.cwd(), file2) || ".";
-}
+import path5 from "node:path";
 
 // src/providers/project-template.ts
-import path3 from "node:path";
+import path4 from "node:path";
 function templateFiles(root, pkg, sdk) {
   const pkgDir = pkg.replaceAll(".", "/");
   return [
-    { path: path3.join(root, "settings.gradle.kts"), body: settings },
-    { path: path3.join(root, "build.gradle.kts"), body: rootBuild },
-    { path: path3.join(root, "gradle.properties"), body: gradleProperties },
-    ...sdk ? [{ path: path3.join(root, "local.properties"), body: () => localProperties(sdk) }] : [],
-    { path: path3.join(root, "gradle", "libs.versions.toml"), body: versions },
-    { path: path3.join(root, "app", "build.gradle.kts"), body: appBuild },
-    { path: path3.join(root, "app", "src", "main", "AndroidManifest.xml"), body: manifest },
-    { path: path3.join(root, "app", "src", "main", "res", "values", "strings.xml"), body: strings },
-    { path: path3.join(root, "app", "src", "main", "res", "values", "styles.xml"), body: styles },
+    { path: path4.join(root, "settings.gradle.kts"), body: settings },
+    { path: path4.join(root, "build.gradle.kts"), body: rootBuild },
+    { path: path4.join(root, "gradle.properties"), body: gradleProperties },
+    ...sdk ? [{ path: path4.join(root, "local.properties"), body: () => localProperties(sdk) }] : [],
+    { path: path4.join(root, "gradle", "libs.versions.toml"), body: versions },
+    { path: path4.join(root, "app", "build.gradle.kts"), body: appBuild },
+    { path: path4.join(root, "app", "src", "main", "AndroidManifest.xml"), body: manifest },
+    { path: path4.join(root, "app", "src", "main", "res", "values", "strings.xml"), body: strings },
+    { path: path4.join(root, "app", "src", "main", "res", "values", "styles.xml"), body: styles },
     {
-      path: path3.join(root, "app", "src", "main", "java", pkgDir, "MainActivity.kt"),
+      path: path4.join(root, "app", "src", "main", "java", pkgDir, "MainActivity.kt"),
       body: activity
     }
   ];
@@ -34489,18 +34540,18 @@ async function discover(dir = process.cwd()) {
   const manifests = [];
   await walkProjectFiles(dir, 5, async (file2, item) => {
     if (item.isFile() && /^settings\.gradle(\.kts)?$/.test(item.name))
-      gradleRoots.push(path4.relative(dir, path4.dirname(file2)));
+      gradleRoots.push(path5.relative(dir, path5.dirname(file2)));
     if (item.isFile() && item.name === "AndroidManifest.xml")
-      manifests.push(path4.relative(dir, file2));
+      manifests.push(path5.relative(dir, file2));
   });
   const root = gradleRoots.find((item) => item === "") ?? gradleRoots[0];
-  const absRoot = root === void 0 ? void 0 : path4.join(dir, root);
+  const absRoot = root === void 0 ? void 0 : path5.join(dir, root);
   const modules = absRoot ? await modulesFor(absRoot) : [];
   const ids = absRoot ? await applicationIds(absRoot) : [];
-  const apks = absRoot ? (await findApks(absRoot, modules)).map((file2) => path4.relative(dir, file2)) : [];
-  const hasWrapper = absRoot ? await exists2(path4.join(absRoot, process.platform === "win32" ? "gradlew.bat" : "gradlew")) : false;
-  const hasGradleProperties = absRoot ? await exists2(path4.join(absRoot, "gradle.properties")) : false;
-  const hasLocalProperties = absRoot ? await exists2(path4.join(absRoot, "local.properties")) : false;
+  const apks = absRoot ? (await findApks(absRoot, modules)).map((file2) => path5.relative(dir, file2)) : [];
+  const hasWrapper = absRoot ? await exists(path5.join(absRoot, process.platform === "win32" ? "gradlew.bat" : "gradlew")) : false;
+  const hasGradleProperties = absRoot ? await exists(path5.join(absRoot, "gradle.properties")) : false;
+  const hasLocalProperties = absRoot ? await exists(path5.join(absRoot, "local.properties")) : false;
   const warnings = projectWarnings({ hasWrapper, hasGradleProperties, hasLocalProperties });
   return {
     root,
@@ -34545,26 +34596,26 @@ async function create(input2) {
     const hits = await present(files.map((item) => item.path));
     if (hits.length) {
       throw new Error(
-        `Refusing to overwrite existing Android app files: ${hits.map((file2) => path4.relative(cwd, file2)).join(", ")}`
+        `Refusing to overwrite existing Android app files: ${hits.map((file2) => path5.relative(cwd, file2)).join(", ")}`
       );
     }
   }
   for (const file2 of files) {
-    await mkdir2(path4.dirname(file2.path), { recursive: true });
+    await mkdir2(path5.dirname(file2.path), { recursive: true });
     await writeFile(file2.path, file2.body({ name, pkg, minSdk, compileSdk }), "utf8");
   }
   return {
-    root: path4.relative(cwd, root) || ".",
+    root: path5.relative(cwd, root) || ".",
     module: "app",
     variant: "debug",
     applicationId: pkg,
-    files: files.map((file2) => path4.relative(cwd, file2.path)),
+    files: files.map((file2) => path5.relative(cwd, file2.path)),
     createdBy: "template",
     note: "Build uses ./gradlew when present. If the wrapper is missing, android_build_app can generate it with gradle from PATH."
   };
 }
 async function modulesFor(root) {
-  const settings2 = await readFile(path4.join(root, "settings.gradle.kts"), "utf8").catch(() => void 0) ?? await readFile(path4.join(root, "settings.gradle"), "utf8").catch(() => "");
+  const settings2 = await readFile(path5.join(root, "settings.gradle.kts"), "utf8").catch(() => void 0) ?? await readFile(path5.join(root, "settings.gradle"), "utf8").catch(() => "");
   const modules = [...settings2.matchAll(/include\(([^)]+)\)/g)].flatMap(
     (match) => [...String(match[1]).matchAll(/["'](:[^"']+)["']/g)].map((hit) => hit[1] ?? "")
   ).filter(Boolean);
@@ -34593,8 +34644,8 @@ async function applicationIds(root) {
 async function findApks(root, modules = []) {
   const names = modules.length ? modules.map((item) => item.replace(/^:+/, "") || "app") : ["app"];
   const roots = [
-    ...names.map((name) => path4.join(root, name, "build", "outputs", "apk")),
-    path4.join(root, "build", "outputs", "apk")
+    ...names.map((name) => path5.join(root, name, "build", "outputs", "apk")),
+    path5.join(root, "build", "outputs", "apk")
   ];
   const hits = await Promise.all(roots.map((dir) => walkApks(dir, 5)));
   return unique2(hits.flat());
@@ -34606,7 +34657,7 @@ async function walkProjectFiles(dir, depth, cb) {
     items.filter(
       (item) => !item.name.startsWith(".") && !["node_modules", "build", ".gradle"].includes(item.name)
     ).map(async (item) => {
-      const file2 = path4.join(dir, item.name);
+      const file2 = path5.join(dir, item.name);
       await cb(file2, item);
       if (item.isDirectory()) await walkProjectFiles(file2, depth - 1, cb);
     })
@@ -34617,7 +34668,7 @@ async function walkApks(dir, depth) {
   const items = await readdir2(dir, { withFileTypes: true }).catch(() => []);
   return (await Promise.all(
     items.filter((item) => !item.name.startsWith(".")).map(async (item) => {
-      const file2 = path4.join(dir, item.name);
+      const file2 = path5.join(dir, item.name);
       if (item.isFile() && item.name.endsWith(".apk")) return [file2];
       if (item.isDirectory()) return walkApks(file2, depth - 1);
       return [];
@@ -34627,12 +34678,12 @@ async function walkApks(dir, depth) {
 async function present(files) {
   return (await Promise.all(
     files.map(async (file2) => {
-      const hit = await exists2(file2);
+      const hit = await exists(file2);
       return hit ? file2 : void 0;
     })
   )).filter((file2) => file2 !== void 0);
 }
-async function exists2(file2) {
+async function exists(file2) {
   return access2(file2).then(() => true).catch(() => false);
 }
 function cleanName(value) {
@@ -34716,13 +34767,16 @@ ${check2.detail}` : check2.detail,
   }
   const env = await androidEnv();
   const home = await javaHome();
-  const javaCmd = home ? path5.join(home, "bin", process.platform === "win32" ? "java.exe" : "java") : "java";
-  const java = await run([javaCmd, "-version"], { timeout: 1e4, env });
+  const javaCmd = home ? await externalPath(
+    path6.join(home, "bin", process.platform === "win32" ? "java.exe" : "java"),
+    "executable"
+  ) : void 0;
+  const java = javaCmd ? await run([javaCmd, "-version"], { timeout: 1e4, env }) : void 0;
   checks.push({
     name: "Java",
-    ok: ok(java),
-    detail: home ? `${home}
-${brief(java, 1e3) || "available"}` : brief(java, 1e3) || "not found",
+    ok: Boolean(java && ok(java)),
+    detail: java ? `${home}
+${brief(java, 1e3) || "available"}` : "not found",
     fix: "Install a JDK compatible with the Android Gradle Plugin."
   });
   const project = await discover().catch(() => void 0);
@@ -34770,7 +34824,7 @@ function readyDevices(value) {
 
 // src/providers/build.ts
 import { access as access3, mkdir as mkdir3, writeFile as writeFile2 } from "node:fs/promises";
-import path6 from "node:path";
+import path7 from "node:path";
 import { createHash } from "node:crypto";
 
 // src/providers/app.ts
@@ -34891,12 +34945,12 @@ async function findApk(root, module, variant) {
   return pickApk(hits, variant);
 }
 function pickApk(hits, variant) {
-  const want = `${path6.sep}${variant.toLowerCase()}${path6.sep}`;
+  const want = `${path7.sep}${variant.toLowerCase()}${path7.sep}`;
   return hits.find((item) => item.toLowerCase().includes(want)) || hits[0];
 }
 async function gradleCommand(root) {
-  const wrapper = path6.join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
-  if (await exists3(wrapper)) return [wrapper];
+  const wrapper = path7.join(root, process.platform === "win32" ? "gradlew.bat" : "gradlew");
+  if (await exists2(wrapper)) return [wrapper];
   const gradle = await findTool("gradle");
   if (gradle) {
     const generated = await run([gradle, "wrapper", "--gradle-version", "8.9"], {
@@ -34904,7 +34958,7 @@ async function gradleCommand(root) {
       timeout: 12e4,
       env: await androidEnv()
     });
-    if (ok(generated) && await exists3(wrapper)) return [wrapper];
+    if (ok(generated) && await exists2(wrapper)) return [wrapper];
     return [gradle];
   }
   throw new Error(
@@ -34913,7 +34967,7 @@ async function gradleCommand(root) {
 }
 async function record2(name, out) {
   const dir = await data("logs");
-  const file2 = path6.join(dir, `${stamp()}-${name}-${key(process.cwd())}.log`);
+  const file2 = path7.join(dir, `${stamp()}-${name}-${key(process.cwd())}.log`);
   await mkdir3(dir, { recursive: true });
   await writeFile2(
     file2,
@@ -34929,7 +34983,7 @@ async function record2(name, out) {
   );
   return rel(file2);
 }
-async function exists3(file2) {
+async function exists2(file2) {
   return access3(file2).then(() => true).catch(() => false);
 }
 function normalizeModule(value) {
@@ -34948,11 +35002,11 @@ function stamp() {
 // src/providers/screenshot.ts
 import { spawn as spawnChild3 } from "node:child_process";
 import { mkdir as mkdir4, writeFile as writeFile3 } from "node:fs/promises";
-import path7 from "node:path";
+import path8 from "node:path";
 async function shot(input2 = {}) {
   const device = await ensureDevice(input2);
-  const file2 = input2.path ? inside(process.cwd(), input2.path) : path7.join(await data("screenshots"), `${stamp2()}-${device.serial}.png`);
-  await mkdir4(path7.dirname(file2), { recursive: true });
+  const file2 = input2.path ? inside(process.cwd(), input2.path) : path8.join(await data("screenshots"), `${stamp2()}-${device.serial}.png`);
+  await mkdir4(path8.dirname(file2), { recursive: true });
   const bytes = await screencap(device.serial, input2.timeoutMs ?? 3e4);
   await writeFile3(file2, bytes);
   return {
@@ -35219,7 +35273,7 @@ var build2 = {
 };
 var server = new McpServer({
   name: "android-emulator",
-  version: "0.1.0"
+  version: "0.1.1"
 });
 server.registerTool(
   "android_preflight",

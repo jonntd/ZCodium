@@ -60087,7 +60087,7 @@ var StdioServerTransport = class {
 };
 
 // ../office-runtime/src/profile.ts
-var PROFILE = { "name": "spreadsheets", "version": "0.2.1", "title": { "en": "Spreadsheets", "zh-CN": "\u7535\u5B50\u8868\u683C" }, "kinds": ["xlsx"] };
+var PROFILE = { "name": "spreadsheets", "version": "0.2.2", "title": { "en": "Spreadsheets", "zh-CN": "\u7535\u5B50\u8868\u683C" }, "kinds": ["xlsx"] };
 
 // ../office-runtime/src/contract.ts
 var PLUGIN_VERSION = PROFILE.version;
@@ -60301,21 +60301,12 @@ function wellFormedDeep(value) {
 // ../office-runtime/src/app/documents.ts
 var MAX_CACHED = 6;
 var MAX_HANDLES = 4;
+var MAX_SESSIONS = 32;
+var DEFAULT_SESSION = "default";
 function createDocumentOwner({ files, parse: parse4 }) {
   const cache = /* @__PURE__ */ new Map();
   const handles = /* @__PURE__ */ new Map();
-  let current = null;
-  const emptyView = () => ({
-    path: null,
-    kind: null,
-    at: null,
-    selection: null,
-    updatedAt: 0
-  });
-  const views = /* @__PURE__ */ new Map();
-  const reports = /* @__PURE__ */ new Map();
-  let sequence = 0;
-  let revealSeq = 0;
+  const sessions = /* @__PURE__ */ new Map();
   async function entry(input2) {
     const { path } = await files.resolve(input2);
     const fingerprint = await files.fingerprint(path);
@@ -60348,83 +60339,165 @@ function createDocumentOwner({ files, parse: parse4 }) {
   function canonical(doc, at) {
     return formatLocator(doc.check(parseLocator(doc.kind, at)));
   }
-  function snapshot(reveal) {
+  function createSession(id) {
+    let current = null;
+    let disposed = false;
+    const emptyView = () => ({
+      path: null,
+      kind: null,
+      at: null,
+      selection: null,
+      updatedAt: 0
+    });
+    const views = /* @__PURE__ */ new Map();
+    const reports = /* @__PURE__ */ new Map();
+    const tokens = [];
+    let sequence = 0;
+    let revealSeq = 0;
+    function snapshot(reveal) {
+      return {
+        document: current,
+        ...reveal ? { reveal: { ...reveal, seq: ++revealSeq } } : {}
+      };
+    }
     return {
-      document: current,
-      ...reveal ? { reveal: { ...reveal, seq: ++revealSeq } } : {}
+      /** The key this session is stored under; also owns the session's file imports. */
+      id,
+      async info(path) {
+        const { file: file2, doc } = await document(path);
+        return describe3(file2, doc);
+      },
+      /** Make `path` the viewer's document, optionally revealing a location in it. */
+      async open(path, at) {
+        const { file: file2, doc } = await document(path);
+        const target = at ? canonical(doc, at) : null;
+        current = describe3(file2, doc);
+        return snapshot(target ? { targets: [{ at: target }] } : void 0);
+      },
+      /** Point the user at one or more places in one document; opens it if needed. */
+      async show(targets, note) {
+        if (!targets.length)
+          throw new OfficeError("invalid_anchor", "Give at least one anchor to show.");
+        const split = targets.map((target) => ({
+          ...splitAnchor(target.anchor),
+          quote: target.quote
+        }));
+        const path = split[0].path;
+        const { path: resolved } = await files.resolve(path);
+        for (const item of split) {
+          if ((await files.resolve(item.path)).path !== resolved)
+            throw new OfficeError(
+              "invalid_anchor",
+              "All anchors passed to show must be in the same document."
+            );
+        }
+        const { file: file2, doc } = await document(resolved);
+        const resolvedTargets = split.map((item) => ({
+          at: item.at ? canonical(doc, item.at) : defaultAt(doc),
+          ...item.quote?.trim() ? { quote: cut(item.quote.trim(), 0, 500) } : {}
+        }));
+        current = describe3(file2, doc);
+        return snapshot({
+          targets: resolvedTargets,
+          ...note?.trim() ? { note: cut(note.trim(), 0, 500) } : {}
+        });
+      },
+      async read(anchor2, cursor = 0) {
+        const { path, at } = splitAnchor(anchor2);
+        const { file: file2, doc } = await document(path);
+        const locator = at ? doc.check(parseLocator(doc.kind, at)) : null;
+        return {
+          info: describe3(file2, doc),
+          at: locator ? formatLocator(locator) : null,
+          page: doc.read(locator, cursor)
+        };
+      },
+      async search(path, query, limit) {
+        if (!query.trim()) throw new OfficeError("invalid_anchor", "The search query is empty.");
+        const { file: file2, doc } = await document(path);
+        return { info: describe3(file2, doc), hits: doc.search(query.trim(), limit) };
+      },
+      /** Panel only: load bytes for rendering and hand out a token to read them in chunks. */
+      async load(path) {
+        const { file: file2, doc } = await document(path);
+        if (disposed)
+          throw new OfficeError(
+            "invalid_token",
+            "This viewer session was reset; reload the document."
+          );
+        const token = randomUUID();
+        handles.set(token, { bytes: file2.bytes, path: file2.path, revision: file2.revision });
+        tokens.push(token);
+        while (tokens.length > MAX_HANDLES) handles.delete(tokens.shift());
+        return {
+          info: describe3(file2, doc),
+          file: {
+            token,
+            bytes: file2.bytes.byteLength,
+            chunks: Math.max(1, Math.ceil(file2.bytes.byteLength / FILE_CHUNK_BYTES))
+          },
+          ...doc.blocks ? { blocks: doc.blocks } : {}
+        };
+      },
+      /** Panel only: record where the user is. The path must be the panel's current document. */
+      async report(input2) {
+        const viewId = input2.viewId ?? "legacy";
+        const ticket = ++sequence;
+        reports.set(viewId, ticket);
+        const { path, kind } = await files.resolve(input2.path);
+        const clip = (text) => cut(text, 0, 2e3);
+        const view = {
+          path,
+          kind,
+          at: input2.at ? cut(input2.at, 0, 300) : null,
+          selection: input2.selection?.at ? { at: cut(input2.selection.at, 0, 300), text: clip(input2.selection.text ?? "") } : null,
+          updatedAt: Date.now()
+        };
+        if (reports.get(viewId) !== ticket) return views.get(viewId) ?? emptyView();
+        views.set(viewId, view);
+        return view;
+      },
+      views: () => [...views].map(([viewId, view]) => ({ viewId, ...view })),
+      releaseView: (viewId) => {
+        reports.delete(viewId);
+        views.delete(viewId);
+      },
+      view: (viewId) => viewId ? views.get(viewId) ?? emptyView() : views.size === 1 ? views.values().next().value : emptyView(),
+      current: () => current,
+      snapshot: () => snapshot(),
+      close() {
+        current = null;
+        reports.clear();
+        views.clear();
+        return snapshot();
+      },
+      list: (limit) => files.list({ limit }),
+      /** Drop this session's handles when the session itself is dropped. */
+      dispose() {
+        disposed = true;
+        for (const token of tokens.splice(0)) handles.delete(token);
+      }
     };
   }
   return {
-    async info(path) {
-      const { file: file2, doc } = await document(path);
-      return describe3(file2, doc);
-    },
-    /** Make `path` the viewer's document, optionally revealing a location in it. */
-    async open(path, at) {
-      const { file: file2, doc } = await document(path);
-      const target = at ? canonical(doc, at) : null;
-      current = describe3(file2, doc);
-      return snapshot(target ? { targets: [{ at: target }] } : void 0);
-    },
-    /** Point the user at one or more places in one document; opens it if needed. */
-    async show(targets, note) {
-      if (!targets.length)
-        throw new OfficeError("invalid_anchor", "Give at least one anchor to show.");
-      const split = targets.map((target) => ({
-        ...splitAnchor(target.anchor),
-        quote: target.quote
-      }));
-      const path = split[0].path;
-      const { path: resolved } = await files.resolve(path);
-      for (const item of split) {
-        if ((await files.resolve(item.path)).path !== resolved)
-          throw new OfficeError(
-            "invalid_anchor",
-            "All anchors passed to show must be in the same document."
-          );
+    /**
+     * The viewer state of one session (`_meta.session_id` of the call); calls without one share
+     * the default session. Keeps the {@link MAX_SESSIONS} most recently used sessions.
+     */
+    session(id) {
+      const key = id || DEFAULT_SESSION;
+      let state = sessions.get(key);
+      if (state) sessions.delete(key);
+      else state = createSession(key);
+      sessions.set(key, state);
+      while (sessions.size > MAX_SESSIONS) {
+        const [oldest, dropped] = sessions.entries().next().value;
+        sessions.delete(oldest);
+        dropped.dispose();
       }
-      const { file: file2, doc } = await document(resolved);
-      const resolvedTargets = split.map((item) => ({
-        at: item.at ? canonical(doc, item.at) : defaultAt(doc),
-        ...item.quote?.trim() ? { quote: cut(item.quote.trim(), 0, 500) } : {}
-      }));
-      current = describe3(file2, doc);
-      return snapshot({
-        targets: resolvedTargets,
-        ...note?.trim() ? { note: cut(note.trim(), 0, 500) } : {}
-      });
+      return state;
     },
-    async read(anchor2, cursor = 0) {
-      const { path, at } = splitAnchor(anchor2);
-      const { file: file2, doc } = await document(path);
-      const locator = at ? doc.check(parseLocator(doc.kind, at)) : null;
-      return {
-        info: describe3(file2, doc),
-        at: locator ? formatLocator(locator) : null,
-        page: doc.read(locator, cursor)
-      };
-    },
-    async search(path, query, limit) {
-      if (!query.trim()) throw new OfficeError("invalid_anchor", "The search query is empty.");
-      const { file: file2, doc } = await document(path);
-      return { info: describe3(file2, doc), hits: doc.search(query.trim(), limit) };
-    },
-    /** Panel only: load bytes for rendering and hand out a token to read them in chunks. */
-    async load(path) {
-      const { file: file2, doc } = await document(path);
-      const token = randomUUID();
-      handles.set(token, { bytes: file2.bytes, path: file2.path, revision: file2.revision });
-      while (handles.size > MAX_HANDLES) handles.delete(handles.keys().next().value);
-      return {
-        info: describe3(file2, doc),
-        file: {
-          token,
-          bytes: file2.bytes.byteLength,
-          chunks: Math.max(1, Math.ceil(file2.bytes.byteLength / FILE_CHUNK_BYTES))
-        },
-        ...doc.blocks ? { blocks: doc.blocks } : {}
-      };
-    },
+    /** Panel only: one chunk of a loaded file. Tokens are unique across sessions. */
     chunk(token, index) {
       const handle = handles.get(token);
       if (!handle)
@@ -60432,41 +60505,12 @@ function createDocumentOwner({ files, parse: parse4 }) {
       const start = index * FILE_CHUNK_BYTES;
       if (!Number.isInteger(index) || index < 0 || start >= handle.bytes.byteLength && index > 0)
         throw new OfficeError("invalid_token", "Chunk index out of range.");
-      return Buffer.from(handle.bytes.subarray(start, start + FILE_CHUNK_BYTES)).toString("base64");
-    },
-    /** Panel only: record where the user is. The path must be the panel's current document. */
-    async report(input2) {
-      const viewId = input2.viewId ?? "legacy";
-      const ticket = ++sequence;
-      reports.set(viewId, ticket);
-      const { path, kind } = await files.resolve(input2.path);
-      const clip = (text) => cut(text, 0, 2e3);
-      const view = {
-        path,
-        kind,
-        at: input2.at ? cut(input2.at, 0, 300) : null,
-        selection: input2.selection?.at ? { at: cut(input2.selection.at, 0, 300), text: clip(input2.selection.text ?? "") } : null,
-        updatedAt: Date.now()
-      };
-      if (reports.get(viewId) !== ticket) return views.get(viewId) ?? emptyView();
-      views.set(viewId, view);
-      return view;
-    },
-    views: () => [...views].map(([viewId, view]) => ({ viewId, ...view })),
-    releaseView: (viewId) => {
-      reports.delete(viewId);
-      views.delete(viewId);
-    },
-    view: (viewId) => viewId ? views.get(viewId) ?? emptyView() : views.size === 1 ? views.values().next().value : emptyView(),
-    current: () => current,
-    snapshot: () => snapshot(),
-    close() {
-      current = null;
-      reports.clear();
-      views.clear();
-      return snapshot();
-    },
-    list: (limit) => files.list({ limit })
+      const data = Buffer.from(handle.bytes.subarray(start, start + FILE_CHUNK_BYTES)).toString(
+        "base64"
+      );
+      if (start + FILE_CHUNK_BYTES >= handle.bytes.byteLength) handles.delete(token);
+      return data;
+    }
   };
 }
 function defaultAt(doc) {
@@ -60519,6 +60563,11 @@ var EXAMPLE_ANCHORS = pick2([
   ["pptx", "deck.pptx#slide:3"],
   ["pdf", "paper.pdf#page:5"]
 ]).join(", ");
+var SKILL_NAMES = joinList(
+  DOC_KINDS.map((kind) => `\`${kind}\``),
+  "en",
+  "or"
+);
 var EXAMPLE_LOCATIONS = pick2([
   ["docx", "p:12"],
   ["pptx", "slide:3"],
@@ -60718,21 +60767,21 @@ function createDocumentImporter(workspace, options = {}) {
   return {
     // 只读工作区仍可预览；启动清扫失败只记录，不能阻断插件连接。
     initialize: () => run(() => sweep().catch((error62) => options.onCleanupError?.(error62))),
-    begin: (name, size) => run(async () => {
+    begin: (name, size, owner = "default") => run(async () => {
       if (closed) throw new OfficeError("invalid_token", "Importer is closed.");
       if (basename(name) !== name || name.includes("\\") || !kindOf(name))
         throw new OfficeError("unsupported_type", "Unsupported file name or type.");
       if (!Number.isInteger(size) || size < 1 || size > MAX_FILE_BYTES)
         throw new OfficeError("file_too_large", "File size is outside the supported range.");
       await sweep();
-      if (uploads.size >= MAX_IMPORTS)
+      if ([...uploads.values()].filter((upload) => upload.owner === owner).length >= MAX_IMPORTS)
         throw new OfficeError("invalid_token", "Too many pending imports.");
       const id = randomUUID2();
       const directory = join(await parent(), id);
       await mkdir(directory);
       try {
         const handle = await open2(join(directory, ".partial"), "wx");
-        uploads.set(id, { directory, name, size, offset: 0, handle, touched: now() });
+        uploads.set(id, { directory, name, size, offset: 0, handle, touched: now(), owner });
         return id;
       } catch (error62) {
         await rm(directory, { recursive: true, force: true }).catch(
@@ -72984,6 +73033,11 @@ function describeSnapshot(snapshot, verb) {
   );
   return parts.join("\n");
 }
+function sessionOf(meta3) {
+  for (const id of [meta3?.root_session_id, meta3?.session_id])
+    if (typeof id === "string" && id) return id;
+  return void 0;
+}
 var textResult = (text, structuredContent) => ({
   content: [{ type: "text", text: wellFormed(text) }],
   ...structuredContent ? { structuredContent: wellFormedDeep(structuredContent) } : {}
@@ -73006,9 +73060,9 @@ function createOfficeServer({
           ...config2.openPanel ? { "openai/ui": { preferredModelDisplayMode: "fullscreen" } } : {}
         }
       },
-      (async (input2) => {
+      (async (input2, extra) => {
         try {
-          const { text, structured } = await execute(input2);
+          const { text, structured } = await execute(input2, owner.session(sessionOf(extra._meta)));
           return textResult(text, structured);
         } catch (error62) {
           const code = error62 instanceof OfficeError ? error62.code : "corrupt_file";
@@ -73041,23 +73095,23 @@ function createOfficeServer({
       panel: true,
       openPanel: true
     },
-    async ({ path, at }) => {
-      const snapshot = await owner.open(path, at);
+    async ({ path, at }, session) => {
+      const snapshot = await session.open(path, at);
       return { text: describeSnapshot(snapshot, "Opened"), structured: { ...snapshot } };
     }
   );
   register(
     "read_document",
     {
-      description: `Read the content of a document or of one location in it as text: ${READ_FORMS}. Each block is prefixed with its location so you can cite or show it. Long results are paged: call again with the returned cursor.`,
+      description: `Read a document you are discussing with the user in the ${TITLE} panel, or one location in it, as text: ${READ_FORMS}. Use it to answer about the open document or anchors the user referenced. Open the document with open_document first. Each block is prefixed with its location, an anchor the panel understands: cite it or pass it to show_in_viewer, with an exact \`quote\` copied from the text to highlight a phrase. Long results are paged: call again with the returned cursor. To extract or process ${FILES_NOUN} outside the panel, use the ${SKILL_NAMES} skill instead.`,
       input: {
         anchor: anchor2,
         cursor: external_exports.number().int().min(0).optional().describe("Cursor from a previous result to continue reading.")
       },
       visibility: ["model"]
     },
-    async ({ anchor: target, cursor }) => {
-      const { info, at, page } = await owner.read(target, cursor ?? 0);
+    async ({ anchor: target, cursor }, session) => {
+      const { info, at, page } = await session.read(target, cursor ?? 0);
       const head = `${formatAnchor(info.path, at)} (${KIND_NAMES[info.kind]}, revision ${info.revision})`;
       const tail = page.next === null ? "[end]" : `[more: call read_document with anchor "${formatAnchor(info.path, at)}" and cursor ${page.next}]`;
       return {
@@ -73073,7 +73127,7 @@ ${tail}`,
   register(
     "search_document",
     {
-      description: "Find text in a document (case-insensitive). Returns matching locations as anchors with a snippet each; pass them to read_document or show_in_viewer.",
+      description: `Find text (case-insensitive) in a document you are discussing with the user in the ${TITLE} panel. Open the document with open_document first. Returns matching locations as anchors with a snippet each; pass them to read_document or show_in_viewer. To search or extract ${FILES_NOUN} outside the panel, use the ${SKILL_NAMES} skill instead.`,
       input: {
         path: external_exports.string().min(1).max(1e3).describe("Workspace-relative path of the file."),
         query: external_exports.string().min(1).max(200),
@@ -73081,8 +73135,8 @@ ${tail}`,
       },
       visibility: ["model"]
     },
-    async ({ path, query, limit }) => {
-      const { info, hits } = await owner.search(path, query, limit ?? 20);
+    async ({ path, query, limit }, session) => {
+      const { info, hits } = await session.search(path, query, limit ?? 20);
       const text = hits.length ? [
         `${hits.length} match${hits.length === 1 ? "" : "es"} for "${query}" in ${info.path}:`,
         ...hits.map((hit) => `- ${formatAnchor(info.path, hit.at)}  ${hit.snippet}`)
@@ -73110,8 +73164,8 @@ ${tail}`,
       panel: true,
       openPanel: true
     },
-    async ({ targets, note }) => {
-      const snapshot = await owner.show(targets, note);
+    async ({ targets, note }, session) => {
+      const snapshot = await session.show(targets, note);
       return { text: describeSnapshot(snapshot, "Showing"), structured: { ...snapshot } };
     }
   );
@@ -73124,8 +73178,8 @@ ${tail}`,
       },
       visibility: ["model"]
     },
-    async ({ viewId }) => {
-      const views = owner.views();
+    async ({ viewId }, session) => {
+      const views = session.views();
       if (!viewId && views.length > 1)
         return {
           text: "Multiple document viewers have reported views. Ask the user which document they mean, then call get_view with its viewId.\n" + views.map((view2) => `${view2.viewId}: ${view2.path}`).join("\n"),
@@ -73136,8 +73190,8 @@ ${tail}`,
           "invalid_token",
           "Unknown viewer. Call get_view without viewId to list viewers."
         );
-      const view = owner.view(viewId);
-      const current = view.path ? await owner.info(view.path) : owner.current();
+      const view = session.view(viewId);
+      const current = view.path ? await session.info(view.path) : session.current();
       if (!current && !view.path)
         return {
           text: `The ${TITLE} viewer has no document open. Use open_document to open one.`,
@@ -73150,7 +73204,7 @@ ${tail}`,
         lines.push(`User selection: ${formatAnchor(path, view.selection.at)}`);
         if (view.selection.text) lines.push(`Selected text: """${view.selection.text}"""`);
         if (view.kind === "xlsx") {
-          const stored = await owner.read(formatAnchor(path, view.selection.at)).catch(() => null);
+          const stored = await session.read(formatAnchor(path, view.selection.at)).catch(() => null);
           if (stored)
             lines.push(
               "Selected cells as stored in the file:",
@@ -73178,9 +73232,9 @@ ${tail}`,
         visibility: ["app"],
         readOnly: false
       },
-      async ({ name, size }) => ({
+      async ({ name, size }, session) => ({
         text: "Import started",
-        structured: { id: await importer.begin(name, size) }
+        structured: { id: await importer.begin(name, size, session.id) }
       })
     );
     register(
@@ -73234,8 +73288,8 @@ ${tail}`,
       input: { limit: external_exports.number().int().min(1).max(1e3).optional() },
       visibility: ["app"]
     },
-    async ({ limit }) => {
-      const documents = await owner.list(limit ?? 500);
+    async ({ limit }, session) => {
+      const documents = await session.list(limit ?? 500);
       return { text: `${documents.length} documents`, structured: { documents } };
     }
   );
@@ -73246,8 +73300,8 @@ ${tail}`,
       input: { path: external_exports.string().min(1).max(1e3) },
       visibility: ["app"]
     },
-    async ({ path }) => {
-      const loaded = await owner.load(path);
+    async ({ path }, session) => {
+      const loaded = await session.load(path);
       return { text: describeDocument(loaded.info, 10), structured: { ...loaded } };
     }
   );
@@ -73258,8 +73312,8 @@ ${tail}`,
       input: { path: external_exports.string().min(1).max(1e3) },
       visibility: ["app"]
     },
-    async ({ path }) => {
-      const info = await owner.info(path);
+    async ({ path }, session) => {
+      const info = await session.info(path);
       return { text: info.revision, structured: { path: info.path, revision: info.revision } };
     }
   );
@@ -73270,8 +73324,8 @@ ${tail}`,
       input: {},
       visibility: ["app"]
     },
-    async () => {
-      const snapshot = owner.snapshot();
+    async (_input, session) => {
+      const snapshot = session.snapshot();
       return { text: describeSnapshot(snapshot, "Viewer has"), structured: { ...snapshot } };
     }
   );
@@ -73288,8 +73342,8 @@ ${tail}`,
       visibility: ["app"],
       readOnly: false
     },
-    async (input2) => {
-      const view = await owner.report(input2);
+    async (input2, session) => {
+      const view = await session.report(input2);
       return { text: "ok", structured: { view } };
     }
   );
@@ -73301,8 +73355,8 @@ ${tail}`,
       visibility: ["app"],
       readOnly: false
     },
-    async ({ viewId }) => {
-      owner.releaseView(viewId);
+    async ({ viewId }, session) => {
+      session.releaseView(viewId);
       return { text: "ok" };
     }
   );

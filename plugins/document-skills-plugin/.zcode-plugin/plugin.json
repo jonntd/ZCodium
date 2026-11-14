@@ -1,0 +1,30 @@
+{
+  "name": "document-skills",
+  "version": "0.1.5",
+  "description": "Built-in DOCX and PDF document production skills, published as an official ZCode plugin.",
+  "description_i18n": {
+    "en": "Document production skills for DOCX, PDF, PPTX, and XLSX.",
+    "zh-CN": "面向 DOCX、PDF、PPTX 和 XLSX 的文档制作技能。"
+  },
+  "author": {
+    "name": "Z.ai"
+  },
+  "license": "SEE LICENSE IN skills/docx/LICENSE.txt",
+  "skills": "skills",
+  "mcpServers": {
+    "image_search": {
+      "type": "http",
+      "url": "${ZCODE_BASE_URL}/api/v1/mcp/server/image_search",
+      "auth": {
+        "type": "zcode_official",
+        "provider": "jwt_token"
+      },
+      "timeoutMs": 90000,
+      "command": "node",
+      "args": [
+        "/Applications/ZCode.app/Contents/Resources/glm/zcode.cjs",
+        "${ZCODE_PLUGIN_ROOT}/dist/mcp/server.js"
+      ]
+    }
+  }
+}
