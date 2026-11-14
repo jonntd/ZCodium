@@ -108,7 +108,12 @@ import { ensureSshRemoteReleaseAssets } from "./test/e2e/helpers/e2e-ssh-remote-
 import {
   ASK_USER_QUESTION_E2E_CLOCK_SCALE_ENV,
   BIGMODEL_PROVIDER_ID,
+  DATA_ROOT_MANIFEST_FILE_NAME,
+  DATA_ROOT_MANIFEST_SCHEMA_VERSION,
+  DATA_ROOT_PRODUCT_ID,
   ZAI_PROVIDER_ID,
+  ZCODE_DATA_ROOT_DIR_NAME,
+  ZCODE_VERSION,
 } from "@zcode/shared";
 import {
   seedPersonalProviderConfig,
@@ -216,9 +221,15 @@ const E2E_HOME_DIR = resolve(
 const E2E_PACKAGED_APP_BINARY_PATH = process.env.ZCODE_E2E_PACKAGED_APP_PATH?.trim()
   ? resolve(process.env.ZCODE_E2E_PACKAGED_APP_PATH)
   : null;
-// 目录隔离已回滚：所有 Desktop E2E 继续使用历史 ~/.zcode 布局。
+// Fork 数据根已改名（packages/shared/src/data-root.ts）：桌面状态（setting.json /
+// credentials / provider_config / agents-state）在 {base}/.zcodium/v2（getAppConfigDir），
+// 会话 backing workspace 在 {base}/.zcodium/workspace/default；agent CLI 命名空间仍是
+// {base}/.zcode/cli（ZCODE_AGENT_RUNTIME.nativeConfigDir）。旧 harness 全部写 .zcode，
+// app 读不到 seed：凭据缺失 → 冷启落欢迎页；lastWorkspaceSession 失效 →
+// startup-workspace 退回 conversation workspace，ZCodeProject 项目行永不出现。
 const E2E_STORAGE_ROOT = resolve(E2E_HOME_DIR, ".zcode");
-const E2E_APP_CONFIG_DIR = resolve(E2E_STORAGE_ROOT, "v2");
+const E2E_DESKTOP_DATA_ROOT = resolve(E2E_HOME_DIR, ZCODE_DATA_ROOT_DIR_NAME);
+const E2E_APP_CONFIG_DIR = resolve(E2E_DESKTOP_DATA_ROOT, "v2");
 const E2E_APP_SETTINGS_FILE = resolve(E2E_APP_CONFIG_DIR, "setting.json");
 const E2E_APP_CREDENTIALS_FILE = resolve(E2E_APP_CONFIG_DIR, "credentials.json");
 const E2E_APP_PROVIDER_CONFIG_FILE = resolve(E2E_APP_CONFIG_DIR, "provider_config.json");
@@ -240,7 +251,9 @@ const E2E_AGENTS_STATE_FILE = resolve(E2E_APP_CONFIG_DIR, "agents-state.json");
 const E2E_CLI_CONFIG_DIR = resolve(E2E_STORAGE_ROOT, "cli");
 const E2E_CLI_CONFIG_FILE = resolve(E2E_CLI_CONFIG_DIR, "config.json");
 const E2E_CLI_AGENTS_DIR = resolve(E2E_CLI_CONFIG_DIR, "agents");
-const E2E_USER_AGENTS_DIR = resolve(E2E_STORAGE_ROOT, "agents");
+// 用户级 agents 走 resolveZCodeStorageRoot()（CLI config storage.dir 缺省 ~/.zcodium），
+// 与 CLI 自身的 .zcode/cli/agents（E2E_CLI_AGENTS_DIR）是两个命名空间。
+const E2E_USER_AGENTS_DIR = resolve(E2E_DESKTOP_DATA_ROOT, "agents");
 const E2E_NETWORK_CAPTURE_DIR = resolve(
   process.env.ZCODE_E2E_NETWORK_CAPTURE_DIR?.trim() ||
     // 修复原因：beforeSession 会清空 .e2e-home；抓包代理的 CA 必须放在
@@ -3184,10 +3197,39 @@ function forceFinalizeE2ERunnerFromGuard() {
   })();
 }
 
+/**
+ * seedE2EStartupState 落盘的 {base}/.zcodium/v2 内容必须配归属清单（.zcodium-root.json）：
+ * app 启动早期 applyEarlyDataBaseDirBootstrap 会 readDataRootStatus——root 目录存在但无
+ * 清单视为 unowned，自动化测试路径 settlePendingForAutomatedTest → initializeFreshDataRoot
+ * 会把整个 .zcodium 重命名为 .zcodium.unowned-<ts> 让路再全新初始化，settings/credentials
+ * seed 全部失效（表现为冷启落欢迎页 + lastWorkspaceSession 丢失退回 conversation workspace）。
+ * 写清单让数据根判定为 normal，seed 才能被 app 读到。
+ */
+function writeE2EDataRootManifest(): void {
+  const dataRoot = resolve(E2E_HOME_DIR, ZCODE_DATA_ROOT_DIR_NAME);
+  mkdirSync(dataRoot, { recursive: true });
+  writeFileSync(
+    resolve(dataRoot, DATA_ROOT_MANIFEST_FILE_NAME),
+    `${JSON.stringify(
+      {
+        product: DATA_ROOT_PRODUCT_ID,
+        schemaVersion: DATA_ROOT_MANIFEST_SCHEMA_VERSION,
+        createdBy: "desktop",
+        createdAt: new Date().toISOString(),
+        firstSeenVersion: ZCODE_VERSION,
+      },
+      null,
+      2,
+    )}\n`,
+    "utf-8",
+  );
+}
+
 async function resetE2EHome(specs: string[] = []) {
   await removeE2EHomeWithRetry();
   mkdirSync(E2E_HOME_DIR, { recursive: true });
   seedE2EStartupState(specs);
+  writeE2EDataRootManifest();
   await seedRemoteOnboardingFixture({
     // 营销弹窗会抢占首次引导的焦点；该套件从已完成引导的账号开始，独立验证弹窗交付。
     enabled:

@@ -206,20 +206,34 @@ async function ensureV4PreparationDraft(options: PrepareV4ConversationE2EOptions
 }
 
 async function hasApiKeyLoginButton() {
+  // Fork 审计版没有账号体系，WelcomeScreen 在 provider 列表恒为空时会自动切进
+  // API Key 表单（WelcomeScreen.tsx 的 loginMode effect），此时 providers 模式的
+  // 入口按钮 TID_LOGIN_USE_API_KEY_BUTTON 不在 DOM。判定改为「入口按钮或 API Key
+  // 输入框任一存在」，否则欢迎页形态下 fallback 永远判 false，冷启死等 30s 超时。
   const exists = await browser
     .execute(
-      (currentTestId) => Boolean(document.querySelector(`[data-testid="${currentTestId}"]`)),
-      TID_LOGIN_USE_API_KEY_BUTTON,
+      (testIds) => testIds.some((id) => document.querySelector(`[data-testid="${id}"]`) !== null),
+      [TID_LOGIN_USE_API_KEY_BUTTON, TID_LOGIN_API_KEY_INPUT],
     )
     .catch(() => false);
   return Boolean(exists);
 }
 
 export async function loginWithApiKey() {
-  await clickTestIdByDom(TID_LOGIN_USE_API_KEY_BUTTON, {
-    timeout: 30000,
-    timeoutMsg: "欢迎页没有出现 API Key 登录入口",
-  });
+  // Fork 审计版欢迎页自动进入 API Key 表单（见 hasApiKeyLoginButton 注释），
+  // 入口按钮不存在时直接在已打开的表单里填 Key，不死等 30s 入口按钮。
+  const apiKeyFormAlreadyOpen = await browser
+    .execute(
+      (inputTestId) => document.querySelector(`[data-testid="${inputTestId}"]`) !== null,
+      TID_LOGIN_API_KEY_INPUT,
+    )
+    .catch(() => false);
+  if (!apiKeyFormAlreadyOpen) {
+    await clickTestIdByDom(TID_LOGIN_USE_API_KEY_BUTTON, {
+      timeout: 30000,
+      timeoutMsg: "欢迎页没有出现 API Key 登录入口",
+    });
+  }
   await setInputValueByTestIdDom(TID_LOGIN_API_KEY_INPUT, LOGIN_API_KEY, {
     timeout: 15000,
     timeoutMsg: "API Key 登录输入框没有出现",

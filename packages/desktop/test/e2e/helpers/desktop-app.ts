@@ -18,7 +18,7 @@ import {
   TID_V4_SESSION_PANE,
   TID_WORKSPACE_PATH,
 } from "@zcode/shared/test-ids";
-import type { AppSettings } from "@zcode/shared";
+import { ZCODE_DATA_ROOT_DIR_NAME, type AppSettings } from "@zcode/shared";
 import { collectWindowsE2EProcessTreePids } from "./e2e-process-cleanup.js";
 import {
   collectE2EWebDriverPageHandleCandidates,
@@ -36,12 +36,16 @@ const E2E_HOME_DIR =
   // 修复原因：WDIO worker 环境不稳定时，helper 曾回落到真实 HOME，
   // 导致 provider 诊断和清理读写开发者本机配置，而不是当前 e2e sandbox。
   DEFAULT_E2E_HOME_DIR;
-// Bug 根因：storage profile 回滚删除了该共享根字段，但多个 E2E 仍需定位 CLI 数据。
-// 隔离由测试 HOME 保证，目录名保持生产历史语义 .zcode。
+// Bug 根因：fork 数据根改名（packages/shared/src/data-root.ts，.zcode → .zcodium）后
+// harness 没跟上：桌面状态（settings/credentials/provider_config/agents-state）实际在
+// {base}/.zcodium/v2（getAppConfigDir），旧 harness 写 .zcode/v2 被 app 无视——冷启落
+// 欢迎页、lastWorkspaceSession 失效。CLI 命名空间仍是 {base}/.zcode/cli
+// （ZCODE_AGENT_RUNTIME.nativeConfigDir），两者必须分开。
+const E2E_DESKTOP_DATA_ROOT = join(E2E_HOME_DIR, ZCODE_DATA_ROOT_DIR_NAME);
 const E2E_STORAGE_ROOT = join(E2E_HOME_DIR, ".zcode");
-const E2E_APP_DATA_DIR = join(E2E_STORAGE_ROOT, "v2");
+const E2E_APP_DATA_DIR = join(E2E_DESKTOP_DATA_ROOT, "v2");
 export const DEFAULT_WORKSPACE = join(E2E_HOME_DIR, "ZCodeProject");
-export const DEFAULT_CONVERSATION_WORKSPACE = join(E2E_STORAGE_ROOT, "workspace", "default");
+export const DEFAULT_CONVERSATION_WORKSPACE = join(E2E_DESKTOP_DATA_ROOT, "workspace", "default");
 const SETTINGS_FILE = join(E2E_APP_DATA_DIR, "setting.json");
 const CREDENTIALS_FILE = join(E2E_APP_DATA_DIR, "credentials.json");
 const CONFIG_FILE = join(E2E_APP_DATA_DIR, PERSONAL_PROVIDER_CONFIG_FILE_NAME);
@@ -524,7 +528,7 @@ export function getE2EAppDataPaths() {
     configFile: CONFIG_FILE,
     credentialsFile: CREDENTIALS_FILE,
     homeDir: E2E_HOME_DIR,
-    storageRoot: E2E_STORAGE_ROOT,
+    storageRoot: E2E_DESKTOP_DATA_ROOT,
     workspace: DEFAULT_WORKSPACE,
   };
 }
