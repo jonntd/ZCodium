@@ -127,6 +127,19 @@ describe("§2.4 可代理面：plat-req 方法名与实参逐字下发", () => {
     expect(sent[0]?.args).toEqual([["file:///w/a.md", "file:///w/b%20c.md"]]);
   });
 
+  it("modelhubFetchModels：payload 逐字透传 host（spec: modelhub-fetch-models）", async () => {
+    const fetched = { ok: true, models: [{ id: "glm-5", visionGuess: true }] };
+    const { platform, sent } = makePlatform({ respond: () => fetched });
+    const payload = {
+      baseUrl: "https://api.example.com/v1",
+      apiKey: "sk-test",
+      dialect: "openai-compatible",
+    };
+    await expect(platform.modelhubFetchModels(payload)).resolves.toBe(fetched);
+    expect(sent[0]?.method).toBe("modelhubFetchModels");
+    expect(sent[0]?.args).toEqual([payload]);
+  });
+
   it("打开/跳转族与编辑器集成路由", async () => {
     const { platform, sent } = makePlatform({ respond: () => true });
     platform.openExternal("https://example.com");

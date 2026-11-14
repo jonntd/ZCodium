@@ -53,6 +53,9 @@ export const PLATFORM_METHOD_WHITELIST: readonly string[] = [
   "loadMcpFromUserDirectory",
   "saveMcpToUserDirectory",
   "migrateLegacyCommonMcp",
+  // 拉取模型（modelhub，spec: modelhub-fetch-models）：webview 不直连渠道端点，
+  // host Node 侧 fetchModelhubModels 唯一实现承担；apiKey 只透传不落日志。
+  "modelhubFetchModels",
   // 同步面
   "notifyRendererReady",
   "syncWindowTabs",

@@ -200,6 +200,8 @@ describe("PlatformRpcHandler（经 HostRuntime 分流）", () => {
     expect(PLATFORM_METHOD_WHITELIST).toContain("pickWorkspaceFolder");
     // 资源管理器拖拽 URI 解析（spec: composer-explorer-file-drop）。
     expect(PLATFORM_METHOD_WHITELIST).toContain("resolveFileDropPaths");
+    // 拉取模型（spec: modelhub-fetch-models §2 VS Code 传输）。
+    expect(PLATFORM_METHOD_WHITELIST).toContain("modelhubFetchModels");
 
     // 白名单内方法经桥 roundtrip（HostRuntime 分流 → plat-res(ok)）。
     const loopback = makeLoopback({

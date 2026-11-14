@@ -15,6 +15,8 @@ import type {
   LoadCliMcpFromUserDirectoryRequest,
   LoadCliMcpFromUserDirectoryResult,
   MigrateLegacyCommonMcpResult,
+  ModelhubFetchModelsRequest,
+  ModelhubFetchModelsResult,
   PostUpdateReleaseNotesPayload,
   RemoteConnectionRuntimeLog,
   RemoteSessionClosedEvent,
@@ -320,6 +322,19 @@ export class VscodePlatformService implements IPlatformService {
     payload?: unknown,
   ): Promise<MigrateLegacyCommonMcpResult> {
     return this.rpc.call("migrateLegacyCommonMcp", payload);
+  }
+
+  // ── 拉取模型（modelhub，spec: modelhub-fetch-models §2 VS Code 传输） ──
+
+  /**
+   * 拉取自定义渠道的模型列表：webview 不直连渠道端点（CORS + 密钥面收口），
+   * plat-req 透传到 host Node 侧 `fetchModelhubModels` 唯一实现。与桌面/Web 共用
+   * 同一契约；`modelhubProbeVision` 与 Web 同口径保持未实现（UI 降级为名称猜测）。
+   */
+  modelhubFetchModels(
+    payload: ModelhubFetchModelsRequest,
+  ): Promise<ModelhubFetchModelsResult> {
+    return this.rpc.call("modelhubFetchModels", payload);
   }
 
   // ── 同步面 ──

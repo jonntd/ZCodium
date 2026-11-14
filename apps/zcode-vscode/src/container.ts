@@ -19,6 +19,7 @@ import { basename, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { CliLocator } from "./cli/cliLocator";
 import { createResolveFileDropPathsMethod } from "./host/fileDropPlatformMethod";
+import { createModelhubFetchModelsMethod } from "./host/modelhubPlatformMethod";
 import { isPathInsideWorkspace } from "./host/pathContainment";
 import {
   createCodeActionEntry,
@@ -903,6 +904,9 @@ function buildPlatformMethods(deps: {
       importedCount: 0,
       skippedCount: 0,
     }),
+    // 拉取模型（modelhub）：webview 直连渠道会被 CORS 拦 + 密钥面收口，host Node 侧
+    // 唯一实现承担（spec: modelhub-fetch-models §2 VS Code 传输）。
+    modelhubFetchModels: createModelhubFetchModelsMethod(),
     // 同步面（未读投影归 webview 本地，P0-9：host 不再写 __unread__ 键槽）。
     syncWindowUnreadCount: async () => undefined,
     syncWindowTabs: async () => undefined,

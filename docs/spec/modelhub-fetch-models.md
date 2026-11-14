@@ -25,6 +25,7 @@ Web 侧可达的 Node 执行路径 —— 而 Web 客户端本来就有一条到
 | **唯一实现** | `packages/services/src/model-provider/modelhubFetchModels.ts`（Node 侧，`fetch` 直连渠道） |
 | 桌面传输 | `IPlatformService.modelhubFetchModels` → preload → main IPC → `fetchModelhubModels`（既有链路，契约不变） |
 | Web 传输 | `IProviderSettingsService.fetchModels`（Host/Server 的 Node 侧服务，RPC）→ 同一份实现 |
+| VS Code 传输 | `IPlatformService.modelhubFetchModels` → webview `plat-req` RPC（`VscodePlatformService`）→ host 白名单方法（extension host Node 侧）→ `fetchModelhubModels`。webview 与 host 同 VSIX 发布，无版本协商问题，能力常开 |
 | UI 可用性判定 | `platform.modelhubFetchModels != null`；Web 平台**只在 Host 暴露 `fetchModels` 时**才提供该能力（不支持时保持 `undefined`，按钮隐藏） |
 | 无需版本协商 | 旧 Host 没有 `fetchModels` → Web 端按钮自然隐藏，不出现「可点但必失败」 |
 
@@ -50,6 +51,10 @@ Web 侧可达的 Node 执行路径 —— 而 Web 客户端本来就有一条到
 
 `apiKey` 只在本次请求内使用：不写日志、不落盘（两侧实现都遵守）。
 
+VS Code 插件端同序，仅中间一跳不同：`platform.modelhubFetchModels` → webview `plat-req`
+帧（`VscodePlatformService`）→ host 白名单方法（extension host Node 侧，container 平台方法表）
+→ `fetchModelhubModels`。webview 与 host 同 VSIX 发布，能力常开，无需探测降级。
+
 ## 4. 失败语义
 
 - 单个候选：404 → 换下一个；非 2xx → 记 `HTTP <status>: <body 前 300 字>` 后换下一个；
@@ -69,13 +74,19 @@ Web 侧可达的 Node 执行路径 —— 而 Web 客户端本来就有一条到
 | 非 JSON | 识别并继续回退 | #6 |
 | 空 baseUrl | 不发请求，直接报错 | #7 |
 | Web 端入口 | Host 支持时「拉取模型」按钮出现且可用；旧 Host 上保持隐藏 | 浏览器 E2E（本机 relay + 桌面 Host） |
+| VS Code 端入口 | 「拉取模型」按钮出现；plat-req 逐字透传 payload；host 白名单外方法拒绝面不回归 | `apps/zcode-vscode/test/modelhubPlatformMethod.test.ts`、`platformService.test.ts`、`hostBridge.test.ts` |
 
-运行：`pnpm --filter @zcode/services test`
+运行：`pnpm --filter @zcode/services test`；VS Code 端：`pnpm --filter zcode-vscode test`（按该包实际测试入口）
 
 ## 6. 未做
 
 - **视觉探测（`modelhubProbeVision`）**：同样受 CORS 限制，且 Host 侧暂无对应服务，
-  Web 端保持 `undefined`（按钮不渲染），避免「可点但必失败」。要做的话按本 spec 的同一模式加
-  `IProviderSettingsService.probeVision`。
+  Web 端保持 `undefined`，避免「可点但必失败」。要做的话按本 spec 的同一模式加
+  `IProviderSettingsService.probeVision`。VS Code 端与 Web 同口径：`modelhubProbeVision`
+  保持 `undefined`，不为插件单独复制探测实现（探测逻辑当前只在桌面 main）。
+  选择器的「探测视觉/探测全部」按钮**按探测能力装配**（`platform.modelhubProbeVision != null`）：
+  桌面端有探测链路照常显示；VS Code/Web 端不渲染，视觉判定回落名称猜测 `visionGuess`。
+  修复说明（2026-11-14）：装配曾错用拉取能力（`modelhubFetchModels != null`）判定，
+  导致无探测能力的宿主上按钮可点但静默返回 null——与本节「避免可点但必失败」矛盾，已改为能力装配。
 - **不新增协议/通道**：复用既有 `IProviderSettingsService` 通道，只新增一个可选的
   `fetchModels` 方法；跨包调用遵循各包公开入口（`@zcode/services` 类型、`@zcode/services/node` 实现）。

@@ -192,6 +192,7 @@ classDiagram
 | 远程族 `connectRemote/disposeRemoteSession/stopWebRemoteControl/getWebRemoteControlStatus/isDockerAvailable/listWSLDistros/listDockerContainers/listSSHConfigAliases/remoteRelay*` | "不支持"（isDockerAvailable→false、list→[]、connectRemote→{success:false}）；入口自然隐藏 |
 | 浏览器/CUA 族 `browserView*/embeddedBrowser*/Cua*` | no-op / "unsupported" |
 | `getInstalledEditors` | 返回当前 VS Code |
+| `modelhubFetchModels` | plat-req → host Node 侧 `fetchModelhubModels`（`@zcode/services/node` 唯一实现，spec: modelhub-fetch-models）；`modelhubProbeVision` 保持 `undefined`（与 Web 同口径，探测降级为名称猜测） |
 | `setApplicationLocale/setTitleBarTheme` | no-op（locale 跟随 VS Code） |
 | `isDesktop` | **true**（解锁 Claude 会话迁移） |
 | `onSettingsChanged/onApplicationLocaleChanged` | host 帧驱动 |
