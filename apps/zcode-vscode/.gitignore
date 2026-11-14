@@ -2,3 +2,5 @@ out/
 dist/
 node_modules/
 *.vsix
+# 运行时 IDE 发现信标（含 authToken，瞬态增删），防误提交
+ide/

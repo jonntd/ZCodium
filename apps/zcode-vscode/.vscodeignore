@@ -4,6 +4,8 @@ src/**
 test/**
 scripts/**
 out/**
+# 运行时 IDE 发现信标（含 authToken，瞬态增删）：不打包（防凭据泄漏 + vsce stat 竞态崩溃）
+ide/**
 node_modules/@vitest/**
 node_modules/@zcode/**
 node_modules/vitest/**
