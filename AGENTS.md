@@ -38,12 +38,6 @@ affected 使用 Vitest 官方选择，只运行选中的根 UT；选中整个套
 - `CONTEXT.md`：插件商店领域词汇；修改相关 UI 前阅读。
 - `DESIGN.md`：UI 设计规范；修改 UI 前阅读。
 
-## GitHub 流程
-
-- 每个 PR 必须关联至少一个 Issue：在 PR 正文写 `Closes #<编号>`（合并后自动关闭），或在 PR 右侧 Development 手动关联。
-- 关联与否以 GitHub 原生语义为准（`closingIssuesReferences`），由 `.github/workflows/require-issue.yml` 的 `linked-issue` 检查执行；该检查已加入 `main-protection` ruleset 的必需状态检查，无豁免，机器人 / draft PR 同样适用。
-- 动手前先创建或认领对应 Issue，再开 PR；未关联 Issue 的 PR 无法合并。
-
 ## 合并 main
 
 - 合并 main（或任何上游 ref）前先对比对本分支的影响：用 `pnpm merge:main [ref]`（默认 `origin/main`），脚本先输出影响报告，存在双方同路径改动时会拦截合并；逐个 review 报告里的交集文件（重点看含 fork 定制标记的项），确认后用 `ZCODE_MERGE_IMPACT_ACK=1 pnpm merge:main` 放行。随时预览：`pnpm merge:impact [ref]`。绕过入口直接 `git merge` 会被 pre-merge-commit 闸门拦下。合同见 [merge-main-impact-check](docs/merge-main-impact-check.md)。
