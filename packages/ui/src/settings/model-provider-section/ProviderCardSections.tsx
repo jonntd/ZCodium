@@ -753,7 +753,15 @@ export function ProviderModelsSection({
         models={fetchedModels ?? []}
         existingIds={models.map((model) => model.modelId)}
         deletedIds={[...deletedIds]}
-        onProbeVision={modelhubAvailable ? (modelId) => handleProbeVision(modelId) : undefined}
+                // 修复说明：曾错用 modelhubAvailable（拉取能力）装配探测，导致无探测能力
+                // 的宿主（VS Code/Web）上「探测视觉/探测全部」可点但静默返回 null；改为按
+                // 探测能力装配，与 spec modelhub-fetch-models §6「避免可点但必失败」对齐
+                // （桌面探测链路不受影响）。
+                onProbeVision={
+                  platform?.modelhubProbeVision != null
+                    ? (modelId) => handleProbeVision(modelId)
+                    : undefined
+                }
         onConfirm={(selected) => void handleConfirmFetchedModels(selected)}
       />
       {orcaRouterTemplate ? (
