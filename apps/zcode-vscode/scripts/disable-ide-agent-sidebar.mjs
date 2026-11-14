@@ -23,8 +23,15 @@
  * 全部隐藏，辅助栏吃掉整块窗口 —— 用户点一下最大化，正在写的标签页和文件树一起消失，
  * 再点回来虽然会恢复，但过程中编辑器被卸载重建、滚动位置/焦点丢失。
  * 本补丁只改「进入最大化」这一支：**不再隐藏任何区域**，改为把辅助栏横向撑到可用宽度的
- * 约 60%（编辑器至少保留 420px 或 40%），资源管理器宽度原样不动；「退出最大化」分支
- * 保持原版（把辅助栏宽度还原成 AUXILIARYBAR_LAST_NON_MAXIMIZED_SIZE）。
+ * 约 60%（可用宽 = grid 总宽 − 资源管理器 − 活动栏；编辑器至少保留 min(420px, 35%)），
+ * 资源管理器宽度原样不动；「退出最大化」分支保持原版（把辅助栏宽度还原成
+ * AUXILIARYBAR_LAST_NON_MAXIMIZED_SIZE）。
+ *
+ * 2026-11-09 修「点了最大化几乎没变宽」：旧式 `Math.max(当前宽, 目标)` 在目标小于当前宽
+ * 时直接把拉宽变成 no-op；现改为「至少比进入前宽 80px，正常情况取 60%」，并在 setAuxiliary-
+ * BarMaximized 返回后再重设一次（setTimeout 0），防止内核后续布局把 resize 覆盖回去。
+ * 2026-11-10 resize 失败不再静默吞（catch 内 console.error）：内核改名/结构变化导致
+ * 抛错时至少留一条可定位日志，而不是退回「最大化没反应」且零痕迹。
  * 也就是说：最大化 = 「把对话栏拉宽」，而不是「把别的都收起来」。
  *
  * 用法：
@@ -110,7 +117,7 @@ const PATCHES = [
     ORIGINAL:
       'e.sideBarVisible&&this.setSideBarHidden(!0),e.panelVisible&&this.setPanelHidden(!0),e.editorVisible&&this.setEditorHidden(!0),this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
     PATCHED:
-      '(()=>{const t=this.workbenchGrid.getViewSize().width,n=this.isVisible("workbench.parts.sidebar")?this.workbenchGrid.getViewSize(this.sideBarPartView).width:0,r=this.isVisible("workbench.parts.activitybar")?this.workbenchGrid.getViewSize(this.activityBarPartView).width:0,s=Math.max(0,t-n-r),o=Math.max(i,Math.min(Math.round(s*.6),s-Math.max(420,Math.round(s*.4))));this.workbenchGrid.resizeView(this.auxiliaryBarPartView,{width:o,height:this.workbenchGrid.getViewSize(this.auxiliaryBarPartView).height}),n>0&&this.workbenchGrid.getViewSize(this.sideBarPartView).width!==n&&this.workbenchGrid.resizeView(this.sideBarPartView,{width:n,height:this.workbenchGrid.getViewSize(this.sideBarPartView).height})})(),/* gode: maximize keeps editor + sidebar visible */this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
+      '(()=>{const G=this.workbenchGrid,A=G.getViewSize().width,S=this.isVisible("workbench.parts.sidebar")?G.getViewSize(this.sideBarPartView).width:0,B=this.isVisible("workbench.parts.activitybar")?G.getViewSize(this.activityBarPartView).width:0,U=Math.max(0,A-S-B),M=Math.min(420,Math.round(U*.35)),T=Math.max(i,Math.min(U-M,Math.max(i+80,Math.round(U*.6)))),F=()=>{try{G.resizeView(this.auxiliaryBarPartView,{width:T,height:G.getViewSize(this.auxiliaryBarPartView).height}),S>0&&G.getViewSize(this.sideBarPartView).width!==S&&G.resizeView(this.sideBarPartView,{width:S,height:G.getViewSize(this.sideBarPartView).height})}catch(_){console.error("[gode] maximize resize failed",_)}};F(),setTimeout(F,0)})(),/* gode: maximize keeps editor + sidebar visible */this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
   },
 ];
 
