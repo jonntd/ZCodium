@@ -44,6 +44,8 @@ const TAB_LABEL_IDS: Record<ResourceManagerTab, string> = {
 const DEFAULT_REFRESH_INTERVAL_MS = 1_000;
 const CATEGORY_LABEL_IDS: Record<ResourceUsageCategory, string> = {
   base: "resourceManager.category.base",
+  // 上游新增 task 类目；fork 无对应文案键，复用 base 文案。
+  task: "resourceManager.category.base",
   "builtin-plugin": "resourceManager.category.builtinPlugin",
   "community-plugin": "resourceManager.category.communityPlugin",
 };
@@ -68,6 +70,8 @@ export function ResourceManagerApp({
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<ResourceUsageCategory, boolean>>({
     base: true,
+    // 上游新增 task 类目；fork 无独立文案与交互，默认展开同 base。
+    task: true,
     "builtin-plugin": true,
     "community-plugin": true,
   });

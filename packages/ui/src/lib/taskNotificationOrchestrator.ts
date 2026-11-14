@@ -121,6 +121,11 @@ function pendingInteractionPayload(params: {
     };
   }
 
+  // 行模型升级后 payload 联合含 pluginInstall 变体：其入口在扩展面板，不走任务通知。
+  if (interaction.payload.kind === "pluginInstall") {
+    return null;
+  }
+
   if (isPlanApprovalInteraction(interaction.payload)) {
     return {
       taskId,

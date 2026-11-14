@@ -1,5 +1,6 @@
 /* oxlint-disable eslint(max-lines) -- Provider 与 Access Config 的 Overlay/序列化必须集中维护同一联合类型；待契约稳定后再按配置族拆文件。 */
 import { ConfigOverlay, type ConfigValidationIssue } from "../config-overlay.js";
+import type { Locale } from "@zcode/shared";
 import type { z } from "zod";
 import {
   completeApiKeyAccessDataSchema,
@@ -264,7 +265,8 @@ export class ProviderConfig extends ConfigOverlay<ProviderConfig> {
 }
 
 export type ProviderTemplateNameMap = Readonly<z.infer<typeof providerTemplateNameMapDataSchema>>;
-export type ProviderTemplateLocale = keyof ProviderTemplateNameMap;
+// 上游 Locale 扩五语后模板名仍可能缺 ja/ru/ko 键；resolve 内已有 en-US fallback，放宽入参。
+export type ProviderTemplateLocale = Locale | keyof ProviderTemplateNameMap;
 
 export type ProviderTemplateInput = Omit<ProviderTemplateObject, "config"> & {
   readonly config: ProviderConfig;
@@ -299,8 +301,12 @@ export function resolveProviderTemplateName(
   template: Pick<ProviderTemplate, "templateNameMap">,
   locale: ProviderTemplateLocale,
 ): string {
+  // Locale 扩五语后模板名可能缺 ja/ru/ko 键：缺键回落 en-US。
+  const nameKey = (
+    locale in template.templateNameMap ? locale : "en-US"
+  ) as keyof ProviderTemplateNameMap;
   return (
-    template.templateNameMap[locale]?.trim() ||
+    template.templateNameMap[nameKey]?.trim() ||
     template.templateNameMap["en-US"]?.trim() ||
     templateId
   );

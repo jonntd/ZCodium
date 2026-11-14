@@ -26,7 +26,13 @@ import {
 const TOPIC = "conversation/session-display-tolerance";
 const SUBSCRIPTION_ID = "sub-display-tolerance";
 
-/** 事故当天真的躺在库里的那张卡：20 行里 5 行带 lineage 键，此处取其中两行。 */
+/**
+ * 事故当天真的躺在库里的那张卡：20 行里 5 行带 lineage 键，此处取其中两行。
+ * 上游 v3.18.x 的 workflow-runs 正式 schema 已把 resumedFrom / supersededBy 纳入
+ * lineage 字段（本侧镜像随之跟上），这份载荷不再是"认不出来的装饰"——
+ * 以下四个用例从"丢卡"守护改为"合法保留"断言；真正的未知 kind 丢卡行为
+ * 由"未来 CLI 新增的 display kind"用例继续钉住。
+ */
 const POISONED_LIST_RUNS_DISPLAY = {
   kind: "list_workflow_runs",
   runs: [
@@ -82,24 +88,24 @@ function toolRow(display: unknown): Record<string, unknown> {
 }
 
 describe("display 载荷在信封层不设门", () => {
-  it("row 上带 lineage 键的 list_workflow_runs 卡被丢弃，row 其余字段照常投影", () => {
+  it("row 上带 lineage 键的 list_workflow_runs 卡合法保留，row 其余字段照常投影", () => {
     const parsed = toolCallRowSchema.safeParse(toolRow(POISONED_LIST_RUNS_DISPLAY));
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    // 卡没了（渲染侧据此退化成纯文本），但 row 本身完好——这才是"装饰载荷"该有的分量。
-    expect(parsed.data.display).toBeUndefined();
+    // lineage 键已是正式 schema 字段：display 完整保留（不再触发丢卡容错）。
+    expect(parsed.data.display).toEqual(POISONED_LIST_RUNS_DISPLAY);
     expect(parsed.data.toolCallId).toBe("call-1");
     expect(parsed.data.status).toBe("success");
   });
 
-  it("output.display 上的同一份载荷同样只丢卡，text 照常送达", () => {
+  it("output.display 上的同一份载荷同样合法保留，text 照常送达", () => {
     const parsed = toolOutputSchema.safeParse({
       text: "<runs>…</runs>",
       display: POISONED_LIST_RUNS_DISPLAY,
     });
     expect(parsed.success).toBe(true);
     if (!parsed.success) return;
-    expect(parsed.data.display).toBeUndefined();
+    expect(parsed.data.display).toEqual(POISONED_LIST_RUNS_DISPLAY);
     expect(parsed.data.text).toBe("<runs>…</runs>");
   });
 
@@ -142,7 +148,7 @@ describe("display 载荷在信封层不设门", () => {
     if (parsed.success) expect("display" in parsed.data).toBe(false);
   });
 
-  it("确认预览（pendingInteraction.display）失败时退化成纯文本 ask，不拒整份 snapshot", () => {
+  it("确认预览（pendingInteraction.display）合法保留，不拒整份 snapshot", () => {
     const parsed = permissionRequestPayloadSchema.safeParse({
       kind: "permission",
       toolCallId: "call-1",
@@ -153,7 +159,8 @@ describe("display 载荷在信封层不设门", () => {
       display: POISONED_LIST_RUNS_DISPLAY,
     });
     expect(parsed.success).toBe(true);
-    if (parsed.success) expect(parsed.data.display).toBeUndefined();
+    // lineage 键已合法：display 保留（不再触发丢卡退化）。
+    if (parsed.success) expect(parsed.data.display).toEqual(POISONED_LIST_RUNS_DISPLAY);
   });
 
   it("启动行的 workflowLaunch.display 失败时只是这一行没有图", () => {
@@ -169,7 +176,7 @@ describe("display 载荷在信封层不设门", () => {
   // 这一条是事故本身：整帧走一遍真实的 physical reassembly。修复前这里会拿到
   // { kind: "rejected", reasonCode: "proto.frameAssemblyInvalidPayload" }，
   // 而 store 收到该 fault 后会在同一份内容上重试并最终 fail closed。
-  it("承载被污染卡片的整帧仍然完整重组，不产生 InvalidPayload fault", () => {
+  it("承载 lineage 卡片的整帧仍然完整重组，不产生 InvalidPayload fault", () => {
     const frame: ConversationTopicFrame = {
       topic: TOPIC,
       subscriptionId: SUBSCRIPTION_ID,
@@ -200,7 +207,10 @@ describe("display 载荷在信封层不设门", () => {
     const row = delta?.op === "row.upserted" ? delta.row : null;
     expect(row?.kind).toBe("toolCall");
     // 帧活下来了，代价只是这张卡没有结构化载荷。
-    expect(row?.kind === "toolCall" ? row.display : "unreachable").toBeUndefined();
+    // lineage 键已合法：display 完整保留。
+    expect(row?.kind === "toolCall" ? row.display : "unreachable").toEqual(
+      POISONED_LIST_RUNS_DISPLAY,
+    );
   });
 
   it("信封本身没有被放松：必填字段缺失仍然拒整帧", () => {

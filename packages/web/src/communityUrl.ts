@@ -44,5 +44,7 @@ export async function resolveWebCommunityUrl(
   locale: Locale,
   options: ResolveWebCommunityUrlOptions = {},
 ): Promise<string | undefined> {
-  return (await resolveWebHelpConfig(options)).community_urls?.[locale];
+  const urls = (await resolveWebHelpConfig(options)).community_urls;
+  // 上游 Locale 扩五语后映射可能缺键：缺键回落 en-US。
+  return urls?.[locale] ?? urls?.["en-US"];
 }

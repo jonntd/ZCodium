@@ -6,9 +6,13 @@ import { getCommunityUrlFromConfigs, getFeedbackUrlFromConfig } from "./remoteAp
 const helpConfigSchema = z.object({
   community_urls: z
     .object({
+      // 上游 Locale 扩五语后帮助站 URL 映射放宽为五语可选键；缺键回落 en-US（消费端处理）。
       "zh-CN": z.string().optional().catch(undefined),
       "en-US": z.string().optional().catch(undefined),
       "fa-IR": z.string().optional().catch(undefined),
+      "ja-JP": z.string().optional().catch(undefined),
+      "ru-RU": z.string().optional().catch(undefined),
+      "ko-KR": z.string().optional().catch(undefined),
     })
     .optional()
     .catch(undefined),
@@ -49,7 +53,7 @@ export function resolveHelpAppConfig(remote: unknown, local: unknown): HelpAppCo
   };
 }
 
-/** 公开帮助配置仅做内存缓存，不共享带用户鉴权的灰度响应。 */
+/** 帮助配置仅做内存缓存；可选登录身份不同的响应不能互相复用。 */
 export function createHelpAppConfigReader(options: {
   fetchImpl: typeof fetch;
   now?: () => number;
@@ -74,18 +78,20 @@ export function createHelpAppConfigReader(options: {
     for (const [key, entry] of entries) {
       if (!entry.pending && entry.expiresAt <= now()) entries.delete(key);
     }
-    const cached = entries.get(url);
+    const key = JSON.stringify([url, new Headers(headers).get("authorization")]);
+    const cached = entries.get(key);
     if (cached?.pending) return cached.pending;
     if (cached?.value && cached.expiresAt > now()) return cached.value;
     const entry: { expiresAt: number; value?: HelpAppConfig; pending?: Promise<HelpAppConfig> } = {
       expiresAt: 0,
     };
-    entries.set(url, entry);
+    entries.set(key, entry);
     entry.pending = (async () => {
       const response = await options.fetchImpl(url, {
         method: "GET",
         cache: "no-store",
         credentials: "omit",
+        redirect: "error",
         headers,
         signal: AbortSignal.timeout(10_000),
       });
@@ -98,7 +104,7 @@ export function createHelpAppConfigReader(options: {
     try {
       return await entry.pending;
     } catch (error) {
-      entries.delete(url);
+      entries.delete(key);
       throw error;
     } finally {
       entry.pending = undefined;

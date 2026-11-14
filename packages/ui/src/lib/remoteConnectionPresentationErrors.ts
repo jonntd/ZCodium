@@ -15,6 +15,7 @@ import {
   SOURCE_SERVER_REMOVE_CALLBACK_MISSING_ERROR_CODE,
   SOURCE_SERVER_REMOVE_CALLBACK_FAILED_ERROR_CODE,
   SOURCE_SERVER_REMOVE_PERSIST_FAILED_ERROR_CODE,
+  SOURCE_SERVER_UPDATE_IN_PROGRESS_ERROR_CODE,
   WORKSPACE_CONFIG_FILE_CONFLICT_ERROR_CODE,
   WORKSPACE_MIGRATION_PLAN_DIVERGED_ERROR_CODE,
   WORKSPACE_SESSION_GENERATION_CHANGED_ERROR_CODE,
@@ -69,13 +70,17 @@ const messageIdByCode: Record<PublicZCodeErrorCode, string> = {
   [REMOTE_RECOVERY_BUDGET_EXHAUSTED_ERROR_CODE]: "remote.error.recoveryBudgetExhausted",
   [REMOTE_WORKSPACE_BIND_SESSION_MISSING_ERROR_CODE]: "remote.error.bindSessionMissing",
   [REMOTE_WORKSPACE_DIRECTORY_UNAVAILABLE_ERROR_CODE]: "remote.error.workspaceDirectoryUnavailable",
-  [REMOTE_WORKSPACE_DIRECTORY_UNRESPONSIVE_ERROR_CODE]: "remote.error.workspaceDirectoryUnavailable",
+  [REMOTE_WORKSPACE_DIRECTORY_UNRESPONSIVE_ERROR_CODE]:
+    "remote.error.workspaceDirectoryUnavailable",
   [SOURCE_SERVER_REMOVE_CALLBACK_MISSING_ERROR_CODE]:
     "settings.source.error.source-server-remove-callback-missing",
   [SOURCE_SERVER_REMOVE_CALLBACK_FAILED_ERROR_CODE]:
     "settings.source.error.source-server-remove-callback-failed",
   [SOURCE_SERVER_REMOVE_PERSIST_FAILED_ERROR_CODE]:
     "settings.source.error.source-server-remove-persist-failed",
+  // 上游 R3 §6.3 新增错误码：同一设备更新进行中（fork errorCodes 已同步该码）。
+  [SOURCE_SERVER_UPDATE_IN_PROGRESS_ERROR_CODE]:
+    "settings.source.error.source-server-update-in-progress",
 };
 
 export function classifyRemoteConnectionError(input: {

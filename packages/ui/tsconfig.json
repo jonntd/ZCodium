@@ -9,6 +9,9 @@
     "rootDir": "src",
     "lib": ["es2025", "dom", "dom.iterable"],
     "jsx": "react-jsx",
+    // fork shared 单包双端：ui 经 barrel 全量引入 shared 源码，types 补 node 使其
+    // node 面（env/mcp/runtimeEnv 等）在本 dom 编译单元内通过检查。
+    "types": ["node", "vite/client"],
     "paths": {
       "@/*": ["./src/*"]
     }

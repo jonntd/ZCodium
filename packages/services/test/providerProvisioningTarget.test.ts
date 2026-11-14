@@ -172,7 +172,9 @@ describe("Provider Provisioning Target", () => {
     expect(f.credentialDelete).toHaveBeenCalledWith(key);
   });
 
-  it.each([0, 3, 99])("未知 schemaVersion=%s 在任何写入前失败", async (schemaVersion) => {
+  // 上游 v3.18.x 引入 schemaVersion=3（国内/关联会话整组）；3 不再是未知版本，
+  // 写入前失败的守护改用 4 / 0 / 99 继续（改用 it.each 时注意保持“先拒后写”语义）。
+  it.each([0, 4, 99])("未知 schemaVersion=%s 在任何写入前失败", async (schemaVersion) => {
     const f = await createTarget();
     await expect(f.target.apply(createEnvelope({ schemaVersion }))).rejects.toThrow();
     expect(f.settingUpdate).not.toHaveBeenCalled();
@@ -191,7 +193,7 @@ describe("Provider Provisioning Target", () => {
           ],
         }),
       ),
-    ).rejects.toThrow("Provisioning v2 only accepts OAuth credentials");
+    ).rejects.toThrow("Provisioning v2/v3 only accepts OAuth credentials");
     expect(f.settingUpdate).not.toHaveBeenCalled();
     expect(f.credentialSave).not.toHaveBeenCalled();
   });

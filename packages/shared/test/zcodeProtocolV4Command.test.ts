@@ -609,7 +609,7 @@ describe("zcode-protocol-v4 command", () => {
     expect([...COMMANDS_REQUIRING_BASE_REVISION].sort()).toEqual(
       [
         "deleteQueueItem",
-        "editQueueItem",
+        // 上游 v3.18.x 将 editQueueItem 移出 CAS（revision 频繁递增会误拒编辑，改用 CLI 编辑锁）。
         "editUserQuery",
         "applyFileRewind",
         "forkAssistant",

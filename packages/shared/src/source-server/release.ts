@@ -1,5 +1,29 @@
 import { z } from "zod";
 
+// fork 保留：远端运行时资源镜像设置（上游 v3.18.x 移除该面，fork 的
+// remoteRuntimeAssets 设置/验证与 desktop 消费端仍在使用）。
+export const remoteRuntimeAssetSettingsSchema = z
+  .object({
+    mode: z.enum(["online", "offline"]),
+    baseUrl: z
+      .string()
+      .trim()
+      .url()
+      .refine((value) => {
+        const url = new URL(value);
+        return (
+          ["http:", "https:"].includes(url.protocol) &&
+          !url.username &&
+          !url.password &&
+          !url.search &&
+          !url.hash
+        );
+      }, "Runtime mirror must be an HTTP(S) URL without credentials, query or fragment")
+      .optional(),
+  })
+  .strict();
+export type RemoteRuntimeAssetSettings = z.infer<typeof remoteRuntimeAssetSettingsSchema>;
+
 export const SOURCE_SERVER_RELEASE_TARGETS = [
   "linux-x64",
   "linux-arm64",
@@ -82,29 +106,6 @@ export const sourceServerReleaseDescriptorSchema = z
   });
 
 export type SourceServerReleaseDescriptor = z.infer<typeof sourceServerReleaseDescriptorSchema>;
-
-/** #68：资源联网策略属于控制端设置，不参与 workspace 或远端线路身份。 */
-export const remoteRuntimeAssetSettingsSchema = z
-  .object({
-    mode: z.enum(["online", "offline"]),
-    baseUrl: z
-      .string()
-      .trim()
-      .url()
-      .refine((value) => {
-        const url = new URL(value);
-        return (
-          ["http:", "https:"].includes(url.protocol) &&
-          !url.username &&
-          !url.password &&
-          !url.search &&
-          !url.hash
-        );
-      }, "Runtime mirror must be an HTTP(S) URL without credentials, query or fragment")
-      .optional(),
-  })
-  .strict();
-export type RemoteRuntimeAssetSettings = z.infer<typeof remoteRuntimeAssetSettingsSchema>;
 
 export const offlineRuntimeImportResultSchema = z
   .object({

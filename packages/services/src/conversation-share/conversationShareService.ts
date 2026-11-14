@@ -26,10 +26,15 @@ import {
   resolveRuntimeZCodeEndpointOrigin,
 } from "@zcode/shared";
 import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
+// 行模型升级（Wire/Unreadable）：分享投影只吃读得懂的行，入口统一窄化。
+const toWireRows = (rows: readonly ConversationRow[]): WireConversationRow[] =>
+  rows.filter(isWireConversationRow);
 import {
   PROTOCOL_V4_LIMITS,
   ZCODE_ATTACHMENT_FAULT_CODES,
   readZCodeAttachmentFaultCode,
+  isWireConversationRow,
+  type WireConversationRow,
 } from "@zcode/shared/zcode-protocol-v4";
 import { Emitter } from "@zcode/rpc";
 
@@ -248,6 +253,10 @@ const IMPORTED_SHARE_TITLE_PREFIX: Readonly<Record<Locale, string>> = {
   "zh-CN": "来自分享：",
   "en-US": "From Share: ",
   "fa-IR": "از اشتراک: ",
+  // fork 未翻译 ja/ru/ko 界面语言，前缀统一走英文兜底（Locale 扩五语后补齐）。
+  "ja-JP": "From Share: ",
+  "ru-RU": "From Share: ",
+  "ko-KR": "From Share: ",
 };
 
 function formatImportedShareSessionTitle(shareTitle: string, locale: Locale | undefined): string {
@@ -1056,11 +1065,11 @@ export class ConversationShareService implements IConversationShareService {
     }
 
     const registeredProjection = buildConversationSharePublicProjection({
-      rows: selectedRows,
+      rows: toWireRows(selectedRows),
       selectedProductTurnIds: selected.productTurnIds,
       toolPresentation: supportsConversationShareContent(capabilities, "tool-presentation"),
       toolImages: inlineImages.toolImages,
-      sourceRows: conversation.rows,
+      sourceRows: toWireRows(conversation.rows),
     });
     if (registeredProjection.rows.length > capabilities.max_rows) {
       blockingIssues.push({
@@ -2104,11 +2113,11 @@ export class ConversationShareService implements IConversationShareService {
     // 本地运行投影包含 subagent 详情与写入态 ID，后端 V1 会以 3205 拒绝；
     // confirm 前必须先生成独立的公开投影，不能直接发送选中的本地 rows。
     const registeredProjection = buildConversationSharePublicProjection({
-      rows: selectedRows,
+      rows: toWireRows(selectedRows),
       selectedProductTurnIds: selected.productTurnIds,
       toolPresentation: supportsConversationShareContent(capabilities, "tool-presentation"),
       toolImages: inlineImages.toolImages,
-      sourceRows: conversation.rows,
+      sourceRows: toWireRows(conversation.rows),
     });
     this.validateArtifactManifest(capabilities, registeredProjection.artifacts);
     const preflightPreviewSnapshots = new Map<string, ConversationSharePreviewPreflightSnapshot>();
@@ -2151,12 +2160,12 @@ export class ConversationShareService implements IConversationShareService {
       report("collecting", 0, 0, sanitizeConversationShareIssues(publishWarnings));
     }
     const publicProjection = buildConversationSharePublicProjection({
-      rows: artifactSnapshot.rows,
+      rows: toWireRows(artifactSnapshot.rows),
       selectedProductTurnIds: selected.productTurnIds,
       additionalArtifacts: artifactSnapshot.additionalArtifacts,
       toolPresentation: supportsConversationShareContent(capabilities, "tool-presentation"),
       toolImages: inlineImages.toolImages,
-      sourceRows: conversation.rows,
+      sourceRows: toWireRows(conversation.rows),
       ...(supportsConversationShareContent(capabilities)
         ? { contentDrafts: workflowSnapshot.drafts }
         : {}),

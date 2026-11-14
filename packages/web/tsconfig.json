@@ -5,8 +5,19 @@
     "rootDir": "src",
     "lib": ["es2025", "dom", "dom.iterable"],
     "jsx": "react-jsx",
-    "noEmit": true
+    "noEmit": true,
+    "types": ["node", "vite/client"]
   },
   "include": ["src"],
-  "references": [{ "path": "../ui" }, { "path": "../client" }]
+  "references": [
+    {
+      "path": "../shared"
+    },
+    {
+      "path": "../ui"
+    },
+    {
+      "path": "../client"
+    }
+  ]
 }

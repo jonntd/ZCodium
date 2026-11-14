@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { existsSync, statSync } from "node:fs";
 import { access, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
@@ -29,6 +30,8 @@ export const workspaceHookProcessConfigSchema = z
     args: z.array(z.string()).optional(),
     timeoutMs: positiveNumberSchema.optional(),
     statusMessage: z.string().min(1).optional(),
+    // hook 自身出错时放行还是拦截（contracts 的 HookOnError）；只对 PreToolUse 生效。
+    onError: z.enum(["allow", "deny"]).optional(),
   })
   .passthrough();
 
@@ -42,6 +45,8 @@ export const workspaceHookCommandConfigSchema = z
     timeout: positiveNumberSchema.optional(),
     timeoutMs: positiveNumberSchema.optional(),
     statusMessage: z.string().min(1).optional(),
+    // hook 自身出错时放行还是拦截（contracts 的 HookOnError）；只对 PreToolUse 生效。
+    onError: z.enum(["allow", "deny"]).optional(),
   })
   .passthrough();
 

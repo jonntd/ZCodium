@@ -136,6 +136,9 @@ function createWebPlatform(
     services.providerSettingsService,
   );
   return {
+    // Web 端遥测桥为空实现：IPlatformService 契约要求，宿主侧不采集（上游 v3.18.2）。
+    reportTelemetryEvent: () => Promise.resolve(),
+    reportArmsCustomEvent: () => Promise.resolve(),
     canSelectFilePath: false,
     // Web 端无法打开系统目录选择框
     openDataRootImport: () => {},

@@ -24,10 +24,30 @@ import type {
   WebRemoteControlTaskTarget,
   WebRemoteControlWorkspaceTarget,
 } from "./web-remote-control.js";
+import type {
+  WebRemoteControlRendererActionRequest,
+  WebRemoteControlRendererActionResult,
+} from "#src/web-remote-relay/index.js";
 import type { AppSettings, Locale } from "./protocol.js";
 import type { StorageCleanRequest, StorageCleanResult, StorageUsageSnapshot } from "./storage.js";
 import type {
-  BotRemoteWorkspaceReconnectedEvent,
+  ArmsCustomEventPayload,
+  ConfigureFinalArmsCustomEventE2ERequest,
+  FinalArmsCustomEventE2EEntry,
+  RendererTelemetryEventPayload,
+  TelemetryRendererContext,
+} from "./telemetry.js";
+import type {
+  RendererActionTraceBatchV1,
+  RendererActionTraceConfigV1,
+} from "./rendererActionTrace.js";
+import type { RendererHeapSample } from "./validation.js";
+import type {
+  ExtensionNotificationClick,
+  ExtensionNotificationPayload,
+  NotificationsShowResult,
+} from "#src/extension-host/notifications.js";
+import type {
   CancelPendingRemoteConnectionRequest,
   BindRemoteWorkspaceSessionContextRequest,
   BrowserViewScreenshotSurfacePreparePayload,
@@ -35,6 +55,7 @@ import type {
   BrowserViewScreenshotSurfaceReleasePayload,
   BrowserViewCloseTabNotification,
   BrowserViewCloseTabRequest,
+  BrowserViewPromoteDraftTabsRequest,
   BrowserViewResidencyReportPayload,
   BrowserViewResidencyTransitionPayload,
   BrowserViewRestoredTabShell,
@@ -51,6 +72,8 @@ import type {
   EmbeddedBrowserSitePermissionResetRequest,
   EmbeddedBrowserSitePermissionsSnapshot,
   EditorInfo,
+  FileApplicationInfo,
+  FileApplicationTarget,
   CreateTempTextAttachmentRequest,
   CreateTempTextAttachmentResult,
   ModelhubFetchModelsRequest,
@@ -62,6 +85,11 @@ import type {
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,
+  MicrophoneAccessResetResult,
+  MicrophoneAccessResult,
+  MicrophoneSettingsTarget,
+  CaptureBrowserGuestPageRequest,
+  CaptureBrowserGuestPageResult,
   OpenInEditorOptions,
   PostUpdateReleaseNotesPayload,
   RemoteSessionClosedEvent,
@@ -75,6 +103,7 @@ import type {
   DesktopWindowChromeState,
   WindowControlsOverlayMetrics,
   WindowControlsOverlayReadyPayload,
+  BotRemoteWorkspaceReconnectedEvent,
 } from "./platform.js";
 import type { BrowserViewportSize } from "./browser-use/command-metadata.js";
 import type {
@@ -114,6 +143,15 @@ export const ServiceChannels = {
   ZCodeAgent: "zcode-agent",
   /** ZCode session 应用服务 */
   ZCodeSession: "zcode-session",
+  Project: "project",
+  /** 受管 worktree 任务管理（列表、删除、起点、fork 到新 worktree），仅本地桌面 Host。 */
+  ManagedWorktrees: "managed-worktrees",
+  TaskGroups: "task-groups",
+  RemoteProjects: "remote-projects",
+  /** 手机远端 attachment 的窗口目录；原 project 继续属于工作区。 */
+  WindowProject: "window-project",
+  WindowRemoteProjects: "window-remote-projects",
+  WindowProjectChanges: "window-project-changes",
   /** 会话分享发布、预览与 continuation API 编排 */
   ConversationShare: "conversation-share",
   /** 文件系统监视服务 */
@@ -128,6 +166,20 @@ export const ServiceChannels = {
   ModelSelection: "model-selection",
   /** 远端 Environment 内部 Provider Provisioning target */
   ProviderProvisioningTarget: "provider-provisioning-target",
+  /** Source Server 端 workspace 身份解析服务 */
+  SourceServerWorkspace: "source-server-workspace",
+  /** 桌面 Host 的 Source Server 目录与连接管理服务 */
+  SourceServerManagement: "source-server-management",
+  /** 桌面 Host 的数据同步设备状态（按 sourceServerId 记录上次同步结果，仅本机注册） */
+  DeviceSyncState: "device-sync-state",
+  /** 桌面 Host 的数据同步页模型提供商：读取 / 重试 Main 协调器的 Provisioning lane（仅本机注册） */
+  ProviderProvisioningStatus: "provider-provisioning-status",
+  /** 桌面 Host 的扩展门面（docs/plugins/extension-host.md）：贡献表、扩展进程状态、命令、重新加载（仅本机注册） */
+  Extensions: "extensions",
+  /** 桌面 Host 的扩展视图门面（docs/plugins/extension-host.md §8）：视图实例、页面请求与通知、views.open（仅本机注册） */
+  ExtensionViews: "extension-views",
+  /** 桌面 Host 的扩展授权门面（docs/plugins/extension-host.md §17.7）：授予、撤销、授权状态、启用确认、最近操作（仅本机注册） */
+  ExtensionGrants: "extension-grants",
   /** 本地 usage 统计服务 */
   UsageStats: "usage-stats",
   /** Coding Plan 订阅购买服务 */
@@ -137,6 +189,8 @@ export const ServiceChannels = {
   ClientScenes: "client-scenes",
   CloudContent: "cloud-content",
   MarketingTouch: "marketing-touch",
+  /** 桌面 Host 的语音输入：连接 zcode-server ASR（docs/chat/composer-voice-input.md，仅本机 base 连接） */
+  VoiceInput: "voice-input",
   /** Skills 管理服务 */
   Skills: "skills",
   /** SSH 远程 skills 同步服务 */
@@ -145,6 +199,8 @@ export const ServiceChannels = {
   McpSync: "mcp-sync",
   /** SSH 远程 plugin 同步服务 */
   PluginSync: "plugin-sync",
+  /** 数据同步：子智能体、命令、钩子共用的用户配置同步通道（按 category 区分，不进手机白名单） */
+  UserConfigSync: "user-config-sync",
   /** 插件管理服务 */
   Plugins: "plugins",
   /** 设置页插件管理服务（UI 平台能力面收敛，不再直触 zcodeAgentService） */
@@ -181,14 +237,6 @@ export const ServiceChannels = {
   HighspeedCard: "highspeed-card",
   /** Onboarding 完成记录服务（本地持久化，后续上传服务器） */
   OnboardingRecord: "onboarding-record",
-  Project: "project",
-  TaskGroups: "task-groups",
-  RemoteProjects: "remote-projects",
-  WindowProject: "window-project",
-  WindowRemoteProjects: "window-remote-projects",
-  WindowProjectChanges: "window-project-changes",
-  SourceServerWorkspace: "source-server-workspace",
-  SourceServerManagement: "source-server-management",
 } as const;
 
 export type ServiceChannelName = (typeof ServiceChannels)[keyof typeof ServiceChannels];
@@ -226,6 +274,14 @@ export const PlatformChannels = {
   SaveFile: "zcode:save-file",
   /** Renderer → Main：用 Chromium 打印引擎把当前页面 print 媒体版面导出为 PDF */
   PrintToPdf: "zcode:print-to-pdf",
+  /** Renderer → Main：检查并按需请求系统麦克风权限 */
+  MicrophoneAccess: "zcode:microphone-access",
+  /** Renderer → Main：macOS 重置本 App 的麦克风授权记录并重新请求 */
+  ResetMicrophoneAccess: "zcode:reset-microphone-access",
+  /** Renderer → Main：打开系统麦克风权限 / 声音输入设置页 */
+  OpenMicrophoneSettings: "zcode:open-microphone-settings",
+  /** Renderer → Main：在 main 截取内置浏览器 guest 当前视口为 PNG（renderer 侧 capturePage 会崩溃） */
+  CaptureBrowserGuestPage: "zcode:capture-browser-guest-page",
   /** Main → Renderer：转发远程连接过程日志 */
   RemoteConnectionLog: "zcode:remote-connection-log",
   /** Main → Renderer：远程 workspace session 已关闭 */
@@ -287,6 +343,8 @@ export const PlatformChannels = {
   SyncWebRemoteControlTasks: "zcode:sync-web-remote-control-tasks",
   /** Main → Renderer：手机端请求重连当前窗口里的远程 workspace */
   WebRemoteControlReconnectWorkspace: "zcode:web-remote-control-reconnect-workspace",
+  /** Main → Renderer：手机请求置顶/归档任务或新建本地项目，Renderer 按侧栏同一路径执行 */
+  WebRemoteControlRendererAction: "zcode:web-remote-control-renderer-action",
   /** Renderer → Main：同步当前窗口的未读 task 数 */
   SyncWindowUnreadCount: "zcode:sync-window-unread-count",
   /** Renderer → Main：当前窗口 active task，只更新 Main 的临时焦点映射。 */
@@ -411,6 +469,11 @@ export const PlatformChannels = {
   /** Main → Preload：用户点击了系统通知，携带 taskId 让 renderer 跳转到对应任务 */
   TaskNotificationClick: "zcode:task-notification-click",
   /** Renderer → Main：导出日志（打包 ~/.zcodium/v2 及外部 agent 日志为 zip 并在 Finder 中显示） */
+  /** Renderer → Main：弹扩展的系统通知并返回结果（§18.1 H8） */
+  ShowExtensionNotification: "zcode:show-extension-notification",
+  /** Main → Preload：用户点了扩展通知，携带插件 id 与要打开的视图 */
+  ExtensionNotificationClick: "zcode:extension-notification-click",
+  /** Renderer → Main：导出日志（打包 ~/.zcode/v2 及外部 agent 日志为 zip 并在 Finder 中显示） */
   ExportLogs: "zcode:export-logs",
   /** Renderer → Main：截取当前窗口作为反馈附件 */
   CaptureWindowScreenshot: "zcode:capture-window-screenshot",
@@ -422,11 +485,14 @@ export const PlatformChannels = {
   /** 可信宿主发起导航；main 将本地 HTML 转成有目录边界的预览地址。 */
   BrowserViewLoadUrl: "zcode:browser-view-load-url",
   /** Renderer → Main：重建 `<webview>` 前主动断开旧 guest 的 CDP。 */
+  BrowserViewDownloadStarted: "zcode:browser-view-download-started",
   BrowserViewDetachGuest: "zcode:browser-view-detach-guest",
   /** Renderer → Main：用户显式关闭 Browser tab。 */
   BrowserViewCloseTabFromRenderer: "zcode:browser-view-close-tab-from-renderer",
   /** Renderer → Main：上报 Browser tab residency/display facts。 */
   BrowserViewReportResidency: "zcode:browser-view-report-residency",
+  /** Renderer → Main：草稿首发后把草稿 human tab 的 owner 升级为新会话。 */
+  BrowserViewPromoteDraftTabs: "zcode:browser-view-promote-draft-tabs",
   /** Renderer → Main：指定 generation 的 guest 已卸载。 */
   BrowserViewSuspendReady: "zcode:browser-view-suspend-ready",
   /** Renderer → Main：用户访问 suspended tab，请求恢复。 */
@@ -491,6 +557,8 @@ export const PlatformChannels = {
   QuitAndInstallUpdate: "zcode:quit-and-install-update",
   /** Renderer → Main：获取系统中已安装的编辑器/终端列表（含图标） */
   GetInstalledEditors: "zcode:get-installed-editors",
+  GetFileApplications: "zcode:get-file-applications",
+  OpenFileWithApplication: "zcode:open-file-with-application",
   /** Renderer → Main：按 bundle id 获取系统应用图标 */
   GetApplicationIcon: "zcode:get-application-icon",
   /** Renderer → Main：用指定编辑器打开路径 */
@@ -522,6 +590,22 @@ export type PlatformChannelName = (typeof PlatformChannels)[keyof typeof Platfor
 export const EmbeddedBrowserWebviewChannels = {
   /** Guest 无法继续消费某方向的滚动时，把二维 delta 转交自由尺寸画布。 */
   WheelBoundary: "zcode:embedded-browser-wheel-boundary",
+  /**
+   * 设计运行时的页面事件（docs/browser-use/2026-11-03-browser-design-mode-spec.md）：页面主世界
+   * `window.postMessage` 带命名空间的信封，preload 校验后把 `events` 数组转给宿主。
+   */
+  DesignEvents: "zcode:embedded-browser-design-events",
+  /**
+   * 页面上按下 Cmd/Ctrl + Z（Shift 为重做），且按键当下的目标不是可编辑元素：preload 隔离世界只认 isTrusted 的按键，
+   * 页面脚本发不出这条，设计工具据此撤销 / 重做源码写回。
+   */
+  DesignUndoShortcut: "zcode:embedded-browser-design-undo-shortcut",
+} as const;
+
+/** 设计运行时 postMessage 信封：`{ [messageKey]: 1, events: unknown[] }`；events 序列化后超过上限（UTF-8 字节）的消息 preload 直接丢弃。 */
+export const EMBEDDED_BROWSER_DESIGN_BRIDGE = {
+  messageKey: "__zcodeDesign",
+  maxMessageBytes: 256 * 1024,
 } as const;
 
 export interface EmbeddedBrowserWheelBoundaryPayload {
@@ -586,11 +670,14 @@ export const InternalChannels = {
   ScopedServicePort: "zcode:scoped-service-port",
   /** renderer → main：scoped MessagePort 已注册，可安全切换 attachment */
   ScopedServicePortReady: "zcode:scoped-service-port-ready",
+  /** main → renderer：ready ACK 到达时 route 已不存在，窗口释放这次 attachment 的登记 */
+  ScopedServicePortReleased: "zcode:scoped-service-port-released",
+  /** main → renderer：在线 Source 的配置专用 MessagePort */
+  SourceSettingsServicePort: "zcode:source-settings-service-port",
   /** preload → renderer：主进程已确认系统通知展示，renderer 可播放提示音 */
   TaskNotificationSound: "zcode:task-notification-sound",
   /** main → 宿主 renderer：插件 UI 沙箱的 MessagePort 组（port2[]），payload { sandboxId, initId, names } */
   PluginSandboxPorts: "zcode:plugin-sandbox-ports",
-  SourceSettingsServicePort: "zcode:source-settings-service-port",
 } as const;
 
 /** @deprecated `/ws` 已忽略该头；保留常量仅供旧客户端兼容。 */
@@ -604,6 +691,12 @@ export const ZCODE_RPC_HOST_CAPABILITY_HEADER = "x-zcode-rpc-host-capability";
 
 /** main → host process 的初始化消息类型 */
 export const HostMessageTypes = {
+  /** Main → Host：仅经已绑定私有通道返回加解密结果，不含系统主密钥。 */
+  CredentialCipherResult: "credential-cipher-result",
+  /** Main → Host：数据存储路径切换时的系统密钥登记结果，只含受控错误码。 */
+  CredentialKeyShareResult: "credential-key-share-result",
+  /** main → Host：准备手机项目目录，只复用已在线物理 Source。 */
+  PrepareProjectWorkspace: "prepare-project-workspace",
   DatabaseStartupControl: "database-startup-control",
   /** 初始化本地服务 */
   InitLocal: "init-local",
@@ -616,6 +709,7 @@ export const HostMessageTypes = {
   /** main → window Host：释放一个远程 logical session */
   DisposeRemoteWorkspaceSession: "dispose-remote-workspace-session",
   /** main → host：复用现有服务，对新的 RPC MessagePort 暴露服务 */
+  SetTerminalOwner: "set-terminal-owner",
   AttachServicePort: "attach-service-port",
   /** main → host：精确释放一个 RPC MessagePort attachment */
   DetachServicePort: "detach-service-port",
@@ -659,17 +753,27 @@ export const HostMessageTypes = {
   CuaPipFocusChanged: "cua-pip-focus-changed",
   /** main → host：要求 Host 现读本地 Source，并同步指定 Remote Environment。 */
   ProviderProvisioningExecute: "provider-provisioning-execute",
+  /** main → host：数据同步页读取 / 重试 Provisioning lane 的结果。 */
+  ProviderProvisioningLaneResult: "provider-provisioning-lane-result",
   /** main → host：资源管理器请求 Host 采样其后代进程（Agent / MCP / 终端）的 CPU 与内存 */
   ResourceUsageSnapshotRequest: "resource-usage-snapshot-request",
   ResourceUsageSnapshotCancel: "resource-usage-snapshot-cancel",
   NetworkCapture: "network-capture",
-  PrepareProjectWorkspace: "prepare-project-workspace",
   CancelRemoteWorkspaceBind: "cancel-remote-workspace-bind",
   ApplicationLocaleChanged: "application-locale-changed",
 } as const;
 
 /** host process → main process 的反馈消息类型 */
 export const HostResponseTypes = {
+  /** Host → Main：对本 Host 绑定的凭据目录执行加解密。 */
+  CredentialCipherRequest: "credential-cipher-request",
+  /**
+   * Host → Main：数据存储路径切换后，请求 Main 把当前绑定目录的系统密钥登记到目标数据根。
+   * 只传目标数据根，Main 自行推导凭据路径；不读出密钥，也不开放对目标目录的加解密。
+   */
+  CredentialKeyShareRequest: "credential-key-share-request",
+  /** Host → main：已准入的目录与 scope，main 不解释项目业务。 */
+  ProjectWorkspacePrepared: "project-workspace-prepared",
   DatabaseStartupState: "database-startup-state",
   /** window Host → main：按 requestId 上报远程连接过程日志 */
   RemoteWorkspaceConnectionLog: "remote-workspace-connection-log",
@@ -697,11 +801,17 @@ export const HostResponseTypes = {
   /** host → main：CLI 内 MCP 进程生命周期与内存遥测 */
   McpResourceSamples: "mcp-resource-samples",
   ToolExecResource: "tool-exec-resource",
+  /** 自动化 Host 首次输入 accepted 后报告新建 Session。 */
+  SessionCreateTelemetry: "session-create-telemetry",
+  RemoteConversationTelemetry: "remote-conversation-telemetry",
+  PluginTelemetry: "plugin-telemetry",
   /** host → main：资源管理器采样结果（按 requestId 关联） */
   ResourceUsageSnapshotResult: "resource-usage-snapshot-result",
   NetworkCaptureBatch: "network-capture-batch",
   /** host 内当前正在执行 prompt 的 agent session 数量变化 */
   AgentRunningTaskCountChanged: "agent-running-task-count-changed",
+  /** host 内阻止退出的事项变化（例如正在创建的 worktree） */
+  QuitBlockersChanged: "quit-blockers-changed",
   /** host 内指定 workspace 当前仍未 terminal 的 task 数量变化 */
   WorkspaceRunningTaskCountChanged: "workspace-running-task-count-changed",
   /** host → main：Windows desktop-local CUA turn 的操作提示状态 */
@@ -762,10 +872,11 @@ export const HostResponseTypes = {
   ProviderProvisioningSourceChanged: "provider-provisioning-source-changed",
   /** host → main：一次 Remote Environment 同步执行完毕。 */
   ProviderProvisioningExecutionResult: "provider-provisioning-execution-result",
-  ProjectWorkspacePrepared: "project-workspace-prepared",
   RemoteWorkspaceContextBound: "remote-workspace-context-bound",
   RemoteWorkspaceContextBindFailed: "remote-workspace-context-bind-failed",
   RemoteWorkspaceReconnected: "remote-workspace-reconnected",
+  /** host → main：数据同步页按设备读取或重试 Provisioning lane。 */
+  ProviderProvisioningLaneRequest: "provider-provisioning-lane-request",
 } as const;
 
 // ============================================================================
@@ -813,6 +924,22 @@ export interface PlatformChannelMap {
   [PlatformChannels.PrintToPdf]: {
     request: void;
     response: PrintPageToPdfResult;
+  };
+  [PlatformChannels.MicrophoneAccess]: {
+    request: void;
+    response: MicrophoneAccessResult;
+  };
+  [PlatformChannels.ResetMicrophoneAccess]: {
+    request: void;
+    response: MicrophoneAccessResetResult;
+  };
+  [PlatformChannels.OpenMicrophoneSettings]: {
+    request: MicrophoneSettingsTarget;
+    response: boolean;
+  };
+  [PlatformChannels.CaptureBrowserGuestPage]: {
+    request: CaptureBrowserGuestPageRequest;
+    response: CaptureBrowserGuestPageResult;
   };
   [PlatformChannels.RemoteConnectionLog]: {
     request: {
@@ -922,6 +1049,10 @@ export interface PlatformChannelMap {
     request: WebRemoteControlReconnectWorkspaceRequest;
     response: WebRemoteControlReconnectWorkspaceResult;
   };
+  [PlatformChannels.WebRemoteControlRendererAction]: {
+    request: WebRemoteControlRendererActionRequest;
+    response: WebRemoteControlRendererActionResult;
+  };
   [PlatformChannels.SyncWindowUnreadCount]: {
     request: number;
     response: void;
@@ -989,6 +1120,10 @@ export interface PlatformChannelMap {
   [PlatformChannels.ResetEmbeddedBrowserSitePermission]: {
     request: EmbeddedBrowserSitePermissionResetRequest;
     response: EmbeddedBrowserSitePermissionsSnapshot;
+  };
+  [PlatformChannels.BrowserViewDownloadStarted]: {
+    request: { webContentsId: number; urls: string[] };
+    response: void;
   };
   [PlatformChannels.BrowserViewReady]: {
     request: {
@@ -1110,6 +1245,14 @@ export interface PlatformChannelMap {
     request: string;
     response: void;
   };
+  [PlatformChannels.ShowExtensionNotification]: {
+    request: ExtensionNotificationPayload;
+    response: NotificationsShowResult;
+  };
+  [PlatformChannels.ExtensionNotificationClick]: {
+    request: ExtensionNotificationClick;
+    response: void;
+  };
   [PlatformChannels.WindowFullscreenChanged]: {
     request: boolean;
     response: void;
@@ -1167,6 +1310,10 @@ export interface PlatformChannelMap {
   [PlatformChannels.BrowserViewReportResidency]: {
     request: BrowserViewResidencyReportPayload;
     response: void;
+  };
+  [PlatformChannels.BrowserViewPromoteDraftTabs]: {
+    request: BrowserViewPromoteDraftTabsRequest;
+    response: string[];
   };
   [PlatformChannels.BrowserViewSuspendReady]: {
     request: { tabId: string; generation: number };
@@ -1277,6 +1424,14 @@ export interface PlatformChannelMap {
   [PlatformChannels.GetInstalledEditors]: {
     request: void;
     response: EditorInfo[];
+  };
+  [PlatformChannels.GetFileApplications]: {
+    request: FileApplicationTarget;
+    response: FileApplicationInfo[];
+  };
+  [PlatformChannels.OpenFileWithApplication]: {
+    request: { applicationId: string; target: FileApplicationTarget };
+    response: { success: boolean; error?: string };
   };
   [PlatformChannels.GetApplicationIcon]: {
     request: string | import("./platform.js").ApplicationIconRequest;

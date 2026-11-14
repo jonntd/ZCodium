@@ -9,6 +9,10 @@ const LOCALE_LABELS: Record<Locale, string> = {
   "zh-CN": "中",
   "en-US": "En",
   "fa-IR": "فا",
+  // ja/ru/ko 不进 fork 的循环切换（LOCALE_CYCLE 保持三语），仅补全标签映射满足 Locale 全集。
+  "ja-JP": "日",
+  "ru-RU": "Ру",
+  "ko-KR": "한",
 };
 
 /**

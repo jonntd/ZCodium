@@ -310,12 +310,11 @@ describe("conversation share public projection", () => {
     });
   });
 
-  it.each([
-    ["data:text/plain;base64,YQ==", "unsafe_structure"],
-    ["file:///tmp/report.html", "unsafe_structure"],
-    ["zcode-artifact://share/report", "artifact_protocol_not_ready"],
-  ] as const)("rejects unsupported local reference %s", (text, kind) => {
+  // 上游 v3.18.x 起普通 file/data 文本不再在投影层拒绝（URI 前缀不能判定是否附件，
+  // 附件由正式引用校验兜底）；仅 artifact 协议仍拒绝。fork 测试跟随该语义。
+  it("keeps ordinary data:/file: text in the public projection", () => {
     const rows = rowsWithCompletedSubagent();
+    const text = "file:///tmp/report.html 与 data:text/plain;base64,YQ== 属普通文本";
     rows[4] = {
       ...rows[4]!,
       kind: "assistantText",
@@ -323,7 +322,20 @@ describe("conversation share public projection", () => {
       state: "complete",
     };
 
-    expectBuildFailure(rows, kind);
+    const result = build(rows);
+    expect(result.rows.find((row) => row.kind === "assistantText")).toMatchObject({ text });
+  });
+
+  it("rejects artifact protocol references %s", () => {
+    const rows = rowsWithCompletedSubagent();
+    rows[4] = {
+      ...rows[4]!,
+      kind: "assistantText",
+      text: "zcode-artifact://share/report",
+      state: "complete",
+    };
+
+    expectBuildFailure(rows, "artifact_protocol_not_ready");
   });
 
   it("SHARE02：移除本地 truncated 引用但保留可公开的工具输出预览", () => {

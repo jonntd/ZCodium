@@ -20,12 +20,19 @@ import {
 import zhCN from "./locales/zh-CN.js";
 import enUS from "./locales/en-US.js";
 import faIR from "./locales/fa.js";
+import jaJP from "./locales/ja-JP.js";
+import ruRU from "./locales/ru-RU.js";
+import koKR from "./locales/ko-KR.js";
 
 /** 语言 → 翻译消息映射 */
 const MESSAGES: Record<Locale, Record<string, string>> = {
   "zh-CN": zhCN,
   "en-US": enUS,
   "fa-IR": faIR,
+  // ja/ru/ko 消息表来自上游 v3.18.2；fork 独有键缺失时由 IntlProvider fallback 链回落 zh。
+  "ja-JP": jaJP,
+  "ru-RU": ruRU,
+  "ko-KR": koKR,
 };
 
 /** 简易 intl 工具：根据 id 查找翻译，支持 {key} 占位符替换 */

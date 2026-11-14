@@ -371,6 +371,8 @@ describe("ZCode Protocol", () => {
       deleteProtectionEnabled: true,
       language: "",
       modelIoFullRetentionEnabled: false,
+      // 上游 v3.18.x 新增的插件自动推荐开关（fork schema 同步纳入）。
+      pluginAutoRecommendationEnabled: false,
     });
     expect(() =>
       appRuntimePreferencesChangedBroadcastPayloadSchema.parse({

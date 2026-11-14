@@ -2,6 +2,7 @@ export const WEB_REMOTE_CONTROL_V2_HEARTBEAT_INTERVAL_MS = 5_000;
 export const WEB_REMOTE_CONTROL_V2_HEARTBEAT_JITTER_MS = 1_000;
 export const WEB_REMOTE_CONTROL_V2_HEARTBEAT_ACK_TIMEOUT_MS = 15_000;
 
+// fork 保留：重连抖动常量（上游 v3.18.x 收敛进 heartbeat 常量组，重连路径仍需独立边界）。
 export const WEB_REMOTE_CONTROL_RECONNECT_JITTER_MS = 2_000;
 
 function safeRandom(random: () => number): number {
@@ -47,6 +48,7 @@ export function getWebRemoteControlHeartbeatDelayMs(
   return minDelayMs + Math.floor(safeRandom(random) * (maxDelayMs - minDelayMs + 1));
 }
 
+// fork 保留：重连抖动与心跳抖动同源但边界独立（上游 v3.18.x 收敛掉重连专用函数）。
 export function getWebRemoteControlReconnectJitterMs(
   configuredJitterMs = WEB_REMOTE_CONTROL_RECONNECT_JITTER_MS,
   random: () => number = Math.random,

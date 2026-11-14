@@ -14,7 +14,9 @@ import type {
 import type { ZCodeProvider } from "./zcode-task-types-core.js";
 import type { SessionWorkflowActivity } from "./zcode-protocol-v4/sessions-index-workflow-activity.js";
 import type { WebRemoteControlRpcTransportPayload } from "./web-remote-control-rpc-transport.js";
+import type { WebRemoteControlMobileLogAppPayload } from "#src/web-remote-relay/index.js";
 import type { WorkspacePurpose } from "./workspacePurpose.js";
+import type { WebRemoteControlActionPayload } from "#src/web-remote-relay/index.js";
 
 export const WEB_REMOTE_CONTROL_WORKSPACE_RECONNECT_TIMEOUT_MS = 120_000;
 export const WEB_REMOTE_CONTROL_OUTBOUND_PAYLOAD_BUFFER_TIMEOUT_MS = 5_000;
@@ -480,6 +482,7 @@ export type WebRemoteControlPlatformResponse =
   | WebRemoteControlPlatformErrorResponse;
 
 export interface WebRemoteControlExternalLocalWorkspaceBridge {
+  terminalOwnerId?: string;
   bridgeSessionId: string;
   bridgeGeneration?: number;
   recoveryId?: string;
@@ -490,6 +493,7 @@ export interface WebRemoteControlExternalLocalWorkspaceBridge {
 }
 
 export interface WebRemoteControlExternalRemoteWorkspaceBridge {
+  terminalOwnerId?: string;
   bridgeSessionId: string;
   bridgeGeneration?: number;
   recoveryId?: string;
@@ -507,6 +511,7 @@ export type WebRemoteControlExternalWorkspaceBridge =
   | WebRemoteControlExternalRemoteWorkspaceBridge;
 
 export interface WebRemoteControlBootstrapRequestPayload {
+  terminalClientSessionId?: string;
   zcode_type: "bootstrap-request";
   requestId: string;
 }
@@ -536,6 +541,7 @@ export interface WebRemoteControlWorkspaceListUpdatedPayload {
 }
 
 export interface WebRemoteControlWorkspaceBridgeOpenPayload {
+  terminalClientSessionId?: string;
   zcode_type: "workspace-bridge-open";
   requestId: string;
   bridgeSessionId: string;
@@ -665,7 +671,8 @@ export interface WebRemoteControlBridgeDegradedPayload {
     | "rpc-frame-gap"
     | "buffer-overflow"
     | "buffer-timeout"
-    | "source-session-replaced";
+    | "source-session-replaced"
+    | "terminal-owner-ended";
   seq?: number;
   expectedSeq?: number;
   droppedCount?: number;
@@ -725,7 +732,9 @@ export type WebRemoteControlAppPayload =
   | WebRemoteControlRpcTransportPayload
   | WebRemoteControlBridgeDegradedPayload
   | WebRemoteControlAppErrorPayload
-  | WebRemoteControlMobileDiagnosticPayload;
+  | WebRemoteControlMobileDiagnosticPayload
+  | WebRemoteControlActionPayload
+  | WebRemoteControlMobileLogAppPayload;
 
 export interface WebRemoteControlWorkspaceTarget {
   workspacePath: string;

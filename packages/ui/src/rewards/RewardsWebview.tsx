@@ -12,10 +12,18 @@ import { useServices } from "@/hooks/useServices.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
+import type { Locale } from "@zcode/shared";
 import { resolveTheme } from "@/useTheme.js";
 import { logger } from "@/logger.js";
 import { Button } from "@/components/ui/button.js";
 import { EmbeddedWebsiteHeader } from "@/components/EmbeddedWebsiteHeader.js";
+
+// rewards 官网嵌入页契约只认三语（rewardsEmbedded zod enum）：五语 Locale 归一化，其余回 en-US。
+const toRewardsLocale = (locale: Locale): "zh-CN" | "en-US" | "fa-IR" => {
+  if (locale === "zh-CN") return "zh-CN";
+  if (locale === "fa-IR") return "fa-IR";
+  return "en-US";
+};
 
 export function RewardsWebview({ onClose }: { onClose: () => void }) {
   const { credentialService, oauthService } = useServices();
@@ -49,7 +57,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
             ? env.VITE_REWARDS_WEBVIEW_ORIGIN
             : undefined,
       }),
-      locale,
+      toRewardsLocale(locale),
       theme,
     ),
   );
@@ -78,7 +86,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
           createRewardsInjectionScript(
             {
               theme: latest.current.theme,
-              locale: latest.current.locale,
+              locale: toRewardsLocale(latest.current.locale),
               auth: {
                 status: "anonymous",
                 provider: null,
@@ -115,7 +123,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
       }
       const snapshot: RewardsContext = {
         theme: latest.current.theme,
-        locale: latest.current.locale,
+        locale: toRewardsLocale(latest.current.locale),
         auth: {
           provider,
           status: identity && (oauth || jwt) ? "ready" : "anonymous",
@@ -179,7 +187,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
               createRewardsInjectionScript(
                 {
                   theme: latest.current.theme,
-                  locale: latest.current.locale,
+                  locale: toRewardsLocale(latest.current.locale),
                   auth: {
                     status: "anonymous",
                     provider: null,
@@ -218,7 +226,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
           createRewardsInjectionScript(
             {
               theme,
-              locale,
+              locale: toRewardsLocale(locale),
               auth: { status: "anonymous", provider: null, revision: generation.current },
             },
             {},

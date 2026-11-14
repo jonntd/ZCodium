@@ -369,18 +369,22 @@ export function V4InteractionDialogs({
     );
   }
 
-  const projectedElicitationRequest = pendingUserInputToElicitationRequest(sessionId, {
-    ...pending,
-    payload: pending.payload,
-  });
+  // 行模型升级后 payload 联合含 permission/pluginInstall 变体：helper 只吃 userInput，
+  // 先窄化再传入，后续 toolName 访问统一走窄化后的 pendingUserInput。
+  const pendingUserInput =
+    pending?.payload.kind === "userInput" ? { ...pending, payload: pending.payload } : null;
+  const projectedElicitationRequest = pendingUserInput
+    ? pendingUserInputToElicitationRequest(sessionId, pendingUserInput)
+    : null;
   const elicitationRequest = resolveV4ElicitationRequest(
     projectedElicitationRequest,
     botElicitationProgress,
   );
   if (elicitationRequest) {
-    const isExitPlanMode = pending.payload.toolName?.trim().toLowerCase() === "exitplanmode";
+    const isExitPlanMode =
+      pendingUserInput?.payload.toolName?.trim().toLowerCase() === "exitplanmode";
     const isAskUserQuestion =
-      pending.payload.toolName?.trim().toLowerCase() === "askuserquestion" ||
+      pendingUserInput?.payload.toolName?.trim().toLowerCase() === "askuserquestion" ||
       pending.autoResolution !== undefined;
     return (
       <ElicitationDialog
@@ -426,10 +430,10 @@ export function V4InteractionDialogs({
     );
   }
 
-  const model = pendingUserInputToViewModel({
-    ...pending,
-    payload: pending.payload,
-  });
+  if (pending?.payload.kind !== "userInput") {
+    return null;
+  }
+  const model = pendingUserInputToViewModel({ ...pending, payload: pending.payload });
   return (
     <V4UserInputDialog
       model={model}
