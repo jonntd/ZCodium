@@ -1,3 +1,8 @@
+import {
+  collectTelemetryRendererContext,
+  resolveWorkspaceTelemetryDetail,
+  type RendererTelemetryEventPayload,
+} from "@zcode/shared";
 import type {
   ZCodeMcpReadResourceResult,
   ZCodeMcpUiCallToolResult,
@@ -31,6 +36,7 @@ import type {
 } from "./contract.js";
 
 export interface PluginUiBridgeServiceDependencies {
+  reportTelemetryEvent?: (event: RendererTelemetryEventPayload) => void | Promise<void>;
   recycleInstance?: (params: import("./contract.js").PluginUiPluginScope) => Promise<boolean>;
   validateInstance?: (params: import("./contract.js").PluginUiPluginScope) => Promise<void>;
   openInstance?: (
@@ -173,6 +179,9 @@ export function createPluginUiBridgeService(
         ...(meta?.heightHint !== undefined ? { heightHint: meta.heightHint } : {}),
         ...(meta?.minFrameHeight !== undefined ? { minFrameHeight: meta.minFrameHeight } : {}),
         ...(meta?.showInline !== undefined ? { showInline: meta.showInline } : {}),
+        ...(meta?.backgroundRetention !== undefined
+          ? { backgroundRetention: meta.backgroundRetention }
+          : {}),
       });
       log.info("prepareSandbox registered", {
         scopeId: params.scopeId,
@@ -227,10 +236,39 @@ export function createPluginUiBridgeService(
         );
       }
       const startedAt = Date.now();
+      const report = (result: "success" | "failure" | "cancelled") => {
+        try {
+          void Promise.resolve(
+            dependencies.reportTelemetryEvent?.({
+              elementName: "plugin_usage",
+              eventRegion: "app",
+              eventType: "result",
+              context: collectTelemetryRendererContext(),
+              eventExtraDetail: {
+                schema_version: "1",
+                action: "ui_tool_call",
+                result,
+                plugin_id: params.pluginId,
+                plugin_component: "ui",
+                duration_ms: String(Math.max(0, Date.now() - startedAt)),
+                ...resolveWorkspaceTelemetryDetail(params),
+              },
+            }),
+          ).catch(() => {});
+        } catch {
+          /* 观测失败不能改变工具调用结果。 */
+        }
+      };
       try {
         const result = await dependencies.callMcpToolForUi(params, options);
+        report(result.isError ? "failure" : "success");
         return result;
       } catch (error) {
+        report(
+          options?.signal?.aborted || (error instanceof Error && error.name === "AbortError")
+            ? "cancelled"
+            : "failure",
+        );
         throw error;
       }
     },
