@@ -50,6 +50,14 @@ export class VscodePlatformService implements IPlatformService {
   readonly isDesktop = true;
   /** 终端/帮助由 IDE 原生提供，隐藏应用内嵌的终端面板、帮助菜单与链路提示。 */
   readonly nativeTerminalHost = true;
+
+  // Webview 端遥测桥为空实现：IPlatformService 契约要求（上游 v3.18.2），IDE 侧不采集。
+  reportTelemetryEvent(): Promise<void> {
+    return Promise.resolve();
+  }
+  reportArmsCustomEvent(): Promise<void> {
+    return Promise.resolve();
+  }
   readonly canOpenLocalFiles = true;
   readonly canSelectFilePath = true;
   readonly isLocalDevelopmentRuntime = false;
@@ -95,11 +103,7 @@ export class VscodePlatformService implements IPlatformService {
     return this.rpc.call<string[]>("selectFiles");
   }
 
-  saveFile(payload: {
-    data?: ArrayBuffer;
-    sourceUrl?: string;
-    suggestedName: string;
-  }): Promise<{
+  saveFile(payload: { data?: ArrayBuffer; sourceUrl?: string; suggestedName: string }): Promise<{
     success: boolean;
     canceled?: boolean;
     error?: string;
@@ -107,9 +111,7 @@ export class VscodePlatformService implements IPlatformService {
   }> {
     // ArrayBuffer 过 postMessage 需 base64：data 编为 dataB64；sourceUrl 交给宿主侧拉取。
     // 两者皆缺时宿主返回可读错误（附件上传链路另行承担大文件面）。
-    const dataB64 = payload.data
-      ? bytesToBase64(new Uint8Array(payload.data))
-      : undefined;
+    const dataB64 = payload.data ? bytesToBase64(new Uint8Array(payload.data)) : undefined;
     return this.rpc.call("saveFile", {
       dataB64,
       sourceUrl: payload.sourceUrl,
@@ -129,11 +131,7 @@ export class VscodePlatformService implements IPlatformService {
     return this.rpc.call("resolveFileDropPaths", uris);
   }
 
-
-  createTempTextAttachment(payload: {
-    text: string;
-    filename?: string;
-  }): Promise<{
+  createTempTextAttachment(payload: { text: string; filename?: string }): Promise<{
     filename: string;
     localPath: string;
     mimeType: "text/plain";
@@ -148,15 +146,11 @@ export class VscodePlatformService implements IPlatformService {
     this.fireAndForget("openExternal", url);
   }
 
-  openInFileManager(
-    path: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  openInFileManager(path: string): Promise<{ success: boolean; error?: string }> {
     return this.rpc.call("openInFileManager", path);
   }
 
-  openExternalFile(
-    path: string,
-  ): Promise<{ success: boolean; error?: string }> {
+  openExternalFile(path: string): Promise<{ success: boolean; error?: string }> {
     return this.rpc.call("openExternalFile", path);
   }
 
@@ -215,9 +209,7 @@ export class VscodePlatformService implements IPlatformService {
   }
 
   /** 会话删除上报：host 侧反查持有该会话的 folder 并清键（P1-1.4 从列表移除的写回面）。 */
-  notifySessionDeleted(
-    sessionId: string,
-  ): Promise<{ sessionId: string; folders: string[] }> {
+  notifySessionDeleted(sessionId: string): Promise<{ sessionId: string; folders: string[] }> {
     return this.rpc.call("notifySessionDeleted", sessionId);
   }
 
@@ -226,9 +218,7 @@ export class VscodePlatformService implements IPlatformService {
    * zcode-session 频道失败时的降级列表数据源（P1-1.1）。
    */
   getLatestSessionIdByFolder(): Promise<Record<string, string | undefined>> {
-    return this.rpc.call<Record<string, string | undefined>>(
-      "getLatestSessionIdByFolder",
-    );
+    return this.rpc.call<Record<string, string | undefined>>("getLatestSessionIdByFolder");
   }
 
   /** 多根 folder QuickPick（P1-2 host 半经组2 SessionsIndexBridge；单 folder 直接命中）。 */
@@ -283,13 +273,9 @@ export class VscodePlatformService implements IPlatformService {
     return this.rpc.call<Locale>("getSystemLocale");
   }
 
-  getInstalledEditors(): Promise<
-    { id: string; name: string; iconDataUrl: string }[]
-  > {
+  getInstalledEditors(): Promise<{ id: string; name: string; iconDataUrl: string }[]> {
     // 矩阵：返回当前 VS Code。
-    return Promise.resolve([
-      { id: "vscode", name: "Visual Studio Code", iconDataUrl: "" },
-    ]);
+    return Promise.resolve([{ id: "vscode", name: "Visual Studio Code", iconDataUrl: "" }]);
   }
 
   async openInEditor(
@@ -312,15 +298,11 @@ export class VscodePlatformService implements IPlatformService {
     return this.rpc.call("loadMcpFromUserDirectory", payload);
   }
 
-  saveMcpToUserDirectory(
-    payload: unknown,
-  ): Promise<{ success: boolean; error?: string }> {
+  saveMcpToUserDirectory(payload: unknown): Promise<{ success: boolean; error?: string }> {
     return this.rpc.call("saveMcpToUserDirectory", payload);
   }
 
-  migrateLegacyCommonMcp(
-    payload?: unknown,
-  ): Promise<MigrateLegacyCommonMcpResult> {
+  migrateLegacyCommonMcp(payload?: unknown): Promise<MigrateLegacyCommonMcpResult> {
     return this.rpc.call("migrateLegacyCommonMcp", payload);
   }
 
@@ -331,9 +313,7 @@ export class VscodePlatformService implements IPlatformService {
    * plat-req 透传到 host Node 侧 `fetchModelhubModels` 唯一实现。与桌面/Web 共用
    * 同一契约；`modelhubProbeVision` 与 Web 同口径保持未实现（UI 降级为名称猜测）。
    */
-  modelhubFetchModels(
-    payload: ModelhubFetchModelsRequest,
-  ): Promise<ModelhubFetchModelsResult> {
+  modelhubFetchModels(payload: ModelhubFetchModelsRequest): Promise<ModelhubFetchModelsResult> {
     return this.rpc.call("modelhubFetchModels", payload);
   }
 
@@ -392,15 +372,11 @@ export class VscodePlatformService implements IPlatformService {
 
   // ── 监听族：返回真实 unsubscribe 的空监听（no-op，矩阵 §2.4） ──
 
-  onRemoteConnectionLog(
-    _handler: (entry: RemoteConnectionRuntimeLog) => void,
-  ): () => void {
+  onRemoteConnectionLog(_handler: (entry: RemoteConnectionRuntimeLog) => void): () => void {
     return () => {};
   }
 
-  onRemoteSessionClosed(
-    _handler: (event: RemoteSessionClosedEvent) => void,
-  ): () => void {
+  onRemoteSessionClosed(_handler: (event: RemoteSessionClosedEvent) => void): () => void {
     return () => {};
   }
 
@@ -426,9 +402,7 @@ export class VscodePlatformService implements IPlatformService {
     return () => {};
   }
 
-  onWindowFullscreenChanged(
-    _handler: (isFullscreen: boolean) => void,
-  ): () => void {
+  onWindowFullscreenChanged(_handler: (isFullscreen: boolean) => void): () => void {
     return () => {};
   }
 
@@ -440,9 +414,7 @@ export class VscodePlatformService implements IPlatformService {
     return () => {};
   }
 
-  onUpdateCheckResult(
-    _callback: (payload: UpdateCheckResultPayload) => void,
-  ): () => void {
+  onUpdateCheckResult(_callback: (payload: UpdateCheckResultPayload) => void): () => void {
     return () => {};
   }
 
@@ -550,9 +522,7 @@ export class VscodePlatformService implements IPlatformService {
    * host 在 onDidChangeActiveColorTheme 时推送 theme 帧（payload = ColorThemeKind）。
    */
   onThemeChanged(callback: (kind: VscodeThemeKind) => void): () => void {
-    return (
-      this.hostFrames?.on<VscodeThemeKind>("theme", callback) ?? (() => {})
-    );
+    return this.hostFrames?.on<VscodeThemeKind>("theme", callback) ?? (() => {});
   }
 }
 
