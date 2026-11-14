@@ -203,7 +203,27 @@ async function buildStyles() {
   console.log("[esbuild] styles.css 产出完成");
 }
 
+/**
+ * 构建前清空 dist/webview（修复说明 2026-11-14）。
+ *
+ * 原因：esbuild splitting 输出内容哈希 chunk（chunk-*.js、按面板拆分的懒加载
+ * 子树等），esbuild 不清空 outdir——每次构建的旧 hash 产物永久累积在盘上，
+ * 被 vsce 全量打进 .vsix。实测 10 天攒下 12,105 个死文件 89 MB，是体积门禁
+ * 37.35 MB 超 25 MB 预算的主因；main.js/styles.css 等固定名产物会被覆盖，
+ * 只有哈希名产物会累积，故整目录清空是安全面（构建后内容 = 本次引用面）。
+ *
+ * 依据：vsce 以 dist/** 为打包源（.vscodeignore），清空后 vsix 只含当前构建
+ * 产物；material-icons/fonts 由本脚本在构建后重新拷入，不受影响。
+ * watch 模式仅在启动时清一次：rebuild 期间旧 chunk 累积属开发态损耗，
+ * 不打断热更（打包走非 watch 路径，不受影响）。
+ */
+async function cleanWebviewOutdir() {
+  const { rm } = await import("node:fs/promises");
+  await rm(resolve(here, "dist/webview"), { recursive: true, force: true });
+}
+
 if (watch) {
+  await cleanWebviewOutdir();
   const ctxExt = await esbuild.context(extensionOptions);
   const ctxWeb = await esbuild.context(webviewOptions);
   await Promise.all([ctxExt.watch(), ctxWeb.watch()]);
@@ -214,6 +234,7 @@ if (watch) {
   // （写 dist 外路径，避免混入门禁的 dist 总量）。
   const metafilePath = process.env.ZCODE_WEBVIEW_METAFILE;
   if (metafilePath) webviewOptions.metafile = true;
+  await cleanWebviewOutdir();
   const webResult = await esbuild.build(webviewOptions);
   await esbuild.build(extensionOptions);
   await buildStyles();
