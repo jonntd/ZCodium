@@ -131,6 +131,8 @@ export async function sendHostCasCommandV4<T extends CommandType>(input: {
   payload: CommandPayloadMap[T];
   sessionId: string;
   contextMessage: string;
+  /** 提交端身份；缺省用 host 进程稳定 id。扩展切换权限模式时是 `extension:<pluginId>`（§17.12）。 */
+  clientId?: string;
   maxAttempts?: number;
 }): Promise<CommandAck> {
   const maxAttempts = input.maxAttempts ?? 4;
@@ -142,6 +144,7 @@ export async function sendHostCasCommandV4<T extends CommandType>(input: {
         type: input.type,
         payload: input.payload,
         sessionId: input.sessionId,
+        ...(input.clientId !== undefined ? { clientId: input.clientId } : {}),
         baseRevision,
       }),
     );

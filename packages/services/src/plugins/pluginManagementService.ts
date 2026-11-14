@@ -6,6 +6,14 @@ import { isOfficialServiceEnabled, ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID } from "
 import type { IZCodeAgentService } from "../zcode-agent/zcodeAgent.js";
 import type { IPluginManagementService } from "./pluginManagement.js";
 
+
+export interface PluginMutationSucceededEvent {
+  /** install、uninstall、update、restore、configure、reset_config、enable、disable、source_* 等。 */
+  action: string;
+  pluginId?: string;
+  scope?: "user" | "workspace";
+}
+
 export interface PluginManagementServiceDependencies {
   now?: () => number;
   zcodeAgentService: Pick<
