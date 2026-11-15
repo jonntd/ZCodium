@@ -34,6 +34,7 @@ import {
   coalesceConversationDeltas,
   filterConversationDeltasForProfile,
   filterConversationRowsForProfile,
+  isWireConversationRow,
   utf8JsonByteLength,
 } from "@zcode/shared/zcode-protocol-v4";
 import { Buffer } from "node:buffer";
@@ -700,6 +701,10 @@ export class ConversationTopicPublisher {
         { op: "state.updated", patch: statePatchSchema.parse(current) },
       ];
       current.rows.window.forEach((row, index) => {
+        // row.upserted 的载荷是 wire 行类型（带 timelineMarker）；UnreadableConversationRow 占位行
+        // 经 filterConversationRowsForProfile 仍会留在 window 里，需在此收窄回 wire 行再推入，
+        // 否则漏进只接受 WireConversationRow 的 delta。与上游同款 isWireConversationRow 守卫一致。
+        if (!isWireConversationRow(row)) return;
         if (JSON.stringify(row) !== JSON.stringify(previous.rows.window[index]))
           deltas.push({ op: "row.upserted", row });
       });

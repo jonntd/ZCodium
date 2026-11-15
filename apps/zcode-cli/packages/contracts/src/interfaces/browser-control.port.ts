@@ -121,6 +121,8 @@ export type BrowserCommandMethod =
   | "markDeliverable"
   | "markHandoff"
   | "nameSession"
+  | "openScope"
+  | "releaseScope"
   | "turnEnded"
   | "closeSession"
   | "cancelRequest"
@@ -368,6 +370,9 @@ export type BrowserCommand =
   | { method: "markHandoff"; tabId: string }
   | { method: "nameSession"; name: string }
   | { method: "finalize"; tabId?: string; deliverable?: boolean }
+  // openScope：CLI 侧 browser-broker 发出的浏览器作用域指令；与上游对齐恢复该命令变体。
+  | { method: "openScope" }
+  | { method: "releaseScope"; closeTabs?: boolean }
   | { method: "turnEnded"; turnId?: string }
   // closeTabs：连 tab 一起关（含已释放回该 session 的）。只给永不回来认领的 session（dwf 子代理）。
   | { method: "closeSession"; closeTabs?: boolean }
