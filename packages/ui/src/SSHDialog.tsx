@@ -1,5 +1,12 @@
 /* eslint-disable max-lines -- 远程连接向导的状态编排暂集中在同一组件，后续有独立拆分计划。 */
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   createUuid,
   SOURCE_SERVER_INSTALL_REQUIRED_ERROR_CODE,
@@ -46,7 +53,6 @@ import {
   type RemoteWizardStep,
 } from "@/RemoteConnectionWizardChrome.js";
 import { useRemoteWorkspaceSessionStore } from "@/store/remoteWorkspaceSessionStore.js";
-import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import type { VariantProps } from "class-variance-authority";
 import { buildRemoteConnectionProgress } from "@/remote-connection-flow/index.js";
 import { usePublishRemoteConnectionProgress } from "@/remote-connection-flow/ui/RemoteConnectionProgress.js";
@@ -57,7 +63,11 @@ interface RemoteConnectionDialogProps {
     requestId?: string,
     context?: RemoteConnectionContext,
   ) => Promise<string>;
-  onSelectProject: (sessionId: string, path: string, localWorkspacePath?: string) => Promise<void>;
+  onSelectProject: (
+    sessionId: string,
+    path: string,
+    localWorkspacePath?: string,
+  ) => Promise<void>;
   onCancelSession: (sessionId: string) => Promise<void>;
   localWorkspacePath?: string;
   trigger?: ReactNode;
@@ -102,12 +112,18 @@ export function RemoteConnectionDialog({
   const [error, setError] = useState("");
   const [validationMessage, setValidationMessage] = useState("");
   const [currentStep, setCurrentStep] = useState<RemoteWizardStep>("kind");
-  const [connectedSessionId, setConnectedSessionId] = useState<string | null>(null);
-  const [connectingRequestId, setConnectingRequestId] = useState<string | null>(null);
-  const [pendingRemoteTarget, setPendingRemoteTarget] = useState<RemoteTarget | null>(null);
+  const [connectedSessionId, setConnectedSessionId] = useState<string | null>(
+    null,
+  );
+  const [connectingRequestId, setConnectingRequestId] = useState<string | null>(
+    null,
+  );
+  const [pendingRemoteTarget, setPendingRemoteTarget] =
+    useState<RemoteTarget | null>(null);
   const [selectingDirectory, setSelectingDirectory] = useState(false);
   const selectingDirectoryRef = useRef(false);
-  const { connectionLogs, resetConnectionLogs } = useRemoteConnectionLogs(connectingRequestId);
+  const { connectionLogs, resetConnectionLogs } =
+    useRemoteConnectionLogs(connectingRequestId);
   const open = controlledOpen ?? uncontrolledOpen;
   const {
     kind,
@@ -164,9 +180,10 @@ export function RemoteConnectionDialog({
     preferredWslDistro,
   });
   const directoryBrowserServices = useRemoteWorkspaceSessionStore((state) =>
-    connectedSessionId ? (state.sessionsById[connectedSessionId]?.services ?? null) : null,
+    connectedSessionId
+      ? (state.sessionsById[connectedSessionId]?.services ?? null)
+      : null,
   );
-  const baseServices = useBaseWorkspaceServices();
   const flowSnapshot = useMemo(
     () => ({
       currentStep,
@@ -225,7 +242,11 @@ export function RemoteConnectionDialog({
       const sessionId = connectedSessionId;
       if (!options?.preserveSession && sessionId) {
         void handleCancelSession(sessionId);
-      } else if (!options?.preserveSession && loading && currentStep === "connecting") {
+      } else if (
+        !options?.preserveSession &&
+        loading &&
+        currentStep === "connecting"
+      ) {
         // 连接过程里 sessionId 尚未返回时，关闭弹窗会只重置 UI；这里补上显式取消，确保后台下载同步停止。
         void cancelPendingRemoteConnection(connectingRequestId ?? undefined);
       }
@@ -287,11 +308,22 @@ export function RemoteConnectionDialog({
     resume: () => applyOpenState(true),
     cancel: handleCloseRequest,
   });
-  progressActionsRef.current = { resume: () => applyOpenState(true), cancel: handleCloseRequest };
-  const resumeProgress = useCallback(() => progressActionsRef.current.resume(), []);
-  const cancelProgress = useCallback(() => progressActionsRef.current.cancel(), []);
+  progressActionsRef.current = {
+    resume: () => applyOpenState(true),
+    cancel: handleCloseRequest,
+  };
+  const resumeProgress = useCallback(
+    () => progressActionsRef.current.resume(),
+    [],
+  );
+  const cancelProgress = useCallback(
+    () => progressActionsRef.current.cancel(),
+    [],
+  );
   const progressSourceServerId = useRemoteWorkspaceSessionStore((state) =>
-    connectedSessionId ? state.sessionsById[connectedSessionId]?.sourceServerId : undefined,
+    connectedSessionId
+      ? state.sessionsById[connectedSessionId]?.sourceServerId
+      : undefined,
   );
   const connectionProgress = useMemo(
     () =>
@@ -351,13 +383,18 @@ export function RemoteConnectionDialog({
         // #68：R3 拒绝未经确认的新装是正确保护；旧向导丢弃该准入结果，导致导入后仍无法连接。
         // 只对明确的 install-required 请求用户授权，不对普通错误或 upgrade/busy 重试。
         if (
-          (failure as { code?: unknown } | null)?.code !== SOURCE_SERVER_INSTALL_REQUIRED_ERROR_CODE
+          (failure as { code?: unknown } | null)?.code !==
+          SOURCE_SERVER_INSTALL_REQUIRED_ERROR_CODE
         )
           throw failure;
         const accepted = await confirmDialog({
           title: intl.formatMessage({ id: "remote.runtime.confirmTitle" }),
-          description: intl.formatMessage({ id: "remote.runtime.confirmDescription" }),
-          confirmLabel: intl.formatMessage({ id: "remote.runtime.confirmInstall" }),
+          description: intl.formatMessage({
+            id: "remote.runtime.confirmDescription",
+          }),
+          confirmLabel: intl.formatMessage({
+            id: "remote.runtime.confirmInstall",
+          }),
           cancelLabel: intl.formatMessage({ id: "common.cancel" }),
         });
         if (!accepted) {
@@ -370,7 +407,8 @@ export function RemoteConnectionDialog({
           confirmSourceServerInstall: true,
         });
       }
-      const completionState = getRemoteConnectionCompletionDialogState("success");
+      const completionState =
+        getRemoteConnectionCompletionDialogState("success");
       setConnectedSessionId(sessionId);
       setCurrentStep(completionState.step);
       applyOpenState(completionState.open);
@@ -474,7 +512,9 @@ export function RemoteConnectionDialog({
           connectedSessionId,
           // 事件处理器只在失败时读取一次最新 snapshot，避免为了回调判断新增重复 Zustand 订阅。
           sessionStillRegistered: Boolean(
-            useRemoteWorkspaceSessionStore.getState().sessionsById[connectedSessionId],
+            useRemoteWorkspaceSessionStore.getState().sessionsById[
+              connectedSessionId
+            ],
           ),
         });
         if (!failureState.connectedSessionId) {
@@ -667,7 +707,9 @@ export function RemoteConnectionDialog({
                         }
 
                         if (loading) {
-                          await cancelPendingRemoteConnection(connectingRequestId ?? undefined);
+                          await cancelPendingRemoteConnection(
+                            connectingRequestId ?? undefined,
+                          );
                           setLoading(false);
                         }
                         resetFeedback();
@@ -686,14 +728,6 @@ export function RemoteConnectionDialog({
                     <RemoteConnectionDirectoryStep
                       services={directoryBrowserServices}
                       remoteTarget={pendingRemoteTarget}
-                      localSkillSyncService={baseServices.skillSyncService}
-                      remoteSkillSyncService={directoryBrowserServices?.skillSyncService ?? null}
-                      localMcpSyncService={baseServices.mcpSyncService}
-                      remoteMcpSyncService={directoryBrowserServices?.mcpSyncService ?? null}
-                      localPluginSyncService={baseServices.pluginSyncService}
-                      remotePluginSyncService={directoryBrowserServices?.pluginSyncService ?? null}
-                      localZCodeAgentService={baseServices.zcodeAgentService}
-                      remoteZCodeAgentService={directoryBrowserServices?.zcodeAgentService ?? null}
                       localWorkspacePath={localWorkspacePath}
                       selecting={selectingDirectory}
                       onSelect={(path) => {
@@ -712,9 +746,6 @@ export function RemoteConnectionDialog({
                       onCancel={() => {
                         void handleCloseRequest();
                       }}
-                      onSkillsSynced={async () => undefined}
-                      onMcpSynced={async () => undefined}
-                      onPluginsSynced={async () => undefined}
                     />
                   </div>
                 ) : null}

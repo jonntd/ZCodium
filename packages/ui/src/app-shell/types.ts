@@ -19,7 +19,10 @@ import type { SavedWorkflowsOpenTarget } from "@/settings/saved-workflows/SavedW
 import type { SavedWorkflowHubTarget } from "@/v4/savedWorkflowHubContext.js";
 import type { WebRemoteControlWorkspaceSwitcherApi } from "@/root/types.js";
 import type { WebRemoteControlTerminalTransportState } from "@/root/types.js";
-import type { BrowserNavigationRequest, RecentClosedSidePaneTab } from "@/hooks/useAppPanels.js";
+import type {
+  BrowserNavigationRequest,
+  RecentClosedSidePaneTab,
+} from "@/hooks/useAppPanels.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { AssistantPreviewCardsAutoOpenRequest } from "@/lib/assistantPreviewCards.js";
 import type {
@@ -48,7 +51,10 @@ import type {
   GroupedDraftTaskPlacement,
 } from "@/store/zcodeSessionStoreTypes.js";
 import type { TaskFindDialogProps } from "@/quickpick/TaskFindDialog.js";
-import type { AutomationsNavigationTab, OpenAutomationsMain } from "@/lib/taskNavigationHistory.js";
+import type {
+  AutomationsNavigationTab,
+  OpenAutomationsMain,
+} from "@/lib/taskNavigationHistory.js";
 import type { SidePaneFullViewController } from "@/side-pane-full-view/contract.js";
 
 export interface WorkspaceShellZCodeState {
@@ -108,7 +114,10 @@ export type DeviceAdditionResult =
   | { kind: "cancelled"; background?: boolean };
 
 export interface DeviceAdditionReturnTarget {
-  kind: "connect-device" | "add-device";
+  /**
+   * data-sync（上游）：从「设置 → 数据同步」发起连接，完成后留在数据同步页。
+   */
+  kind: "connect-device" | "add-device" | "data-sync";
   isCurrent(): boolean;
   onVisibilityChange?(visible: boolean): void;
   canFinish?(result: DeviceAdditionResult): Promise<boolean>;
@@ -159,16 +168,24 @@ export interface AppProps {
   onLogin?: () => void;
   user?: UserInfo | null;
   reconnectingRemoteWorkspaceKeys: string[];
-  remoteWorkspaceRecoveryByWorkspaceKey?: Record<string, RemoteWorkspaceRecoveryStatus>;
+  remoteWorkspaceRecoveryByWorkspaceKey?: Record<
+    string,
+    RemoteWorkspaceRecoveryStatus
+  >;
   remoteWorkspaceErrorByWorkspaceKey: Record<string, string>;
-  reconnectingRemoteWorkspaceLogsByWorkspaceKey?: Record<string, RemoteConnectionLogEntry[]>;
+  reconnectingRemoteWorkspaceLogsByWorkspaceKey?: Record<
+    string,
+    RemoteConnectionLogEntry[]
+  >;
   remoteConnectionLogs?: RemoteConnectionLogEntry[];
   onCreateTask: (request?: CreateTaskRequest) => void;
   onCreateConversationTask?: () => void;
   onResolveConversationWorkspace?: () => Promise<string>;
   onOpenWorkspace: () => void;
   onOpenFolderFromWorkspaceMenu: () => void;
-  onOpenRemoteWorkspace?: (preference?: RemoteConnectionOpenPreference) => void | boolean;
+  onOpenRemoteWorkspace?: (
+    preference?: RemoteConnectionOpenPreference,
+  ) => void | boolean;
   onCreateScratchWorkspace: (name: string) => Promise<string | null>;
   remoteConnectionInProgress?: boolean;
   onReturnToWorkspace?: () => void;
@@ -196,7 +213,10 @@ export interface GitChangeSummary {
 
 export type WorkspaceMainView = "chat" | "automations" | "plugin-store";
 
-export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackService"> {
+export interface WorkspaceShellLayoutProps extends Omit<
+  AppProps,
+  "baseFeedbackService"
+> {
   workspaceReadOnlyReason?: string;
   workspaceMainView: WorkspaceMainView;
   pluginStoreOpenVersion: number;
@@ -244,7 +264,9 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   /** Side Pane 完整视图控制器（仅桌面；spec：docs/ui/side-pane-full-view.md）。 */
   sidePaneFullView?: SidePaneFullViewController;
   summaryPanelVariantOverride: ChatViewSummaryPanelVariant | null;
-  onSummaryPanelVariantOverrideChange: (variant: ChatViewSummaryPanelVariant | null) => void;
+  onSummaryPanelVariantOverrideChange: (
+    variant: ChatViewSummaryPanelVariant | null,
+  ) => void;
   sidePaneState: WorkspaceSidePaneState | null;
   recentClosedSidePaneTabs: RecentClosedSidePaneTab[];
   shellPanelIds: string[];
@@ -273,7 +295,9 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   gitWorktreeReviewSourceId: GitChangeSourceId | null;
   gitWorktreeChangeSummary: GitChangeSummary;
   activeGitSourceId: GitChangeSourceId;
-  gitState: ReturnType<typeof import("@/hooks/useGitRepository.js").useGitRepository>;
+  gitState: ReturnType<
+    typeof import("@/hooks/useGitRepository.js").useGitRepository
+  >;
   browserNavigationRequest: BrowserNavigationRequest | null;
   browserRestoreUrls: Record<string, string>;
   providerConfigFile: ReturnType<
@@ -285,11 +309,15 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   taskSessionFile: ReturnType<
     typeof import("@/hooks/useTaskSessionFilePath.js").useTaskSessionFilePath
   >;
-  testMessages: import("@/lib/taskChatMessageTypes.js").TaskChatMessage[] | null;
+  testMessages:
+    | import("@/lib/taskChatMessageTypes.js").TaskChatMessage[]
+    | null;
   conversationFindActiveIndex: number;
   conversationFindNavigationRequestId: number;
   conversationFindQuery: string;
-  onConversationFindMatchStateChange: (state: ConversationFindMatchState) => void;
+  onConversationFindMatchStateChange: (
+    state: ConversationFindMatchState,
+  ) => void;
   searchResultHighlightRequest?: ChatSearchResultHighlightRequest | null;
   onSearchResultHighlightDone?: (requestId: number) => void;
   fileChangeFindActiveIndex: number;
@@ -321,7 +349,10 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   handleOpenCommandCenter: () => void;
   handleRefreshGit: () => void;
   handleBrowserUrlChange: (tabId: string, url: string) => void;
-  handleBrowserPageMetadataChange: (tabId: string, metadata: BrowserSidePaneMetadata) => void;
+  handleBrowserPageMetadataChange: (
+    tabId: string,
+    metadata: BrowserSidePaneMetadata,
+  ) => void;
   handleToggleSidebar: () => void;
   handleToggleTerminal: () => void;
   handleToggleBrowser: () => void;
@@ -333,7 +364,10 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   handleOpenTerminalTab: () => void;
   handleToggleGit: () => void;
   /** 打开右侧面板文件树；带目标工作区时处理跨工作区切换时序，无参打开当前工作区。 */
-  handleOpenFiles: (targetWorkspacePath?: string, targetWorkspaceIdentity?: string) => void;
+  handleOpenFiles: (
+    targetWorkspacePath?: string,
+    targetWorkspaceIdentity?: string,
+  ) => void;
   /** files tab 分栏浏览：替换内嵌预览栏内容（spec: docs/spec/side-pane-file-preview.md §7）。 */
   handleOpenFilesTabPreview: (source: CodeViewerSource) => void;
   handleCloseFilesTabPreview: () => void;
@@ -342,13 +376,19 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   handleOpenBrowserUrl: (url: string) => void;
   handleOpenCodeViewer: (
     source: CodeViewerSource,
-    options?: { intent?: import("@/lib/workspaceSidePane.js").CodeViewerOpenIntent },
+    options?: {
+      intent?: import("@/lib/workspaceSidePane.js").CodeViewerOpenIntent;
+    },
   ) => void;
   /** 预览标签钉住（转正为普通标签）；仅对 code-viewer 预览标签生效。 */
   handlePinCodeViewerTab: (tabId: string) => void;
-  handleAutoOpenAssistantPptx: (request: AssistantPreviewCardsAutoOpenRequest) => void;
+  handleAutoOpenAssistantPptx: (
+    request: AssistantPreviewCardsAutoOpenRequest,
+  ) => void;
   handleOpenBackgroundBash: (request: OpenBackgroundBashSideTabRequest) => void;
-  handleOpenSubagentSession: (request: OpenScopedSubagentSideTabRequest) => void;
+  handleOpenSubagentSession: (
+    request: OpenScopedSubagentSideTabRequest,
+  ) => void;
   handleOpenSubagentDirectory: (
     request: import("@/lib/workspaceSidePane.js").OpenScopedSubagentDirectorySideTabRequest,
   ) => void;
@@ -361,9 +401,15 @@ export interface WorkspaceShellLayoutProps extends Omit<AppProps, "baseFeedbackS
   handleOpenWorkflowRunDirectory: (
     request: import("@/lib/workspaceSidePane.js").OpenScopedWorkflowRunDirectorySideTabRequest,
   ) => void;
-  handleOpenWorkflowActorSession: (request: OpenScopedWorkflowActorSessionSideTabRequest) => void;
-  handleOpenWorkflowWorkspace: (request: OpenScopedWorkflowWorkspaceSideTabRequest) => void;
-  handleOpenWorkflowArtifact: (request: OpenScopedWorkflowArtifactSideTabRequest) => void;
+  handleOpenWorkflowActorSession: (
+    request: OpenScopedWorkflowActorSessionSideTabRequest,
+  ) => void;
+  handleOpenWorkflowWorkspace: (
+    request: OpenScopedWorkflowWorkspaceSideTabRequest,
+  ) => void;
+  handleOpenWorkflowArtifact: (
+    request: OpenScopedWorkflowArtifactSideTabRequest,
+  ) => void;
   handleCloseCodeViewer: () => void;
   handleCloseGit: () => void;
   handleActivateSidePaneTab: (tabId: string) => void;

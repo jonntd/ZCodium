@@ -35,7 +35,10 @@ export interface UsePluginUiHostInput {
   /** false 时不创建沙箱（如侧栏已接管同一作用域）；默认 true。 */
   enabled?: boolean;
   /** 会话交互回调：缺省时对应请求回 -32601，能力声明也不带该项。 */
-  interactions?: Pick<PluginUiHostControllerDeps, "onSendFollowUpMessage" | "onUpdateModelContext">;
+  interactions?: Pick<
+    PluginUiHostControllerDeps,
+    "onSendFollowUpMessage" | "onUpdateModelContext"
+  >;
 }
 
 export interface UsePluginUiHostResult {
@@ -46,7 +49,7 @@ export interface UsePluginUiHostResult {
   handle: PluginSandboxHandle | null;
   height: number;
   error: string | null;
-  /** 页面 `ui/initialize` 声明的能力；握手前 undefined。`availableDisplayModes` 决定宿主能否把它切到 fullscreen。 */
+  /** 页面 `ui/initialize` 声明的能力；握手前 undefined，握手后至少为 {}。展示位置与模式请求均受此约束。 */
   appCapabilities: McpUiAppCapabilities | undefined;
   /** 销毁当前实例并重新 prepare（Agent 运行凭证换代）；guest 崩溃 / 加载失败后由错误态按钮触发。 */
   reload(): void;
@@ -62,11 +65,23 @@ export interface Page {
   start(): void;
   update(input: UsePluginUiHostInput): void;
   updateToolFeed(
-    input: Pick<UsePluginUiHostInput, "toolCallId" | "toolInput" | "toolResult" | "toolCancelled">,
+    input: Pick<
+      UsePluginUiHostInput,
+      "toolCallId" | "toolInput" | "toolResult" | "toolCancelled"
+    >,
   ): void;
   bind(node: HTMLElement, sidebar: boolean): () => void;
   busy(): boolean;
   running(): boolean;
+  /** 宿主代表面板调用其 server 的工具；面板未运行时拒绝。 */
+  callPanelTool(
+    toolName: string,
+    args?: Record<string, unknown>,
+  ): Promise<import("@zcode/services").PluginUiCallToolResult>;
+  /** 把工具结果经面板通知通道回投页面；未 attached 时由 controller 丢弃。 */
+  notifyPanelToolResult(
+    result: import("@zcode/shared/mcp-apps").McpAppsToolResultPayload,
+  ): void;
   suspend(force?: boolean): Promise<boolean>;
   destroy(): void;
 }

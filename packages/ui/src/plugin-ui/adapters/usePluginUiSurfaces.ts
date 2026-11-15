@@ -16,9 +16,11 @@ export interface UsePluginUiSurfacesInput {
 
 /**
  * 工作区级面板入口（）：经桥读 `plugins/listUiSurfaces`。
- * 只消费真实插件管理 owner 的成功变更；retired pluginStore 不接收当前安装/启停结果。
+ * 只订阅当前插件管理命令的成功变更；旧 pluginStore 不接收真实安装和启停结果。
  */
-export function usePluginUiSurfaces(input: UsePluginUiSurfacesInput): PluginUiSurfaceEntry[] {
+export function usePluginUiSurfaces(
+  input: UsePluginUiSurfacesInput,
+): PluginUiSurfaceEntry[] {
   const bridge = useOptionalServices()?.pluginUiBridgeService;
   const [pluginRevision, refresh] = useReducer((value: number) => value + 1, 0);
   const enabled = input.enabled !== false && Boolean(bridge);
@@ -30,6 +32,8 @@ export function usePluginUiSurfaces(input: UsePluginUiSurfacesInput): PluginUiSu
           {
             workspacePath: input.workspacePath,
             workspaceIdentity: input.workspaceIdentity?.trim() || null,
+            authorityKey: null,
+            configScope: null,
           },
           change,
         )
@@ -48,7 +52,9 @@ export function usePluginUiSurfaces(input: UsePluginUiSurfacesInput): PluginUiSu
     void bridge
       .listSurfaces({
         workspacePath: input.workspacePath,
-        ...(input.workspaceIdentity ? { workspaceIdentity: input.workspaceIdentity } : {}),
+        ...(input.workspaceIdentity
+          ? { workspaceIdentity: input.workspaceIdentity }
+          : {}),
       })
       .then((next) => {
         if (!cancelled) setSurfaces(next);
@@ -63,7 +69,13 @@ export function usePluginUiSurfaces(input: UsePluginUiSurfacesInput): PluginUiSu
     return () => {
       cancelled = true;
     };
-  }, [bridge, enabled, input.workspaceIdentity, input.workspacePath, pluginRevision]);
+  }, [
+    bridge,
+    enabled,
+    input.workspaceIdentity,
+    input.workspacePath,
+    pluginRevision,
+  ]);
 
   return surfaces;
 }

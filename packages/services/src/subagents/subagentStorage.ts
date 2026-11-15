@@ -16,7 +16,9 @@ export function resolveUserHomeDir(options?: SubagentStorageOptions): string {
   return envHome && envHome.length > 0 ? envHome : homedir();
 }
 
-export async function resolveUserSubagentRoot(options?: SubagentStorageOptions): Promise<string> {
+export async function resolveUserSubagentRoot(
+  options?: SubagentStorageOptions,
+): Promise<string> {
   return join(await resolveZCodeStorageRoot(options), "agents");
 }
 
@@ -24,21 +26,32 @@ export function resolveWorkspaceSubagentRoot(workspacePath: string): string {
   return join(workspacePath, ".zcode", "agents");
 }
 
-export async function resolveSubagentStateFile(options?: SubagentStorageOptions): Promise<string> {
-  return join(await resolveZCodeStorageRoot(options), "v2", "agents-state.json");
+export async function resolveSubagentStateFile(
+  options?: SubagentStorageOptions,
+): Promise<string> {
+  return join(
+    await resolveZCodeStorageRoot(options),
+    "v2",
+    "agents-state.json",
+  );
 }
 
-export async function resolveZCodeStorageRoot(options?: SubagentStorageOptions): Promise<string> {
+export async function resolveZCodeStorageRoot(
+  options?: SubagentStorageOptions,
+): Promise<string> {
   const config = await readUserCliConfig(options);
   const storage = isObjectRecord(config.storage) ? config.storage : {};
   const storageDir =
     typeof storage.dir === "string" && storage.dir.trim().length > 0
       ? storage.dir.trim()
-      : "~/.zcodium";
+      : "~/.zcode";
   return resolveConfigPath(storageDir, options);
 }
 
-export function resolveConfigPath(path: string, options?: SubagentStorageOptions): string {
+export function resolveConfigPath(
+  path: string,
+  options?: SubagentStorageOptions,
+): string {
   const expanded = path.startsWith(HOME_PREFIX)
     ? join(resolveUserHomeDir(options), path.slice(HOME_PREFIX.length))
     : path;

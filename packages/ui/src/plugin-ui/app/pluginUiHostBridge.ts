@@ -45,14 +45,19 @@ export interface PluginUiHostBridge {
   setHostContext(hostContext: McpUiHostContext): void;
   sendToolInput(params: McpUiToolInputNotification["params"]): Promise<void>;
   sendToolResult(params: McpUiToolResultNotification["params"]): Promise<void>;
-  sendToolCancelled(params: McpUiToolCancelledNotification["params"]): Promise<void>;
+  sendToolCancelled(
+    params: McpUiToolCancelledNotification["params"],
+  ): Promise<void>;
   teardownResource(
     params: Record<string, never>,
     options?: { timeout?: number; signal?: AbortSignal },
   ): Promise<unknown>;
-  /** `initialized` 之后可读；页面声明的 availableDisplayModes 决定宿主能否切它到 fullscreen。 */
+  /** `initialized` 之后可读；页面声明的 availableDisplayModes 约束宿主所有展示模式。 */
   getAppCapabilities(): McpUiAppCapabilities | undefined;
-  notification(notification: { method: string; params?: Record<string, unknown> }): Promise<void>;
+  notification(notification: {
+    method: string;
+    params?: Record<string, unknown>;
+  }): Promise<void>;
   /** App-Provided Tools：宿主发现页面工具、把模型调用交给页面执行。 */
   listTools(
     params: ListToolsRequest["params"],
@@ -86,13 +91,22 @@ export interface PluginUiHostBridge {
       ) => Promise<CreateMessageResult>)
     | undefined;
   oncalltool:
-    | ((params: CallToolRequest["params"], ctx: PluginUiRequestContext) => Promise<CallToolResult>)
+    | ((
+        params: CallToolRequest["params"],
+        ctx: PluginUiRequestContext,
+      ) => Promise<CallToolResult>)
     | undefined;
   onreadresource:
-    | ((params: ReadResourceRequest["params"], ctx: unknown) => Promise<ReadResourceResult>)
+    | ((
+        params: ReadResourceRequest["params"],
+        ctx: unknown,
+      ) => Promise<ReadResourceResult>)
     | undefined;
   onlistresources:
-    | ((params: ListResourcesRequest["params"], ctx: unknown) => Promise<ListResourcesResult>)
+    | ((
+        params: ListResourcesRequest["params"],
+        ctx: unknown,
+      ) => Promise<ListResourcesResult>)
     | undefined;
   onlistresourcetemplates:
     | ((
@@ -100,7 +114,9 @@ export interface PluginUiHostBridge {
         ctx: unknown,
       ) => Promise<ListResourceTemplatesResult>)
     | undefined;
-  onopenlink: ((params: McpUiOpenLinkRequest["params"], ctx: unknown) => Promise<{}>) | undefined;
+  onopenlink:
+    | ((params: McpUiOpenLinkRequest["params"], ctx: unknown) => Promise<{}>)
+    | undefined;
   onrequestdisplaymode:
     | ((
         params: McpUiRequestDisplayModeRequest["params"],
@@ -108,7 +124,10 @@ export interface PluginUiHostBridge {
       ) => Promise<{ mode: McpUiDisplayMode }>)
     | undefined;
   onupdatemodelcontext:
-    | ((params: McpUiUpdateModelContextRequest["params"], ctx: unknown) => Promise<{}>)
+    | ((
+        params: McpUiUpdateModelContextRequest["params"],
+        ctx: unknown,
+      ) => Promise<{}>)
     | undefined;
   ondownloadfile:
     | ((
@@ -117,6 +136,10 @@ export interface PluginUiHostBridge {
       ) => Promise<McpUiDownloadFileResult>)
     | undefined;
   onrequestteardown: (() => void) | undefined;
-  onsizechange: ((params: McpUiSizeChangedNotification["params"]) => void) | undefined;
-  onloggingmessage: ((params: LoggingMessageNotification["params"]) => void) | undefined;
+  onsizechange:
+    | ((params: McpUiSizeChangedNotification["params"]) => void)
+    | undefined;
+  onloggingmessage:
+    | ((params: LoggingMessageNotification["params"]) => void)
+    | undefined;
 }

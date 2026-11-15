@@ -7,13 +7,20 @@ import {
   offerPluginUiSurfaceFeed,
 } from "@/plugin-ui/app/pluginUiSurfaceFeedStore.js";
 import { claimPluginUiSurface } from "@/plugin-ui/app/pluginUiSurfaceStore.js";
+import {
+  deliverOfficeViewerDocumentIfReady,
+  subscribeOfficeViewerPendingOpen,
+} from "@/plugin-ui/officeViewerOpen.js";
 import type {
   PluginUiPresentation,
   PluginUiSessionScope,
   PluginUiSidePaneTab,
   PluginUiSidePaneViewProps,
 } from "@/plugin-ui/contract.js";
-import { PLUGIN_UI_SIDE_PANE_TITLE_BAR, buildPluginUiSurfaceKey } from "@/plugin-ui/contract.js";
+import {
+  PLUGIN_UI_SIDE_PANE_TITLE_BAR,
+  buildPluginUiSurfaceKey,
+} from "@/plugin-ui/contract.js";
 import { resolveSidePaneDisplayModeRequest } from "@/plugin-ui/domain/buildPluginUiHostContext.js";
 import {
   EMPTY_PLUGIN_UI_SURFACE_FEED,
@@ -30,21 +37,38 @@ import type { PaneWorkspaceScope } from "@/v4/paneLayoutStore.js";
 import type { SessionLease } from "@/v4/sessionDataLayer.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
 import { useConversationProjection } from "@/v4/useConversationProjection.js";
-import { V4PaneConversationProvider, useV4Conversation } from "@/v4/V4ConversationContext.js";
-import type { McpAppsDisplayMode, PluginUiScopeRef } from "@zcode/shared/mcp-apps";
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  V4PaneConversationProvider,
+  useV4Conversation,
+} from "@/v4/V4ConversationContext.js";
+import type {
+  McpAppsDisplayMode,
+  PluginUiScopeRef,
+} from "@zcode/shared/mcp-apps";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { resolvePluginUiLogicalScope } from "../domain/pluginUiLogicalScope.js";
 
 const FULLSCREEN_ONLY: readonly McpAppsDisplayMode[] = ["fullscreen"];
-const INLINE_AND_FULLSCREEN: readonly McpAppsDisplayMode[] = ["inline", "fullscreen"];
+const INLINE_AND_FULLSCREEN: readonly McpAppsDisplayMode[] = [
+  "inline",
+  "fullscreen",
+];
 
 export function usePluginUiSidePaneModel({
   tab,
+  visible = true,
   scopeRef,
   onOpenBrowserUrl,
   onCloseTab,
 }: {
   tab: PluginUiSidePaneTab;
+  visible?: boolean;
   scopeRef: PluginUiScopeRef;
   onOpenBrowserUrl?: (url: string) => void;
   onCloseTab?: (tabId: string) => void;
@@ -65,23 +89,33 @@ export function usePluginUiSidePaneModel({
     () => ({
       workspacePath: tab.workspacePath,
       remoteSessionId: tab.remoteSessionId,
-      ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+      ...(tab.workspaceIdentity
+        ? { workspaceIdentity: tab.workspaceIdentity }
+        : {}),
       sessionId: tab.parentSessionId,
     }),
     [tab.parentSessionId, tab.workspaceIdentity, tab.workspacePath],
   );
   usePluginUiResourceDeltaFeed(lease?.store, feedScope);
 
-  const surfaceKey = buildPluginUiSurfaceKey({ ...tab, sessionId: tab.parentSessionId }, scopeRef);
+  const surfaceKey = buildPluginUiSurfaceKey(
+    { ...tab, sessionId: tab.parentSessionId },
+    scopeRef,
+  );
 
   const rows = state.snapshot?.rows.window ?? null;
   // 工具卡片 tab：投喂本行。
   const row = useMemo(
     () =>
-      scopeRef.kind === "toolCall" && rows ? findToolRowById(rows, scopeRef.toolCallId) : null,
+      scopeRef.kind === "toolCall" && rows
+        ? findToolRowById(rows, scopeRef.toolCallId)
+        : null,
     [rows, scopeRef],
   );
-  const toolCall = useMemo(() => (row ? toolCallRowToLegacyNode(row).toolCall : null), [row]);
+  const toolCall = useMemo(
+    () => (row ? toolCallRowToLegacyNode(row).toolCall : null),
+    [row],
+  );
   const rowPresentation = useMemo(
     () => (toolCall ? readPluginUiPresentation(toolCall.raw) : null),
     [toolCall],
@@ -108,16 +142,35 @@ export function usePluginUiSidePaneModel({
   const presentation = useMemo<PluginUiPresentation | null>(() => {
     if (scopeRef.kind === "toolCall") return rowPresentation;
     return tab.serverName
-      ? { serverName: tab.serverName, pluginId: tab.pluginId, resourceUri: tab.resourceUri }
+      ? {
+          serverName: tab.serverName,
+          pluginId: tab.pluginId,
+          resourceUri: tab.resourceUri,
+          // surface 的 tab 只有路由身份；展示选择沿用最后一次成功结果，不能在开侧栏时丢失。
+          preferredDisplayMode: feed.result?.presentation.preferredDisplayMode,
+        }
       : null;
-  }, [rowPresentation, scopeRef.kind, tab.pluginId, tab.resourceUri, tab.serverName]);
+  }, [
+    rowPresentation,
+    scopeRef.kind,
+    tab.pluginId,
+    tab.resourceUri,
+    tab.serverName,
+    feed.result,
+  ]);
   const placementKey = buildPluginUiSurfaceKey(
     { ...tab, sessionId: tab.parentSessionId },
     resolvePluginUiLogicalScope(presentation ?? {}, scopeRef),
   );
-  useEffect(() => claimPluginUiSurface(placementKey, "side-pane"), [placementKey]);
+  useEffect(
+    () => claimPluginUiSurface(placementKey, "side-pane"),
+    [placementKey],
+  );
   const toolInput = useMemo(
-    () => (scopeRef.kind === "surface" ? feed.latest?.input : readPluginUiToolInput(toolCall)),
+    () =>
+      scopeRef.kind === "surface"
+        ? feed.latest?.input
+        : readPluginUiToolInput(toolCall),
     [feed.latest, scopeRef.kind, toolCall],
   );
   const toolResult = useMemo(
@@ -127,14 +180,16 @@ export function usePluginUiSidePaneModel({
         : buildPluginUiToolResult(toolCall, rowPresentation),
     [feed.result, rowPresentation, scopeRef.kind, toolCall],
   );
-  const toolCallId = scopeRef.kind === "surface" ? feed.latest?.toolCallId : scopeRef.toolCallId;
+  const toolCallId =
+    scopeRef.kind === "surface" ? feed.latest?.toolCallId : scopeRef.toolCallId;
   const toolCancelled =
     scopeRef.kind === "surface"
       ? feed.latest?.status === "cancelled"
       : isPluginUiToolCancelled(toolCall);
   // H10：只有该作用域在会话流里仍有内联卡片可接管（行在投影窗口内）且宿主给了关闭入口，才能回 inline。
   const canReturnInline =
-    Boolean(onCloseTab) && (scopeRef.kind === "surface" ? feed.latest !== null : row !== null);
+    Boolean(onCloseTab) &&
+    (scopeRef.kind === "surface" ? feed.latest !== null : row !== null);
   const handleDisplayModeRequest = useCallback(
     (mode: McpAppsDisplayMode) => {
       const resolved = resolveSidePaneDisplayModeRequest(mode, canReturnInline);
@@ -173,7 +228,9 @@ export function usePluginUiSidePaneModel({
     scope: {
       workspacePath: tab.workspacePath,
       remoteSessionId: tab.remoteSessionId ?? undefined,
-      ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+      ...(tab.workspaceIdentity
+        ? { workspaceIdentity: tab.workspaceIdentity }
+        : {}),
       sessionId: tab.parentSessionId,
       scope: scopeRef,
     },
@@ -185,7 +242,9 @@ export function usePluginUiSidePaneModel({
     toolCallId,
     toolCancelled,
     hostVersion: "zcode",
-    availableDisplayModes: canReturnInline ? INLINE_AND_FULLSCREEN : FULLSCREEN_ONLY,
+    availableDisplayModes: canReturnInline
+      ? INLINE_AND_FULLSCREEN
+      : FULLSCREEN_ONLY,
     onDisplayModeRequest: handleDisplayModeRequest,
     onOpenExternal: onOpenBrowserUrl,
     width,
@@ -194,10 +253,23 @@ export function usePluginUiSidePaneModel({
     // 启动屏障（H07）：工具卡片 tab 要等本行进投影（rowPresentation 才有 serverName，否则 prepareSandbox 被参数校验拒绝，
     // 而 identity 不变导致 controller 之后也不会重启）；面板 tab 要等投影快照到达（rows 非 null），
     // 否则第一次 setWidgetData 没有 toolInput / toolResult，页面先空渲染一次再收通知。
-    enabled: presentation !== null && (scopeRef.kind === "toolCall" || rows !== null),
+    enabled:
+      presentation !== null && (scopeRef.kind === "toolCall" || rows !== null),
   });
+  // 文件查看面板：消费文件树 / 文件链接入口排入的待开文档（open_document 由宿主代调，
+  // 结果经 notifyToolResult 回投；notifyToolResult 在 attached 前会被丢弃，所以必须等 running）。
+  // 路由表有内置 `.xlsx` 常量与插件声明（file.viewer，docs/plugins/extension-host.md §16.5）两个来源，
+  // 这里不再按 Office 的 surface id 过滤：每个 surface 标签都按自己的 tab id 订阅，只有排过队的标签会收到文件。
+  useEffect(() => {
+    if (!tab.surfaceId) return;
+    if (host.phase !== "running") return;
+    return subscribeOfficeViewerPendingOpen(tab.id, () => {
+      deliverOfficeViewerDocumentIfReady(tab.id, host.pageKey);
+    });
+  }, [host.phase, host.pageKey, tab.id, tab.surfaceId]);
 
   return {
+    visible,
     scopeRef,
     host: {
       ...host,
@@ -222,10 +294,16 @@ export function PluginUiConversationScope({
   const scope = useMemo<PaneWorkspaceScope>(
     () => ({
       workspacePath: tab.workspacePath,
-      ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+      ...(tab.workspaceIdentity
+        ? { workspaceIdentity: tab.workspaceIdentity }
+        : {}),
       ...(tab.remoteSessionId ? { remoteSessionId: tab.remoteSessionId } : {}),
     }),
     [tab.workspacePath, tab.workspaceIdentity, tab.remoteSessionId],
   );
-  return <V4PaneConversationProvider scope={scope}>{children}</V4PaneConversationProvider>;
+  return (
+    <V4PaneConversationProvider scope={scope}>
+      {children}
+    </V4PaneConversationProvider>
+  );
 }

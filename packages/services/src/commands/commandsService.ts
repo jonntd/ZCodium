@@ -1,8 +1,24 @@
 /* eslint-disable max-lines -- commandsService 需要集中处理目录来源优先级、读写和命令解析，拆分会削弱读取顺序的一致性 */
-import { access, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import {
   ZCODE_COMMAND_AGENT_SOURCE,
   ZCODE_COMMAND_AGENT_SOURCES,
@@ -21,8 +37,12 @@ import {
 } from "@zcode/shared";
 import { DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS } from "@zcode/shared";
 import type { ICommandsService } from "./commands.js";
-import { CommandFileParser, type CommandFileFormat } from "./commandFileParser.js";
+import {
+  CommandFileParser,
+  type CommandFileFormat,
+} from "./commandFileParser.js";
 import { readInstalledPluginRoots } from "#src/plugins/installedPluginRoots.js";
+import { updateJsonObjectFile } from "#src/fs/atomicFileUtils.js";
 
 function resolveUserHomeDir() {
   const envHome = process.env.HOME?.trim() || process.env.USERPROFILE?.trim();
@@ -40,8 +60,10 @@ interface CommandAgentSourceDescriptor {
   supportsArgumentHint: boolean;
 }
 
-const DEFAULT_COMMAND_AGENT_SOURCE: CommandAgentSource = ZCODE_COMMAND_AGENT_SOURCE;
-const COMMAND_AGENT_SOURCE_ORDER: readonly CommandAgentSource[] = ZCODE_COMMAND_AGENT_SOURCES;
+const DEFAULT_COMMAND_AGENT_SOURCE: CommandAgentSource =
+  ZCODE_COMMAND_AGENT_SOURCE;
+const COMMAND_AGENT_SOURCE_ORDER: readonly CommandAgentSource[] =
+  ZCODE_COMMAND_AGENT_SOURCES;
 const ENABLE_OVERRIDE_KEY = "enable";
 const HOME_PREFIX = "~/";
 const ZCODE_OFFICIAL_PLUGIN_MARKETPLACE = "zcode-plugins-official";
@@ -60,19 +82,23 @@ const ZCODE_COMMAND_DESCRIPTOR: CommandAgentSourceDescriptor = {
   supportsArgumentHint: true,
 };
 
-const COMMAND_AGENT_SOURCE_DESCRIPTORS: Record<CommandAgentSource, CommandAgentSourceDescriptor> = {
+const COMMAND_AGENT_SOURCE_DESCRIPTORS: Record<
+  CommandAgentSource,
+  CommandAgentSourceDescriptor
+> = {
   zcodeAgent: ZCODE_COMMAND_DESCRIPTOR,
 };
 
-const COMMAND_DIRECTORY_SOURCE_DESCRIPTORS: readonly CommandAgentSourceDescriptor[] = [
-  ZCODE_COMMAND_DESCRIPTOR,
-  {
-    ...ZCODE_COMMAND_DESCRIPTOR,
-    directorySource: "agents",
-    userDirectorySegments: [".agents", "commands"],
-    workspaceDirectorySegments: [".agents", "commands"],
-  },
-];
+const COMMAND_DIRECTORY_SOURCE_DESCRIPTORS: readonly CommandAgentSourceDescriptor[] =
+  [
+    ZCODE_COMMAND_DESCRIPTOR,
+    {
+      ...ZCODE_COMMAND_DESCRIPTOR,
+      directorySource: "agents",
+      userDirectorySegments: [".agents", "commands"],
+      workspaceDirectorySegments: [".agents", "commands"],
+    },
+  ];
 
 function getCommandSourceDescriptor(
   agentSource: CommandAgentSource = DEFAULT_COMMAND_AGENT_SOURCE,
@@ -93,6 +119,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+// 只用于列表展示：config.json 损坏时按空配置展示命令，不影响浏览。写入一律走 updateUserCliConfig。
 async function readUserCliConfig(): Promise<Record<string, unknown>> {
   try {
     const content = await readFile(getUserCliConfigPath(), "utf-8");
@@ -103,13 +130,20 @@ async function readUserCliConfig(): Promise<Record<string, unknown>> {
   }
 }
 
-async function writeUserCliConfig(config: Record<string, unknown>): Promise<void> {
-  const filePath = getUserCliConfigPath();
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(config, null, 2)}\n`, "utf-8");
+/**
+ * 根因：旧实现写入前用 readUserCliConfig 读取，读失败或 JSON 损坏时返回空对象，再用 writeFile
+ * 整文件写回，config.json 里的 MCP、插件等其他配置会被冲掉；writeFile 也不是原子写。
+ * 修法：写入路径改用 updateJsonObjectFile——文件损坏时报错不写，写前重读，只改 command 字段，原子替换。
+ */
+async function updateUserCliConfig(
+  update: (config: Record<string, unknown>) => Record<string, unknown>,
+): Promise<void> {
+  await updateJsonObjectFile(getUserCliConfigPath(), update);
 }
 
-function readCommandEnabledOverrides(config: Record<string, unknown>): Map<string, boolean> {
+function readCommandEnabledOverrides(
+  config: Record<string, unknown>,
+): Map<string, boolean> {
   const commandConfig = config.command;
   const overrides = new Map<string, boolean>();
   if (!isRecord(commandConfig)) {
@@ -124,11 +158,17 @@ function readCommandEnabledOverrides(config: Record<string, unknown>): Map<strin
   return overrides;
 }
 
-async function readCommandEnabledOverridesFromUserConfig(): Promise<Map<string, boolean>> {
+/** 键为命令文件的绝对路径；数据同步列表也复用这份读取（只读展示，config.json 损坏时视为全部启用）。 */
+export async function readCommandEnabledOverridesFromUserConfig(): Promise<
+  Map<string, boolean>
+> {
   return readCommandEnabledOverrides(await readUserCliConfig());
 }
 
-function getCommandEnabled(filePath: string, overrides: ReadonlyMap<string, boolean>): boolean {
+function getCommandEnabled(
+  filePath: string,
+  overrides: ReadonlyMap<string, boolean>,
+): boolean {
   return overrides.get(filePath) ?? true;
 }
 
@@ -152,6 +192,19 @@ function setCommandEnabledOverride(
     delete nextConfig.command;
   }
   return nextConfig;
+}
+
+/** 一次写入多条启用覆盖（数据同步新建命令时使用），写入路径与 setCommandEnabled 相同。 */
+export async function setUserCommandEnabledOverrides(
+  entries: ReadonlyArray<{ filePath: string; enabled: boolean }>,
+): Promise<void> {
+  await updateUserCliConfig((config) =>
+    entries.reduce(
+      (next, entry) =>
+        setCommandEnabledOverride(next, entry.filePath, entry.enabled),
+      config,
+    ),
+  );
 }
 
 interface PluginConfigSummary {
@@ -206,7 +259,9 @@ function readStorageDirFromConfig(config: Record<string, unknown>): string {
     : "~/.zcodium";
 }
 
-function readPluginConfigFromConfig(config: Record<string, unknown>): PluginConfigSummary {
+function readPluginConfigFromConfig(
+  config: Record<string, unknown>,
+): PluginConfigSummary {
   const plugins = isRecord(config.plugins) ? config.plugins : {};
   return {
     dirs: readStringArray(plugins.dirs),
@@ -226,7 +281,9 @@ function resolveConfigPath(path: string): string {
 
 function resolveCliStorageRoot(storageDir: string): string {
   const storageRoot = resolveConfigPath(storageDir);
-  return basename(storageRoot) === "cli" ? storageRoot : join(storageRoot, "cli");
+  return basename(storageRoot) === "cli"
+    ? storageRoot
+    : join(storageRoot, "cli");
 }
 
 function resolvePluginStorageRoot(storageDir: string): string {
@@ -255,8 +312,14 @@ function resolveInside(rootPath: string, rawPath: string): string | null {
   return null;
 }
 
-async function scanOfficialPluginCacheRoots(pluginStorageRoot: string): Promise<string[]> {
-  const cacheRoot = join(pluginStorageRoot, "cache", ZCODE_OFFICIAL_PLUGIN_MARKETPLACE);
+async function scanOfficialPluginCacheRoots(
+  pluginStorageRoot: string,
+): Promise<string[]> {
+  const cacheRoot = join(
+    pluginStorageRoot,
+    "cache",
+    ZCODE_OFFICIAL_PLUGIN_MARKETPLACE,
+  );
   let pluginEntries: string[] = [];
   try {
     pluginEntries = await readdir(cacheRoot);
@@ -287,7 +350,9 @@ async function scanOfficialPluginCacheRoots(pluginStorageRoot: string): Promise<
   return roots.sort((left, right) => left.localeCompare(right));
 }
 
-async function readPluginManifest(rootPath: string): Promise<PluginManifestSummary | null> {
+async function readPluginManifest(
+  rootPath: string,
+): Promise<PluginManifestSummary | null> {
   const manifestPath = await findPluginManifestPath(rootPath);
   if (!manifestPath) {
     return null;
@@ -314,7 +379,9 @@ async function readPluginManifest(rootPath: string): Promise<PluginManifestSumma
   }
 }
 
-async function findPluginManifestPath(rootPath: string): Promise<string | null> {
+async function findPluginManifestPath(
+  rootPath: string,
+): Promise<string | null> {
   for (const manifestPath of [
     join(rootPath, ZCODE_PLUGIN_MANIFEST_PATH),
     join(rootPath, CLAUDE_PLUGIN_MANIFEST_PATH),
@@ -347,14 +414,17 @@ function resolvePluginCommandRoots(params: {
   return roots;
 }
 
-async function resolvePluginCommandRootDescriptors(): Promise<PluginCommandRootDescriptor[]> {
+async function resolvePluginCommandRootDescriptors(): Promise<
+  PluginCommandRootDescriptor[]
+> {
   const config = readPluginConfigFromConfig(await readUserCliConfig());
   if (!config.enabled) {
     return [];
   }
 
   const pluginStorageRoot = resolvePluginStorageRoot(config.storageDir);
-  const officialCacheRoots = await scanOfficialPluginCacheRoots(pluginStorageRoot);
+  const officialCacheRoots =
+    await scanOfficialPluginCacheRoots(pluginStorageRoot);
   const installedRoots = await readInstalledPluginRoots(pluginStorageRoot);
   const candidates: PluginRootCandidate[] = [
     ...config.dirs.map((dir) => ({
@@ -392,7 +462,8 @@ async function resolvePluginCommandRootDescriptors(): Promise<PluginCommandRootD
     }
     seenPluginIds.add(pluginId);
     const defaultEnabled =
-      candidate.defaultEnabled || DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS.has(pluginId);
+      candidate.defaultEnabled ||
+      DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS.has(pluginId);
     const enabled = config.enabledPlugins[pluginId] ?? defaultEnabled;
     if (!enabled) {
       continue;
@@ -416,7 +487,9 @@ async function resolvePluginCommandRootDescriptors(): Promise<PluginCommandRootD
   return descriptors;
 }
 
-function getUserCommandsRootForDescriptor(descriptor: CommandAgentSourceDescriptor): string {
+function getUserCommandsRootForDescriptor(
+  descriptor: CommandAgentSourceDescriptor,
+): string {
   return join(resolveUserHomeDir(), ...descriptor.userDirectorySegments);
 }
 
@@ -434,7 +507,10 @@ function getCommandsRootForStorage(params: {
       throw new Error("Missing workspace path for project command");
     }
     return {
-      commandsRoot: join(params.workspacePath, ...params.descriptor.workspaceDirectorySegments),
+      commandsRoot: join(
+        params.workspacePath,
+        ...params.descriptor.workspaceDirectorySegments,
+      ),
       scope: "project",
       projectPath: params.workspacePath,
     };
@@ -446,7 +522,9 @@ function getCommandsRootForStorage(params: {
   };
 }
 
-function getLocationScope(scope: UserCommand["scope"]): SettingsDirectoryLocation["scope"] {
+function getLocationScope(
+  scope: UserCommand["scope"],
+): SettingsDirectoryLocation["scope"] {
   return scope === "project" ? "project" : "user";
 }
 
@@ -478,7 +556,10 @@ function getCommandName(
   descriptor: CommandAgentSourceDescriptor,
 ): string {
   const relativePath = relative(rootDir, filePath);
-  const extensionPattern = new RegExp(`${descriptor.fileExtension.replace(".", "\\.")}$`, "i");
+  const extensionPattern = new RegExp(
+    `${descriptor.fileExtension.replace(".", "\\.")}$`,
+    "i",
+  );
   const withoutExtension = relativePath.replace(extensionPattern, "");
   return `/${withoutExtension
     .split(/[\\/]+/)
@@ -486,10 +567,16 @@ function getCommandName(
     .join(descriptor.namespaceSeparator)}`;
 }
 
-function getCommandFileName(config: CommandConfig, agentSource: CommandAgentSource): string {
+function getCommandFileName(
+  config: CommandConfig,
+  agentSource: CommandAgentSource,
+): string {
   const descriptor = getCommandSourceDescriptor(agentSource);
   const rawName = config.name.replace(/^\//, "");
-  const relativeName = descriptor.namespaceSeparator === ":" ? rawName.replace(/:/g, "/") : rawName;
+  const relativeName =
+    descriptor.namespaceSeparator === ":"
+      ? rawName.replace(/:/g, "/")
+      : rawName;
   return `${relativeName}${descriptor.fileExtension}`;
 }
 
@@ -497,10 +584,14 @@ function getWritableCommandConfig(
   config: CommandConfig,
   descriptor: CommandAgentSourceDescriptor,
 ): CommandConfig {
-  return descriptor.supportsArgumentHint ? config : { ...config, argumentHint: undefined };
+  return descriptor.supportsArgumentHint
+    ? config
+    : { ...config, argumentHint: undefined };
 }
 
-function getCommandAgentSources(agentSource?: CommandAgentSource): readonly CommandAgentSource[] {
+function getCommandAgentSources(
+  agentSource?: CommandAgentSource,
+): readonly CommandAgentSource[] {
   return agentSource ? [agentSource] : COMMAND_AGENT_SOURCE_ORDER;
 }
 
@@ -513,7 +604,9 @@ function buildCommandId(
   return `${agentSource}:${location.source}:${scope}:${name}`;
 }
 
-export function createCommandsService(_options?: CommandsServiceOptions): ICommandsService {
+export function createCommandsService(
+  _options?: CommandsServiceOptions,
+): ICommandsService {
   async function list(params: {
     agentSource?: CommandAgentSource;
     workspacePath?: string;
@@ -567,7 +660,9 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
     };
   }
 
-  async function writeCommandFile(params: CommandCreateParams): Promise<{ command: UserCommand }> {
+  async function writeCommandFile(
+    params: CommandCreateParams,
+  ): Promise<{ command: UserCommand }> {
     const agentSource = params.agentSource ?? DEFAULT_COMMAND_AGENT_SOURCE;
     const descriptor = getCommandSourceDescriptor(agentSource);
     const target = getCommandsRootForStorage({
@@ -597,9 +692,15 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
       descriptor.format,
     );
     await writeFile(filePath, content, "utf-8");
-    await writeUserCliConfig(setCommandEnabledOverride(await readUserCliConfig(), filePath, true));
+    await updateUserCliConfig((config) =>
+      setCommandEnabledOverride(config, filePath, true),
+    );
 
-    const parsed = CommandFileParser.parseCommandFile(content, filePath, descriptor.format);
+    const parsed = CommandFileParser.parseCommandFile(
+      content,
+      filePath,
+      descriptor.format,
+    );
     if (!parsed) {
       throw new Error("Failed to parse written command file");
     }
@@ -626,7 +727,9 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
     return { command };
   }
 
-  async function updateCommandFile(params: CommandUpdateParams): Promise<{ command: UserCommand }> {
+  async function updateCommandFile(
+    params: CommandUpdateParams,
+  ): Promise<{ command: UserCommand }> {
     const agentSource = params.agentSource ?? DEFAULT_COMMAND_AGENT_SOURCE;
     const descriptor = getCommandSourceDescriptor(agentSource);
     const target = getCommandsRootForStorage({
@@ -679,15 +782,21 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
     ) {
       // 禁用状态按命令文件路径存放；编辑命令改名会换文件路径，必须迁移 override，
       // 否则用户刚禁用的命令会因为改名重新启用。
-      const migratedConfig = setCommandEnabledOverride(
-        setCommandEnabledOverride(await readUserCliConfig(), params.oldFilePath, true),
-        newFilePath,
-        enabledOverrides.get(params.oldFilePath) ?? true,
+      const oldFilePath = params.oldFilePath;
+      await updateUserCliConfig((config) =>
+        setCommandEnabledOverride(
+          setCommandEnabledOverride(config, oldFilePath, true),
+          newFilePath,
+          enabledOverrides.get(oldFilePath) ?? true,
+        ),
       );
-      await writeUserCliConfig(migratedConfig);
     }
 
-    const parsed = CommandFileParser.parseCommandFile(content, newFilePath, descriptor.format);
+    const parsed = CommandFileParser.parseCommandFile(
+      content,
+      newFilePath,
+      descriptor.format,
+    );
     if (!parsed) {
       throw new Error("Failed to parse written command file");
     }
@@ -706,7 +815,10 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
       location,
       id: buildCommandId(agentSource, target.scope, name, location),
       source: "user",
-      enabled: getCommandEnabled(newFilePath, await readCommandEnabledOverridesFromUserConfig()),
+      enabled: getCommandEnabled(
+        newFilePath,
+        await readCommandEnabledOverridesFromUserConfig(),
+      ),
       scope: target.scope,
       ...(target.projectPath ? { projectPath: target.projectPath } : {}),
     };
@@ -725,18 +837,17 @@ export function createCommandsService(_options?: CommandsServiceOptions): IComma
         throw error;
       }
     }
-    await writeUserCliConfig(
-      setCommandEnabledOverride(await readUserCliConfig(), params.filePath, true),
+    await updateUserCliConfig((config) =>
+      setCommandEnabledOverride(config, params.filePath, true),
     );
   }
 
-  async function setCommandEnabled(params: CommandSetEnabledParams): Promise<void> {
-    const nextConfig = setCommandEnabledOverride(
-      await readUserCliConfig(),
-      params.filePath,
-      params.enabled,
+  async function setCommandEnabled(
+    params: CommandSetEnabledParams,
+  ): Promise<void> {
+    await updateUserCliConfig((config) =>
+      setCommandEnabledOverride(config, params.filePath, params.enabled),
     );
-    await writeUserCliConfig(nextConfig);
   }
 
   async function getPrimaryUserCommandsDirectory(params?: {
@@ -785,11 +896,16 @@ async function discoverPluginCommands(
   const commands: PluginCommand[] = [];
   const seenFilePaths = new Set<string>();
   for (const descriptor of rootDescriptors) {
-    await discoverPluginCommandsRecursive(descriptor.rootPath, descriptor.rootPath, commands, {
-      descriptor,
-      enabledOverrides,
-      seenFilePaths,
-    });
+    await discoverPluginCommandsRecursive(
+      descriptor.rootPath,
+      descriptor.rootPath,
+      commands,
+      {
+        descriptor,
+        enabledOverrides,
+        seenFilePaths,
+      },
+    );
   }
   return commands.sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -830,7 +946,12 @@ async function discoverPluginCommandsRecursive(
     }
 
     if (isDir) {
-      await discoverPluginCommandsRecursive(rootDir, fullPath, commands, options);
+      await discoverPluginCommandsRecursive(
+        rootDir,
+        fullPath,
+        commands,
+        options,
+      );
       continue;
     }
 
@@ -857,7 +978,8 @@ async function discoverPluginCommandsRecursive(
       commands.push({
         ...parsed,
         enabled:
-          options.descriptor.pluginEnabled && getCommandEnabled(fullPath, options.enabledOverrides),
+          options.descriptor.pluginEnabled &&
+          getCommandEnabled(fullPath, options.enabledOverrides),
         filePath: fullPath,
         id: buildPluginCommandId({
           filePath: fullPath,
@@ -923,25 +1045,38 @@ async function discoverUserCommandsRecursive(
     if (entry.toLowerCase().endsWith(descriptor.fileExtension)) {
       try {
         const content = await readFile(fullPath, "utf-8");
-        const parsed = CommandFileParser.parseCommandFile(content, fullPath, descriptor.format);
+        const parsed = CommandFileParser.parseCommandFile(
+          content,
+          fullPath,
+          descriptor.format,
+        );
         if (parsed) {
           const name = getCommandName(rootDir, fullPath, descriptor);
           const location = buildCommandLocation({
             descriptor,
             commandsRoot: rootDir,
             scope: options.scope,
-            ...(options.projectPath ? { projectPath: options.projectPath } : {}),
+            ...(options.projectPath
+              ? { projectPath: options.projectPath }
+              : {}),
           });
           commands.push({
             ...parsed,
             name,
             agentSource: descriptor.agentSource,
             location,
-            id: buildCommandId(descriptor.agentSource, options.scope, name, location),
+            id: buildCommandId(
+              descriptor.agentSource,
+              options.scope,
+              name,
+              location,
+            ),
             source: "user",
             enabled: getCommandEnabled(fullPath, options.enabledOverrides),
             scope: options.scope,
-            ...(options.projectPath ? { projectPath: options.projectPath } : {}),
+            ...(options.projectPath
+              ? { projectPath: options.projectPath }
+              : {}),
           });
         }
       } catch {
@@ -967,12 +1102,17 @@ async function discoverCommandsRoot(params: {
   }
 
   try {
-    await discoverUserCommandsRecursive(params.commandsRoot, params.commandsRoot, params.commands, {
-      descriptor: params.descriptor,
-      scope: params.scope,
-      enabledOverrides: params.enabledOverrides,
-      ...(params.projectPath ? { projectPath: params.projectPath } : {}),
-    });
+    await discoverUserCommandsRecursive(
+      params.commandsRoot,
+      params.commandsRoot,
+      params.commands,
+      {
+        descriptor: params.descriptor,
+        scope: params.scope,
+        enabledOverrides: params.enabledOverrides,
+        ...(params.projectPath ? { projectPath: params.projectPath } : {}),
+      },
+    );
   } catch {
     // 扫描出错时返回已发现的命令
   }
@@ -981,7 +1121,9 @@ async function discoverCommandsRoot(params: {
 
 async function discoverCommandsFromDirectorySources(params: {
   descriptors: readonly CommandAgentSourceDescriptor[];
-  commandsRootForDescriptor: (descriptor: CommandAgentSourceDescriptor) => string;
+  commandsRootForDescriptor: (
+    descriptor: CommandAgentSourceDescriptor,
+  ) => string;
   scope: UserCommand["scope"];
   commands: UserCommand[];
   enabledOverrides: ReadonlyMap<string, boolean>;

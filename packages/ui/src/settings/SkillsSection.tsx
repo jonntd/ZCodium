@@ -8,12 +8,15 @@ import {
   Import,
   Plus,
   Trash2,
-  UploadCloud,
   WandSparkles,
 } from "lucide-react";
-import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { Button } from "@/components/ui/button.js";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog.js";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog.js";
 import { Switch } from "@/components/ui/switch.js";
 import type {
   ZCodeProvider,
@@ -24,6 +27,7 @@ import type {
   RemoteTarget,
 } from "@zcode/shared";
 import { ZCODE_AGENT_PROVIDER } from "@zcode/shared";
+import type { IServiceAccessor } from "@zcode/services";
 import type { CreateTaskRequest } from "@/app-shell/types.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { toast } from "@/components/ui/toast.js";
@@ -53,8 +57,8 @@ import {
 } from "@/settings/pluginStoreListing.js";
 import { groupSkillsByPlugin } from "@/settings/pluginManagedResourceGroups.js";
 import { SkillsImportDialog } from "@/settings/ExternalAgentImportDialog.js";
-import { formatRemoteSkillSyncTarget } from "@/settings/RemoteSkillSyncDialog.js";
-import { RemoteSyncDialogs, shouldShowRemoteSyncActions } from "@/settings/RemoteSyncActions.js";
+import { formatRemoteSyncTargetLabel } from "@/data-sync/ui/settingsEntry.js";
+import { shouldShowRemoteSyncActions } from "@/data-sync/ui/settingsEntry.js";
 import { refreshSharedSkillStoreForWorkspace } from "@/lib/skillStoreRefresh.js";
 import { usePluginManagementStore } from "@/store/pluginManagementStore.js";
 import {
@@ -133,7 +137,10 @@ function SkillPathDetailField({
           onClick={onOpen}
         >
           <span>{path}</span>
-          <ExternalLink className="relative top-px size-3 shrink-0" aria-hidden="true" />
+          <ExternalLink
+            className="relative top-px size-3 shrink-0"
+            aria-hidden="true"
+          />
         </Button>
       </div>
     </div>
@@ -146,6 +153,12 @@ interface SkillsSectionProps {
   remoteSessionId?: string;
   remoteTarget?: RemoteTarget;
   isWebRemoteControl?: boolean;
+  /** 数据同步弹窗定位用的来源设备 id（上游 data-sync 入口接线在后续域补）。 */
+  dataSyncSourceServerId?: string | null;
+  /** 上游链兼容（settings 域合流时接线）：user/server scope 显式服务解析来源。 */
+  unscopedServices?: IServiceAccessor;
+  /** 上游链兼容（settings 域合流时接线）：Scope 视图缓存 authority 隔离键。 */
+  cacheAuthorityKey?: string;
   scopeFilter: "user" | "workspace";
   searchQuery: string;
   onVisibleCountChange?: (count: number) => void;
@@ -175,16 +188,29 @@ export function SkillsSection({
   const platform = usePlatform();
   const baseServices = useBaseWorkspaceServices();
   const plugins = usePluginManagementStore((state) => state.plugins);
-  const installedPlugins = usePluginManagementStore((state) => state.installedPlugins);
-  const availablePlugins = usePluginManagementStore((state) => state.availablePlugins);
+  const installedPlugins = usePluginManagementStore(
+    (state) => state.installedPlugins,
+  );
+  const availablePlugins = usePluginManagementStore(
+    (state) => state.availablePlugins,
+  );
   const pluginListingById = useMemo(
-    () => new Map(availablePlugins.map((plugin) => [plugin.id, plugin.listing])),
+    () =>
+      new Map(availablePlugins.map((plugin) => [plugin.id, plugin.listing])),
     [availablePlugins],
   );
-  const pluginWorkspacePath = usePluginManagementStore((state) => state.workspacePath);
-  const pluginWorkspaceIdentity = usePluginManagementStore((state) => state.workspaceIdentity);
-  const pluginConfigScope = usePluginManagementStore((state) => state.configScope);
-  const initializePlugins = usePluginManagementStore((state) => state.initialize);
+  const pluginWorkspacePath = usePluginManagementStore(
+    (state) => state.workspacePath,
+  );
+  const pluginWorkspaceIdentity = usePluginManagementStore(
+    (state) => state.workspaceIdentity,
+  );
+  const pluginConfigScope = usePluginManagementStore(
+    (state) => state.configScope,
+  );
+  const initializePlugins = usePluginManagementStore(
+    (state) => state.initialize,
+  );
   // useConfirmDialog 是纯 Zustand selector（不含 useState），放在这里不会影响 SkillsSection
   // 既有的「按 useState 调用次序」单测桩（见下方 selectedSkill 附近的注释）。
   const confirmDialog = useConfirmDialog();
@@ -218,9 +244,9 @@ export function SkillsSection({
   const [diagnostics, setDiagnostics] = useState<SkillDiagnostic[]>([]);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [remoteSkillSyncOpen, setRemoteSkillSyncOpen] = useState(false);
   const latestRequestIdRef = useRef(0);
-  const activeSkillTargetKey = activeWorkspaceIdentity?.trim() || activeWorkspacePath || "";
+  const activeSkillTargetKey =
+    activeWorkspaceIdentity?.trim() || activeWorkspacePath || "";
   const projectionMatchesTarget =
     !activeWorkspacePath || loadedSkillTargetKey === activeSkillTargetKey;
 
@@ -247,14 +273,19 @@ export function SkillsSection({
     shouldShowRemoteSyncActions({
       remoteSessionId,
       remoteTarget,
-      clientMode: isWebRemoteControl ? "web-remote-replayable" : "desktop-continuous",
+      clientMode: isWebRemoteControl
+        ? "web-remote-replayable"
+        : "desktop-continuous",
       hasLocalSourceService: Boolean(baseServices.skillSyncService),
     }) &&
     activeWorkspacePath
       ? remoteTarget
       : null;
   const remoteSkillSyncTargetLabel = connectedRemoteSyncTarget
-    ? formatRemoteSkillSyncTarget(connectedRemoteSyncTarget, activeWorkspacePath ?? "")
+    ? formatRemoteSyncTargetLabel(
+        connectedRemoteSyncTarget,
+        activeWorkspacePath ?? "",
+      )
     : "";
 
   const renderScopeLabel = useCallback(
@@ -274,8 +305,13 @@ export function SkillsSection({
                 {
                   name: skill.pluginName,
                   listing:
-                    (skill.pluginId ? pluginListingById.get(skill.pluginId) : undefined) ??
-                    resolveUniquePluginListingByName(availablePlugins, skill.pluginName),
+                    (skill.pluginId
+                      ? pluginListingById.get(skill.pluginId)
+                      : undefined) ??
+                    resolveUniquePluginListingByName(
+                      availablePlugins,
+                      skill.pluginName,
+                    ),
                 },
                 locale,
               )
@@ -306,7 +342,8 @@ export function SkillsSection({
         setLoadedSkillTargetKey("");
         return;
       }
-      const requestTargetKey = activeWorkspaceIdentity?.trim() || activeWorkspacePath;
+      const requestTargetKey =
+        activeWorkspaceIdentity?.trim() || activeWorkspacePath;
       setLoading(showBlockingLoading);
       setError(null);
       const requestId = ++latestRequestIdRef.current;
@@ -330,10 +367,17 @@ export function SkillsSection({
         }
         setLoadedSkillTargetKey(requestTargetKey);
         setLoading(false);
-        setError(loadError instanceof Error ? loadError.message : String(loadError));
+        setError(
+          loadError instanceof Error ? loadError.message : String(loadError),
+        );
       }
     },
-    [activeWorkspaceIdentity, activeWorkspacePath, skillsService, targetServiceResolution.rpcReady],
+    [
+      activeWorkspaceIdentity,
+      activeWorkspacePath,
+      skillsService,
+      targetServiceResolution.rpcReady,
+    ],
   );
 
   useEffect(() => {
@@ -342,7 +386,6 @@ export function SkillsSection({
       setLoading(false);
       setError(null);
       setImportDialogOpen(false);
-      setRemoteSkillSyncOpen(false);
       return;
     }
     // 首屏或切换 Scope target 时必须显示阻塞 loading；手动刷新仍走后台刷新，
@@ -385,10 +428,15 @@ export function SkillsSection({
           workspaceIdentity: activeWorkspaceIdentity,
           reason: "settings-skill-enabled",
         });
-        await Promise.all([loadSkills(false), refreshSharedSkillStoreForCurrentWorkspace()]);
+        await Promise.all([
+          loadSkills(false),
+          refreshSharedSkillStoreForCurrentWorkspace(),
+        ]);
       } catch (setEnabledError) {
         setError(
-          setEnabledError instanceof Error ? setEnabledError.message : String(setEnabledError),
+          setEnabledError instanceof Error
+            ? setEnabledError.message
+            : String(setEnabledError),
         );
       }
     },
@@ -438,7 +486,11 @@ export function SkillsSection({
         }
         await loadSkills(false);
       } catch (deleteError) {
-        setError(deleteError instanceof Error ? deleteError.message : String(deleteError));
+        setError(
+          deleteError instanceof Error
+            ? deleteError.message
+            : String(deleteError),
+        );
       }
     },
     [
@@ -454,14 +506,19 @@ export function SkillsSection({
   );
 
   const scopedProviderSkills = useMemo(() => {
-    const allProviderSkills = filterSkillsForProvider(skills, ZCODE_AGENT_PROVIDER);
+    const allProviderSkills = filterSkillsForProvider(
+      skills,
+      ZCODE_AGENT_PROVIDER,
+    );
     const pluginStoreMatchesTarget =
       (pluginWorkspaceIdentity?.trim() || pluginWorkspacePath || "") ===
         (activeWorkspaceIdentity?.trim() || activeWorkspacePath || "") &&
       pluginConfigScope === scopeFilter;
     return selectSkillsForScope(
       allProviderSkills,
-      pluginStoreMatchesTarget ? selectPluginsForScope(plugins, installedPlugins, scopeFilter) : [],
+      pluginStoreMatchesTarget
+        ? selectPluginsForScope(plugins, installedPlugins, scopeFilter)
+        : [],
       scopeFilter,
     );
   }, [
@@ -484,15 +541,25 @@ export function SkillsSection({
       [...groupedSkills.local, ...groupedSkills.plugin],
       scopeFilter === "user"
         ? intl.formatMessage({ id: "settings.scope.user" })
-        : workspaceLabel || intl.formatMessage({ id: "settings.scope.workspace" }),
+        : workspaceLabel ||
+            intl.formatMessage({ id: "settings.scope.workspace" }),
     );
-  }, [groupedSkills.local, groupedSkills.plugin, intl, scopeFilter, workspaceLabel]);
-  const filteredSkillCount = groupedSkills.local.length + groupedSkills.plugin.length;
-  const hasEmptySearchResult = Boolean(query.trim()) && filteredSkillCount === 0;
+  }, [
+    groupedSkills.local,
+    groupedSkills.plugin,
+    intl,
+    scopeFilter,
+    workspaceLabel,
+  ]);
+  const filteredSkillCount =
+    groupedSkills.local.length + groupedSkills.plugin.length;
+  const hasEmptySearchResult =
+    Boolean(query.trim()) && filteredSkillCount === 0;
   const directInstalledSkillCount = scopedProviderSkills.filter(
     (skill) => skill.scope !== "plugin",
   ).length;
-  const hideInstalledGroup = Boolean(query.trim()) && groupedSkills.local.length === 0;
+  const hideInstalledGroup =
+    Boolean(query.trim()) && groupedSkills.local.length === 0;
   const pluginIconItemById = useMemo(
     () =>
       new Map(
@@ -511,10 +578,14 @@ export function SkillsSection({
       return;
     }
     const effectiveProvider: ZCodeProvider = ZCODE_AGENT_PROVIDER;
-    const skillCreator = filterSkillsForProvider(skills, effectiveProvider).find(
-      (skill) => skill.name === "skill-creator",
+    const skillCreator = filterSkillsForProvider(
+      skills,
+      effectiveProvider,
+    ).find((skill) => skill.name === "skill-creator");
+    const markdown = buildSkillMentionMarkdown(
+      "skill-creator",
+      skillCreator?.path,
     );
-    const markdown = buildSkillMentionMarkdown("skill-creator", skillCreator?.path);
 
     // v4 迁移删除旧 pendingComposerPrefill 后，这个入口仍手工操作 session
     // store，只剩返回聊天页的导航，skill-creator 文本没有进入新 Composer。统一委托
@@ -528,7 +599,9 @@ export function SkillsSection({
         label: "skill-creator",
         value: "skill-creator",
         markdown,
-        ...(skillCreator?.description ? { description: skillCreator.description } : {}),
+        ...(skillCreator?.description
+          ? { description: skillCreator.description }
+          : {}),
         ...(skillCreator
           ? {
               data: {
@@ -544,7 +617,9 @@ export function SkillsSection({
   const detailSkill = selectedSkill
     ? (skills.find((skill) => skill.id === selectedSkill.id) ?? selectedSkill)
     : null;
-  const selectedSkillPublishedAt = formatSkillPublishedAt(detailSkill?.metadata?.publishedAt);
+  const selectedSkillPublishedAt = formatSkillPublishedAt(
+    detailSkill?.metadata?.publishedAt,
+  );
   const openSkillFilePath = useCallback(
     async (path: string) => {
       const result = await platform.openInFileManager(path);
@@ -577,7 +652,10 @@ export function SkillsSection({
       : skill.pluginName
         ? {
             name: skill.pluginName,
-            listing: resolveUniquePluginListingByName(availablePlugins, skill.pluginName),
+            listing: resolveUniquePluginListingByName(
+              availablePlugins,
+              skill.pluginName,
+            ),
           }
         : undefined;
     return (
@@ -586,7 +664,10 @@ export function SkillsSection({
         className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 transition-colors hover:bg-hover"
       >
         {skill.scope === "plugin" && pluginIconItem ? (
-          <PluginStoreAvatar item={pluginIconItem} className="size-9 bg-background" />
+          <PluginStoreAvatar
+            item={pluginIconItem}
+            className="size-9 bg-background"
+          />
         ) : (
           <div
             className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-background text-foreground-subtle"
@@ -608,7 +689,9 @@ export function SkillsSection({
           }}
         >
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="truncate text-ui-base font-medium text-foreground">{skill.name}</span>
+            <span className="truncate text-ui-base font-medium text-foreground">
+              {skill.name}
+            </span>
           </div>
           <div className="mt-0.5 truncate text-ui-sm text-foreground-subtle">
             {skill.description ||
@@ -654,7 +737,12 @@ export function SkillsSection({
 
   const skillHeaderActions = (
     <SettingsResourceHeaderActions
-      onRefresh={() => void Promise.all([refresh(), refreshSharedSkillStoreForCurrentWorkspace()])}
+      onRefresh={() =>
+        void Promise.all([
+          refresh(),
+          refreshSharedSkillStoreForCurrentWorkspace(),
+        ])
+      }
       onImport={() => setImportDialogOpen(true)}
       onNew={handleCreateSkill}
       importDisabled={!capability?.userScopeAvailable}
@@ -662,21 +750,6 @@ export function SkillsSection({
       newActionId="settings.skills.create.open"
     />
   );
-  const remoteSyncAction = connectedRemoteSyncTarget ? (
-    <ControlHintTooltip title={intl.formatMessage({ id: "settings.skills.remoteSync.open" })}>
-      <Button
-        type="button"
-        variant="outline"
-        size="icon-lg"
-        aria-label={intl.formatMessage({
-          id: "settings.skills.remoteSync.open",
-        })}
-        onClick={() => setRemoteSkillSyncOpen(true)}
-      >
-        <UploadCloud className="size-3.5" aria-hidden="true" />
-      </Button>
-    </ControlHintTooltip>
-  ) : null;
 
   return (
     <div className="space-y-4">
@@ -701,8 +774,6 @@ export function SkillsSection({
           }
         />
       ) : null}
-      {remoteSyncAction ? <div className="flex justify-end">{remoteSyncAction}</div> : null}
-
       {connectedRemoteSyncTarget ? (
         <div className="rounded-lg border border-border bg-card px-3 py-2 text-ui-base text-foreground-subtle">
           {intl.formatMessage(
@@ -734,8 +805,13 @@ export function SkillsSection({
             ) : (
               <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />
             )}
-            <AlertTriangle className="size-3.5 shrink-0 text-amber-500" aria-hidden="true" />
-            <span className="flex-1 truncate font-medium">{diagnosticsSummary}</span>
+            <AlertTriangle
+              className="size-3.5 shrink-0 text-amber-500"
+              aria-hidden="true"
+            />
+            <span className="flex-1 truncate font-medium">
+              {diagnosticsSummary}
+            </span>
           </button>
           {diagnosticsOpen ? (
             <ul className="space-y-1 border-t border-amber-500/30 px-3 py-2">
@@ -758,7 +834,9 @@ export function SkillsSection({
                       {renderDiagnosticCodeLabel(diagnostic.code)}
                     </span>
                     {diagnostic.skillName ? (
-                      <span className="text-foreground-subtle">· {diagnostic.skillName}</span>
+                      <span className="text-foreground-subtle">
+                        · {diagnostic.skillName}
+                      </span>
                     ) : null}
                   </div>
                   <div className="mt-0.5 break-words text-foreground-subtle">
@@ -789,9 +867,13 @@ export function SkillsSection({
       ) : null}
 
       {!targetServiceResolution.rpcReady ? (
-        <PluginLoadingState label={intl.formatMessage({ id: "common.connecting" })} />
+        <PluginLoadingState
+          label={intl.formatMessage({ id: "common.connecting" })}
+        />
       ) : loading || !projectionMatchesTarget ? (
-        <PluginLoadingState label={intl.formatMessage({ id: "common.loading" })} />
+        <PluginLoadingState
+          label={intl.formatMessage({ id: "common.loading" })}
+        />
       ) : hasEmptySearchResult ? (
         <PluginSearchEmptyState
           label={intl.formatMessage({
@@ -822,7 +904,12 @@ export function SkillsSection({
                 })}
                 actions={
                   <>
-                    <Button type="button" variant="default" size="lg" onClick={handleCreateSkill}>
+                    <Button
+                      type="button"
+                      variant="default"
+                      size="lg"
+                      onClick={handleCreateSkill}
+                    >
                       <Plus data-icon="inline-start" aria-hidden="true" />
                       {intl.formatMessage({
                         id: "settings.plugin.skills.newSkill",
@@ -855,8 +942,13 @@ export function SkillsSection({
                     {
                       name: group.label,
                       listing:
-                        (group.pluginId ? pluginListingById.get(group.pluginId) : undefined) ??
-                        resolveUniquePluginListingByName(availablePlugins, group.label),
+                        (group.pluginId
+                          ? pluginListingById.get(group.pluginId)
+                          : undefined) ??
+                        resolveUniquePluginListingByName(
+                          availablePlugins,
+                          group.label,
+                        ),
                     },
                     locale,
                   )}
@@ -878,7 +970,9 @@ export function SkillsSection({
           {detailSkill ? (
             <div className="flex min-h-0 flex-col">
               <DialogHeader className="border-b border-popover-border px-4 pt-4 pb-3">
-                <DialogTitle className="truncate pr-8 text-ui-lg">{detailSkill.name}</DialogTitle>
+                <DialogTitle className="truncate pr-8 text-ui-lg">
+                  {detailSkill.name}
+                </DialogTitle>
               </DialogHeader>
               <div className="min-h-0 space-y-4 overflow-auto px-4 py-5">
                 <div className="grid gap-1.5">
@@ -964,7 +1058,9 @@ export function SkillsSection({
         open={importDialogOpen && targetServiceResolution.rpcReady}
         workspacePath={activeWorkspacePath}
         workspaceIdentity={activeWorkspaceIdentity}
-        settingsSyncService={targetServiceResolution.services.settingsSyncService}
+        settingsSyncService={
+          targetServiceResolution.services.settingsSyncService
+        }
         onOpenChange={setImportDialogOpen}
         onImported={async () => {
           await invalidateDeferredDraftSessionForSkillChange({
@@ -975,32 +1071,6 @@ export function SkillsSection({
           });
           await refresh();
         }}
-      />
-      <RemoteSyncDialogs
-        canSyncSkills={Boolean(
-          targetServiceResolution.rpcReady && connectedRemoteSyncTarget && activeWorkspacePath,
-        )}
-        canSyncMcp={false}
-        skillOpen={remoteSkillSyncOpen && targetServiceResolution.rpcReady}
-        mcpOpen={false}
-        onSkillOpenChange={setRemoteSkillSyncOpen}
-        onMcpOpenChange={() => {}}
-        localSkillSyncService={baseServices.skillSyncService}
-        remoteSkillSyncService={skillSyncService}
-        remoteTarget={connectedRemoteSyncTarget}
-        skillWorkspacePath={activeWorkspacePath ?? ""}
-        mcpWorkspacePath=""
-        workspaceIdentity={activeWorkspaceIdentity}
-        onSkillsSynced={async () => {
-          await invalidateDeferredDraftSessionForSkillChange({
-            zcodeSessionService,
-            workspacePath: activeWorkspacePath,
-            workspaceIdentity: activeWorkspaceIdentity,
-            reason: "settings-remote-skill-sync",
-          });
-          await Promise.all([refresh(), refreshSharedSkillStoreForCurrentWorkspace()]);
-        }}
-        onMcpSynced={() => {}}
       />
     </div>
   );

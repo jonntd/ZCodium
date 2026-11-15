@@ -1,6 +1,9 @@
 import { memo, useMemo } from "react";
 import type { PluginUiScopeRef } from "@zcode/shared/mcp-apps";
-import { readPluginUiScopeRef, type PluginUiSidePaneTab } from "@/plugin-ui/contract.js";
+import {
+  readPluginUiScopeRef,
+  type PluginUiSidePaneTab,
+} from "@/plugin-ui/contract.js";
 import {
   PluginUiConversationScope,
   usePluginUiSidePaneModel,
@@ -9,6 +12,8 @@ import { PluginUiSidePaneView } from "@/plugin-ui/components/PluginUiSidePane.js
 
 type Props = {
   tab: PluginUiSidePaneTab;
+  /** fork 兼容：app-shell 旧调用不传时按可见处理（上游本域消费者会传）。 */
+  visible?: boolean;
   onOpenBrowserUrl?: (url: string) => void;
   /** 页面请求回到 inline 时宿主关闭本 tab。 */
   onCloseTab?: (tabId: string) => void;

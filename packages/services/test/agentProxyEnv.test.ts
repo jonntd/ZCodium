@@ -32,11 +32,15 @@ describe("buildAgentProxyEnv", () => {
   });
 
   it("prepends http:// to a bare host:port", () => {
-    expect(buildAgentProxyEnv("127.0.0.1:7890").HTTP_PROXY).toBe("http://127.0.0.1:7890");
+    expect(buildAgentProxyEnv("127.0.0.1:7890").HTTP_PROXY).toBe(
+      "http://127.0.0.1:7890",
+    );
   });
 
   it("preserves an explicit scheme such as socks5", () => {
-    expect(buildAgentProxyEnv("socks5://127.0.0.1:1080").ALL_PROXY).toBe("socks5://127.0.0.1:1080");
+    expect(buildAgentProxyEnv("socks5://127.0.0.1:1080").ALL_PROXY).toBe(
+      "socks5://127.0.0.1:1080",
+    );
   });
 });
 
@@ -61,7 +65,9 @@ describe("buildAgentNoProxyEnv", () => {
   });
 
   it("sets standard no-proxy keys plus ZCODE_NO_PROXY", () => {
-    expect(buildAgentNoProxyEnv(" localhost, 127.0.0.1 ,.example.com ")).toEqual({
+    expect(
+      buildAgentNoProxyEnv(" localhost, 127.0.0.1 ,.example.com "),
+    ).toEqual({
       NO_PROXY: "localhost,127.0.0.1,.example.com",
       no_proxy: "localhost,127.0.0.1,.example.com",
       ZCODE_NO_PROXY: "localhost,127.0.0.1,.example.com",
@@ -91,7 +97,9 @@ describe("buildAgentRuntimeEnv", () => {
   });
 
   it("injects no CA when the setting is empty, even if proxy is configured", () => {
-    expect(buildAgentRuntimeEnv({ httpProxy: "http://127.0.0.1:7890" })).toEqual({
+    expect(
+      buildAgentRuntimeEnv({ httpProxy: "http://127.0.0.1:7890" }),
+    ).toEqual({
       HTTP_PROXY: "http://127.0.0.1:7890",
       HTTPS_PROXY: "http://127.0.0.1:7890",
       ALL_PROXY: "http://127.0.0.1:7890",
@@ -101,7 +109,10 @@ describe("buildAgentRuntimeEnv", () => {
 
   it("injects the configured CA even without a proxy", () => {
     expect(
-      buildAgentRuntimeEnv({ httpProxy: undefined, caCertPath: " /tmp/root-ca.pem " }),
+      buildAgentRuntimeEnv({
+        httpProxy: undefined,
+        caCertPath: " /tmp/root-ca.pem ",
+      }),
     ).toEqual({
       NODE_EXTRA_CA_CERTS: "/tmp/root-ca.pem",
       ZCODE_AGENT_CA_CERT: "/tmp/root-ca.pem",
@@ -139,7 +150,9 @@ describe("buildAgentEndpointOriginEnv", () => {
       ...buildAgentEndpointOriginEnv("https://authoritative.example"),
     };
 
-    expect(resolveRuntimeZCodeEndpointOrigin(agentEnv)).toBe("https://authoritative.example");
+    expect(resolveRuntimeZCodeEndpointOrigin(agentEnv)).toBe(
+      "https://authoritative.example",
+    );
   });
 });
 
@@ -160,9 +173,13 @@ describe("official MCP trust: host and agent must agree on the ZCode API origin"
   const PLUGIN_ID = "official-tools@zcode-plugins-local";
 
   /** host 口径：env + settings 覆盖（node.ts resolveCurrentZCodeEndpointOrigin）。 */
-  function hostRegistry(env: Record<string, string>, overrideOrigin: string | undefined) {
+  function hostRegistry(
+    env: Record<string, string>,
+    overrideOrigin: string | undefined,
+  ) {
     return createOfficialMcpTrustedOriginRegistry({
-      resolveZCodeApiOrigin: () => resolveRuntimeZCodeEndpointOrigin(env, { overrideOrigin }),
+      resolveZCodeApiOrigin: () =>
+        resolveRuntimeZCodeEndpointOrigin(env, { overrideOrigin }),
     });
   }
 
@@ -177,17 +194,27 @@ describe("official MCP trust: host and agent must agree on the ZCode API origin"
     registry: ReturnType<typeof createOfficialMcpTrustedOriginRegistry>,
     origin: string,
   ) {
-    return (await registry.isTrusted({ mcpKey: "image_search", origin, pluginId: PLUGIN_ID }))
-      .trusted;
+    return (
+      await registry.isTrusted({
+        mcpKey: "image_search",
+        origin,
+        pluginId: PLUGIN_ID,
+      })
+    ).trusted;
   }
 
   it("agrees in test env once the resolved origin is injected", async () => {
     // 复现场景：ZCODE_ENV=test（桌面测试包显式下发）+ 设置页自定义端点 ≠ env base URL。
-    const hostEnv = { ZCODE_ENV: "test", ZCODE_BASE_URL: "https://env-derived.example" };
+    const hostEnv = {
+      ZCODE_ENV: "test",
+      ZCODE_BASE_URL: "https://env-derived.example",
+    };
     const agentEnv = {
       ...hostEnv,
       ...buildAgentEndpointOriginEnv(
-        resolveRuntimeZCodeEndpointOrigin(hostEnv, { overrideOrigin: SETTINGS_ORIGIN }),
+        resolveRuntimeZCodeEndpointOrigin(hostEnv, {
+          overrideOrigin: SETTINGS_ORIGIN,
+        }),
       ),
     };
     const host = hostRegistry(hostEnv, SETTINGS_ORIGIN);
@@ -207,7 +234,10 @@ describe("official MCP trust: host and agent must agree on the ZCode API origin"
 
   it("would diverge without the injection (guards against silently dropping it)", async () => {
     // 反向护栏：去掉注入后本用例必须观察到分叉，否则上面那条就是恒真的假护栏。
-    const hostEnv = { ZCODE_ENV: "test", ZCODE_BASE_URL: "https://env-derived.example" };
+    const hostEnv = {
+      ZCODE_ENV: "test",
+      ZCODE_BASE_URL: "https://env-derived.example",
+    };
     const host = hostRegistry(hostEnv, SETTINGS_ORIGIN);
     const agentWithoutInjection = agentRegistry(hostEnv);
 
@@ -217,7 +247,10 @@ describe("official MCP trust: host and agent must agree on the ZCode API origin"
 
   it("agrees in production, where the settings override is ignored on both sides", async () => {
     // production 下 override 被忽略，注入值等于 env 派生值，行为不得改变。
-    const hostEnv = { ZCODE_ENV: "production", ZCODE_BASE_URL: "https://zcode.z.ai" };
+    const hostEnv = {
+      ZCODE_ENV: "production",
+      ZCODE_BASE_URL: "https://zcode.z.ai",
+    };
     const injected = resolveRuntimeZCodeEndpointOrigin(hostEnv, {
       overrideOrigin: SETTINGS_ORIGIN,
     });
@@ -242,7 +275,10 @@ describe("official MCP trust: host and agent must agree on the ZCode API origin"
 // cwd 是 packages/services，process.cwd() 拼仓库相对路径会解析失败。
 const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 describe("node.ts wires the authoritative origin into resolveSpawnEnv", () => {
-  const source = readFileSync(resolve(REPO_ROOT, "packages/services/src/node.ts"), "utf8");
+  const source = readFileSync(
+    resolve(REPO_ROOT, "packages/services/src/node.ts"),
+    "utf8",
+  );
   // 提取起点不写死参数列表：CUA 集成把闭包改成 `async (context) =>`（需要 workspace
   // registry），写死 `async () =>` 会让 slice 取到空串、两条断言变成永假的空匹配。
   const spawnEnvStart = source.indexOf("resolveSpawnEnv: async (");
@@ -255,8 +291,10 @@ describe("node.ts wires the authoritative origin into resolveSpawnEnv", () => {
     // 承重项：必须用 resolveCurrentZCodeEndpointOrigin（含 settings 覆盖）。
     // 接成 resolveRuntimeZCodeEndpointOrigin(process.env) 会让这次修复完全失效，
     // 而两侧仍然"看起来"都在解析 origin。
-    expect(spawnEnvBlock).toContain(
-      "buildAgentEndpointOriginEnv(await resolveCurrentZCodeEndpointOrigin())",
+    // fmt 可能把单行调用断成多行；语义锁定按空白容忍匹配（承重项是
+    // resolveCurrentZCodeEndpointOrigin 而不是 env-only 解析器）。
+    expect(spawnEnvBlock).toMatch(
+      /buildAgentEndpointOriginEnv\(\s*await resolveCurrentZCodeEndpointOrigin\(\)/,
     );
   });
 
@@ -265,9 +303,13 @@ describe("node.ts wires the authoritative origin into resolveSpawnEnv", () => {
     // 不再绕过共存层稳定名铸随机名（与探测/Host fork 分裂，MCP 连不上 helper），
     // 统一走 getStableCuaPipeName；recipe 注入保持 §3.3 契约，等待 producer
     // ensure 分支消费。这里锁定 wiring，防止平台分叉复活。
-    expect(spawnEnvBlock).toContain("const brokerSocket = getStableCuaPipeName();");
+    expect(spawnEnvBlock).toContain(
+      "const brokerSocket = getStableCuaPipeName();",
+    );
     expect(spawnEnvBlock).not.toContain("resolveBrokerSocketPath()");
-    expect(spawnEnvBlock).toContain('cuaProductHelperEnv["ZCODE_CUA_WIN_HELPER_RECIPE"]');
+    expect(spawnEnvBlock).toContain(
+      'cuaProductHelperEnv["ZCODE_CUA_WIN_HELPER_RECIPE"]',
+    );
     expect(spawnEnvBlock).toContain("hostPid: process.pid");
   });
 });

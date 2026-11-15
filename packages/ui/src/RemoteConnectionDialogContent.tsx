@@ -14,13 +14,7 @@ import {
   TID_REMOTE_KIND_SSH,
   TID_REMOTE_KIND_WSL,
 } from "@zcode/shared";
-import type {
-  IMcpSyncService,
-  IPluginSyncService,
-  IServiceAccessor,
-  ISkillSyncService,
-  IZCodeAgentService,
-} from "@zcode/services";
+import type { IServiceAccessor } from "@zcode/services";
 import {
   AlertTriangleIcon,
   ChevronRightIcon,
@@ -36,11 +30,6 @@ import type { SSHAuthMethod } from "@/hooks/useRemoteConnectionForm.js";
 import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import {
-  RemoteSyncDialogs,
-  RemoteSyncDropdownButton,
-  shouldShowRemoteSyncActions,
-} from "@/settings/RemoteSyncActions.js";
 export { RemoteConnectionConnectingStep } from "@/remote-connection/RemoteConnectionConnectingStep.js";
 
 function getKindIcon(kind: RemoteTarget["kind"]) {
@@ -138,7 +127,12 @@ export function RemoteConnectionKindStep({
         >
           {intl.formatMessage({ id: "common.cancel" })}
         </Button>
-        <Button type="button" size="lg" className="h-10 min-w-0 px-5" onClick={onNext}>
+        <Button
+          type="button"
+          size="lg"
+          className="h-10 min-w-0 px-5"
+          onClick={onNext}
+        >
           {intl.formatMessage({ id: "common.next" })}
           <ChevronRightIcon className="size-4" />
         </Button>
@@ -263,7 +257,9 @@ export function RemoteConnectionSettingsStep({
         {currentRuntimeOptionsError ? (
           <div className="flex items-start gap-3 rounded-2xl border border-warning bg-warning px-4 py-3 text-ui-base text-warning-foreground">
             <AlertTriangleIcon className="mt-0.5 size-4 shrink-0" />
-            <span>{intl.formatMessage({ id: "remote.optionsLoadFailed" })}</span>
+            <span>
+              {intl.formatMessage({ id: "remote.optionsLoadFailed" })}
+            </span>
           </div>
         ) : null}
 
@@ -358,66 +354,21 @@ export function RemoteConnectionSettingsStep({
 
 export function RemoteConnectionDirectoryStep({
   services,
-  remoteTarget,
-  localSkillSyncService,
-  remoteSkillSyncService,
-  localMcpSyncService,
-  remoteMcpSyncService,
-  localPluginSyncService,
-  remotePluginSyncService,
-  localZCodeAgentService,
-  remoteZCodeAgentService,
-  localWorkspacePath,
   selecting = false,
   onSelect,
   onBack,
   onCancel,
-  onSkillsSynced,
-  onMcpSynced,
-  onPluginsSynced,
 }: {
   services: IServiceAccessor | null;
   remoteTarget?: RemoteTarget | null;
-  localSkillSyncService?: ISkillSyncService;
-  remoteSkillSyncService?: ISkillSyncService | null;
-  localMcpSyncService?: IMcpSyncService;
-  remoteMcpSyncService?: IMcpSyncService | null;
-  localPluginSyncService?: IPluginSyncService;
-  remotePluginSyncService?: IPluginSyncService | null;
-  localZCodeAgentService?: IZCodeAgentService;
-  remoteZCodeAgentService?: IZCodeAgentService | null;
   localWorkspacePath?: string;
   selecting?: boolean;
   onSelect: (path: string) => void;
   onBack: () => void;
   onCancel: () => void;
-  onSkillsSynced?: () => Promise<void> | void;
-  onMcpSynced?: () => Promise<void> | void;
-  onPluginsSynced?: () => Promise<void> | void;
 }) {
   const { intl } = useZCodeIntl();
   const [selectedPath, setSelectedPath] = useState("");
-  const [remoteSkillSyncOpen, setRemoteSkillSyncOpen] = useState(false);
-  const [remoteMcpSyncOpen, setRemoteMcpSyncOpen] = useState(false);
-  const [remotePluginSyncOpen, setRemotePluginSyncOpen] = useState(false);
-  const canShowRemoteSyncActions = shouldShowRemoteSyncActions({
-    remoteSessionId: remoteTarget ? "directory-step" : null,
-    remoteTarget,
-    clientMode: "desktop-continuous",
-    hasLocalSourceService: Boolean(
-      localSkillSyncService || localMcpSyncService || localPluginSyncService,
-    ),
-  });
-  const canSyncRemoteSkills = Boolean(
-    canShowRemoteSyncActions && localSkillSyncService && remoteSkillSyncService,
-  );
-  const canSyncRemoteMcp = Boolean(
-    canShowRemoteSyncActions && localMcpSyncService && remoteMcpSyncService,
-  );
-  const canSyncRemotePlugins = Boolean(
-    canShowRemoteSyncActions && localPluginSyncService && remotePluginSyncService,
-  );
-
   if (!services) {
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-6 h-full">
@@ -441,19 +392,13 @@ export function RemoteConnectionDirectoryStep({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-6 h-full" aria-busy={selecting}>
+    <div
+      className="flex min-h-0 flex-1 flex-col gap-6 h-full"
+      aria-busy={selecting}
+    >
       <div className="flex flex-col flex-1 min-h-0 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-success bg-success px-4 py-3 text-ui-base text-success-foreground">
           <span>{intl.formatMessage({ id: "remote.success" })}</span>
-          <RemoteSyncDropdownButton
-            canSyncSkills={canSyncRemoteSkills}
-            canSyncMcp={canSyncRemoteMcp}
-            canSyncPlugins={canSyncRemotePlugins}
-            mcpDisabled={!selectedPath.trim()}
-            onOpenSkillSync={() => setRemoteSkillSyncOpen(true)}
-            onOpenMcpSync={() => setRemoteMcpSyncOpen(true)}
-            onOpenPluginSync={() => setRemotePluginSyncOpen(true)}
-          />
         </div>
         {/* Bugfix: 该容器之前不是 flex，导致子级 DirectoryBrowser 的 flex-1 无法拿到有效高度，
             目录项变多时 overflow-y-auto 不生效，列表不能垂直滚动。 */}
@@ -500,40 +445,6 @@ export function RemoteConnectionDirectoryStep({
           )}
         </Button>
       </div>
-      <RemoteSyncDialogs
-        canSyncSkills={canSyncRemoteSkills}
-        canSyncMcp={canSyncRemoteMcp}
-        canSyncPlugins={canSyncRemotePlugins}
-        skillOpen={remoteSkillSyncOpen}
-        mcpOpen={remoteMcpSyncOpen}
-        pluginOpen={remotePluginSyncOpen}
-        onSkillOpenChange={setRemoteSkillSyncOpen}
-        onMcpOpenChange={setRemoteMcpSyncOpen}
-        onPluginOpenChange={setRemotePluginSyncOpen}
-        localSkillSyncService={localSkillSyncService}
-        remoteSkillSyncService={remoteSkillSyncService}
-        localMcpSyncService={localMcpSyncService}
-        remoteMcpSyncService={remoteMcpSyncService}
-        localPluginSyncService={localPluginSyncService}
-        remotePluginSyncService={remotePluginSyncService}
-        localZCodeAgentService={localZCodeAgentService}
-        remoteZCodeAgentService={remoteZCodeAgentService}
-        remoteTarget={remoteTarget}
-        skillWorkspacePath=""
-        mcpWorkspacePath={selectedPath.trim()}
-        pluginWorkspacePath={selectedPath.trim()}
-        pluginLocalWorkspacePath={localWorkspacePath}
-        mcpLocalWorkspacePath={localWorkspacePath}
-        onSkillsSynced={async () => {
-          await onSkillsSynced?.();
-        }}
-        onMcpSynced={async () => {
-          await onMcpSynced?.();
-        }}
-        onPluginsSynced={async () => {
-          await onPluginsSynced?.();
-        }}
-      />
     </div>
   );
 }

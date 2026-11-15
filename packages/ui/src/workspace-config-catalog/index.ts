@@ -7,6 +7,7 @@ export {
 export {
   useConfigWorkspaceTargets,
   useConfigWorkspaceCatalog,
+  useConfigWorkspaceCatalogReadiness,
 } from "./useConfigWorkspaceTargets.js";
 export {
   useConfigWorkspaceServices,

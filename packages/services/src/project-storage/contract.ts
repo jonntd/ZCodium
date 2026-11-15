@@ -8,7 +8,10 @@ export interface ProjectMigrationContext {
   backupDirectories: readonly string[];
   settings?: Pick<
     AppSettings,
-    "lastWorkspaceSession" | "recentProjects" | "sourceServers" | "connectionProfiles"
+    | "lastWorkspaceSession"
+    | "recentProjects"
+    | "sourceServers"
+    | "connectionProfiles"
   >;
   now?: () => number;
   warn?: (message: string, details?: Record<string, unknown>) => void;
@@ -17,9 +20,16 @@ export interface ProjectMigrationContext {
 /** Host 数据库的版本化迁移端口；不读取或修改 CLI db.sqlite。 */
 export interface ProjectStorageContract {
   /** 加法升级后同事务交接旧版本新增行/删除/标题意图；每次启动调用，不重算已处理的 NULL。 */
-  migrate(db: DatabaseSync, context: ProjectMigrationContext): Promise<MigrationResult>;
+  migrate(
+    db: DatabaseSync,
+    context: ProjectMigrationContext,
+  ): Promise<MigrationResult>;
   repository(db: DatabaseSync, hostId?: string): ProjectRepositoryContract;
-  admitTaskIdentity(db: DatabaseSync, task: ProjectTaskRef, hostId?: string): void;
+  admitTaskIdentity(
+    db: DatabaseSync,
+    task: ProjectTaskRef,
+    hostId?: string,
+  ): void;
 }
 
 export interface ProjectRoot {
@@ -99,7 +109,11 @@ export interface ProjectRepositoryContract {
   deleteProject(id: string): void;
   /** 在写事务内只为空项目初始化 root；并发编辑已添加的目录优先。 */
   initializeProjectRoot(id: string, path: string): VirtualProject;
-  moveTask(input: { task: ProjectTaskRef; projectId: string; addMissingRoot?: boolean }): void;
+  moveTask(input: {
+    task: ProjectTaskRef;
+    projectId: string;
+    addMissingRoot?: boolean;
+  }): void;
   reorderProjects(ids: string[]): void;
   resolveSessionDirectories(task: ProjectTaskRef): ProjectDirectories;
   /** CLI 创建之前原子预留归属；无事实的预留行不进入列表，重试不覆盖组织操作。 */
@@ -109,4 +123,13 @@ export interface ProjectRepositoryContract {
     /** Host 已固化的执行目录；首次预留持久化，重试不改。undefined 为普通新建。 */
     additionalDirectories?: string[];
   }): ProjectDirectories;
+  /** 列出某 worktree 根下的任务（精确匹配 worktree_root，含尚无 CLI 事实的预留行）。
+   *  fork 增量（上游 managed-worktree-tasks 依赖，docs/git/worktree.md §6.6.1）。 */
+  listTasksByWorktree(input: { worktreeRoot: string }): Array<
+    ProjectTaskRef & {
+      projectId: string | null;
+      title: string;
+      archived: boolean;
+    }
+  >;
 }

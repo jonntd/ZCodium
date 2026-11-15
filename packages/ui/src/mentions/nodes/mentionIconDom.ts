@@ -37,6 +37,21 @@ export const SUBAGENT_MENTION_ICON_NODE = [
   ["path", { d: "M9 13v2" }],
 ] as const satisfies MentionLucideIconNode;
 
+// 与地址栏「选择元素」按钮同一个图标（MousePointerClick），一眼看出是点选来的元素
+export const ELEMENT_MENTION_LUCIDE_ICON_NAME = "MousePointerClick";
+export const ELEMENT_MENTION_ICON_NODE = [
+  ["path", { d: "M14 4.1 12 6" }],
+  ["path", { d: "m5.1 8-2.9-.8" }],
+  ["path", { d: "m6 12-1.9 2" }],
+  ["path", { d: "M7.2 2.2 8 5.1" }],
+  [
+    "path",
+    {
+      d: "M9.037 9.69a.498.498 0 0 1 .653-.653l11 4.5a.5.5 0 0 1-.074.949l-4.349 1.041a1 1 0 0 0-.74.739l-1.04 4.35a.5.5 0 0 1-.95.074z",
+    },
+  ],
+] as const satisfies MentionLucideIconNode;
+
 export const WHITEBOARD_MENTION_LUCIDE_ICON_NAME = "Palette";
 export const WHITEBOARD_MENTION_ICON_NODE = [
   [
@@ -102,16 +117,28 @@ export const SESSION_MENTION_ICON_NODE = [
 
 export const PLUGIN_MENTION_LUCIDE_ICON_NAME = "Cable";
 export const PLUGIN_MENTION_ICON_NODE = [
-  ["path", { d: "M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1z" }],
+  [
+    "path",
+    {
+      d: "M17 19a1 1 0 0 1-1-1v-2a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2a1 1 0 0 1-1 1z",
+    },
+  ],
   ["path", { d: "M17 21v-2" }],
   ["path", { d: "M19 14V6.5a1 1 0 0 0-7 0v11a1 1 0 0 1-7 0V10" }],
   ["path", { d: "M21 21v-2" }],
   ["path", { d: "M3 5V3" }],
-  ["path", { d: "M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2z" }],
+  [
+    "path",
+    {
+      d: "M4 10a2 2 0 0 1-2-2V6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2a2 2 0 0 1-2 2z",
+    },
+  ],
   ["path", { d: "M7 5V3" }],
 ] as const satisfies MentionLucideIconNode;
 
-export function createMentionSvgIcon(iconNode: MentionLucideIconNode): SVGSVGElement {
+export function createMentionSvgIcon(
+  iconNode: MentionLucideIconNode,
+): SVGSVGElement {
   const svg = document.createElementNS(SVG_NAMESPACE, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("width", "16");

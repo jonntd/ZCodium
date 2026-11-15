@@ -26,14 +26,14 @@ export function ContextMentionOptionContent({
           }}
         />
       </span>
-      {item.data?.rootName ? (
+      {item.data?.rootName && (
         <span
           className="max-w-32 shrink-0 truncate text-ui-xs text-foreground-subtlest"
           title={item.data.rootName}
         >
           {item.data.rootName}
         </span>
-      ) : null}
+      )}
     </span>
   ) : (
     <span className="min-w-0 flex flex-1 items-center gap-2">

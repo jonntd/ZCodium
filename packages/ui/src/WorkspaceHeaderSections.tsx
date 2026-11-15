@@ -15,7 +15,10 @@ import { Button } from "@/components/ui/button.js";
 import { Cloud, Ellipsis, Folder, GitBranch, LoaderIcon } from "lucide-react";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useGlobalTaskList } from "@/hooks/useGlobalTaskList.js";
-import { useBaseWorkspaceServices, useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import {
+  useBaseWorkspaceServices,
+  useWorkspaceServices,
+} from "@/hooks/useWorkspaceServices.js";
 import { useTaskListItemContextActions } from "@/useTaskListItemContextActions.js";
 import { TaskActionMenuContent } from "@/TaskActionMenuContent.js";
 import {
@@ -45,30 +48,13 @@ import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { useRemotePinnedTaskStore } from "@/store/remotePinnedTaskStore.js";
 import { useRemoteTimelineTaskStore } from "@/store/remoteTimelineTaskStore.js";
 import { TaskRenameDialog } from "@/TaskRenameDialog.js";
-import {
-  RemoteSyncDialogs,
-  RemoteSyncMenuItems,
-  shouldShowRemoteSyncActions,
-} from "@/settings/RemoteSyncActions.js";
-import { invalidateDeferredDraftSessionForSkillChange } from "@/lib/zcodeDraftSkillInvalidation.js";
-import { refreshSharedSkillStoreForWorkspace } from "@/lib/skillStoreRefresh.js";
-import { refreshWorkspacePluginCapabilitiesAfterRemoteSync } from "@/lib/remotePluginSyncRefresh.js";
-import { useMcpStore } from "@/store/mcpStore.js";
+import { shouldShowRemoteSyncActions } from "@/data-sync/ui/settingsEntry.js";
 
 export type { WorkspaceHeaderState, WorkspaceHeaderTitleSectionProps };
 export {
   WorkspaceHeaderActionSection,
   type WorkspaceHeaderActionSectionProps,
 } from "@/WorkspaceHeaderSections/WorkspaceHeaderActionSection.js";
-
-export function shouldShowRemoteSkillSyncAction(params: {
-  remoteSessionId?: string | null;
-  remoteTarget?: RemoteTarget | null;
-  clientMode?: "desktop-continuous" | "web-remote-replayable";
-  hasLocalSourceService?: boolean;
-}): boolean {
-  return shouldShowRemoteSyncActions(params);
-}
 
 export function WorkspaceHeaderTitleSection({
   variant,
@@ -77,7 +63,6 @@ export function WorkspaceHeaderTitleSection({
   remoteSessionId,
   workspaceIdentity,
   remoteTarget,
-  localWorkspacePath,
   projectName,
   activeTaskTitle,
   activeTaskChangeSummary: _activeTaskChangeSummary,
@@ -109,23 +94,28 @@ export function WorkspaceHeaderTitleSection({
   const { intl } = useZCodeIntl();
   const openFeedbackSubmit = useFeedbackStore((state) => state.openSubmit);
   const confirmDialog = useConfirmDialog();
-  const services = useWorkspaceServices(workspaceAbsPath, remoteSessionId, workspaceIdentity);
+  const services = useWorkspaceServices(
+    workspaceAbsPath,
+    remoteSessionId,
+    workspaceIdentity,
+  );
   const baseServices = useBaseWorkspaceServices();
-  const removeTaskState = useZCodeSessionStore((state) => state.removeTaskState);
+  const removeTaskState = useZCodeSessionStore(
+    (state) => state.removeTaskState,
+  );
   const upsertOptimisticTaskListItem = useZCodeSessionStore(
     (state) => state.upsertOptimisticTaskListItem,
   );
   const removeOptimisticTaskListItem = useZCodeSessionStore(
     (state) => state.removeOptimisticTaskListItem,
   );
-  const setTaskUnreadIndicator = useZCodeSessionStore((state) => state.setTaskUnreadIndicator);
+  const setTaskUnreadIndicator = useZCodeSessionStore(
+    (state) => state.setTaskUnreadIndicator,
+  );
   const [taskMenuOpen, setTaskMenuOpen] = useState(false);
   const [workspaceContextOpen, setWorkspaceContextOpen] = useState(false);
   const [renamingTaskId, setRenamingTaskId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-  const [remoteSkillSyncOpen, setRemoteSkillSyncOpen] = useState(false);
-  const [remoteMcpSyncOpen, setRemoteMcpSyncOpen] = useState(false);
-  const [remotePluginSyncOpen, setRemotePluginSyncOpen] = useState(false);
   const renameInputRef = useRef<HTMLInputElement | null>(null);
   const headerWorkspaceTabs = useMemo(
     () => [
@@ -162,7 +152,9 @@ export function WorkspaceHeaderTitleSection({
   // 用户会感知成“菜单无响应”；这里只禁用依赖已落库 task 的动作，保留 workspace 级入口。
   const disableTaskTargetActions = !resolvedTaskActionTaskId;
   const taskMenuMembershipLoading =
-    taskMenuOpen && Boolean(resolvedTaskActionTaskId) && headerPinnedTaskList.loading;
+    taskMenuOpen &&
+    Boolean(resolvedTaskActionTaskId) &&
+    headerPinnedTaskList.loading;
   const workspaceHeaderProvider = resolveWorkspaceHeaderProvider(
     activeTaskProvider,
     workspaceHeaderState.selectedProvider,
@@ -188,7 +180,10 @@ export function WorkspaceHeaderTitleSection({
   const remoteWorkspaceHostLabel = remoteTarget
     ? formatRemoteWorkspaceHeaderHostLabel(remoteTarget)
     : null;
-  const workspaceDisplayLabel = formatRemoteWorkspaceDisplayLabel(projectName, remoteTarget);
+  const workspaceDisplayLabel = formatRemoteWorkspaceDisplayLabel(
+    projectName,
+    remoteTarget,
+  );
   const showRemoteWorkspaceHostLabel = Boolean(
     remoteWorkspaceHostLabel && workspaceDisplayLabel === projectName,
   );
@@ -206,16 +201,6 @@ export function WorkspaceHeaderTitleSection({
   const isRemoteWorkspace = Boolean(
     remoteWorkspaceHostLabel || workspaceIdentity?.trim() || remoteSessionId,
   );
-  const showRemoteSkillSyncAction = shouldShowRemoteSkillSyncAction({
-    remoteSessionId,
-    remoteTarget,
-    clientMode: isWebRemoteControl ? "web-remote-replayable" : "desktop-continuous",
-    hasLocalSourceService: Boolean(
-      baseServices.skillSyncService &&
-      baseServices.mcpSyncService &&
-      baseServices.pluginSyncService,
-    ),
-  });
   const workspaceActionLoading = reloadSessionPending;
   const workspaceActionLoadingTitle = intl.formatMessage({
     id: "appHeader.workspaceSessionActionLoading",
@@ -228,7 +213,9 @@ export function WorkspaceHeaderTitleSection({
     const taskTitle =
       activeTaskTitle ||
       intl.formatMessage({
-        id: activeTaskMeta?.forkedFromTaskId ? "taskList.forkedUntitled" : "taskList.untitled",
+        id: activeTaskMeta?.forkedFromTaskId
+          ? "taskList.forkedUntitled"
+          : "taskList.untitled",
       });
     // Header 更多菜单缺少当前任务的反馈入口，用户只能复制日志再手动新建反馈。
     // 这里打开反馈表单时预填任务标题、路径和日志线索，截图和诊断日志由用户主动选择。
@@ -307,7 +294,11 @@ export function WorkspaceHeaderTitleSection({
         title: normalizedTitle,
         ...(workspaceIdentity ? { workspaceIdentity } : {}),
       });
-      upsertOptimisticTaskListItem(workspaceAbsPath, renamedTask, workspaceIdentity);
+      upsertOptimisticTaskListItem(
+        workspaceAbsPath,
+        renamedTask,
+        workspaceIdentity,
+      );
       if (workspaceIdentity) {
         if (isPinned) {
           useRemotePinnedTaskStore.getState().upsertTask(renamedTask);
@@ -364,14 +355,26 @@ export function WorkspaceHeaderTitleSection({
       .then((meta) => {
         // Header 更多菜单不能只依赖 zcodeTaskMetaMerge：归档后只有旧列表状态被更新。
         // 这里改成和 Sidebar 一样同步清理运行态与 sqlite cache，避免 Header 操作后列表不刷新。
-        removeTaskState(workspaceAbsPath, resolvedTaskActionTaskId, workspaceIdentity);
+        removeTaskState(
+          workspaceAbsPath,
+          resolvedTaskActionTaskId,
+          workspaceIdentity,
+        );
         if (workspaceIdentity) {
           useRemotePinnedTaskStore
             .getState()
-            .removeTask(workspaceAbsPath, resolvedTaskActionTaskId, workspaceIdentity);
+            .removeTask(
+              workspaceAbsPath,
+              resolvedTaskActionTaskId,
+              workspaceIdentity,
+            );
           useRemoteTimelineTaskStore
             .getState()
-            .removeTask(workspaceAbsPath, resolvedTaskActionTaskId, workspaceIdentity);
+            .removeTask(
+              workspaceAbsPath,
+              resolvedTaskActionTaskId,
+              workspaceIdentity,
+            );
         }
         applyTaskQueryCacheMutation({
           previousTask: buildHeaderTaskSnapshot(meta),
@@ -440,7 +443,11 @@ export function WorkspaceHeaderTitleSection({
               </span>
               {workspaceContextOpen ? (
                 <WorkspaceLastActivity
-                  task={activeTaskMeta?.taskId === activeTaskId ? activeTaskMeta : null}
+                  task={
+                    activeTaskMeta?.taskId === activeTaskId
+                      ? activeTaskMeta
+                      : null
+                  }
                 />
               ) : null}
               {workspaceBranchLabel ? (
@@ -459,7 +466,9 @@ export function WorkspaceHeaderTitleSection({
             variant="ghost"
             size={compact ? "icon-sm" : "icon-md"}
             data-testid={TID_WORKSPACE_PATH}
-            aria-label={[workspaceContextLabel, workspaceBranchLabel].filter(Boolean).join(" · ")}
+            aria-label={[workspaceContextLabel, workspaceBranchLabel]
+              .filter(Boolean)
+              .join(" · ")}
             onClick={() => setWorkspaceContextOpen(true)}
           >
             {isRemoteWorkspace ? (
@@ -510,19 +519,6 @@ export function WorkspaceHeaderTitleSection({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-48">
-              {showRemoteSkillSyncAction && remoteTarget ? (
-                <>
-                  <RemoteSyncMenuItems
-                    canSyncSkills
-                    canSyncMcp
-                    canSyncPlugins
-                    onOpenSkillSync={() => setRemoteSkillSyncOpen(true)}
-                    onOpenMcpSync={() => setRemoteMcpSyncOpen(true)}
-                    onOpenPluginSync={() => setRemotePluginSyncOpen(true)}
-                  />
-                  <DropdownMenuSeparator />
-                </>
-              ) : null}
               <TaskActionMenuContent
                 intl={intl}
                 isPinned={isPinned}
@@ -531,7 +527,9 @@ export function WorkspaceHeaderTitleSection({
                 activeSessionId={activeSessionId}
                 taskNativeSessionLogFile={taskNativeSessionLogFile}
                 providerConfigFile={providerConfigFile}
-                disableTaskTargetActions={disableTaskTargetActions || taskMenuMembershipLoading}
+                disableTaskTargetActions={
+                  disableTaskTargetActions || taskMenuMembershipLoading
+                }
                 disableTaskActions={Boolean(readOnlyReason)}
                 disabledReason={readOnlyReason}
                 disablePinTaskAction={taskMenuMembershipLoading}
@@ -547,16 +545,28 @@ export function WorkspaceHeaderTitleSection({
                     // Bugfix: Header 里切换 pin 以前只等 RPC 成功后更新列表缓存，
                     // pinned 区会在请求期间被旧查询结果覆盖。先乐观切换，失败再回滚。
                     if (workspaceIdentity && !isPinned) {
-                      useRemotePinnedTaskStore.getState().upsertTask(optimisticTask);
+                      useRemotePinnedTaskStore
+                        .getState()
+                        .upsertTask(optimisticTask);
                       useRemoteTimelineTaskStore
                         .getState()
-                        .removeTask(workspaceAbsPath, resolvedTaskActionTaskId, workspaceIdentity);
+                        .removeTask(
+                          workspaceAbsPath,
+                          resolvedTaskActionTaskId,
+                          workspaceIdentity,
+                        );
                     }
                     if (workspaceIdentity && isPinned) {
                       useRemotePinnedTaskStore
                         .getState()
-                        .removeTask(workspaceAbsPath, resolvedTaskActionTaskId, workspaceIdentity);
-                      useRemoteTimelineTaskStore.getState().upsertTask(optimisticTask);
+                        .removeTask(
+                          workspaceAbsPath,
+                          resolvedTaskActionTaskId,
+                          workspaceIdentity,
+                        );
+                      useRemoteTimelineTaskStore
+                        .getState()
+                        .upsertTask(optimisticTask);
                     }
                     applyTaskQueryCacheMutation({
                       previousTask: optimisticTask,
@@ -615,10 +625,14 @@ export function WorkspaceHeaderTitleSection({
                               resolvedTaskActionTaskId,
                               workspaceIdentity,
                             );
-                          useRemoteTimelineTaskStore.getState().upsertTask(optimisticTask);
+                          useRemoteTimelineTaskStore
+                            .getState()
+                            .upsertTask(optimisticTask);
                         }
                         if (workspaceIdentity && isPinned) {
-                          useRemotePinnedTaskStore.getState().upsertTask(optimisticTask);
+                          useRemotePinnedTaskStore
+                            .getState()
+                            .upsertTask(optimisticTask);
                           useRemoteTimelineTaskStore
                             .getState()
                             .removeTask(
@@ -659,12 +673,18 @@ export function WorkspaceHeaderTitleSection({
                         true,
                         workspaceIdentity,
                       );
-                      upsertOptimisticTaskListItem(workspaceAbsPath, meta, workspaceIdentity);
+                      upsertOptimisticTaskListItem(
+                        workspaceAbsPath,
+                        meta,
+                        workspaceIdentity,
+                      );
                       if (workspaceIdentity) {
                         if (isPinned) {
                           useRemotePinnedTaskStore.getState().upsertTask(meta);
                         } else {
-                          useRemoteTimelineTaskStore.getState().upsertTask(meta);
+                          useRemoteTimelineTaskStore
+                            .getState()
+                            .upsertTask(meta);
                         }
                       }
                       applyTaskQueryCacheMutation({
@@ -710,7 +730,8 @@ export function WorkspaceHeaderTitleSection({
                     ? () => {
                         useModelTrajectoryStore.getState().requestOpen({
                           taskId: resolvedTaskActionTaskId,
-                          workspaceKey: workspaceIdentity?.trim() || workspaceAbsPath,
+                          workspaceKey:
+                            workspaceIdentity?.trim() || workspaceAbsPath,
                           title: activeTaskMeta?.title ?? null,
                         });
                       }
@@ -723,66 +744,7 @@ export function WorkspaceHeaderTitleSection({
             </DropdownMenuContent>
           </DropdownMenu>
         ) : null}
-        <RemoteSyncDialogs
-          canSyncSkills={showRemoteSkillSyncAction}
-          canSyncMcp={showRemoteSkillSyncAction}
-          canSyncPlugins={showRemoteSkillSyncAction}
-          skillOpen={remoteSkillSyncOpen}
-          mcpOpen={remoteMcpSyncOpen}
-          pluginOpen={remotePluginSyncOpen}
-          onSkillOpenChange={setRemoteSkillSyncOpen}
-          onMcpOpenChange={setRemoteMcpSyncOpen}
-          onPluginOpenChange={setRemotePluginSyncOpen}
-          localSkillSyncService={baseServices.skillSyncService}
-          remoteSkillSyncService={services.skillSyncService}
-          localMcpSyncService={baseServices.mcpSyncService}
-          remoteMcpSyncService={services.mcpSyncService}
-          localPluginSyncService={baseServices.pluginSyncService}
-          remotePluginSyncService={services.pluginSyncService}
-          localZCodeAgentService={baseServices.zcodeAgentService}
-          remoteZCodeAgentService={services.zcodeAgentService}
-          remoteTarget={remoteTarget}
-          skillWorkspacePath={workspaceAbsPath}
-          mcpWorkspacePath={workspaceAbsPath}
-          pluginWorkspacePath={workspaceAbsPath}
-          pluginLocalWorkspacePath={localWorkspacePath}
-          mcpLocalWorkspacePath={localWorkspacePath}
-          workspaceIdentity={workspaceIdentity}
-          onSkillsSynced={async () => {
-            await invalidateDeferredDraftSessionForSkillChange({
-              zcodeSessionService: services.zcodeSessionService,
-              workspacePath: workspaceAbsPath,
-              workspaceIdentity,
-              reason: "header-remote-skill-sync",
-            });
-            await refreshSharedSkillStoreForWorkspace({
-              workspacePath: workspaceAbsPath,
-              workspaceIdentity,
-              skillsService: services.skillsService,
-            });
-          }}
-          onMcpSynced={async () => {
-            await useMcpStore
-              .getState()
-              .ensureLoadedForWorkspace(
-                workspaceAbsPath,
-                services.mcpSyncService,
-                workspaceIdentity,
-              );
-          }}
-          onPluginsSynced={async () => {
-            await refreshWorkspacePluginCapabilitiesAfterRemoteSync({
-              commandsService: services.commandsService,
-              mcpSyncService: services.mcpSyncService,
-              reason: "header-remote-plugin-sync",
-              skillsService: services.skillsService,
-              workspaceIdentity,
-              workspacePath: workspaceAbsPath,
-              zcodeAgentService: services.zcodeAgentService,
-              zcodeSessionService: services.zcodeSessionService,
-            });
-          }}
-        />
+
         {!isDraftNewTask && workspaceActionLoading ? (
           <ControlHintTooltip
             title={workspaceActionLoadingTitle}
@@ -798,7 +760,9 @@ export function WorkspaceHeaderTitleSection({
                 compact ? "size-6" : "size-7",
               )}
             >
-              <LoaderIcon className={cn("animate-spin", compact ? "size-3.5" : "size-4")} />
+              <LoaderIcon
+                className={cn("animate-spin", compact ? "size-3.5" : "size-4")}
+              />
             </span>
           </ControlHintTooltip>
         ) : null}

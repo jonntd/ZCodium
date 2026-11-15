@@ -1,7 +1,7 @@
 import type { IPluginManagementService } from "@zcode/services";
 import {
-  parseRemoteWorkspaceIdentity,
   remoteHostIdFromWorkspaceIdentity,
+  parseRemoteWorkspaceIdentity,
   type ZCodePluginScope,
 } from "@zcode/shared";
 import { logger } from "@/logger.js";
@@ -11,54 +11,100 @@ function toMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-export function buildWorkspaceKey(workspacePath: string, workspaceIdentity: string | null): string {
-  return workspaceIdentity?.trim() || workspacePath;
+export function buildWorkspaceKey(
+  workspacePath: string,
+  workspaceIdentity: string | null,
+  authorityKey: string | null,
+): string {
+  return `${authorityKey?.trim() || "workspace"}\0${workspaceIdentity?.trim() || workspacePath}`;
 }
 
-const inFlightLoads = new Map<string, Promise<void>>();
-
+// 只共享同服务、同身份、同配置投影的在途查询；每个视图仍独立写回和保存错误态。
+const loadsByService = new WeakMap<
+  IPluginManagementService,
+  Map<
+    string,
+    { task: Promise<Partial<PluginManagementState>>; revision: number }
+  >
+>();
 export interface PluginManagementChange {
+  owner?: () => PluginManagementState;
   workspacePath: string;
   workspaceIdentity: string | null;
+  authorityKey: string | null;
   scope: ZCodePluginScope;
 }
-const changeListeners = new Set<(change: PluginManagementChange) => void>();
+const changeListeners = new Set<
+  (change: PluginManagementChange) => void | Promise<void>
+>();
+let revision = 0;
+export const getPluginManagementRevision = () => revision;
 export function subscribePluginManagementChanges(
-  listener: (change: PluginManagementChange) => void,
-): () => void {
+  listener: (change: PluginManagementChange) => void | Promise<void>,
+) {
   changeListeners.add(listener);
   return () => {
     changeListeners.delete(listener);
   };
 }
-export function notifyPluginManagementChange(change: PluginManagementChange): void {
+export function notifyPluginManagementChange(
+  change: PluginManagementChange,
+): void {
+  revision += 1;
+  // 派生视图不能拖住已成功的写入；发布失效信号后，后台查询各自收口。
   for (const listener of changeListeners) {
-    try {
-      listener(change);
-    } catch (error) {
-      logger.warn("[plugins] projection refresh failed", { error: toMessage(error) });
-    }
+    void Promise.resolve()
+      .then(() => listener(change))
+      .catch((error: unknown) => {
+        logger.warn("[plugins] background projection refresh failed", {
+          message: toMessage(error),
+        });
+      });
   }
 }
 export function isPluginManagementChangeRelevant(
-  target: { workspacePath: string; workspaceIdentity: string | null },
+  state: Pick<
+    PluginManagementState,
+    "workspacePath" | "workspaceIdentity" | "authorityKey" | "configScope"
+  >,
   change: PluginManagementChange,
 ): boolean {
-  if (change.scope === "workspace")
+  if (!state.workspacePath) return false;
+  if (change.scope === "workspace") {
     return (
-      buildWorkspaceKey(target.workspacePath, target.workspaceIdentity) ===
-      buildWorkspaceKey(change.workspacePath, change.workspaceIdentity)
+      state.configScope !== "user" &&
+      buildWorkspaceKey(
+        state.workspacePath,
+        state.workspaceIdentity,
+        state.authorityKey,
+      ) ===
+        buildWorkspaceKey(
+          change.workspacePath,
+          change.workspaceIdentity,
+          change.authorityKey,
+        )
     );
-  const hostKey = (identity: string | null) => {
-    const source = parseRemoteWorkspaceIdentity(identity ?? "")?.sourceServerId;
-    return source
-      ? `source-settings:${source}`
-      : (remoteHostIdFromWorkspaceIdentity(identity ?? "") ?? "local");
+  }
+  const hostKey = (target: {
+    workspaceIdentity: string | null;
+    authorityKey: string | null;
+  }) => {
+    const identity = target.workspaceIdentity ?? "";
+    const sourceServerId =
+      parseRemoteWorkspaceIdentity(identity)?.sourceServerId;
+    // Source 用户设置没有项目 identity，但和该 Source 下项目共享用户配置。
+    return (
+      target.authorityKey ??
+      (sourceServerId
+        ? `source-settings:${sourceServerId}`
+        : (remoteHostIdFromWorkspaceIdentity(identity) ?? "local"))
+    );
   };
-  return hostKey(target.workspaceIdentity) === hostKey(change.workspaceIdentity);
+  return hostKey(state) === hostKey(change);
 }
 
-/** 仅投影在途命令；每次调用持有独立条目，迟到结束不能清除同名的新操作。 */
+// 单个 operationId 会被后一次安装覆盖；每次调用持有独立条目，完成时只移除自己。
+// 通过条目身份清理，同名并发操作以及切换配置层后的新操作都不会被误清除。
 export function beginPluginOperation(
   set: (partial: Partial<PluginManagementState>) => void,
   get: () => PluginManagementState,
@@ -67,15 +113,16 @@ export function beginPluginOperation(
   const entry = { id };
   set({
     activeOperations: [...get().activeOperations, entry],
-    operationId: id,
     operationVersion: get().operationVersion + 1,
     error: null,
     lastFailedPluginId: null,
   });
   return () => {
-    if (!get().activeOperations.includes(entry)) return;
-    const activeOperations = get().activeOperations.filter((operation) => operation !== entry);
-    set({ activeOperations, operationId: activeOperations.at(-1)?.id ?? null });
+    set({
+      activeOperations: get().activeOperations.filter(
+        (operation) => operation !== entry,
+      ),
+    });
   };
 }
 
@@ -84,10 +131,13 @@ export async function runWorkspaceOperation(
   get: () => PluginManagementState,
   pluginService: IPluginManagementService,
   operationId: string,
-  operation: (workspace: { workspacePath: string; workspaceIdentity?: string }) => Promise<void>,
+  operation: (workspace: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+  }) => Promise<void>,
   scope: ZCodePluginScope = "user",
 ): Promise<boolean> {
-  const { workspacePath, workspaceIdentity, configScope } = get();
+  const { workspacePath, workspaceIdentity, authorityKey, configScope } = get();
   if (!workspacePath) return false;
   const finish = beginPluginOperation(set, get, operationId);
   const operationVersion = get().operationVersion;
@@ -96,6 +146,7 @@ export async function runWorkspaceOperation(
     return (
       current.workspacePath === workspacePath &&
       current.workspaceIdentity === workspaceIdentity &&
+      current.authorityKey === authorityKey &&
       current.configScope === configScope
     );
   };
@@ -106,21 +157,40 @@ export async function runWorkspaceOperation(
       workspacePath,
       ...(workspaceIdentity ? { workspaceIdentity } : {}),
     });
-    // 只广播真实成功的写入，scope 切换不撤销已经落盘的变更；派生面板自行按身份刷新。
-    notifyPluginManagementChange({ workspacePath, workspaceIdentity, scope });
-    if (!isCurrentContext()) return false;
+    // 并发刷新不能把已成功落盘的安装报告成失败；结果只受当前目标上下文约束。
+    if (!isCurrentContext()) {
+      await notifyPluginManagementChange({
+        owner: get,
+        workspacePath,
+        workspaceIdentity,
+        authorityKey,
+        scope,
+      });
+      return false;
+    }
     await loadInto(set, get, {
       workspacePath,
       workspaceIdentity,
+      authorityKey,
       configScope,
       pluginService,
       fresh: true,
     });
+    await notifyPluginManagementChange({
+      owner: get,
+      workspacePath,
+      workspaceIdentity,
+      authorityKey,
+      scope,
+    });
     return isCurrentContext();
   } catch (error) {
     // marketplace add/update 等通用操作失败：无插件目标，归属清空。
-    logger.error("[plugins] operation failed", { operationId, error: toMessage(error) });
-    // 旧操作不能覆盖同一配置层中新操作的错误态。
+    logger.error("[plugins] operation failed", {
+      operationId,
+      error: toMessage(error),
+    });
+    // 旧操作不能覆盖同一配置层中新操作的错误态；只有最近发起的操作才回写。
     if (ownsVisibleOperation()) {
       set({ error: toMessage(error), lastFailedPluginId: null });
     }
@@ -130,132 +200,122 @@ export async function runWorkspaceOperation(
   }
 }
 
+interface PluginLoadParams {
+  workspacePath: string;
+  workspaceIdentity: string | null;
+  authorityKey: string | null;
+  configScope: ZCodePluginScope | null;
+  pluginService: IPluginManagementService;
+  fresh?: boolean;
+  background?: boolean;
+}
 export async function loadInto(
   set: (partial: Partial<PluginManagementState>) => void,
   get: () => PluginManagementState,
-  params: {
-    workspacePath: string;
-    workspaceIdentity: string | null;
-    configScope: ZCodePluginScope | null;
-    pluginService: IPluginManagementService;
-    fresh?: boolean;
-  },
+  params: PluginLoadParams,
 ): Promise<void> {
-  const workspaceKey = buildWorkspaceKey(params.workspacePath, params.workspaceIdentity);
-  const loadKey = `${workspaceKey}\u0000${params.configScope ?? "effective"}`;
+  let inFlightLoads = loadsByService.get(params.pluginService);
+  if (!inFlightLoads) {
+    inFlightLoads = new Map();
+    loadsByService.set(params.pluginService, inFlightLoads);
+  }
+  const workspaceKey = buildWorkspaceKey(
+    params.workspacePath,
+    params.workspaceIdentity,
+    params.authorityKey,
+  );
+  const loadKey = `${workspaceKey}\0${params.configScope ?? "effective"}`;
   const existing = inFlightLoads.get(loadKey);
-  if (existing) {
-    logger.debug("[plugins] join in-flight list", {
-      configScope: params.configScope,
-      workspaceKey,
-    });
-    await existing;
-    // 变更前启动的读取不能代替变更后的刷新，等待旧读取完成后重新取权威状态。
-    if (params.fresh) await loadInto(set, get, { ...params, fresh: false });
-    return;
+  // 变更前启动的查询不能充当变更后的刷新；同一轮通知的新查询仍可共用。
+  if (
+    existing &&
+    (params.fresh || (params.background && existing.revision < revision))
+  ) {
+    await existing.task;
+    return loadInto(set, get, { ...params, fresh: false });
   }
-  const loadTask = runLoadInto(set, get, { ...params, workspaceKey });
-  inFlightLoads.set(loadKey, loadTask);
+  const request = existing ?? {
+    task: runLoadInto({ ...params, workspaceKey }),
+    revision,
+  };
+  inFlightLoads.set(loadKey, request);
   try {
-    await loadTask;
-  } finally {
-    if (inFlightLoads.get(loadKey) === loadTask) {
-      inFlightLoads.delete(loadKey);
-    }
-  }
-}
-
-async function runLoadInto(
-  set: (partial: Partial<PluginManagementState>) => void,
-  get: () => PluginManagementState,
-  params: {
-    workspacePath: string;
-    workspaceIdentity: string | null;
-    configScope: ZCodePluginScope | null;
-    workspaceKey: string;
-    pluginService: IPluginManagementService;
-  },
-): Promise<void> {
-  const setIfCurrent = (partial: Partial<PluginManagementState>): void => {
+    const result = await request.task;
     const current = get();
     if (
       current.workspacePath !== params.workspacePath ||
       current.workspaceIdentity !== params.workspaceIdentity ||
+      current.authorityKey !== params.authorityKey ||
       current.configScope !== params.configScope
-    ) {
+    )
       return;
-    }
-    set(partial);
-  };
-  try {
-    // React StrictMode、settings service 引用刷新或快速切换设置页时，
-    // 同一 workspace 会并发触发 initialize。每次触发都发成独立 plugins/list 的话，
-    // agent 已经 stale 时这些请求会排队产生多个 30s timeout。按 workspaceKey 复用 in-flight
-    // 请求，并在仍处于同一 workspace 时才回写结果，避免过期响应覆盖当前设置页。
-    const [listResult, overviewResult] = await Promise.all([
-      params.pluginService.listPlugins({
-        workspacePath: params.workspacePath,
-        ...(params.workspaceIdentity ? { workspaceIdentity: params.workspaceIdentity } : {}),
-        ...(params.configScope ? { configScope: params.configScope } : {}),
-      }),
-      params.pluginService.getPluginsOverview({
-        workspacePath: params.workspacePath,
-        ...(params.workspaceIdentity ? { workspaceIdentity: params.workspaceIdentity } : {}),
-        ...(params.configScope ? { configScope: params.configScope } : {}),
-      }),
-    ]);
-    const diagnostics = [...listResult.diagnostics, ...overviewResult.diagnostics];
-    setIfCurrent({
-      plugins: listResult.plugins,
-      marketplaces: overviewResult.marketplaces,
-      marketplaceAvailabilityKnown: true,
-      // Host 注入的展示态；旧 agent/旧 Host 缺省视为可用。
-      officialMarketplaceEnabled: overviewResult.officialMarketplaceEnabled !== false,
-      availablePlugins: overviewResult.availablePlugins,
-      installedPlugins: overviewResult.installedPlugins,
-      restorableBuiltins: overviewResult.restorableBuiltins,
-      diagnostics,
-      loading: false,
-    });
-  } catch (error) {
-    logger.error("[plugins] overview/list failed", {
+    // 其它视图的成功操作只刷新数据，不能抹掉本视图尚未处理的操作错误。
+    set(
+      params.background && current.error
+        ? {
+            ...result,
+            error: current.error,
+            lastFailedPluginId: current.lastFailedPluginId,
+          }
+        : result,
+    );
+  } finally {
+    if (inFlightLoads.get(loadKey) === request) inFlightLoads.delete(loadKey);
+  }
+}
+
+async function runLoadInto(
+  params: PluginLoadParams & { workspaceKey: string },
+): Promise<Partial<PluginManagementState>> {
+  // 列表的单插件协议错误曾丢弃成功目录；分别收口，失败接口不在这里重复请求。
+  const [listResult, overviewResult] = await Promise.allSettled([
+    params.pluginService.listPlugins({
       workspacePath: params.workspacePath,
-      workspaceKey: params.workspaceKey,
-      lastFailedPluginId: null,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    try {
-      const result = await params.pluginService.listPlugins({
-        workspacePath: params.workspacePath,
-        ...(params.workspaceIdentity ? { workspaceIdentity: params.workspaceIdentity } : {}),
-        ...(params.configScope ? { configScope: params.configScope } : {}),
-      });
-      setIfCurrent({
-        plugins: result.plugins,
-        marketplaces: [],
-        // overview 失败时空数组表示“来源状态未知”，而不是“所有来源已删除”。
-        // 保留该边界，避免 list fallback 返回的 official/cache 插件被批量误判为孤立安装。
-        marketplaceAvailabilityKnown: false,
-        availablePlugins: [],
-        installedPlugins: [],
-        restorableBuiltins: [],
-        diagnostics: result.diagnostics,
-        loading: false,
-      });
-      return;
-    } catch (listError) {
-      logger.error("[plugins] list fallback failed", {
+      ...(params.workspaceIdentity
+        ? { workspaceIdentity: params.workspaceIdentity }
+        : {}),
+      ...(params.configScope ? { configScope: params.configScope } : {}),
+    }),
+    params.pluginService.getPluginsOverview({
+      workspacePath: params.workspacePath,
+      ...(params.workspaceIdentity
+        ? { workspaceIdentity: params.workspaceIdentity }
+        : {}),
+      ...(params.configScope ? { configScope: params.configScope } : {}),
+    }),
+  ]);
+  const errors: string[] = [];
+  for (const [method, result] of [
+    ["list", listResult],
+    ["overview", overviewResult],
+  ] as const) {
+    if (result.status === "rejected") {
+      const message = toMessage(result.reason);
+      errors.push(message);
+      logger.error(`[plugins] ${method} failed`, {
         workspacePath: params.workspacePath,
         workspaceKey: params.workspaceKey,
-        lastFailedPluginId: null,
-        error: listError instanceof Error ? listError.message : String(listError),
-      });
-      setIfCurrent({
-        loading: false,
-        marketplaceAvailabilityKnown: false,
-        lastFailedPluginId: null,
-        error: listError instanceof Error ? listError.message : String(listError),
+        error: message,
       });
     }
   }
+  const list = listResult.status === "fulfilled" ? listResult.value : undefined;
+  const overview =
+    overviewResult.status === "fulfilled" ? overviewResult.value : undefined;
+  return {
+    plugins: list?.plugins ?? [],
+    marketplaces: overview?.marketplaces ?? [],
+    // 目录失败表示来源未知，不能把仍在工作的已安装插件误判为孤立安装。
+    marketplaceAvailabilityKnown: overview !== undefined,
+    availablePlugins: overview?.availablePlugins ?? [],
+    installedPlugins: overview?.installedPlugins ?? [],
+    restorableBuiltins: overview?.restorableBuiltins ?? [],
+    diagnostics: [
+      ...(list?.diagnostics ?? []),
+      ...(overview?.diagnostics ?? []),
+    ],
+    loading: false,
+    lastFailedPluginId: null,
+    error: errors.length > 0 ? errors.join("\n") : null,
+  };
 }

@@ -18,7 +18,10 @@ import type {
   PluginSandboxTransportPort,
   PluginUiScopeRef,
 } from "@zcode/shared/mcp-apps";
-import type { PluginUiPresentation, PluginUiResourceNotificationTarget } from "../contract.js";
+import type {
+  PluginUiPresentation,
+  PluginUiResourceNotificationTarget,
+} from "../contract.js";
 import type { PluginUiHostBridge } from "./pluginUiHostBridge.js";
 import { type PluginUiInteractionCallbacks } from "./pluginUiInteractionPorts.js";
 
@@ -27,7 +30,13 @@ import { type PluginUiInteractionCallbacks } from "./pluginUiInteractionPorts.js
  * `initialized` 后投喂 tool-input / tool-result → 响应页面的 tools/call / resources/* / open-link / size-changed。
  * 所有 IO 经 deps 注入；页面管理器拥有 controller，hook 只登记展示锚点。
  */
-export type PluginUiHostPhase = "idle" | "preparing" | "mounted" | "running" | "error" | "disposed";
+export type PluginUiHostPhase =
+  | "idle"
+  | "preparing"
+  | "mounted"
+  | "running"
+  | "error"
+  | "disposed";
 
 export interface PluginUiHostScope {
   workspacePath: string;
@@ -47,6 +56,8 @@ export interface PluginUiToolFeed {
 
 export interface PluginUiHostControllerDeps extends PluginUiInteractionCallbacks {
   onBusyChange?(): void;
+  /** 模型发起的页面工具和 sampling；不包括页面自主轮询。 */
+  onActivity?(): void;
   onInstanceClosed?(): void;
   createTransport(port: PluginSandboxTransportPort): Transport;
   bridge: Pick<
@@ -91,6 +102,8 @@ export interface PluginUiHostControllerDeps extends PluginUiInteractionCallbacks
   /** 端口到达创建 AppBridge 时读取，按当时真实可用的交互生成能力声明。 */
   getHostCapabilities(): McpUiHostCapabilities;
   initialHostContext: McpUiHostContext;
+  /** 读取当前呈现选择；侧栏和工具行共享页面，不因展示位置变化重建 controller。 */
+  getPreferredDisplayMode?: () => PluginUiPresentation["preferredDisplayMode"];
   hostVersion: string;
   onPhase(
     phase: PluginUiHostPhase,
@@ -123,6 +136,15 @@ export interface PluginUiHostController {
   notifyToolResult(result: McpAppsToolResultPayload): void;
   /** 宿主工具被停止 → ui/notifications/tool-cancelled。 */
   notifyToolCancelled(): void;
+  /**
+   * 宿主代表面板调用其 server 的工具一次（以面板实例的归属，经 mcp/uiCallTool）。
+   * 结果只返回给调用方，不自动投给页面；需要展示时由调用方转 notifyToolResult。
+   * 面板尚未 prepared / attached 前调用会抛错或结果不可达，调用方自行排序。
+   */
+  callPanelTool(
+    toolName: string,
+    args?: Record<string, unknown>,
+  ): Promise<import("@zcode/services").PluginUiCallToolResult>;
   dispose(): Promise<void>;
   readonly phase: PluginUiHostPhase;
 }

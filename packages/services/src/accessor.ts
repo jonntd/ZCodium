@@ -44,6 +44,11 @@ import type {
   IExtensionViewsService,
 } from "./extensions/index.js";
 import type { IPluginSyncService } from "./plugin-sync/pluginSync.js";
+import type {
+  IDeviceSyncStateService,
+  IUserConfigSyncService,
+} from "./data-sync/index.js";
+import type { IProviderProvisioningStatusService } from "./provider-provisioning-status/index.js";
 import type { IPluginsService } from "./plugins/plugins.js";
 import type { IPluginManagementService } from "./plugins/pluginManagement.js";
 import type { ISubagentsService } from "./subagents/subagents.js";
@@ -101,6 +106,10 @@ export interface IServiceAccessor {
   readonly sourceServerWorkspaceService: ISourceServerWorkspaceService;
   /** 仅桌面窗口 Host 的 base attachment 注册；远端 / Web 不提供。 */
   readonly sourceServerManagementService?: ISourceServerManagementService;
+  /** 仅桌面本机 Host 注册：数据同步页的设备同步状态。 */
+  readonly deviceSyncStateService?: IDeviceSyncStateService;
+  /** 仅桌面本机 Host 注册：数据同步页模型提供商的 Provisioning lane 状态与重试。 */
+  readonly providerProvisioningStatusService?: IProviderProvisioningStatusService;
   readonly usageStatsService: IUsageStatsService;
   readonly codingPlanSubscriptionService: ICodingPlanSubscriptionService;
   readonly clientConfigService: IClientConfigService;
@@ -119,6 +128,8 @@ export interface IServiceAccessor {
   /** App-Provided Tools；只有桌面本地 agent 时存在。 */
   readonly pluginUiAppToolsService?: IPluginUiAppToolsService;
   readonly pluginSyncService: IPluginSyncService;
+  /** 数据同步：子智能体 / 命令 / 钩子共用的用户配置同步通道（按 category 区分）。 */
+  readonly userConfigSyncService: IUserConfigSyncService;
   /** 仅桌面本机 Host 注册：扩展（docs/plugins/extension-host.md）。Web / 手机 / 远端不提供。 */
   readonly extensionsService?: IExtensionsService;
   /** 仅桌面本机 Host 注册：扩展视图（与 extensionsService 同一开关）。Web / 手机 / 远端不提供。 */

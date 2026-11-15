@@ -53,6 +53,8 @@ describe("writeStateQuietly：写入失败不外泄", () => {
 
   it("非 Promise 的 thenable 也能挂上拒绝处理", async () => {
     const thenable = {
+      // 测试目标本身：非 Promise 的 thenable 能挂上拒绝处理（用例意图）。
+      // eslint-disable-next-line unicorn/no-thenable -- 测试对象就是 thenable
       then(_onFulfilled: unknown, onRejected: (error: unknown) => void) {
         onRejected(new Error("thenable boom"));
       },

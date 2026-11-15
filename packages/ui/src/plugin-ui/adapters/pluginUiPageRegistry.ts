@@ -1,5 +1,19 @@
+import { PluginUiBackgroundRetention } from "@/plugin-ui/app/pluginUiBackgroundRetention.js";
 import { sandboxPages, onSandboxPageRemoved } from "./sandboxPageOwners.js";
 import type { Page } from "./pluginUiHostTypes.js";
+const retention = new PluginUiBackgroundRetention<Page>(
+  (run, ms) => {
+    const id = setTimeout(run, ms);
+    return () => clearTimeout(id);
+  },
+  () => Date.now(),
+);
+if (typeof document !== "undefined") {
+  retention.setWindowVisible(!document.hidden);
+  document.addEventListener("visibilitychange", () =>
+    retention.setWindowVisible(!document.hidden),
+  );
+}
 export const pluginUiPages = {
   get(key: string): Page | undefined {
     const page = sandboxPages.get(key);
@@ -7,9 +21,27 @@ export const pluginUiPages = {
   },
   add: (page: Page) => sandboxPages.add(page),
   reserve: (page: Page) => sandboxPages.reserve(page),
-  released: (page: Page) => sandboxPages.released(page),
-  visibility: (page: Page, visible: boolean) => sandboxPages.visibility(page, visible),
-  settled: (page: Page) => sandboxPages.settled(page),
+  prepared(page: Page, retain: boolean) {
+    if (retain) retention.register(page);
+    else retention.release(page);
+    // 冷后台页面没有 visibility 边沿，也必须启动普通页面的五分钟期限。
+    sandboxPages.visibility(page, page.visible);
+  },
+  claimRecycle: (page: Page) => retention.claim(page),
+  finishRecycle: (page: Page) => retention.finish(page),
+  activity: (page: Page) => retention.activity(page),
+  released(page: Page) {
+    retention.release(page);
+    sandboxPages.released(page);
+  },
+  visibility(page: Page, visible: boolean) {
+    sandboxPages.visibility(page, visible);
+    retention.activity(page);
+  },
+  settled(page: Page) {
+    sandboxPages.settled(page);
+    retention.changed();
+  },
   removeTask: (task: string) => sandboxPages.removeTask(task),
   clear: () => sandboxPages.clear(),
 };
@@ -36,7 +68,11 @@ export function subscribePage(key: string, listener: () => void): () => void {
     if (!set.size) pageSubscribers.delete(key);
   };
 }
-export function bindPluginUiPage(key: string, node: HTMLElement, sidebar: boolean): () => void {
+export function bindPluginUiPage(
+  key: string,
+  node: HTMLElement,
+  sidebar: boolean,
+): () => void {
   let off: (() => void) | undefined;
   let bound: Page | undefined;
   const connect = () => {
@@ -58,7 +94,10 @@ export function notifyPluginUiPageCreated(key: string): void {
 }
 
 const creating = new Map<string, Promise<Page>>();
-export function acquirePluginUiPage(key: string, create: () => Page): Promise<Page> {
+export function acquirePluginUiPage(
+  key: string,
+  create: () => Page,
+): Promise<Page> {
   const current = pluginUiPages.get(key);
   if (current) return Promise.resolve(current);
   const existing = creating.get(key);
@@ -68,7 +107,7 @@ export function acquirePluginUiPage(key: string, create: () => Page): Promise<Pa
     .add(page)
     .then(
       () => {
-        // 准入后即启动；请求方可能已切页，不能依赖 React 工具卡或锚点 effect。
+        // admission 后即启动；请求方此时可能已切页，不能依赖 React 后续 update 或锚点。
         page.start();
         notifyPluginUiPageCreated(key);
         return page;

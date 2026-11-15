@@ -52,7 +52,10 @@ import {
   formatRemoteWorkspaceDisplayLabel,
 } from "@/lib/remoteWorkspaceHistory.js";
 import { TaskList } from "@/TaskList.js";
-import { selectWorkspaceZCodeState, useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import {
+  selectWorkspaceZCodeState,
+  useZCodeSessionStore,
+} from "@/store/zcodeSessionStore.js";
 import type { WorkspaceTabState } from "@/store/tabStore.js";
 import type { RemoteConnectionLogEntry } from "@/hooks/useRemoteConnectionLogs.js";
 import { ReconnectingRemoteWorkspaceLogTooltip } from "@/WorkspaceSidebar/ReconnectingRemoteWorkspaceLogTooltip.js";
@@ -65,7 +68,10 @@ import {
   testId,
 } from "@zcode/shared";
 import type { ZCodeTaskMeta } from "@zcode/shared";
-import { useBaseWorkspaceServices, useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import {
+  useBaseWorkspaceServices,
+  useWorkspaceServices,
+} from "@/hooks/useWorkspaceServices.js";
 import {
   applyTaskQueryCacheMutation,
   invalidateTaskQueryCacheByScopes,
@@ -73,15 +79,6 @@ import {
 import { useRemotePinnedTaskStore } from "@/store/remotePinnedTaskStore.js";
 import { useRemoteTimelineTaskStore } from "@/store/remoteTimelineTaskStore.js";
 import { logger } from "@/logger.js";
-import {
-  RemoteSyncDialogs,
-  RemoteSyncMenuItems,
-  shouldShowRemoteSyncActions,
-} from "@/settings/RemoteSyncActions.js";
-import { invalidateDeferredDraftSessionForSkillChange } from "@/lib/zcodeDraftSkillInvalidation.js";
-import { refreshSharedSkillStoreForWorkspace } from "@/lib/skillStoreRefresh.js";
-import { refreshWorkspacePluginCapabilitiesAfterRemoteSync } from "@/lib/remotePluginSyncRefresh.js";
-import { useMcpStore } from "@/store/mcpStore.js";
 import { TaskRowActionButton } from "@/workspace-grouped-tasks/task-row-action-button.js";
 import { releaseWorkspaceRuntimeAfterProjectRemoval } from "@/lib/workspaceRuntimeRelease.js";
 import {
@@ -91,7 +88,10 @@ import {
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { toast } from "@/components/ui/toast.js";
 
-export type SortableBindings = Pick<ReturnType<typeof useSortable>, "attributes" | "listeners">;
+export type SortableBindings = Pick<
+  ReturnType<typeof useSortable>,
+  "attributes" | "listeners"
+>;
 
 // workspace 行在流式工具事件期间会因父级刷新而重渲染；
 // TaskList 如果每次收到新的空数组，会把等价数据误判成变化并连带刷新任务行。
@@ -99,10 +99,15 @@ const EMPTY_PINNED_TASKS: ZCodeTaskMeta[] = [];
 
 function isHomeWorkspacePath(path: string): boolean {
   const normalizedPath = path.replace(/\\/g, "/").replace(/\/+$/, "");
-  return /^(\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:\/Users\/[^/]+)$/.test(normalizedPath);
+  return /^(\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:\/Users\/[^/]+)$/.test(
+    normalizedPath,
+  );
 }
 
-type SshRemoteTarget = Extract<NonNullable<WorkspaceTabState["remoteTarget"]>, { kind: "ssh" }>;
+type SshRemoteTarget = Extract<
+  NonNullable<WorkspaceTabState["remoteTarget"]>,
+  { kind: "ssh" }
+>;
 
 interface SshWorkspaceTooltipDetails {
   alias: string | null;
@@ -117,7 +122,9 @@ function formatSshRemoteHostLabel(target: SshRemoteTarget): string {
   return `${username}@${host}:${port}`;
 }
 
-function getSshWorkspaceTooltipDetails(tab: WorkspaceTabState): SshWorkspaceTooltipDetails | null {
+function getSshWorkspaceTooltipDetails(
+  tab: WorkspaceTabState,
+): SshWorkspaceTooltipDetails | null {
   if (tab.remoteTarget?.kind !== "ssh") {
     return null;
   }
@@ -143,7 +150,6 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   taskListHasUnread = false,
   taskListLiveWorkflowCount = 0,
   mobileActiveTaskKey,
-  isWebRemoteControl = false,
   onShowMoreTasks,
   reconnectingRemoteWorkspaceKeys,
   remoteWorkspaceErrorByWorkspaceKey,
@@ -167,7 +173,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
     taskId: string,
     targetWorkspaceIdentity?: string,
   ) => void;
-  onStartDraftInWorkspace: (targetWorkspacePath: string, targetWorkspaceIdentity?: string) => void;
+  onStartDraftInWorkspace: (
+    targetWorkspacePath: string,
+    targetWorkspaceIdentity?: string,
+  ) => void;
   taskItems: ZCodeTaskMeta[];
   taskListLoading: boolean;
   taskListHasMore: boolean;
@@ -179,7 +188,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   onShowMoreTasks: () => void;
   reconnectingRemoteWorkspaceKeys: string[];
   remoteWorkspaceErrorByWorkspaceKey: Record<string, string>;
-  reconnectingRemoteWorkspaceLogsByWorkspaceKey: Record<string, RemoteConnectionLogEntry[]>;
+  reconnectingRemoteWorkspaceLogsByWorkspaceKey: Record<
+    string,
+    RemoteConnectionLogEntry[]
+  >;
   onReconnectRemoteWorkspace: (workspaceKey: string) => Promise<void>;
   onOpenFileTree?: (target: {
     workspacePath: string;
@@ -199,14 +211,18 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
     selectWorkspaceZCodeState(state, tab.workspacePath, tab.workspaceIdentity),
   );
   const activeTaskId = workspaceZCodeState.activeTaskId;
-  const removeTaskState = useZCodeSessionStore((state) => state.removeTaskState);
+  const removeTaskState = useZCodeSessionStore(
+    (state) => state.removeTaskState,
+  );
   const upsertOptimisticTaskListItem = useZCodeSessionStore(
     (state) => state.upsertOptimisticTaskListItem,
   );
   const removeOptimisticTaskListItem = useZCodeSessionStore(
     (state) => state.removeOptimisticTaskListItem,
   );
-  const setTaskUnreadIndicator = useZCodeSessionStore((state) => state.setTaskUnreadIndicator);
+  const setTaskUnreadIndicator = useZCodeSessionStore(
+    (state) => state.setTaskUnreadIndicator,
+  );
   const services = useWorkspaceServices(
     tab.workspacePath,
     tab.remoteSessionId,
@@ -235,12 +251,19 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   const isRemoteWorkspace = Boolean(
     tab.remoteSessionId || tab.remoteTarget || tab.workspaceIdentity,
   );
-  const isDisconnectedRemoteWorkspace = Boolean(isRemoteWorkspace && !tab.remoteSessionId);
-  const isReconnectPending = Boolean(
-    isDisconnectedRemoteWorkspace && reconnectingRemoteWorkspaceKeys.includes(remoteWorkspaceKey),
+  const isDisconnectedRemoteWorkspace = Boolean(
+    isRemoteWorkspace && !tab.remoteSessionId,
   );
-  const remoteWorkspaceError = remoteWorkspaceErrorByWorkspaceKey[remoteWorkspaceKey];
-  const workspaceSidebarLabel = formatRemoteWorkspaceDisplayLabel(tab.label, tab.remoteTarget);
+  const isReconnectPending = Boolean(
+    isDisconnectedRemoteWorkspace &&
+    reconnectingRemoteWorkspaceKeys.includes(remoteWorkspaceKey),
+  );
+  const remoteWorkspaceError =
+    remoteWorkspaceErrorByWorkspaceKey[remoteWorkspaceKey];
+  const workspaceSidebarLabel = formatRemoteWorkspaceDisplayLabel(
+    tab.label,
+    tab.remoteTarget,
+  );
   const sshWorkspaceTooltipDetails = getSshWorkspaceTooltipDetails(tab);
   const reconnectRuntimeLogs =
     reconnectingRemoteWorkspaceLogsByWorkspaceKey[remoteWorkspaceKey] ?? [];
@@ -248,26 +271,23 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
     // 远程项目只要处于“断连”就显示叹号，会把“尚未连接/已断开但无错误”和“真实连接失败”混在一起，
     // 用户看到列表里的 warning 图标时无法判断是否真有故障。
     // 这里收敛成只有存在连接错误正文时才显示叹号，普通未连接状态仅保留重连入口。
-    isDisconnectedRemoteWorkspace && !isReconnectPending && remoteWorkspaceError?.trim(),
+    isDisconnectedRemoteWorkspace &&
+    !isReconnectPending &&
+    remoteWorkspaceError?.trim(),
   );
   const showReconnectAction = Boolean(isDisconnectedRemoteWorkspace);
-  const showFileTreeAction = Boolean(onOpenFileTree && !isDisconnectedRemoteWorkspace);
-  const showSidePaneFilesAction = Boolean(onOpenSidePaneFiles && !isDisconnectedRemoteWorkspace);
-  const showRemoteSkillSyncAction = shouldShowRemoteSyncActions({
-    remoteSessionId: tab.remoteSessionId,
-    remoteTarget: tab.remoteTarget,
-    clientMode: isWebRemoteControl ? "web-remote-replayable" : "desktop-continuous",
-    hasLocalSourceService: Boolean(baseServices.skillSyncService),
-  });
+  const showFileTreeAction = Boolean(
+    onOpenFileTree && !isDisconnectedRemoteWorkspace,
+  );
+  const showSidePaneFilesAction = Boolean(
+    onOpenSidePaneFiles && !isDisconnectedRemoteWorkspace,
+  );
   // 远端工作区在“重连中”时，之前只有轻微背景呼吸效果，
   // 在侧边栏高密度列表里不够醒目，用户很难快速判断哪个容器仍在连接。
   // 这里复用 BorderBeam，只在重连进行中激活，让连接态反馈更清晰，
   // 同时避免在普通空闲态或断连态误显示为“仍在运行”。
   const shouldShowRemoteConnectingBorderBeam = isReconnectPending;
   const [isRemoteErrorCopied, setIsRemoteErrorCopied] = useState(false);
-  const [remoteSkillSyncOpen, setRemoteSkillSyncOpen] = useState(false);
-  const [remoteMcpSyncOpen, setRemoteMcpSyncOpen] = useState(false);
-  const [remotePluginSyncOpen, setRemotePluginSyncOpen] = useState(false);
   const [workspaceRowHovered, setWorkspaceRowHovered] = useState(false);
   const [workspaceRowFocusWithin, setWorkspaceRowFocusWithin] = useState(false);
   const [workspaceActionMenuOpen, setWorkspaceActionMenuOpen] = useState(false);
@@ -280,7 +300,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
   const shouldMountWorkspaceRowActions =
     // workspace action 以前常驻 DOM，仅靠 opacity 隐藏；相邻 tooltip 会在
     // 浮层定位完成前误认隐藏 trigger，短暂显示到错误位置。改为交互时挂载，菜单打开时保活。
-    workspaceRowHovered || workspaceRowFocusWithin || workspaceActionMenuOpen || isHoverNone;
+    workspaceRowHovered ||
+    workspaceRowFocusWithin ||
+    workspaceActionMenuOpen ||
+    isHoverNone;
   const remoteErrorCopyResetRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -331,17 +354,23 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
     [onSelectTask, tab.workspaceIdentity, tab.workspacePath],
   );
 
-  const handleActionMouseDown = useCallback((event: MouseEvent<HTMLElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-  }, []);
+  const handleActionMouseDown = useCallback(
+    (event: MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+    },
+    [],
+  );
 
-  const handleActionMenuClick = useCallback((event: MouseEvent<HTMLElement>) => {
-    // DropdownMenuContent 虽然通过 Portal 渲染到行外，React 合成 click 仍会沿组件树
-    // 冒泡到外层 CollapsibleTrigger。收起的 workspace 点“移除”时，会先 closeTab，再被展开回调
-    // 当成“打开 workspace”重新 addTab，表现为删不掉。菜单层统一截断 click，保留菜单选择与键盘语义。
-    event.stopPropagation();
-  }, []);
+  const handleActionMenuClick = useCallback(
+    (event: MouseEvent<HTMLElement>) => {
+      // DropdownMenuContent 虽然通过 Portal 渲染到行外，React 合成 click 仍会沿组件树
+      // 冒泡到外层 CollapsibleTrigger。收起的 workspace 点“移除”时，会先 closeTab，再被展开回调
+      // 当成“打开 workspace”重新 addTab，表现为删不掉。菜单层统一截断 click，保留菜单选择与键盘语义。
+      event.stopPropagation();
+    },
+    [],
+  );
 
   const handleCreateThreadClick = useCallback(
     (event: MouseEvent<HTMLButtonElement>) => {
@@ -352,7 +381,12 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
       }
       onStartDraftInWorkspace(tab.workspacePath, tab.workspaceIdentity);
     },
-    [onStartDraftInWorkspace, readOnlyReason, tab.workspaceIdentity, tab.workspacePath],
+    [
+      onStartDraftInWorkspace,
+      readOnlyReason,
+      tab.workspaceIdentity,
+      tab.workspacePath,
+    ],
   );
 
   const handleRemoveWorkspace = useCallback(async () => {
@@ -369,16 +403,22 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
       })
     ) {
       const confirmed = await confirmDialog({
-        title: intl.formatMessage({ id: "workspaceSidebar.removeRunningWorkspace.title" }),
+        title: intl.formatMessage({
+          id: "workspaceSidebar.removeRunningWorkspace.title",
+        }),
         description: intl.formatMessage({
           id: "workspaceSidebar.removeRunningWorkspace.description",
         }),
-        confirmLabel: intl.formatMessage({ id: "workspaceSidebar.removeRunningWorkspace.confirm" }),
+        confirmLabel: intl.formatMessage({
+          id: "workspaceSidebar.removeRunningWorkspace.confirm",
+        }),
         cancelLabel: intl.formatMessage({ id: "common.cancel" }),
         confirmVariant: "destructive",
       });
       if (!confirmed) {
-        logger.debug("[WorkspaceSidebarItem] 用户取消移除运行中 workspace", { workspaceKey });
+        logger.debug("[WorkspaceSidebarItem] 用户取消移除运行中 workspace", {
+          workspaceKey,
+        });
         return;
       }
     }
@@ -396,12 +436,17 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
     invalidateTaskQueryCacheByScopes([
       {
         workspacePath: tab.workspacePath,
-        ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+        ...(tab.workspaceIdentity
+          ? { workspaceIdentity: tab.workspaceIdentity }
+          : {}),
       },
     ]);
 
     if (!isRemoteWorkspace) {
-      void scanWindowsReservedDeviceNameFiles(baseServices.fileService, tab.workspacePath)
+      void scanWindowsReservedDeviceNameFiles(
+        baseServices.fileService,
+        tab.workspacePath,
+      )
         .then((result) => {
           if (result.findings.length === 0) {
             return;
@@ -486,7 +531,11 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
       // 点按钮会把整个项目意外收起。与 handleOpenWorkspaceFileTree 同规则。
       event.preventDefault();
       event.stopPropagation();
-      if (isDisconnectedRemoteWorkspace || readOnlyReason || !onOpenSidePaneFiles) {
+      if (
+        isDisconnectedRemoteWorkspace ||
+        readOnlyReason ||
+        !onOpenSidePaneFiles
+      ) {
         return;
       }
       onOpenSidePaneFiles(tab);
@@ -515,7 +564,9 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
           taskId,
           workspacePath: tab.workspacePath,
           title,
-          ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+          ...(tab.workspaceIdentity
+            ? { workspaceIdentity: tab.workspaceIdentity }
+            : {}),
         });
       } catch (error) {
         logger.error("[WorkspaceSidebarItem] rename service call failed", {
@@ -532,7 +583,11 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
         workspaceIdentity: tab.workspaceIdentity,
         resolvedTitleLength: meta.title.length,
       });
-      upsertOptimisticTaskListItem(tab.workspacePath, meta, tab.workspaceIdentity);
+      upsertOptimisticTaskListItem(
+        tab.workspacePath,
+        meta,
+        tab.workspaceIdentity,
+      );
       if (tab.workspaceIdentity) {
         useRemoteTimelineTaskStore.getState().upsertTask(meta);
       }
@@ -592,9 +647,15 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
           taskId,
           workspacePath: tab.workspacePath,
           pinned,
-          ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+          ...(tab.workspaceIdentity
+            ? { workspaceIdentity: tab.workspaceIdentity }
+            : {}),
         });
-        removeOptimisticTaskListItem(tab.workspacePath, taskId, tab.workspaceIdentity);
+        removeOptimisticTaskListItem(
+          tab.workspacePath,
+          taskId,
+          tab.workspaceIdentity,
+        );
         if (tab.workspaceIdentity && pinned) {
           useRemotePinnedTaskStore.getState().upsertTask(meta);
           useRemoteTimelineTaskStore
@@ -659,7 +720,9 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
         meta = await zcodeTaskService.archiveTask({
           taskId,
           workspacePath: tab.workspacePath,
-          ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+          ...(tab.workspaceIdentity
+            ? { workspaceIdentity: tab.workspaceIdentity }
+            : {}),
         });
       } catch (error) {
         // 诊断（应用反馈「归档任务失败」双侧零日志）：拒绝原因此前被上层 catch 吞掉。
@@ -667,7 +730,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
           taskId,
           workspacePath: tab.workspacePath,
           workspaceIdentity: tab.workspaceIdentity ?? null,
-          error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+          error:
+            error instanceof Error
+              ? (error.stack ?? error.message)
+              : String(error),
         });
         throw error;
       }
@@ -708,10 +774,21 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
         taskId,
         workspacePath: tab.workspacePath,
         unread,
-        ...(tab.workspaceIdentity ? { workspaceIdentity: tab.workspaceIdentity } : {}),
+        ...(tab.workspaceIdentity
+          ? { workspaceIdentity: tab.workspaceIdentity }
+          : {}),
       });
-      setTaskUnreadIndicator(tab.workspacePath, taskId, unread, tab.workspaceIdentity);
-      upsertOptimisticTaskListItem(tab.workspacePath, meta, tab.workspaceIdentity);
+      setTaskUnreadIndicator(
+        tab.workspacePath,
+        taskId,
+        unread,
+        tab.workspaceIdentity,
+      );
+      upsertOptimisticTaskListItem(
+        tab.workspacePath,
+        meta,
+        tab.workspaceIdentity,
+      );
       if (tab.workspaceIdentity) {
         useRemoteTimelineTaskStore.getState().upsertTask(meta);
       }
@@ -800,7 +877,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
           )}
           className="flex shrink-0 items-center gap-1 text-ui-xs leading-none text-foreground-subtle"
         >
-          <span aria-hidden="true" className={cn("size-1.5 rounded-full", STATUS_DOT.running)} />
+          <span
+            aria-hidden="true"
+            className={cn("size-1.5 rounded-full", STATUS_DOT.running)}
+          />
           {taskListLiveWorkflowCount > 1 ? taskListLiveWorkflowCount : null}
         </span>
       ) : null}
@@ -870,7 +950,11 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                 onMouseLeave={() => setWorkspaceRowHovered(false)}
                 onFocusCapture={() => setWorkspaceRowFocusWithin(true)}
                 onBlurCapture={(event) => {
-                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                  if (
+                    !event.currentTarget.contains(
+                      event.relatedTarget as Node | null,
+                    )
+                  ) {
                     setWorkspaceRowFocusWithin(false);
                   }
                 }}
@@ -880,7 +964,9 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                 {sshWorkspaceTooltipDetails ? (
                   <TooltipProvider>
                     <Tooltip>
-                      <TooltipTrigger asChild>{workspaceLabelContent}</TooltipTrigger>
+                      <TooltipTrigger asChild>
+                        {workspaceLabelContent}
+                      </TooltipTrigger>
                       <TooltipContent
                         side="right"
                         align="start"
@@ -941,7 +1027,9 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                         open={workspaceActionMenuOpen}
                         onOpenChange={setWorkspaceActionMenuOpen}
                       >
-                        <ControlHintTooltip title={intl.formatMessage({ id: "common.more" })}>
+                        <ControlHintTooltip
+                          title={intl.formatMessage({ id: "common.more" })}
+                        >
                           <DropdownMenuTrigger asChild>
                             <Button
                               type="button"
@@ -949,24 +1037,23 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                               size="icon-sm"
                               className="shrink-0 text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
                               onMouseDown={handleActionMouseDown}
-                              aria-label={intl.formatMessage({ id: "common.more" })}
+                              aria-label={intl.formatMessage({
+                                id: "common.more",
+                              })}
                             >
                               <Ellipsis className="h-3.5 w-3.5" />
                             </Button>
                           </DropdownMenuTrigger>
                         </ControlHintTooltip>
-                        <DropdownMenuContent align="end" onClick={handleActionMenuClick}>
-                          <RemoteSyncMenuItems
-                            canSyncSkills={showRemoteSkillSyncAction}
-                            canSyncMcp={showRemoteSkillSyncAction}
-                            canSyncPlugins={showRemoteSkillSyncAction}
-                            stopMouseDownPropagation
-                            onOpenSkillSync={() => setRemoteSkillSyncOpen(true)}
-                            onOpenMcpSync={() => setRemoteMcpSyncOpen(true)}
-                            onOpenPluginSync={() => setRemotePluginSyncOpen(true)}
-                          />
+                        <DropdownMenuContent
+                          align="end"
+                          onClick={handleActionMenuClick}
+                        >
                           <DropdownMenuItem
-                            data-testid={testId(TID_WORKSPACE_CLOSE, tab.workspacePath)}
+                            data-testid={testId(
+                              TID_WORKSPACE_CLOSE,
+                              tab.workspacePath,
+                            )}
                             onMouseDown={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
@@ -984,7 +1071,8 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                         </DropdownMenuContent>
                       </DropdownMenu>
                     ) : null}
-                    {shouldMountWorkspaceRowActions && showSidePaneFilesAction ? (
+                    {shouldMountWorkspaceRowActions &&
+                    showSidePaneFilesAction ? (
                       <TaskRowActionButton
                         className="text-foreground-subtle hover:text-foreground"
                         label={intl.formatMessage({
@@ -993,7 +1081,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                         onClick={handleOpenSidePaneFiles}
                         showTooltip
                         disabledReason={readOnlyReason}
-                        testId={testId(TID_WORKSPACE_SIDE_PANE_FILES_BUTTON, tab.workspacePath)}
+                        testId={testId(
+                          TID_WORKSPACE_SIDE_PANE_FILES_BUTTON,
+                          tab.workspacePath,
+                        )}
                       >
                         <FolderOpen className="h-3.5 w-3.5" />
                       </TaskRowActionButton>
@@ -1011,7 +1102,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                           onClick={handleOpenWorkspaceFileTree}
                           showTooltip
                           disabledReason={readOnlyReason}
-                          testId={testId(TID_WORKSPACE_FILE_TREE_BUTTON, tab.workspacePath)}
+                          testId={testId(
+                            TID_WORKSPACE_FILE_TREE_BUTTON,
+                            tab.workspacePath,
+                          )}
                         >
                           <ListTree className="h-3.5 w-3.5" />
                         </TaskRowActionButton>
@@ -1095,14 +1189,19 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                     ) : null}
                     {showReconnectAction ? (
                       isReconnectPending ? (
-                        <ReconnectingRemoteWorkspaceLogTooltip logs={reconnectRuntimeLogs}>
+                        <ReconnectingRemoteWorkspaceLogTooltip
+                          logs={reconnectRuntimeLogs}
+                        >
                           {/* Bugfix: SSH workspace 重连中时，右侧原本只有 spinning 图标，
                               用户无法在聊天页任务列表里确认连接卡在哪一步。这里复用 SSH dialog 的连接日志 tooltip，
                               保持行内布局稳定，同时把诊断信息放到 hover 浮层里。 */}
                           <div
                             role="status"
                             className={cn(
-                              buttonVariants({ variant: "ghost", size: "icon-sm" }),
+                              buttonVariants({
+                                variant: "ghost",
+                                size: "icon-sm",
+                              }),
                               "shrink-0 text-foreground opacity-100 hover:bg-surface-hover hover:text-foreground",
                             )}
                             onMouseDown={handleActionMouseDown}
@@ -1138,7 +1237,10 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                       )
                     ) : shouldMountWorkspaceRowActions ? (
                       <ControlHintTooltip
-                        title={readOnlyReason ?? intl.formatMessage({ id: "taskList.newThread" })}
+                        title={
+                          readOnlyReason ??
+                          intl.formatMessage({ id: "taskList.newThread" })
+                        }
                       >
                         <Button
                           type="button"
@@ -1186,66 +1288,6 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
           />
         </CollapsibleContent>
       </Collapsible>
-      <RemoteSyncDialogs
-        canSyncSkills={showRemoteSkillSyncAction}
-        canSyncMcp={showRemoteSkillSyncAction}
-        canSyncPlugins={showRemoteSkillSyncAction}
-        skillOpen={remoteSkillSyncOpen}
-        mcpOpen={remoteMcpSyncOpen}
-        pluginOpen={remotePluginSyncOpen}
-        onSkillOpenChange={setRemoteSkillSyncOpen}
-        onMcpOpenChange={setRemoteMcpSyncOpen}
-        onPluginOpenChange={setRemotePluginSyncOpen}
-        localSkillSyncService={baseServices.skillSyncService}
-        remoteSkillSyncService={services.skillSyncService}
-        localMcpSyncService={baseServices.mcpSyncService}
-        remoteMcpSyncService={services.mcpSyncService}
-        localPluginSyncService={baseServices.pluginSyncService}
-        remotePluginSyncService={services.pluginSyncService}
-        localZCodeAgentService={baseServices.zcodeAgentService}
-        remoteZCodeAgentService={services.zcodeAgentService}
-        remoteTarget={tab.remoteTarget}
-        skillWorkspacePath={tab.workspacePath}
-        mcpWorkspacePath={tab.workspacePath}
-        pluginWorkspacePath={tab.workspacePath}
-        pluginLocalWorkspacePath={tab.localWorkspacePath}
-        mcpLocalWorkspacePath={tab.localWorkspacePath}
-        workspaceIdentity={tab.workspaceIdentity}
-        onSkillsSynced={async () => {
-          await invalidateDeferredDraftSessionForSkillChange({
-            zcodeSessionService: services.zcodeSessionService,
-            workspacePath: tab.workspacePath,
-            workspaceIdentity: tab.workspaceIdentity,
-            reason: "sidebar-remote-skill-sync",
-          });
-          await refreshSharedSkillStoreForWorkspace({
-            workspacePath: tab.workspacePath,
-            workspaceIdentity: tab.workspaceIdentity,
-            skillsService: services.skillsService,
-          });
-        }}
-        onMcpSynced={async () => {
-          await useMcpStore
-            .getState()
-            .ensureLoadedForWorkspace(
-              tab.workspacePath,
-              services.mcpSyncService,
-              tab.workspaceIdentity,
-            );
-        }}
-        onPluginsSynced={async () => {
-          await refreshWorkspacePluginCapabilitiesAfterRemoteSync({
-            commandsService: services.commandsService,
-            mcpSyncService: services.mcpSyncService,
-            reason: "sidebar-remote-plugin-sync",
-            skillsService: services.skillsService,
-            workspaceIdentity: tab.workspaceIdentity,
-            workspacePath: tab.workspacePath,
-            zcodeAgentService: services.zcodeAgentService,
-            zcodeSessionService: services.zcodeSessionService,
-          });
-        }}
-      />
     </li>
   );
 });

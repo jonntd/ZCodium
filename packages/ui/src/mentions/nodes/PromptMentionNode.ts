@@ -25,22 +25,11 @@ function displayLabel(payload: PromptMentionPayload): string {
     payload.label,
     payload.value,
   );
-  if (payload.category !== "files") {
-    return label;
-  }
-  const fileName =
-    resolveFileDisplayDescriptor(
-      payload.data?.path ?? payload.data?.relativePath ?? payload.value,
-    ).fileName || label;
-  // 文件类 pill 展示统一带 @ 前缀（Claude Code/Augment 口径，应用反馈）：
-  // `@name` / 选区上下文 `@name start-end`。@ 只进展示文案；canonical markdown
-  // 的 label/链接目标不变（消息回显 parseMentionMarkdown 亦按原 label 还原）。
-  const { startLine, endLine } = payload.data ?? {};
-  const withRange =
-    startLine != null && endLine != null
-      ? `${fileName} ${startLine}-${endLine}`
-      : fileName;
-  return `@${withRange}`;
+  return payload.category === "files"
+    ? resolveFileDisplayDescriptor(
+        payload.data?.path ?? payload.data?.relativePath ?? payload.value,
+      ).fileName || label
+    : label;
 }
 
 export interface PromptMentionPayload {

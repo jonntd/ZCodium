@@ -3,7 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import type { CommandConfig, UserCommand, ZCodeCommand } from "@zcode/shared";
-import { isPluginCommand, isUserCommand, ZCODE_COMMAND_AGENT_SOURCE } from "@zcode/shared";
+import type { IServiceAccessor } from "@zcode/services";
+import {
+  isPluginCommand,
+  isUserCommand,
+  ZCODE_COMMAND_AGENT_SOURCE,
+} from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { toast } from "@/components/ui/toast.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
@@ -48,6 +53,8 @@ interface CommandsSectionProps {
   onVisibleCountChange?: (count: number) => void;
   onEditorOpenChange?: (open: boolean) => void;
   onFormScopeKeyChange?: (scopeKey: string | null) => void;
+  unscopedServices?: IServiceAccessor;
+  cacheAuthorityKey?: string;
 }
 
 export function CommandsSection({
@@ -60,6 +67,8 @@ export function CommandsSection({
   onVisibleCountChange,
   onEditorOpenChange,
   onFormScopeKeyChange,
+  unscopedServices,
+  cacheAuthorityKey,
 }: CommandsSectionProps) {
   const { intl, locale } = useZCodeIntl();
   const confirmDialog = useConfirmDialog();
@@ -76,6 +85,10 @@ export function CommandsSection({
     currentWorkspaceTab?.remoteSessionId,
     currentWorkspaceTab?.workspaceIdentity ?? workspaceIdentity,
     currentWorkspaceTab?.remoteTarget,
+    {
+      unscopedServices,
+      forceUnscoped: Boolean(cacheAuthorityKey || unscopedServices),
+    },
   );
   const { commandsService, pluginManagementService, settingsSyncService } =
     listServiceResolution.services;
@@ -91,14 +104,21 @@ export function CommandsSection({
     deleteCommand,
     toggleCommand,
   } = useCommands({
-    workspacePath: workspacePath ?? undefined,
-    workspaceIdentity,
+    // 用户视图只列用户目录与插件命令；workspacePath 只是服务锚点（远端为 home，本机为任一项目）。
+    // Bug 原因：锚点被当作项目路径查询时，同一 ~/.zcode/commands 先被归为 project，按名称去重后
+    // 又被用户视图过滤，远端用户命令列表为空；锚点项目的同名命令也会遮住用户命令。
+    workspacePath:
+      scopeFilter === "user" ? undefined : (workspacePath ?? undefined),
+    workspaceIdentity: scopeFilter === "user" ? undefined : workspaceIdentity,
+    cacheAuthorityKey,
     commandsService,
     enabled: listServiceResolution.rpcReady,
   });
 
   const [showForm, setShowForm] = useState(false);
-  const [editingCommand, setEditingCommand] = useState<UserCommand | null>(null);
+  const [editingCommand, setEditingCommand] = useState<UserCommand | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [formScopeKey, setFormScopeKey] = useState(parentScopeKey);
@@ -111,6 +131,12 @@ export function CommandsSection({
     formServiceTarget?.remoteSessionId,
     formServiceTarget?.workspaceIdentity ?? workspaceIdentity,
     formServiceTarget?.remoteTarget,
+    {
+      unscopedServices: formTargetWorkspace ? undefined : unscopedServices,
+      forceUnscoped: Boolean(
+        (cacheAuthorityKey || unscopedServices) && !formTargetWorkspace,
+      ),
+    },
   );
   const formServices = formServiceResolution.services;
 
@@ -131,23 +157,37 @@ export function CommandsSection({
   }, [editingCommand, formScopeKey, workspaceTabs]);
 
   const plugins = usePluginManagementStore((state) => state.plugins);
-  const pluginStoreWorkspacePath = usePluginManagementStore((state) => state.workspacePath);
-  const pluginStoreWorkspaceIdentity = usePluginManagementStore((state) => state.workspaceIdentity);
-  const pluginConfigScope = usePluginManagementStore((state) => state.configScope);
-  const installedPlugins = usePluginManagementStore((state) => state.installedPlugins);
-  const availablePlugins = usePluginManagementStore((state) => state.availablePlugins);
-  const initializePlugins = usePluginManagementStore((state) => state.initialize);
+  const pluginStoreWorkspacePath = usePluginManagementStore(
+    (state) => state.workspacePath,
+  );
+  const pluginStoreWorkspaceIdentity = usePluginManagementStore(
+    (state) => state.workspaceIdentity,
+  );
+  const pluginConfigScope = usePluginManagementStore(
+    (state) => state.configScope,
+  );
+  const installedPlugins = usePluginManagementStore(
+    (state) => state.installedPlugins,
+  );
+  const availablePlugins = usePluginManagementStore(
+    (state) => state.availablePlugins,
+  );
+  const initializePlugins = usePluginManagementStore(
+    (state) => state.initialize,
+  );
 
   useEffect(() => {
     if (!workspacePath || !listServiceResolution.rpcReady) return;
     void initializePlugins({
       workspacePath,
       workspaceIdentity,
+      authorityKey: cacheAuthorityKey,
       configScope: scopeFilter,
       pluginService: pluginManagementService,
     });
   }, [
     initializePlugins,
+    cacheAuthorityKey,
     listServiceResolution.rpcReady,
     pluginManagementService,
     scopeFilter,
@@ -159,12 +199,12 @@ export function CommandsSection({
     async (config: CommandConfig, scopeKey: string) => {
       setSaving(true);
       try {
-        const { storageLevel, workspace: targetWorkspace } = resolveCommandStorageTarget(
-          scopeKey,
-          workspaceTabs,
-        );
+        const { storageLevel, workspace: targetWorkspace } =
+          resolveCommandStorageTarget(scopeKey, workspaceTabs);
         const targetWorkspacePath =
-          storageLevel === "project" ? targetWorkspace?.workspacePath : undefined;
+          storageLevel === "project"
+            ? targetWorkspace?.workspacePath
+            : undefined;
         if (storageLevel === "project" && !targetWorkspacePath) {
           throw new Error("Selected Workspace is no longer available");
         }
@@ -192,7 +232,8 @@ export function CommandsSection({
         setEditingCommand(null);
         setFormScopeKey("user");
       } catch (saveError) {
-        const message = saveError instanceof Error ? saveError.message : String(saveError);
+        const message =
+          saveError instanceof Error ? saveError.message : String(saveError);
         if (message.includes("exists") || message.includes("already")) {
           toast(
             intl.formatMessage(
@@ -223,6 +264,7 @@ export function CommandsSection({
         return;
       }
       const confirmed = await confirmDialog({
+        confirmVariant: "destructive",
         title: intl.formatMessage({ id: "settings.commands.delete.title" }),
         description: intl.formatMessage(
           { id: "settings.commands.delete.description" },
@@ -242,7 +284,10 @@ export function CommandsSection({
         setEditingCommand(null);
         setShowForm(false);
       } catch (deleteError) {
-        const message = deleteError instanceof Error ? deleteError.message : String(deleteError);
+        const message =
+          deleteError instanceof Error
+            ? deleteError.message
+            : String(deleteError);
         toast(message);
       }
     },
@@ -262,7 +307,10 @@ export function CommandsSection({
           enabled,
         });
       } catch (toggleError) {
-        const message = toggleError instanceof Error ? toggleError.message : String(toggleError);
+        const message =
+          toggleError instanceof Error
+            ? toggleError.message
+            : String(toggleError);
         toast(message);
       }
     },
@@ -310,7 +358,9 @@ export function CommandsSection({
       currentWorkspaceKey && pluginConfigScope === scopeFilter;
   const scopedPlugins = useMemo(
     () =>
-      pluginStoreMatchesTarget ? selectPluginsForScope(plugins, installedPlugins, scopeFilter) : [],
+      pluginStoreMatchesTarget
+        ? selectPluginsForScope(plugins, installedPlugins, scopeFilter)
+        : [],
     [installedPlugins, plugins, pluginStoreMatchesTarget, scopeFilter],
   );
   const scopedCommands = useMemo(
@@ -321,12 +371,14 @@ export function CommandsSection({
     () => groupCommandsByPlugin(scopedCommands, searchQuery),
     [scopedCommands, searchQuery],
   );
-  const filteredCommandCount = groupedCommands.local.length + groupedCommands.plugin.length;
+  const filteredCommandCount =
+    groupedCommands.local.length + groupedCommands.plugin.length;
   useEffect(() => {
     onVisibleCountChange?.(filteredCommandCount);
   }, [filteredCommandCount, onVisibleCountChange]);
   const pluginListingById = useMemo(
-    () => new Map(availablePlugins.map((plugin) => [plugin.id, plugin.listing])),
+    () =>
+      new Map(availablePlugins.map((plugin) => [plugin.id, plugin.listing])),
     [availablePlugins],
   );
   const pluginCommandGroups = useMemo(() => {
@@ -335,11 +387,16 @@ export function CommandsSection({
       const key = `${command.pluginName.trim()}@${command.pluginMarketplace.trim()}`;
       groups.set(key, [...(groups.get(key) ?? []), command]);
     }
-    return Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right));
+    return Array.from(groups.entries()).sort(([left], [right]) =>
+      left.localeCompare(right),
+    );
   }, [groupedCommands.plugin]);
-  const hasEmptySearchResult = Boolean(searchQuery.trim()) && filteredCommandCount === 0;
-  const directInstalledCommandCount = scopedCommands.filter(isUserCommand).length;
-  const hideInstalledGroup = Boolean(searchQuery.trim()) && groupedCommands.local.length === 0;
+  const hasEmptySearchResult =
+    Boolean(searchQuery.trim()) && filteredCommandCount === 0;
+  const directInstalledCommandCount =
+    scopedCommands.filter(isUserCommand).length;
+  const hideInstalledGroup =
+    Boolean(searchQuery.trim()) && groupedCommands.local.length === 0;
 
   const renderCommandList = (items: ZCodeCommand[]) => (
     <SettingsResourceList
@@ -381,7 +438,9 @@ export function CommandsSection({
         <SettingsBreadcrumbReporter
           items={[
             {
-              label: editingCommand?.name ?? intl.formatMessage({ id: "settings.commands.addNew" }),
+              label:
+                editingCommand?.name ??
+                intl.formatMessage({ id: "settings.commands.addNew" }),
             },
           ]}
           onSectionSelect={handleCancelForm}
@@ -406,7 +465,9 @@ export function CommandsSection({
 
           <CommandForm
             initial={editingCommand ?? undefined}
-            agentSource={editingCommand?.agentSource ?? ZCODE_COMMAND_AGENT_SOURCE}
+            agentSource={
+              editingCommand?.agentSource ?? ZCODE_COMMAND_AGENT_SOURCE
+            }
             scopeKey={formScopeKey}
             workspaceTabs={workspaceTabs}
             onScopeKeyChange={handleFormScopeKeyChange}
@@ -438,9 +499,13 @@ export function CommandsSection({
       ) : null}
 
       {!listServiceResolution.rpcReady ? (
-        <PluginLoadingState label={intl.formatMessage({ id: "common.connecting" })} />
+        <PluginLoadingState
+          label={intl.formatMessage({ id: "common.connecting" })}
+        />
       ) : loading || !projectionMatchesTarget ? (
-        <PluginLoadingState label={intl.formatMessage({ id: "common.loading" })} />
+        <PluginLoadingState
+          label={intl.formatMessage({ id: "common.loading" })}
+        />
       ) : hasEmptySearchResult ? (
         <PluginSearchEmptyState
           label={intl.formatMessage({
@@ -468,7 +533,12 @@ export function CommandsSection({
                   id: "settings.plugin.commands.emptyInstalledDescription",
                 })}
                 actions={
-                  <Button type="button" variant="default" size="lg" onClick={handleAddNew}>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="lg"
+                    onClick={handleAddNew}
+                  >
                     <Plus data-icon="inline-start" aria-hidden="true" />
                     {intl.formatMessage({ id: "settings.create.action" })}
                   </Button>

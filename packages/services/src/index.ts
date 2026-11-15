@@ -1,5 +1,8 @@
 // Descriptors & collection (browser-safe)
-export { type ServiceDescriptor, createServiceDescriptor } from "./descriptors.js";
+export {
+  type ServiceDescriptor,
+  createServiceDescriptor,
+} from "./descriptors.js";
 export { ServiceCollection, type ServiceExposurePolicy } from "./collection.js";
 export {
   IModelSelectionService,
@@ -17,6 +20,7 @@ export {
   type AccountRequestAuthResolver,
 } from "./model-provider/accountRequestAuthService.js";
 export { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
+export { IProviderProvisioningStatusService } from "./provider-provisioning-status/index.js";
 export {
   collectServiceMemoryDiagnostics,
   memoryDiagnosticsRegistry,
@@ -235,7 +239,10 @@ export {
   PROJECT_MEMORY_FILE_CHANGED_ERROR_CODE,
   PROJECT_MEMORY_PREVIEW_LIMIT_EXCEEDED_ERROR_CODE,
 } from "./memory/memory.js";
-export type { ProjectMemoryFileSummary, ProjectMemoryWorkspaceSummary } from "./memory/memory.js";
+export type {
+  ProjectMemoryFileSummary,
+  ProjectMemoryWorkspaceSummary,
+} from "./memory/memory.js";
 
 // OutputStyle service — IOutputStyleService is both a type (interface) and value (descriptor).
 export { IOutputStyleService } from "./output-style/outputStyle.js";
@@ -284,6 +291,17 @@ export { ISkillSyncService } from "./skill-sync/skillSync.js";
 export { IMcpSyncService } from "./mcp-sync/mcpSync.js";
 export { IPluginSyncService } from "./plugin-sync/pluginSync.js";
 export {
+  IDeviceSyncStateService,
+  IUserConfigSyncService,
+} from "./data-sync/index.js";
+export type { IDataSyncCategoryService } from "./data-sync/index.js";
+export {
+  IExtensionGrantsService,
+  IExtensionsService,
+  IExtensionViewsService,
+  type ExtensionsContributionsMessage,
+} from "./extensions/index.js";
+export {
   ICuaPermissionService,
   type CuaPermissionState,
   type CuaPermissionRestartOptions,
@@ -301,7 +319,10 @@ export {
 // Plugins service — IPluginsService is both a type (interface) and value (descriptor)
 export { IPluginsService } from "./plugins/plugins.js";
 // 设置页插件管理薄服务（UI 平台能力面不再直触 zcodeAgentService）
-export { IPluginManagementService, withPluginTelemetry } from "./plugins/pluginManagement.js";
+export {
+  IPluginManagementService,
+  withPluginTelemetry,
+} from "./plugins/pluginManagement.js";
 
 // Subagents service — ISubagentsService is both a type (interface) and value (descriptor)
 export { ISubagentsService } from "./subagents/subagents.js";
@@ -341,7 +362,10 @@ export type {
   FeedbackTicketType,
 } from "@zcode/shared";
 
-export { IProjectService, LEGACY_SINGLE_ROOT_PROJECT_PREFIX } from "#src/project/contract.js";
+export {
+  IProjectService,
+  LEGACY_SINGLE_ROOT_PROJECT_PREFIX,
+} from "#src/project/contract.js";
 export type {
   ProjectTree,
   ProjectTask,
@@ -360,8 +384,14 @@ export type {
   RemoteProjectDirectory,
 } from "#src/remote-projects/contract.js";
 
-export { readProjectCatalog, projectSelectionId } from "#src/project-catalog/index.js";
-export type { ProjectCatalogPort, ProjectCatalogSnapshot } from "#src/project-catalog/contract.js";
+export {
+  readProjectCatalog,
+  projectSelectionId,
+} from "#src/project-catalog/index.js";
+export type {
+  ProjectCatalogPort,
+  ProjectCatalogSnapshot,
+} from "#src/project-catalog/contract.js";
 
 // 插件 UI 桥：描述符、参数类型与工厂；App-Provided Tools 另有独立描述符。
 export {

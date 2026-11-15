@@ -1,8 +1,18 @@
-import { chmod, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
-import { normalizePluginSyncRelativePath, resolvePluginSyncPathWithin } from "./pluginSyncPath.js";
+import {
+  normalizePluginSyncRelativePath,
+  resolvePluginSyncPathWithin,
+} from "./pluginSyncPath.js";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -47,7 +57,11 @@ export async function createPluginSyncArchive(params: {
   const parts: Buffer[] = [];
   for (const entry of params.entries) {
     if ("sourcePath" in entry) {
-      await appendTarEntry(parts, entry.sourcePath, normalizeArchivePath(entry.archivePath));
+      await appendTarEntry(
+        parts,
+        entry.sourcePath,
+        normalizeArchivePath(entry.archivePath),
+      );
     } else {
       appendTarFile(
         parts,
@@ -104,7 +118,10 @@ export async function extractPluginSyncArchive(
       await mkdir(targetPath, { recursive: true });
     } else if (typeFlag === "0" || typeFlag === "\0") {
       extractedBytes += size;
-      if (maxExtractedBytes !== undefined && extractedBytes > maxExtractedBytes) {
+      if (
+        maxExtractedBytes !== undefined &&
+        extractedBytes > maxExtractedBytes
+      ) {
         throw new Error(
           `plugin sync archive exceeds limit: ${extractedBytes}/${maxExtractedBytes}`,
         );
@@ -129,7 +146,8 @@ async function gunzipWithLimit(
   if (maxExtractedBytes === undefined) {
     return await gunzipAsync(Buffer.from(archive));
   }
-  const maxTarBytes = maxExtractedBytes + TAR_END_BLOCK_BYTES + TAR_BLOCK_SIZE * 512;
+  const maxTarBytes =
+    maxExtractedBytes + TAR_END_BLOCK_BYTES + TAR_BLOCK_SIZE * 512;
   try {
     return await gunzipAsync(Buffer.from(archive), {
       maxOutputLength: maxTarBytes,
@@ -161,8 +179,8 @@ async function appendTarEntry(
         typeFlag: "5",
       }),
     );
-    const children = (await readdir(sourcePath, { withFileTypes: true })).sort((left, right) =>
-      left.name.localeCompare(right.name),
+    const children = (await readdir(sourcePath, { withFileTypes: true })).sort(
+      (left, right) => left.name.localeCompare(right.name),
     );
     for (const child of children) {
       await appendTarEntry(
@@ -203,7 +221,10 @@ function appendTarFile(
       typeFlag: "0",
     }),
     content,
-    Buffer.alloc(Math.ceil(content.length / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE - content.length),
+    Buffer.alloc(
+      Math.ceil(content.length / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE -
+        content.length,
+    ),
   );
 }
 
@@ -237,7 +258,10 @@ function createTarHeader(options: {
   return header;
 }
 
-function splitTarEntryPath(entryPath: string): { name: string; prefix: string } {
+function splitTarEntryPath(entryPath: string): {
+  name: string;
+  prefix: string;
+} {
   if (Buffer.byteLength(entryPath) <= 100) {
     return { name: entryPath, prefix: "" };
   }
@@ -279,7 +303,12 @@ function readTarMode(header: Buffer): number {
   return mode & 0o777;
 }
 
-function writeTarString(buffer: Buffer, value: string, offset: number, length: number): void {
+function writeTarString(
+  buffer: Buffer,
+  value: string,
+  offset: number,
+  length: number,
+): void {
   const source = Buffer.from(value, "utf8");
   if (source.length > length) {
     throw new Error(`plugin archive header value is too long: ${value}`);
@@ -287,7 +316,12 @@ function writeTarString(buffer: Buffer, value: string, offset: number, length: n
   source.copy(buffer, offset);
 }
 
-function writeTarOctal(buffer: Buffer, value: number, offset: number, length: number): void {
+function writeTarOctal(
+  buffer: Buffer,
+  value: number,
+  offset: number,
+  length: number,
+): void {
   const encoded = value.toString(8).padStart(length - 1, "0");
   writeTarString(buffer, encoded, offset, length - 1);
   buffer[offset + length - 1] = 0;

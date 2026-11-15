@@ -69,7 +69,10 @@ import {
   type ChatMediaAttachmentPreviewTarget,
 } from "@/ChatMediaAttachmentPreviewDialog.js";
 import type { PdfViewerRangeSource } from "@/components/ui/pdf-viewer.js";
-import { MessageAction, MessageActions } from "@/components/ai-elements/message.js";
+import {
+  MessageAction,
+  MessageActions,
+} from "@/components/ai-elements/message.js";
 import { GenUiMessageResponse } from "@/gen-ui/index.js";
 import {
   Reasoning,
@@ -131,7 +134,10 @@ import { ConnectedBotGroupDeliveryAction } from "@/v4/BotGroupDeliveryAction.js"
 import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";
-import { formatSpeedLabels, shouldStartSessionDebugPolling } from "@/v4/speedLabels.js";
+import {
+  formatSpeedLabels,
+  shouldStartSessionDebugPolling,
+} from "@/v4/speedLabels.js";
 import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
 function RowShell({
@@ -154,13 +160,22 @@ function RowShell({
   );
 }
 
-const ArtifactRowView = memo(function ArtifactRowView({ row }: { row: ArtifactRow }) {
+const ArtifactRowView = memo(function ArtifactRowView({
+  row,
+}: {
+  row: ArtifactRow;
+}) {
   return (
     <RowShell rowId={row.rowId} className="px-4 py-1">
       <div className="flex items-center gap-2 rounded-lg border border-card-border bg-card px-3 py-2">
-        <FileIcon className="size-4 shrink-0 text-foreground-subtle" aria-hidden="true" />
+        <FileIcon
+          className="size-4 shrink-0 text-foreground-subtle"
+          aria-hidden="true"
+        />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-ui-base text-foreground">{row.displayName}</p>
+          <p className="truncate text-ui-base text-foreground">
+            {row.displayName}
+          </p>
           <p className="text-ui-sm text-foreground-subtle">
             {row.artifactType.toUpperCase()} · {row.sizeBytes} bytes
           </p>
@@ -200,12 +215,16 @@ const CopyRowAction = memo(function CopyRowAction({
       disabled={text.length === 0}
       onClick={handleCopy}
     >
-      {copied ? <CheckIcon className="size-3.5 text-success" /> : <CopyIcon className="size-3.5" />}
+      {copied ? (
+        <CheckIcon className="size-3.5 text-success" />
+      ) : (
+        <CopyIcon className="size-3.5" />
+      )}
     </MessageAction>
   );
 });
 
-type UserInputEditHandler = (
+export type UserInputEditHandler = (
   target: ConversationRowTarget,
   newText: string,
   attachments?: readonly AttachmentRef[],
@@ -228,7 +247,9 @@ export type AssistantFeedbackHandler = (
   feedback: AssistantMessageFeedback | null,
 ) => Promise<boolean | void> | boolean | void;
 
-export function readAssistantFeedback(row: AssistantTextRow): AssistantMessageFeedback | null {
+export function readAssistantFeedback(
+  row: AssistantTextRow,
+): AssistantMessageFeedback | null {
   // feedback 是 additive V4 row 字段；兼容旧 CLI 的 row 时缺省为 null。
   const feedback = row.feedback;
   return feedback === "like" || feedback === "dislike" ? feedback : null;
@@ -305,20 +326,28 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   rowId: number;
   sessionId?: string;
   readAttachment?: NonNullable<ConversationRowRenderContext["readAttachment"]>;
-  readAttachmentRange?: NonNullable<ConversationRowRenderContext["readAttachmentRange"]>;
+  readAttachmentRange?: NonNullable<
+    ConversationRowRenderContext["readAttachmentRange"]
+  >;
 }) {
   const { intl } = useZCodeIntl();
   const [previewIndex, setPreviewIndex] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [failedRefs, setFailedRefs] = useState<ReadonlySet<string>>(() => new Set());
-  const [thumbnailUrls, setThumbnailUrls] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const [failedRefs, setFailedRefs] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const [thumbnailUrls, setThumbnailUrls] = useState<
+    ReadonlyMap<string, string>
+  >(() => new Map());
   // 可见消息行预取 image/video Blob：图片直接显示，视频由无控件播放器展示首帧；
   // video URL 同时供 gallery 复用，避免用户点击后再次读取大文件。
-  const [videoPreview, setVideoPreview] = useState<ChatMediaAttachmentPreviewTarget | null>(null);
+  const [videoPreview, setVideoPreview] =
+    useState<ChatMediaAttachmentPreviewTarget | null>(null);
   const [videoPreviewRef, setVideoPreviewRef] = useState<string | null>(null);
   const [videoPreviewLoading, setVideoPreviewLoading] = useState(false);
   const [videoPreviewError, setVideoPreviewError] = useState(false);
-  const [textPreview, setTextPreview] = useState<ChatMediaAttachmentPreviewTarget | null>(null);
+  const [textPreview, setTextPreview] =
+    useState<ChatMediaAttachmentPreviewTarget | null>(null);
   const [textLoading, setTextLoading] = useState(false);
   const [textError, setTextError] = useState(false);
   const textReadAbort = useRef<AbortController | null>(null);
@@ -341,12 +370,15 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
         sessionId,
         ref: attachment.ref,
         mediaType: attachment.mime,
-        ...(entityId ? { target: { rowId, entityId }, attachmentIndex: index } : {}),
+        ...(entityId
+          ? { target: { rowId, entityId }, attachmentIndex: index }
+          : {}),
         signal: controller.signal,
       });
       // 关闭/切换预览后，迟到结果不能重新打开旧材料。
       if (controller.signal.aborted) return;
-      if (!("bytes" in result)) throw new Error("Text attachment bytes unavailable");
+      if (!("bytes" in result))
+        throw new Error("Text attachment bytes unavailable");
       setTextPreview({
         filename: attachment.fileName,
         mediaType: "text/plain",
@@ -361,7 +393,8 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       if (!controller.signal.aborted) setTextLoading(false);
     }
   };
-  const [pdfPreview, setPdfPreview] = useState<ChatMediaAttachmentPreviewTarget | null>(null);
+  const [pdfPreview, setPdfPreview] =
+    useState<ChatMediaAttachmentPreviewTarget | null>(null);
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const [pdfPreviewError, setPdfPreviewError] = useState(false);
   const [pdfPreviewRef, setPdfPreviewRef] = useState<string | null>(null);
@@ -387,7 +420,12 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   });
 
   useEffect(() => {
-    if (attachmentKind === "file" || !attachments || !sessionId || !readAttachment) {
+    if (
+      attachmentKind === "file" ||
+      !attachments ||
+      !sessionId ||
+      !readAttachment
+    ) {
       return;
     }
     let cancelled = false;
@@ -395,7 +433,8 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     // 预取生命周期必须通过 AbortSignal 贯穿 transport，及时释放文件 IO 与 IPC 资源。
     const controller = new AbortController();
     const mediaAttachments = attachments.flatMap((attachment, index) =>
-      attachment.mime.startsWith("image/") || attachment.mime.startsWith("video/")
+      attachment.mime.startsWith("image/") ||
+      attachment.mime.startsWith("video/")
         ? [{ attachment, index }]
         : [],
     );
@@ -454,11 +493,20 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       cancelled = true;
       // Desktop local video 返回自定义协议 URL，不是 renderer 创建的 Blob；
       // 只释放本 effect 创建的 object URL，避免把本地媒体 URL 当成 Blob 生命周期管理。
-      for (const url of thumbnailObjectUrlsRef.current) URL.revokeObjectURL(url);
+      for (const url of thumbnailObjectUrlsRef.current)
+        URL.revokeObjectURL(url);
       thumbnailObjectUrlsRef.current.clear();
       thumbnailUrlsRef.current.clear();
     };
-  }, [attachmentIndices, attachmentKind, attachments, entityId, readAttachment, rowId, sessionId]);
+  }, [
+    attachmentIndices,
+    attachmentKind,
+    attachments,
+    entityId,
+    readAttachment,
+    rowId,
+    sessionId,
+  ]);
 
   // ── sent video 预览读取：staging 语义原样保留 ──
   const releaseVideoPreviewUrl = useCallback(() => {
@@ -510,7 +558,11 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   );
 
   const openVideoPreview = useCallback(
-    async (attachment: AttachmentRef, attachmentIndex: number, galleryIndex: number) => {
+    async (
+      attachment: AttachmentRef,
+      attachmentIndex: number,
+      galleryIndex: number,
+    ) => {
       if (!sessionId || !readAttachment) return;
       const ref = attachment.previewRef ?? attachment.ref;
       cancelVideoPreviewRead();
@@ -556,7 +608,9 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
         const url = isLocalUrl
           ? result.url
           : URL.createObjectURL(
-              new Blob([Uint8Array.from(result.bytes)], { type: result.mediaType }),
+              new Blob([Uint8Array.from(result.bytes)], {
+                type: result.mediaType,
+              }),
             );
         if (videoPreviewRequestRef.current !== requestId) {
           if (!isLocalUrl) URL.revokeObjectURL(url);
@@ -581,7 +635,14 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
         }
       }
     },
-    [cancelVideoPreviewRead, entityId, readAttachment, releaseVideoPreviewUrl, rowId, sessionId],
+    [
+      cancelVideoPreviewRead,
+      entityId,
+      readAttachment,
+      releaseVideoPreviewUrl,
+      rowId,
+      sessionId,
+    ],
   );
 
   const openPdfPreview = useCallback(
@@ -593,14 +654,20 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       pdfPreviewAbortRef.current?.abort();
       const abortController = new AbortController();
       pdfPreviewAbortRef.current = abortController;
-      if (pdfPreviewUrlRef.current) URL.revokeObjectURL(pdfPreviewUrlRef.current);
+      if (pdfPreviewUrlRef.current)
+        URL.revokeObjectURL(pdfPreviewUrlRef.current);
       pdfPreviewUrlRef.current = null;
       setPdfPreviewRef(ref);
-      setPdfPreview({ filename: attachment.fileName, mediaType: "application/pdf" });
+      setPdfPreview({
+        filename: attachment.fileName,
+        mediaType: "application/pdf",
+      });
       setPdfPreviewLoading(true);
       setPdfPreviewError(false);
       try {
-        const target = entityId ? { target: { rowId, entityId }, attachmentIndex } : {};
+        const target = entityId
+          ? { target: { rowId, entityId }, attachmentIndex }
+          : {};
         if (readAttachmentRange) {
           const firstRange = await readAttachmentRange({
             sessionId,
@@ -645,7 +712,9 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
           "url" in result
             ? result.url
             : URL.createObjectURL(
-                new Blob([Uint8Array.from(result.bytes)], { type: result.mediaType }),
+                new Blob([Uint8Array.from(result.bytes)], {
+                  type: result.mediaType,
+                }),
               );
         if (!("url" in result)) pdfPreviewUrlRef.current = url;
         setPdfPreview({
@@ -671,7 +740,9 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     .map((attachment, index) => ({ attachment, index }))
     .filter(({ attachment }) => {
       if (attachmentKind === "all") return true;
-      const isMedia = attachment.mime.startsWith("image/") || attachment.mime.startsWith("video/");
+      const isMedia =
+        attachment.mime.startsWith("image/") ||
+        attachment.mime.startsWith("video/");
       return attachmentKind === "media" ? isMedia : !isMedia;
     });
   if (attachmentKind === "all") {
@@ -680,8 +751,12 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     // index 仍指向原数组，避免删除后提交错误的附件。
     visibleAttachments.sort(
       ({ attachment: left }, { attachment: right }) =>
-        Number(right.mime.startsWith("image/") || right.mime.startsWith("video/")) -
-        Number(left.mime.startsWith("image/") || left.mime.startsWith("video/")),
+        Number(
+          right.mime.startsWith("image/") || right.mime.startsWith("video/"),
+        ) -
+        Number(
+          left.mime.startsWith("image/") || left.mime.startsWith("video/"),
+        ),
     );
   }
   if (visibleAttachments.length === 0) return null;
@@ -707,7 +782,10 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       alt: attachment.fileName,
       filename: attachment.fileName,
       mediaType: attachment.mime,
-      src: isVideo && videoPreviewRef === ref ? videoPreview?.url : thumbnailUrls.get(ref),
+      src:
+        isVideo && videoPreviewRef === ref
+          ? videoPreview?.url
+          : thumbnailUrls.get(ref),
       loading: isVideo && videoPreviewRef === ref && videoPreviewLoading,
       error: isVideo && videoPreviewRef === ref && videoPreviewError,
     };
@@ -716,7 +794,11 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     const entry = previewEntries[galleryIndex];
     if (!entry) return;
     if (entry.attachment.mime.startsWith("video/")) {
-      void openVideoPreview(entry.attachment, entry.persistedAttachmentIndex, galleryIndex);
+      void openVideoPreview(
+        entry.attachment,
+        entry.persistedAttachmentIndex,
+        galleryIndex,
+      );
       return;
     }
     cancelVideoPreviewRead();
@@ -730,18 +812,26 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   };
   const items = visibleAttachments.map(({ attachment, index }) => {
     const isTextMaterial =
-      attachment.sourceKind === "topic-history" || attachment.sourceKind === "clipboard-text";
+      attachment.sourceKind === "topic-history" ||
+      attachment.sourceKind === "clipboard-text";
     const ref = attachment.previewRef ?? attachment.ref;
     const isImage = attachment.mime.startsWith("image/");
     const isVideo = attachment.mime.startsWith("video/");
-    const isPdf = attachment.mime.split(";", 1)[0]?.trim().toLowerCase() === "application/pdf";
+    const isPdf =
+      attachment.mime.split(";", 1)[0]?.trim().toLowerCase() ===
+      "application/pdf";
     const isMedia = isImage || isVideo;
     const isEditingAttachment = attachmentKind === "all";
-    const isThumbnail = attachmentKind === "media" || (isEditingAttachment && isMedia);
-    const fileDisplayDescriptor = resolveFileDisplayDescriptor(attachment.fileName);
+    const isThumbnail =
+      attachmentKind === "media" || (isEditingAttachment && isMedia);
+    const fileDisplayDescriptor = resolveFileDisplayDescriptor(
+      attachment.fileName,
+    );
     const isUnavailable = failedRefs.has(ref);
     const thumbnailUrl = thumbnailUrls.get(ref) ?? "";
-    const previewItemIndex = previewEntries.findIndex((entry) => entry.index === index);
+    const previewItemIndex = previewEntries.findIndex(
+      (entry) => entry.index === index,
+    );
     // 图片与视频共用当前消息的媒体 gallery；video 首次成为 active item 时再读取。
     const canOpen =
       (isTextMaterial && Boolean(sessionId && readAttachment)) ||
@@ -780,9 +870,15 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
           canOpen
             ? () =>
                 isTextMaterial
-                  ? void openTextPreview(attachment, attachmentIndices?.[index] ?? index)
+                  ? void openTextPreview(
+                      attachment,
+                      attachmentIndices?.[index] ?? index,
+                    )
                   : isPdf
-                    ? void openPdfPreview(attachment, attachmentIndices?.[index] ?? index)
+                    ? void openPdfPreview(
+                        attachment,
+                        attachmentIndices?.[index] ?? index,
+                      )
                     : selectPreviewItem(previewItemIndex)
             : undefined
         }
@@ -844,7 +940,8 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
             options={{
               className: "inline-flex min-w-0 max-w-40 items-center gap-1.5",
               iconSize: 16,
-              fileNameClassName: "truncate text-ui-base font-medium text-foreground",
+              fileNameClassName:
+                "truncate text-ui-base font-medium text-foreground",
             }}
           />
         )}
@@ -855,7 +952,10 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
             variant="default"
             aria-label={intl.formatMessage({ id: "chat.attachments.remove" })}
             label={intl.formatMessage({ id: "chat.attachments.remove" })}
-            data-testid={testId(TID_V4_EDIT_ATTACHMENT_REMOVE, `${rowId}-${index}`)}
+            data-testid={testId(
+              TID_V4_EDIT_ATTACHMENT_REMOVE,
+              `${rowId}-${index}`,
+            )}
             className="absolute top-0.5 end-0.5 z-10 size-3.5 rounded-full p-0 text-primary-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
           >
             <XIcon className="size-2.5" />
@@ -940,7 +1040,10 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
   const { intl, locale } = useZCodeIntl();
   // 引擎尾注折叠：正文只到 epilogueStart，
   // 之后的引擎文本折进气泡底部的披露。提示词上下文解析也只看正文——尾注里没有用户引用。
-  const { body: bodyText, epilogue } = splitUserInputEpilogue(row.text, row.epilogueStart);
+  const { body: bodyText, epilogue } = splitUserInputEpilogue(
+    row.text,
+    row.epilogueStart,
+  );
   // 用户行时间戳：与 assistant 动作栏共用 messageTimeLabel 的相对日判定。
   const timeLabel = formatMessageTimeLabel(row.createdAt, locale, intl);
   const parsedPrompt = useMemo(
@@ -949,9 +1052,16 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
         workspacePath: context.workspacePath,
         workspaceIdentity: context.workspaceIdentity,
       }),
-      ...(row.conversationQuotes ? { conversationSelections: row.conversationQuotes } : {}),
+      ...(row.conversationQuotes
+        ? { conversationSelections: row.conversationQuotes }
+        : {}),
     }),
-    [bodyText, context.workspaceIdentity, context.workspacePath, row.conversationQuotes],
+    [
+      bodyText,
+      context.workspaceIdentity,
+      context.workspacePath,
+      row.conversationQuotes,
+    ],
   );
   // 只用于把历史消息里的 share URL 尾块从可见正文里剥掉。
   // 该块已不再产出（见 ConversationComposer 的 promptText 注释）；这里保留解析，是为了让
@@ -963,21 +1073,29 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [draft, setDraft] = useState(row.text);
-  const [editAttachments, setEditAttachments] = useState<AttachmentRef[]>(() => [
-    ...(row.attachments ?? []),
-  ]);
+  const [editAttachments, setEditAttachments] = useState<AttachmentRef[]>(
+    () => [...(row.attachments ?? [])],
+  );
   // 编辑态删除附件后，持久 FilePart 列表仍保留全部附件；序号数组把可见列表
   // 映射回原 index，避免 video 预览等按 attachmentIndex 的读取指错分块。
-  const [editAttachmentIndices, setEditAttachmentIndices] = useState<number[]>(() =>
-    (row.attachments ?? []).map((_, index) => attachmentIndices?.[index] ?? index),
+  const [editAttachmentIndices, setEditAttachmentIndices] = useState<number[]>(
+    () =>
+      (row.attachments ?? []).map(
+        (_, index) => attachmentIndices?.[index] ?? index,
+      ),
   );
-  const [editPromptContexts, setEditPromptContexts] = useState(() => parsedPrompt);
+  const [editPromptContexts, setEditPromptContexts] = useState(
+    () => parsedPrompt,
+  );
   const [conflictPreview, setConflictPreview] =
     useState<V4ConversationFileRewindPreviewResult | null>(null);
   const [conflictOpen, setConflictOpen] = useState(false);
   const inputApiRef = useRef<LexicalChatInputHandle | null>(null);
   const editContextCount = countComposerPromptContexts(editPromptContexts);
-  const canSubmit = draft.trim().length > 0 || editAttachments.length > 0 || editContextCount > 0;
+  const canSubmit =
+    draft.trim().length > 0 ||
+    editAttachments.length > 0 ||
+    editContextCount > 0;
   const submitLabel = intl.formatMessage({ id: "chat.send" });
   const cancelLabel = intl.formatMessage({ id: "common.cancel" });
   const rewindWorkspaceLabel = intl.formatMessage({
@@ -1000,12 +1118,15 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
   const hasAttachments = (row.attachments?.length ?? 0) > 0;
   const hasMediaAttachments =
     row.attachments?.some(
-      (attachment) => attachment.mime.startsWith("image/") || attachment.mime.startsWith("video/"),
+      (attachment) =>
+        attachment.mime.startsWith("image/") ||
+        attachment.mime.startsWith("video/"),
     ) ?? false;
   const hasFileAttachments =
     row.attachments?.some(
       (attachment) =>
-        !attachment.mime.startsWith("image/") && !attachment.mime.startsWith("video/"),
+        !attachment.mime.startsWith("image/") &&
+        !attachment.mime.startsWith("video/"),
     ) ?? false;
   const hasVisibleText = visibleText.trim().length > 0;
   // nudge 轮整条都是引擎文本：正文为空但气泡仍要画，里面只有那一枚披露。
@@ -1034,7 +1155,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
       setDraft(parsedShareContext.visibleContent);
       setEditAttachments([...(row.attachments ?? [])]);
       setEditAttachmentIndices(
-        (row.attachments ?? []).map((_, index) => attachmentIndices?.[index] ?? index),
+        (row.attachments ?? []).map(
+          (_, index) => attachmentIndices?.[index] ?? index,
+        ),
       );
       setEditPromptContexts(parsedPrompt);
       return;
@@ -1060,7 +1183,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
     setDraft(parsedShareContext.visibleContent);
     setEditAttachments([...(row.attachments ?? [])]);
     setEditAttachmentIndices(
-      (row.attachments ?? []).map((_, index) => attachmentIndices?.[index] ?? index),
+      (row.attachments ?? []).map(
+        (_, index) => attachmentIndices?.[index] ?? index,
+      ),
     );
     setEditPromptContexts(parsedPrompt);
     setEditing(true);
@@ -1070,21 +1195,35 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
     setDraft(parsedShareContext.visibleContent);
     setEditAttachments([...(row.attachments ?? [])]);
     setEditAttachmentIndices(
-      (row.attachments ?? []).map((_, index) => attachmentIndices?.[index] ?? index),
+      (row.attachments ?? []).map(
+        (_, index) => attachmentIndices?.[index] ?? index,
+      ),
     );
     setEditPromptContexts(parsedPrompt);
     setEditing(false);
   }, [attachmentIndices, parsedPrompt, parsedShareContext, row.attachments]);
 
   const handleRemoveEditAttachment = useCallback((index: number) => {
-    setEditAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index));
-    setEditAttachmentIndices((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setEditAttachments((current) =>
+      current.filter((_, itemIndex) => itemIndex !== index),
+    );
+    setEditAttachmentIndices((current) =>
+      current.filter((_, itemIndex) => itemIndex !== index),
+    );
   }, []);
 
   const handleSubmitEdit = useCallback(
-    async (nextText: string, workspaceMode: "preserve" | "rewind" = "preserve") => {
+    async (
+      nextText: string,
+      workspaceMode: "preserve" | "rewind" = "preserve",
+    ) => {
       if (!onEdit) return;
-      if (!nextText.trim() && editAttachments.length === 0 && editContextCount === 0) return;
+      if (
+        !nextText.trim() &&
+        editAttachments.length === 0 &&
+        editContextCount === 0
+      )
+        return;
       setSubmitting(true);
       try {
         const result = await onEdit(
@@ -1115,9 +1254,17 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
         setSubmitting(false);
       }
     },
-    [editAttachments, editContextCount, editPromptContexts, onEdit, row.entityId, row.rowId],
+    [
+      editAttachments,
+      editContextCount,
+      editPromptContexts,
+      onEdit,
+      row.entityId,
+      row.rowId,
+    ],
   );
-  const rewindWorkspaceDisabled = submitting || editWorkspaceRewindAvailability?.enabled !== true;
+  const rewindWorkspaceDisabled =
+    submitting || editWorkspaceRewindAvailability?.enabled !== true;
   const rewindWorkspaceButton = (
     <Button
       type="button"
@@ -1155,7 +1302,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           initialValue={parsedPrompt.visibleContent}
           submitting={submitting}
           submitDisabled={!canSubmit || submitting}
-          allowSubmitWhenEmpty={editAttachments.length > 0 || editContextCount > 0}
+          allowSubmitWhenEmpty={
+            editAttachments.length > 0 || editContextCount > 0
+          }
           submitLabel={submitLabel}
           cancelLabel={cancelLabel}
           showMentionButton
@@ -1186,7 +1335,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                       onRemove={(comment) =>
                         setEditPromptContexts((current) => ({
                           ...current,
-                          codeComments: current.codeComments.filter((item) => item !== comment),
+                          codeComments: current.codeComments.filter(
+                            (item) => item !== comment,
+                          ),
                         }))
                       }
                       onRemoveAll={() =>
@@ -1201,7 +1352,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                       onRemove={(id) =>
                         setEditPromptContexts((current) => ({
                           ...current,
-                          webElements: current.webElements.filter((item) => item.id !== id),
+                          webElements: current.webElements.filter(
+                            (item) => item.id !== id,
+                          ),
                         }))
                       }
                       onRemoveAll={() =>
@@ -1213,11 +1366,17 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                     />
                     <PptxElementReferenceChip
                       references={editPromptContexts.pptxElements}
-                      onOpen={context.onOpenCodeViewer ? openPptxElementReference : undefined}
+                      onOpen={
+                        context.onOpenCodeViewer
+                          ? openPptxElementReference
+                          : undefined
+                      }
                       onRemove={(id) =>
                         setEditPromptContexts((current) => ({
                           ...current,
-                          pptxElements: current.pptxElements.filter((item) => item.id !== id),
+                          pptxElements: current.pptxElements.filter(
+                            (item) => item.id !== id,
+                          ),
                         }))
                       }
                       onRemoveAll={() =>
@@ -1232,9 +1391,10 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                       onRemove={(id) =>
                         setEditPromptContexts((current) => ({
                           ...current,
-                          conversationSelections: current.conversationSelections.filter(
-                            (item) => !("id" in item) || item.id !== id,
-                          ),
+                          conversationSelections:
+                            current.conversationSelections.filter(
+                              (item) => !("id" in item) || item.id !== id,
+                            ),
                         }))
                       }
                       onRemoveAll={() =>
@@ -1261,7 +1421,10 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
               {rewindWorkspaceDisabled ? (
                 // Button disabled 会应用 pointer-events-none，TooltipTrigger 直接落在
                 // 按钮上时收不到 hover。禁用态用外层 span 承接 hover，实际按钮仍保持 disabled。
-                <span className="inline-flex" data-disabled-tooltip-trigger="true">
+                <span
+                  className="inline-flex"
+                  data-disabled-tooltip-trigger="true"
+                >
                   {rewindWorkspaceButton}
                 </span>
               ) : (
@@ -1295,9 +1458,15 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
   }
 
   return (
-    <RowShell rowId={row.rowId} className="group/user-row flex flex-col items-end">
+    <RowShell
+      rowId={row.rowId}
+      className="group/user-row flex flex-col items-end"
+    >
       {row.botGroupSource ? (
-        <div data-v4-user-input-source="true" className="mb-2 flex min-w-0 max-w-full">
+        <div
+          data-v4-user-input-source="true"
+          className="mb-2 flex min-w-0 max-w-full"
+        >
           <BotGroupSourceLabel source={row.botGroupSource} />
         </div>
       ) : null}
@@ -1308,7 +1477,10 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           className="mb-2 flex max-w-xl flex-col items-end gap-2"
         >
           {row.botGroupSource && conversationSelections.length > 0 ? (
-            <div data-v4-user-input-quotes="true" className="flex max-w-full justify-end">
+            <div
+              data-v4-user-input-quotes="true"
+              className="flex max-w-full justify-end"
+            >
               <ConversationSelectionReferenceChip
                 references={conversationSelections}
                 contentAlign="end"
@@ -1353,12 +1525,22 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                   readAttachmentRange={context.readAttachmentRange}
                 />
               ) : null}
-              <CodeCommentAttachmentChip comments={codeCommentContexts} contentAlign="end" />
-              <WebElementContextAttachmentChip contexts={webElementContexts} contentAlign="end" />
+              <CodeCommentAttachmentChip
+                comments={codeCommentContexts}
+                contentAlign="end"
+              />
+              <WebElementContextAttachmentChip
+                contexts={webElementContexts}
+                contentAlign="end"
+              />
               <PptxElementReferenceChip
                 references={pptxElementReferences}
                 contentAlign="end"
-                onOpen={context.onOpenCodeViewer ? openPptxElementReference : undefined}
+                onOpen={
+                  context.onOpenCodeViewer
+                    ? openPptxElementReference
+                    : undefined
+                }
               />
               {!row.botGroupSource ? (
                 <ConversationSelectionReferenceChip
@@ -1388,7 +1570,10 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           className="mt-1 text-end text-ui-sm text-foreground-subtlest"
           data-v4-user-input-source="genUi"
         >
-          {intl.formatMessage({ id: "genUi.from" }, { name: row.source.title || "Gen UI" })}
+          {intl.formatMessage(
+            { id: "genUi.from" },
+            { name: row.source.title || "Gen UI" },
+          )}
         </div>
       ) : null}
       {status ? (
@@ -1419,7 +1604,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           </MessageAction>
         ) : null}
         {timeLabel ? (
-          <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
+          <span className="select-none text-ui-sm text-foreground-subtlest">
+            {timeLabel}
+          </span>
         ) : null}
       </MessageActions>
     </RowShell>
@@ -1436,10 +1623,13 @@ const UserInputRowView = memo(function UserInputRowView(
       attachmentIndices:
         row === props.row
           ? undefined
-          : row.attachments?.map((attachment) => props.row.attachments!.indexOf(attachment)),
+          : row.attachments?.map((attachment) =>
+              props.row.attachments!.indexOf(attachment),
+            ),
     }));
   }, [props.row]);
-  if (!props.row.botGroupSource?.messages?.length) return <SingleUserInputRowView {...props} />;
+  if (!props.row.botGroupSource?.messages?.length)
+    return <SingleUserInputRowView {...props} />;
   return (
     <div className="flex min-w-0 flex-col gap-3" data-v4-topic-messages="true">
       {messages.map(({ row, attachmentIndices }) => (
@@ -1463,186 +1653,214 @@ const UserInputRowView = memo(function UserInputRowView(
 // memo 组件的数组默认值必须是模块级常量：内联 [] 每次渲染都是新引用，会让 memo 比较失效。
 const EMPTY_SOURCE_COMMAND_IDS: readonly string[] = [];
 
-export const ConversationAssistantTextActions = memo(function ConversationAssistantTextActions({
-  rowId,
-  entityId,
-  text,
-  createdAt,
-  compactForRemoteControl = false,
-  feedback = null,
-  hookInvocations,
-  sessionId,
-  turnId,
-  sourceCommandIds = EMPTY_SOURCE_COMMAND_IDS,
-  workspacePath,
-  workspaceIdentity,
-  onFork,
-  onFeedbackChange,
-  className,
-}: {
-  rowId: number;
-  entityId?: string;
-  text: string;
-  createdAt: number;
-  compactForRemoteControl?: boolean;
-  feedback?: AssistantMessageFeedback | null;
-  hookInvocations?: readonly HookInvocationRow[];
-  sessionId?: string | null;
-  turnId?: string;
-  sourceCommandIds?: readonly string[];
-  workspacePath?: string;
-  workspaceIdentity?: string;
-  onFork?: (target: ConversationRowTarget) => void;
-  onRetry?: (target: ConversationRowTarget) => void;
-  onFeedbackChange?: AssistantFeedbackHandler;
-  className?: string;
-}) {
-  const { intl, locale } = useZCodeIntl();
-  const platform = useOptionalPlatform();
-  // 本条回复的模型速度（prefill/decode）：轮询 session-debug 快照，取
-  // 「row 创建之后首个完成的模型轮」——即产出这条回复的那一轮请求。
-  const debug = useSessionDebug({
+export const ConversationAssistantTextActions = memo(
+  function ConversationAssistantTextActions({
+    rowId,
+    entityId,
+    text,
+    createdAt,
+    compactForRemoteControl = false,
+    feedback = null,
+    hookInvocations,
+    sessionId,
+    turnId,
+    sourceCommandIds = EMPTY_SOURCE_COMMAND_IDS,
     workspacePath,
     workspaceIdentity,
-    taskId: sessionId ?? null,
-    enabled: shouldStartSessionDebugPolling({ sessionId, workspacePath }),
-  });
-  const producingRound = debug.rounds.find((round) => round.recordedAt >= createdAt);
-  const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
-  const { decodeLabel, prefillLabel } = formatSpeedLabels(producingRound, numberFormat);
-  const [localFeedback, setLocalFeedback] = useState<AssistantMessageFeedback | null>(feedback);
-  const copyLabel = intl.formatMessage({ id: "chat.message.copy" });
-  const likeLabel = intl.formatMessage({
-    id: localFeedback === "like" ? "chat.message.liked" : "chat.message.like",
-  });
-  const dislikeLabel = intl.formatMessage({
-    id: localFeedback === "dislike" ? "chat.message.disliked" : "chat.message.dislike",
-  });
-  const forkLabel = intl.formatMessage({ id: "chat.message.fork" });
-  const timeLabel = formatMessageTimeLabel(createdAt, locale, intl);
-  const resolveTooltip = (label: string): string | undefined =>
-    compactForRemoteControl ? undefined : label;
+    onFork,
+    onFeedbackChange,
+    className,
+  }: {
+    rowId: number;
+    entityId?: string;
+    text: string;
+    createdAt: number;
+    compactForRemoteControl?: boolean;
+    feedback?: AssistantMessageFeedback | null;
+    hookInvocations?: readonly HookInvocationRow[];
+    sessionId?: string | null;
+    turnId?: string;
+    sourceCommandIds?: readonly string[];
+    workspacePath?: string;
+    workspaceIdentity?: string;
+    onFork?: (target: ConversationRowTarget) => void;
+    onRetry?: (target: ConversationRowTarget) => void;
+    onFeedbackChange?: AssistantFeedbackHandler;
+    className?: string;
+  }) {
+    const { intl, locale } = useZCodeIntl();
+    const platform = useOptionalPlatform();
+    // 本条回复的模型速度（prefill/decode）：轮询 session-debug 快照，取
+    // 「row 创建之后首个完成的模型轮」——即产出这条回复的那一轮请求。
+    const debug = useSessionDebug({
+      workspacePath,
+      workspaceIdentity,
+      taskId: sessionId ?? null,
+      enabled: shouldStartSessionDebugPolling({ sessionId, workspacePath }),
+    });
+    const producingRound = debug.rounds.find(
+      (round) => round.recordedAt >= createdAt,
+    );
+    const numberFormat = new Intl.NumberFormat(locale, {
+      maximumFractionDigits: 1,
+    });
+    const { decodeLabel, prefillLabel } = formatSpeedLabels(
+      producingRound,
+      numberFormat,
+    );
+    const [localFeedback, setLocalFeedback] =
+      useState<AssistantMessageFeedback | null>(feedback);
+    const copyLabel = intl.formatMessage({ id: "chat.message.copy" });
+    const likeLabel = intl.formatMessage({
+      id: localFeedback === "like" ? "chat.message.liked" : "chat.message.like",
+    });
+    const dislikeLabel = intl.formatMessage({
+      id:
+        localFeedback === "dislike"
+          ? "chat.message.disliked"
+          : "chat.message.dislike",
+    });
+    const forkLabel = intl.formatMessage({ id: "chat.message.fork" });
+    const timeLabel = formatMessageTimeLabel(createdAt, locale, intl);
+    const resolveTooltip = (label: string): string | undefined =>
+      compactForRemoteControl ? undefined : label;
 
-  useEffect(() => {
-    setLocalFeedback(feedback);
-  }, [feedback]);
+    useEffect(() => {
+      setLocalFeedback(feedback);
+    }, [feedback]);
 
-  const handleFeedback = useCallback(
-    (nextFeedback: AssistantMessageFeedback) => {
-      const previousFeedback = localFeedback;
-      const resolvedFeedback = previousFeedback === nextFeedback ? null : nextFeedback;
-      setLocalFeedback(resolvedFeedback);
-      logger.info("[ConversationRowView] 用户反馈 assistant 消息", {
-        messageId: entityId ?? null,
-        reaction: resolvedFeedback ?? "none",
-      });
+    const handleFeedback = useCallback(
+      (nextFeedback: AssistantMessageFeedback) => {
+        const previousFeedback = localFeedback;
+        const resolvedFeedback =
+          previousFeedback === nextFeedback ? null : nextFeedback;
+        setLocalFeedback(resolvedFeedback);
+        logger.info("[ConversationRowView] 用户反馈 assistant 消息", {
+          messageId: entityId ?? null,
+          reaction: resolvedFeedback ?? "none",
+        });
+        if (entityId) {
+          void Promise.resolve(
+            onFeedbackChange?.({ rowId, entityId }, resolvedFeedback),
+          ).then(
+            (result) => {
+              if (result === false) setLocalFeedback(previousFeedback);
+            },
+            (error: unknown) => {
+              setLocalFeedback(previousFeedback);
+              // V4 初版只改 renderer local state，command 失败后会显示并不存在的反馈。
+              // 失败必须回滚到点击前投影值，等待后续权威 row 再校正。
+              logger.warn("[ConversationRowView] 持久化 assistant 反馈失败", {
+                error: error instanceof Error ? error.message : String(error),
+                messageId: entityId,
+              });
+            },
+          );
+        }
+      },
+      [entityId, localFeedback, onFeedbackChange, platform, rowId, sessionId],
+    );
+    const handleFork = useCallback(() => {
       if (entityId) {
-        void Promise.resolve(onFeedbackChange?.({ rowId, entityId }, resolvedFeedback)).then(
-          (result) => {
-            if (result === false) setLocalFeedback(previousFeedback);
-          },
-          (error: unknown) => {
-            setLocalFeedback(previousFeedback);
-            // V4 初版只改 renderer local state，command 失败后会显示并不存在的反馈。
-            // 失败必须回滚到点击前投影值，等待后续权威 row 再校正。
-            logger.warn("[ConversationRowView] 持久化 assistant 反馈失败", {
-              error: error instanceof Error ? error.message : String(error),
-              messageId: entityId,
-            });
-          },
-        );
+        onFork?.({ rowId, entityId });
       }
-    },
-    [entityId, localFeedback, onFeedbackChange, platform, rowId, sessionId],
-  );
-  const handleFork = useCallback(() => {
-    if (entityId) {
-      onFork?.({ rowId, entityId });
-    }
-  }, [entityId, onFork, rowId]);
-  return (
-    <MessageActions className={cn(className)}>
-      <CopyRowAction
-        text={text}
-        rowId={rowId}
-        label={copyLabel}
-        tooltip={resolveTooltip(copyLabel)}
-      />
-      {entityId && onFeedbackChange ? (
-        <>
-          <MessageAction
-            aria-label={likeLabel}
-            aria-pressed={localFeedback === "like"}
-            label={likeLabel}
-            tooltip={resolveTooltip(likeLabel)}
-            data-testid={testId(TID_V4_FEEDBACK_LIKE, String(rowId))}
-            className={localFeedback === "like" ? "!bg-success/10" : undefined}
-            onClick={() => handleFeedback("like")}
-          >
-            <span
-              className={cn(
-                "relative inline-flex",
-                localFeedback === "like" && "zcode-reaction-burst",
-              )}
+    }, [entityId, onFork, rowId]);
+    return (
+      <MessageActions className={cn(className)}>
+        <CopyRowAction
+          text={text}
+          rowId={rowId}
+          label={copyLabel}
+          tooltip={resolveTooltip(copyLabel)}
+        />
+        {entityId && onFeedbackChange ? (
+          <>
+            <MessageAction
+              aria-label={likeLabel}
+              aria-pressed={localFeedback === "like"}
+              label={likeLabel}
+              tooltip={resolveTooltip(likeLabel)}
+              data-testid={testId(TID_V4_FEEDBACK_LIKE, String(rowId))}
+              className={
+                localFeedback === "like" ? "!bg-success/10" : undefined
+              }
+              onClick={() => handleFeedback("like")}
             >
-              <ThumbsUpIcon className="size-3.5" />
-            </span>
-          </MessageAction>
-          <MessageAction
-            aria-label={dislikeLabel}
-            aria-pressed={localFeedback === "dislike"}
-            label={dislikeLabel}
-            tooltip={resolveTooltip(dislikeLabel)}
-            data-testid={testId(TID_V4_FEEDBACK_DISLIKE, String(rowId))}
-            className={localFeedback === "dislike" ? "!bg-warning/10" : undefined}
-            onClick={() => handleFeedback("dislike")}
-          >
-            <span
-              className={cn(
-                "relative inline-flex",
-                localFeedback === "dislike" && "zcode-reaction-burst",
-              )}
+              <span
+                className={cn(
+                  "relative inline-flex",
+                  localFeedback === "like" && "zcode-reaction-burst",
+                )}
+              >
+                <ThumbsUpIcon className="size-3.5" />
+              </span>
+            </MessageAction>
+            <MessageAction
+              aria-label={dislikeLabel}
+              aria-pressed={localFeedback === "dislike"}
+              label={dislikeLabel}
+              tooltip={resolveTooltip(dislikeLabel)}
+              data-testid={testId(TID_V4_FEEDBACK_DISLIKE, String(rowId))}
+              className={
+                localFeedback === "dislike" ? "!bg-warning/10" : undefined
+              }
+              onClick={() => handleFeedback("dislike")}
             >
-              <ThumbsDownIcon className="size-3.5" />
-            </span>
+              <span
+                className={cn(
+                  "relative inline-flex",
+                  localFeedback === "dislike" && "zcode-reaction-burst",
+                )}
+              >
+                <ThumbsDownIcon className="size-3.5" />
+              </span>
+            </MessageAction>
+          </>
+        ) : null}
+        {onFork && entityId ? (
+          <MessageAction
+            aria-label={forkLabel}
+            label={forkLabel}
+            tooltip={resolveTooltip(forkLabel)}
+            data-testid={testId(TID_V4_FORK, String(rowId))}
+            onClick={handleFork}
+          >
+            <TrendingUpDownIcon className="size-3.5" />
           </MessageAction>
-        </>
-      ) : null}
-      {onFork && entityId ? (
-        <MessageAction
-          aria-label={forkLabel}
-          label={forkLabel}
-          tooltip={resolveTooltip(forkLabel)}
-          data-testid={testId(TID_V4_FORK, String(rowId))}
-          onClick={handleFork}
-        >
-          <TrendingUpDownIcon className="size-3.5" />
-        </MessageAction>
-      ) : null}
-      {turnId && hookInvocations ? (
-        <ConversationHookDetailsAction rows={hookInvocations} turnId={turnId} />
-      ) : null}
-      {/* 旧 conversation surface 删除后，V4 动作栏漏掉了消息创建时间；
+        ) : null}
+        {turnId && hookInvocations ? (
+          <ConversationHookDetailsAction
+            rows={hookInvocations}
+            turnId={turnId}
+          />
+        ) : null}
+        {/* 旧 conversation surface 删除后，V4 动作栏漏掉了消息创建时间；
           时间是 row.createdAt 的只读派生展示，不新增 renderer 状态。 */}
-      {timeLabel ? (
-        <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
-      ) : null}
-      {prefillLabel ? (
-        <span className="select-none text-ui-sm text-foreground-subtlest">
-          ↑{prefillLabel} tok/s
-        </span>
-      ) : null}
-      {decodeLabel ? (
-        <span className="select-none text-ui-sm text-foreground-subtlest">
-          ↓{decodeLabel} tok/s
-        </span>
-      ) : null}
-      {turnId ? (
-        <ConnectedBotGroupDeliveryAction turnId={turnId} sourceCommandIds={sourceCommandIds} />
-      ) : null}
-    </MessageActions>
-  );
-});
+        {timeLabel ? (
+          <span className="select-none text-ui-sm text-foreground-subtlest">
+            {timeLabel}
+          </span>
+        ) : null}
+        {prefillLabel ? (
+          <span className="select-none text-ui-sm text-foreground-subtlest">
+            ↑{prefillLabel} tok/s
+          </span>
+        ) : null}
+        {decodeLabel ? (
+          <span className="select-none text-ui-sm text-foreground-subtlest">
+            ↓{decodeLabel} tok/s
+          </span>
+        ) : null}
+        {turnId ? (
+          <ConnectedBotGroupDeliveryAction
+            turnId={turnId}
+            sourceCommandIds={sourceCommandIds}
+          />
+        ) : null}
+      </MessageActions>
+    );
+  },
+);
 
 const AssistantTextRowView = memo(function AssistantTextRowView({
   row,
@@ -1674,7 +1892,8 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
   const streaming = row.state === "streaming";
   const isOfficeMode = useIsOfficeMode();
   const codeCommentCardsEnabled = useAssistantCodeCommentFeatureEnabled();
-  const projectsCodeComments = codeCommentCardsEnabled && codeCommentProjectionEnabled === true;
+  const projectsCodeComments =
+    codeCommentCardsEnabled && codeCommentProjectionEnabled === true;
   const visibleText = useMemo(
     () =>
       projectsCodeComments
@@ -1682,7 +1901,8 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
         : row.text,
     [projectsCodeComments, row.text, streaming],
   );
-  const visiblePreviewCards = previewCards && previewCards.length > 0 ? previewCards : null;
+  const visiblePreviewCards =
+    previewCards && previewCards.length > 0 ? previewCards : null;
   return (
     <RowShell rowId={row.rowId} className="group/assistant-row">
       {/* assistant 文本走 streamdown（MessageResponse），
@@ -1711,7 +1931,9 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           {visibleText}
         </GenUiMessageResponse>
       </div>
-      {codeCommentCardsEnabled && codeCommentCards && codeCommentCards.length > 0 ? (
+      {codeCommentCardsEnabled &&
+      codeCommentCards &&
+      codeCommentCards.length > 0 ? (
         <div className="mt-3">
           <AssistantCodeCommentCards
             cards={codeCommentCards}
@@ -1775,7 +1997,9 @@ const ReasoningRowView = memo(function ReasoningRowView({
   // 现在 streaming/complete 都默认收起，只保留运行态文案，用户可手动展开。
   // autoCollapseKey 仍保证状态边界不会覆盖已经发生过的用户交互。
   const durationSeconds =
-    row.durationMs !== undefined ? Math.max(1, Math.ceil(row.durationMs / 1000)) : undefined;
+    row.durationMs !== undefined
+      ? Math.max(1, Math.ceil(row.durationMs / 1000))
+      : undefined;
   if (streaming && row.text.length === 0) {
     return null;
   }
@@ -1785,19 +2009,27 @@ const ReasoningRowView = memo(function ReasoningRowView({
         className="w-full"
         isStreaming={streaming}
         autoCollapseKey={streaming ? null : row.state}
-        {...(durationSeconds !== undefined ? { duration: durationSeconds } : {})}
+        {...(durationSeconds !== undefined
+          ? { duration: durationSeconds }
+          : {})}
       >
         {/* 附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
         <ReasoningTrigger streamingText={row.text} />
         <div data-conversation-selectable="true">
-          <ReasoningContent variant={contentVariant}>{row.text}</ReasoningContent>
+          <ReasoningContent variant={contentVariant}>
+            {row.text}
+          </ReasoningContent>
         </div>
       </Reasoning>
     </RowShell>
   );
 });
 
-const TurnHeaderRowView = memo(function TurnHeaderRowView({ row }: { row: TurnHeaderRow }) {
+const TurnHeaderRowView = memo(function TurnHeaderRowView({
+  row,
+}: {
+  row: TurnHeaderRow;
+}) {
   return (
     <RowShell
       rowId={row.rowId}
@@ -1939,7 +2171,9 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
       case "compact": {
         const running = marker.status === "running";
         const automaticOptimization = isOfficeMode && marker.origin === "auto";
-        const scope = automaticOptimization ? "chat.contextOptimization" : "chat.contextCompaction";
+        const scope = automaticOptimization
+          ? "chat.contextOptimization"
+          : "chat.contextCompaction";
         const statusMessage =
           marker.status === "running"
             ? "started"
@@ -1968,14 +2202,31 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
         // marker 已携带完整 provider/model 元组，旧渲染却只读取 model，
         // 且没有订阅 provider snapshot，导致同名模型无差异、目录水合后名称不刷新。
         // 这里保留 provider ID fallback，并让现有 marker 随目录更新。
-        const fromProvider = resolveProviderLabel(marker.fromProvider, modelSelectionView);
-        const toProvider = resolveProviderLabel(marker.toProvider, modelSelectionView);
-        const to = formatModelChangeLabel(marker.toProvider, toProvider, marker.toModel, intl);
-        if (marker.fromProvider === undefined || marker.fromModel === undefined) {
+        const fromProvider = resolveProviderLabel(
+          marker.fromProvider,
+          modelSelectionView,
+        );
+        const toProvider = resolveProviderLabel(
+          marker.toProvider,
+          modelSelectionView,
+        );
+        const to = formatModelChangeLabel(
+          marker.toProvider,
+          toProvider,
+          marker.toModel,
+          intl,
+        );
+        if (
+          marker.fromProvider === undefined ||
+          marker.fromModel === undefined
+        ) {
           return {
             // source-less 表示首次使用的模型事实，不是模型切换，因此不显示切换箭头。
             icon: null,
-            label: intl.formatMessage({ id: "chat.modelChange.using" }, { model: to }),
+            label: intl.formatMessage(
+              { id: "chat.modelChange.using" },
+              { model: to },
+            ),
             running: false,
           };
         }
@@ -2105,7 +2356,10 @@ const ToolCallRowView = memo(function ToolCallRowView({
               ? () =>
                   context.onOpenWorkflowRun?.({
                     parentSessionId: sessionId,
-                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, workflowRun),
+                    toolCallId: resolveWorkflowRunOpenToolCallId(
+                      row.toolCallId,
+                      workflowRun,
+                    ),
                     runId: workflowRun.runId,
                     ...(workflowName === undefined ? {} : { workflowName }),
                   })
@@ -2121,7 +2375,9 @@ const ToolCallRowView = memo(function ToolCallRowView({
   // 的 `.strict()`，多一个键会让旧端把整条工具结果丢掉，所以这条路不新增任何协议字段。
   // 退回真修订的那一条（run 已结算）两条判据都不成立：它有 display，也铸出一条按 toolCallId
   // 联接得上的 run，上面那个分支先接走它。
-  const retune = isAmendWorkflowToolCall(row) ? readWorkflowRetuneCall(row.input) : undefined;
+  const retune = isAmendWorkflowToolCall(row)
+    ? readWorkflowRetuneCall(row.input)
+    : undefined;
   if (
     retune !== undefined &&
     row.status === "success" &&
@@ -2134,7 +2390,9 @@ const ToolCallRowView = memo(function ToolCallRowView({
     // 某条 run 的发起行」，而这一行不是。
     const retuned = context.workflowRunByRunId?.get(retune.runId);
     const ceiling =
-      retuned?.run === undefined ? undefined : workflowRunDefaultConcurrency(retuned.run);
+      retuned?.run === undefined
+        ? undefined
+        : workflowRunDefaultConcurrency(retuned.run);
     return (
       <RowShell rowId={row.rowId} className="py-0">
         <WorkflowRetuneRow
@@ -2146,7 +2404,10 @@ const ToolCallRowView = memo(function ToolCallRowView({
                 onOpen: () =>
                   context.onOpenWorkflowRun?.({
                     parentSessionId: sessionId,
-                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, retuned),
+                    toolCallId: resolveWorkflowRunOpenToolCallId(
+                      row.toolCallId,
+                      retuned,
+                    ),
                     runId: retune.runId,
                   }),
               }
@@ -2187,7 +2448,10 @@ const ToolCallRowView = memo(function ToolCallRowView({
                     parentSessionId: context.sessionId!,
                     // 打开请求的关联键是发起行（CreateWorkflow）id，不是点中行的 id——
                     // resume 行点开时两者不同，详情页拿它找 causalityGraph/脚本。
-                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, workflowRun),
+                    toolCallId: resolveWorkflowRunOpenToolCallId(
+                      row.toolCallId,
+                      workflowRun,
+                    ),
                     runId: workflowRun.runId,
                   })
               : undefined
@@ -2195,7 +2459,10 @@ const ToolCallRowView = memo(function ToolCallRowView({
           onOpenWorkflowActor={
             context.onOpenWorkflowActor && context.sessionId && workflowRun
               ? (request) =>
-                  context.onOpenWorkflowActor?.({ ...request, parentSessionId: context.sessionId! })
+                  context.onOpenWorkflowActor?.({
+                    ...request,
+                    parentSessionId: context.sessionId!,
+                  })
               : undefined
           }
           // 脚本药丸 → 脚本 transcript：关联键同 onOpenWorkflowRun（发起行 id + runId）。
@@ -2205,14 +2472,21 @@ const ToolCallRowView = memo(function ToolCallRowView({
                   context.onOpenWorkflowWorkspace?.({
                     ...request,
                     parentSessionId: context.sessionId!,
-                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, workflowRun),
+                    toolCallId: resolveWorkflowRunOpenToolCallId(
+                      row.toolCallId,
+                      workflowRun,
+                    ),
                     runId: workflowRun.runId,
                   })
               : undefined
           }
           onResumeWorkflowRun={
             context.onResumeWorkflowRun && workflowRun?.resumable
-              ? (request) => context.onResumeWorkflowRun?.(workflowRun.runId, request.workflowName)
+              ? (request) =>
+                  context.onResumeWorkflowRun?.(
+                    workflowRun.runId,
+                    request.workflowName,
+                  )
               : undefined
           }
           // 产物药丸 → 产物 tab：与通知行的 chips 同一条打开路径（不带版本号，打开即最新版）。
@@ -2228,7 +2502,9 @@ const ToolCallRowView = memo(function ToolCallRowView({
                     parentSessionId: context.sessionId!,
                     runId: workflowRun.runId,
                     artifactId,
-                    ...(artifact?.title === undefined ? {} : { title: artifact.title }),
+                    ...(artifact?.title === undefined
+                      ? {}
+                      : { title: artifact.title }),
                     ...(artifact?.contentType === undefined
                       ? {}
                       : { contentType: artifact.contentType }),
@@ -2244,7 +2520,11 @@ const ToolCallRowView = memo(function ToolCallRowView({
   );
 });
 
-const SubagentRowView = memo(function SubagentRowView({ row }: { row: SubagentRow }) {
+const SubagentRowView = memo(function SubagentRowView({
+  row,
+}: {
+  row: SubagentRow;
+}) {
   // subagent 行已经和 Agent/Task 工具行配对渲染；裸行只保留异常兜底摘要，
   // 避免再生成一个“子会话”卡片或第二套下钻入口。
   const summary = (
@@ -2255,7 +2535,9 @@ const SubagentRowView = memo(function SubagentRowView({ row }: { row: SubagentRo
   );
   return (
     <RowShell rowId={row.rowId}>
-      <div className="text-ui-sm text-[var(--color-foreground-subtle)]">{summary}</div>
+      <div className="text-ui-sm text-[var(--color-foreground-subtle)]">
+        {summary}
+      </div>
     </RowShell>
   );
 });
@@ -2326,7 +2608,8 @@ function ConversationRowViewImpl({
       // 在行分发处按同一工具身份规则裁剪，设置关闭时不产生任何 Todo DOM。
       if (
         context.messageStreamShowTodos !== true &&
-        resolveToolCallIdentity({ toolName: row.toolName, kind: row.toolName }).family === "todo"
+        resolveToolCallIdentity({ toolName: row.toolName, kind: row.toolName })
+          .family === "todo"
       ) {
         return null;
       }

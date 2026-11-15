@@ -22,7 +22,9 @@ interface WorkspaceServiceTargetTab {
 
 function createDisconnectedRemoteServices(): IServiceAccessor {
   const createDisconnectedError = () => {
-    const error = new Error(REMOTE_WORKSPACE_DISCONNECTED_ERROR_CODE) as Error & {
+    const error = new Error(
+      REMOTE_WORKSPACE_DISCONNECTED_ERROR_CODE,
+    ) as Error & {
       code: string;
     };
     error.code = REMOTE_WORKSPACE_DISCONNECTED_ERROR_CODE;
@@ -57,12 +59,14 @@ export function resolveWorkspaceServicesForTarget(params: {
   baseServices: IServiceAccessor | null;
   sessionsById: Record<string, Pick<RemoteWorkspaceSession, "services">>;
   isRemoteTarget: boolean;
+  /** 无 workspace 的设置 user/server scope 可显式指定 SourceSettingsAttachment。 */
+  unscopedServices?: IServiceAccessor;
 }): IServiceAccessor {
   const resolvedServices = params.resolvedRemoteSessionId
     ? (params.sessionsById[params.resolvedRemoteSessionId]?.services ?? null)
     : params.isRemoteTarget
       ? getDisconnectedRemoteServices()
-      : params.baseServices;
+      : (params.unscopedServices ?? params.baseServices);
 
   if (params.isRemoteTarget && !resolvedServices) {
     return getDisconnectedRemoteServices();
@@ -78,9 +82,13 @@ export function resolveBaseWorkspaceServices(
   return registeredBaseServices ?? contextServices;
 }
 
-function hasRemoteWorkspaceMetadata(tab: WorkspaceServiceTargetTab | null | undefined): boolean {
+function hasRemoteWorkspaceMetadata(
+  tab: WorkspaceServiceTargetTab | null | undefined,
+): boolean {
   return Boolean(
-    tab?.workspaceIdentity?.trim() || tab?.remoteSessionId?.trim() || tab?.remoteTarget,
+    tab?.workspaceIdentity?.trim() ||
+    tab?.remoteSessionId?.trim() ||
+    tab?.remoteTarget,
   );
 }
 
@@ -93,7 +101,10 @@ export function resolveWorkspaceServiceIsRemoteTarget(params: {
   activeTab?: WorkspaceServiceTargetTab | null;
   workspaceTabs?: readonly WorkspaceServiceTargetTab[];
 }): boolean {
-  if (params.workspaceIdentity?.trim() || params.preferredRemoteSessionId?.trim()) {
+  if (
+    params.workspaceIdentity?.trim() ||
+    params.preferredRemoteSessionId?.trim()
+  ) {
     return true;
   }
 
@@ -121,12 +132,16 @@ export function resolveWorkspaceServiceIsRemoteTarget(params: {
   const matchingTabs = (params.workspaceTabs ?? []).filter(
     (tab) => tab.workspacePath === params.workspacePath,
   );
-  return matchingTabs.length === 1 && hasRemoteWorkspaceMetadata(matchingTabs[0]);
+  return (
+    matchingTabs.length === 1 && hasRemoteWorkspaceMetadata(matchingTabs[0])
+  );
 }
 
 export function useBaseWorkspaceServices(): IServiceAccessor {
   const contextServices = useServices();
-  const registeredBaseServices = useRemoteWorkspaceSessionStore((state) => state.baseServices);
+  const registeredBaseServices = useRemoteWorkspaceSessionStore(
+    (state) => state.baseServices,
+  );
 
   // App 会在当前激活 workspace 外层再套一层 ServiceProvider。
   // 激活远端 tab 后，useServices() 读到的是远端 host；但 timeline/search/workspace
@@ -137,7 +152,9 @@ export function useBaseWorkspaceServices(): IServiceAccessor {
 
 export function useOptionalBaseWorkspaceServices(): IServiceAccessor | null {
   const contextServices = useOptionalServices();
-  const registeredBaseServices = useRemoteWorkspaceSessionStore((state) => state.baseServices);
+  const registeredBaseServices = useRemoteWorkspaceSessionStore(
+    (state) => state.baseServices,
+  );
 
   // usage entitlement 等 app-global 能力曾从当前 workspace ServiceProvider
   // 取服务；远端 tab 在 attachment ready 前会得到断连代理并产生无效 RPC。base host 才是
@@ -158,6 +175,7 @@ export function useWorkspaceServicesResolution(
   preferredRemoteSessionId?: string | null,
   workspaceIdentity?: string | null,
   remoteTarget?: unknown,
+  options?: { unscopedServices?: IServiceAccessor; forceUnscoped?: boolean },
 ): WorkspaceServicesResolution {
   const currentContextServices = useServices();
   const resolvedRemoteSessionId = useResolvedRemoteWorkspaceSessionId(
@@ -166,7 +184,7 @@ export function useWorkspaceServicesResolution(
     workspaceIdentity,
     remoteTarget,
   );
-  const isRemoteTarget = useTabStore((state) =>
+  const inferredRemoteTarget = useTabStore((state) =>
     resolveWorkspaceServiceIsRemoteTarget({
       workspacePath,
       workspaceIdentity,
@@ -182,17 +200,22 @@ export function useWorkspaceServicesResolution(
       workspaceTabs: state.tabs.filter(isWorkspaceTab),
     }),
   );
+  const isRemoteTarget = options?.forceUnscoped ? false : inferredRemoteTarget;
+  const effectiveRemoteSessionId = options?.forceUnscoped
+    ? null
+    : resolvedRemoteSessionId;
   const resolvedServices = useRemoteWorkspaceSessionStore((state) =>
     resolveWorkspaceServicesForTarget({
       currentContextServices,
-      resolvedRemoteSessionId,
+      resolvedRemoteSessionId: effectiveRemoteSessionId,
       baseServices: state.baseServices,
       sessionsById: state.sessionsById,
       isRemoteTarget,
+      unscopedServices: options?.unscopedServices,
     }),
   );
   const connectionKind = isRemoteTarget
-    ? resolvedRemoteSessionId
+    ? effectiveRemoteSessionId
       ? "remote-ready"
       : "remote-waiting"
     : "local-ready";
@@ -205,12 +228,17 @@ export function useWorkspaceServicesResolution(
   return useMemo(
     () => ({
       services: resolvedServices,
-      remoteSessionId: resolvedRemoteSessionId,
+      remoteSessionId: effectiveRemoteSessionId,
       isRemoteTarget,
       connectionKind,
       rpcReady: connectionKind !== "remote-waiting",
     }),
-    [connectionKind, isRemoteTarget, resolvedRemoteSessionId, resolvedServices],
+    [
+      connectionKind,
+      effectiveRemoteSessionId,
+      isRemoteTarget,
+      resolvedServices,
+    ],
   );
 }
 
@@ -219,11 +247,13 @@ export function useWorkspaceServices(
   preferredRemoteSessionId?: string | null,
   workspaceIdentity?: string | null,
   remoteTarget?: unknown,
+  options?: { unscopedServices?: IServiceAccessor; forceUnscoped?: boolean },
 ): IServiceAccessor {
   return useWorkspaceServicesResolution(
     workspacePath,
     preferredRemoteSessionId,
     workspaceIdentity,
     remoteTarget,
+    options,
   ).services;
 }

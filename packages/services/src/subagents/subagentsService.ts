@@ -1,6 +1,21 @@
 /* eslint-disable max-lines */
-import { access, lstat, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  access,
+  lstat,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import {
   createAgentStateId,
   createPluginAgentStateId,
@@ -26,7 +41,10 @@ import {
   type ZCodeProvider,
 } from "@zcode/shared";
 import { normalizeSubagentModelSelection } from "./subagentModelSelection.js";
-import { serializeSubagentMarkdown, parseSubagentMarkdown } from "./subagentMarkdown.js";
+import {
+  serializeSubagentMarkdown,
+  parseSubagentMarkdown,
+} from "./subagentMarkdown.js";
 import {
   resolveSubagentStateFile,
   resolveUserHomeDir,
@@ -131,7 +149,15 @@ function createBuiltInAgents(
       modelSelection: exploreOverride,
       modelSelectionOverride: exploreOverride,
       systemPrompt: "",
-      tools: ["Bash", "Glob", "Grep", "Read", "WebFetch", "WebSearch", "TodoWrite"],
+      tools: [
+        "Bash",
+        "Glob",
+        "Grep",
+        "Read",
+        "WebFetch",
+        "WebSearch",
+        "TodoWrite",
+      ],
       path: "built-in:Explore",
       scope: "built-in",
       source: "built-in",
@@ -158,11 +184,15 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
-async function readAgentStateFile(options?: SubagentsServiceOptions): Promise<AgentsStateFile> {
+async function readAgentStateFile(
+  options?: SubagentsServiceOptions,
+): Promise<AgentsStateFile> {
   return readAgentStateAtPath(await resolveSubagentStateFile(options));
 }
 
-async function readAgentStateAtPath(stateFile: string): Promise<AgentsStateFile> {
+async function readAgentStateAtPath(
+  stateFile: string,
+): Promise<AgentsStateFile> {
   await migrateSubagentStateFile(stateFile);
   try {
     const raw = await readFile(stateFile, "utf-8");
@@ -173,22 +203,29 @@ async function readAgentStateAtPath(stateFile: string): Promise<AgentsStateFile>
       builtInThoughtLevelOverrides?: unknown;
       disabledAgentIds?: unknown;
     };
-    const selections = normalizeBuiltInSelectionOverrides(parsed.builtInModelSelectionOverrides);
+    const selections = normalizeBuiltInSelectionOverrides(
+      parsed.builtInModelSelectionOverrides,
+    );
     return {
       ...parsed,
       builtInModelSelectionOverrides: selections,
-      pluginAgentModelSelectionOverrides: parsePluginSubagentModelSelectionOverrides(
-        parsed.pluginAgentModelSelectionOverrides,
-      ),
+      pluginAgentModelSelectionOverrides:
+        parsePluginSubagentModelSelectionOverrides(
+          parsed.pluginAgentModelSelectionOverrides,
+        ),
       disabledAgentIds: Array.isArray(parsed.disabledAgentIds)
         ? parsed.disabledAgentIds.filter(
-            (id): id is string => typeof id === "string" && id.trim().length > 0,
+            (id): id is string =>
+              typeof id === "string" && id.trim().length > 0,
           )
         : [],
     };
   } catch (error) {
     // 文件缺失/损坏沿用既有空覆盖语义；IO 失败不能伪装为空配置并重新启用已禁用 agent。
-    if (error instanceof SyntaxError || (error as NodeJS.ErrnoException).code === "ENOENT")
+    if (
+      error instanceof SyntaxError ||
+      (error as NodeJS.ErrnoException).code === "ENOENT"
+    )
       return emptyAgentsState();
     throw error;
   }
@@ -241,7 +278,8 @@ async function discoverFileAgents(params: {
         if (parsed.agent) {
           agents.push({
             ...parsed.agent,
-            projectPath: root.scope === "workspace" ? params.workspacePath : undefined,
+            projectPath:
+              root.scope === "workspace" ? params.workspacePath : undefined,
           });
         }
       } catch {
@@ -257,7 +295,10 @@ async function discoverFileAgents(params: {
   return agents;
 }
 
-async function collectAgentMarkdownPaths(rootPath: string, recursive = false): Promise<string[]> {
+export async function collectAgentMarkdownPaths(
+  rootPath: string,
+  recursive = false,
+): Promise<string[]> {
   if (!(await exists(rootPath))) {
     return [];
   }
@@ -273,7 +314,8 @@ async function collectAgentMarkdownPaths(rootPath: string, recursive = false): P
     const entryPath = join(rootPath, entry.name);
     if (entry.isDirectory()) {
       // 自定义 profile 只支持第一层；插件保留已有递归发现规则。
-      if (recursive) result.push(...(await collectAgentMarkdownPaths(entryPath, true)));
+      if (recursive)
+        result.push(...(await collectAgentMarkdownPaths(entryPath, true)));
       continue;
     }
     if (entry.isFile() && /\.(md|markdown)$/iu.test(entry.name)) {
@@ -283,15 +325,21 @@ async function collectAgentMarkdownPaths(rootPath: string, recursive = false): P
   return result.sort((left, right) => left.localeCompare(right));
 }
 
-function resolveCapabilities(options?: SubagentsServiceOptions): AgentsCapability {
-  const isDesktopRuntime = options?.isDesktopRuntime ?? Boolean(process.env.ZCODE_PROCESS_LABEL);
+function resolveCapabilities(
+  options?: SubagentsServiceOptions,
+): AgentsCapability {
+  const isDesktopRuntime =
+    options?.isDesktopRuntime ?? Boolean(process.env.ZCODE_PROCESS_LABEL);
   if (isDesktopRuntime) {
     return { userScopeAvailable: true };
   }
   return { userScopeAvailable: false, userScopeReason: "desktop_only" };
 }
 
-function attachEnabledState(agents: AgentSummary[], state: AgentsStateFile): AgentSummary[] {
+function attachEnabledState(
+  agents: AgentSummary[],
+  state: AgentsStateFile,
+): AgentSummary[] {
   const disabledSet = new Set(state.disabledAgentIds);
   return agents.map((agent) => ({
     ...agent,
@@ -314,9 +362,13 @@ async function discoverPluginAgents(params: {
   storageOptions?: SubagentStorageOptions;
 }): Promise<PluginAgentDiscovery> {
   const storageRoot = await resolveZCodeStorageRoot(params.storageOptions);
-  const cliStorageRoot = basename(storageRoot) === "cli" ? storageRoot : join(storageRoot, "cli");
+  const cliStorageRoot =
+    basename(storageRoot) === "cli" ? storageRoot : join(storageRoot, "cli");
   const pluginConfig = await readPluginConfig(params.storageOptions);
-  const records = await readEnabledPluginRecords(join(cliStorageRoot, "plugins"), pluginConfig);
+  const records = await readEnabledPluginRecords(
+    join(cliStorageRoot, "plugins"),
+    pluginConfig,
+  );
   const parsedAgents: Array<{
     agent: AgentSummary;
     bareName: string;
@@ -324,7 +376,9 @@ async function discoverPluginAgents(params: {
   }> = [];
 
   for (const record of records) {
-    for (const agentPath of await collectPluginAgentMarkdownPaths(record.installPath)) {
+    for (const agentPath of await collectPluginAgentMarkdownPaths(
+      record.installPath,
+    )) {
       try {
         const markdown = await readFile(agentPath, "utf-8");
         const parsed = parseSubagentMarkdown({
@@ -348,7 +402,8 @@ async function discoverPluginAgents(params: {
                 source: "plugin",
                 pluginId: record.id,
                 pluginName: record.name,
-                projectPath: record.scope === "workspace" ? record.projectPath : undefined,
+                projectPath:
+                  record.scope === "workspace" ? record.projectPath : undefined,
               },
               params.state,
             ),
@@ -366,10 +421,16 @@ async function discoverPluginAgents(params: {
     }
   }
 
-  const reservedNames = new Set([...BUILT_IN_AGENT_NAMES, ...params.reservedNames]);
+  const reservedNames = new Set([
+    ...BUILT_IN_AGENT_NAMES,
+    ...params.reservedNames,
+  ]);
   const bareNameCounts = new Map<string, number>();
   for (const parsed of parsedAgents) {
-    bareNameCounts.set(parsed.bareName, (bareNameCounts.get(parsed.bareName) ?? 0) + 1);
+    bareNameCounts.set(
+      parsed.bareName,
+      (bareNameCounts.get(parsed.bareName) ?? 0) + 1,
+    );
   }
 
   const profiles: AgentSummary[] = [];
@@ -377,10 +438,16 @@ async function discoverPluginAgents(params: {
   for (const parsed of parsedAgents) {
     profiles.push(parsed.agent);
     runtimeAgents.push(parsed.agent);
-    if (bareNameCounts.get(parsed.bareName) === 1 && !reservedNames.has(parsed.bareName)) {
+    if (
+      bareNameCounts.get(parsed.bareName) === 1 &&
+      !reservedNames.has(parsed.bareName)
+    ) {
       runtimeAgents.push({
         ...parsed.agent,
-        id: createPluginAgentStateId(`${parsed.agent.id}:alias`, parsed.bareName),
+        id: createPluginAgentStateId(
+          `${parsed.agent.id}:alias`,
+          parsed.bareName,
+        ),
         name: parsed.bareName,
       });
     } else if (reservedNames.has(parsed.bareName)) {
@@ -400,19 +467,33 @@ async function discoverPluginAgents(params: {
 
   return {
     // 裸名称只是同一插件 agent 的运行时调用别名，不能进入一文件一条的 UI 资源投影。
-    profiles: profiles.sort((left, right) => left.name.localeCompare(right.name)),
-    runtimeAgents: runtimeAgents.sort((left, right) => left.name.localeCompare(right.name)),
+    profiles: profiles.sort((left, right) =>
+      left.name.localeCompare(right.name),
+    ),
+    runtimeAgents: runtimeAgents.sort((left, right) =>
+      left.name.localeCompare(right.name),
+    ),
   };
 }
 
-async function readPluginConfig(options?: SubagentStorageOptions): Promise<PluginConfigSummary> {
+async function readPluginConfig(
+  options?: SubagentStorageOptions,
+): Promise<PluginConfigSummary> {
   try {
-    const configPath = join(resolveUserHomeDir(options), ".zcodium", "cli", "config.json");
+    const configPath = join(
+      resolveUserHomeDir(options),
+      ".zcodium",
+      "cli",
+      "config.json",
+    );
     const raw = await readFile(configPath, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
-    if (!isRecord(parsed)) return { enabledPlugins: {}, suppressedBuiltins: [] };
+    if (!isRecord(parsed))
+      return { enabledPlugins: {}, suppressedBuiltins: [] };
     const plugins = isRecord(parsed.plugins) ? parsed.plugins : {};
-    const enabledPlugins = isRecord(plugins.enabledPlugins) ? plugins.enabledPlugins : {};
+    const enabledPlugins = isRecord(plugins.enabledPlugins)
+      ? plugins.enabledPlugins
+      : {};
     return {
       enabledPlugins: Object.fromEntries(
         Object.entries(enabledPlugins).filter(
@@ -420,7 +501,9 @@ async function readPluginConfig(options?: SubagentStorageOptions): Promise<Plugi
         ),
       ),
       suppressedBuiltins: Array.isArray(plugins.suppressedBuiltins)
-        ? plugins.suppressedBuiltins.filter((id): id is string => typeof id === "string")
+        ? plugins.suppressedBuiltins.filter(
+            (id): id is string => typeof id === "string",
+          )
         : [],
     };
   } catch {
@@ -444,15 +527,23 @@ async function readEnabledPluginRecords(
       ),
   );
   const seenIds = new Set(installed.map((record) => record.id));
-  for (const cacheRoot of await scanOfficialPluginCacheRoots(pluginStorageRoot)) {
+  for (const cacheRoot of await scanOfficialPluginCacheRoots(
+    pluginStorageRoot,
+  )) {
     const id = `${cacheRoot.name}@${ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID}`;
     if (seenIds.has(id) || config.suppressedBuiltins.includes(id)) continue;
-    const enabled = config.enabledPlugins[id] ?? DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS.has(id);
+    const enabled =
+      config.enabledPlugins[id] ?? DEFAULT_ENABLED_OFFICIAL_PLUGIN_IDS.has(id);
     if (!enabled) continue;
     for (const versionRoot of cacheRoot.versionRoots) {
       const manifest = await readPluginManifest(versionRoot);
       if (manifest?.name !== cacheRoot.name) continue;
-      records.push({ id, installPath: versionRoot, name: cacheRoot.name, scope: "user" });
+      records.push({
+        id,
+        installPath: versionRoot,
+        name: cacheRoot.name,
+        scope: "user",
+      });
       seenIds.add(id);
       break;
     }
@@ -464,7 +555,10 @@ async function readInstalledPluginRecords(
   pluginStorageRoot: string,
 ): Promise<InstalledPluginRecord[]> {
   try {
-    const raw = await readFile(join(pluginStorageRoot, "installed_plugins.json"), "utf-8");
+    const raw = await readFile(
+      join(pluginStorageRoot, "installed_plugins.json"),
+      "utf-8",
+    );
     const parsed = JSON.parse(raw) as InstalledPluginsStateFile;
     if (!Array.isArray(parsed.plugins)) return [];
     return parsed.plugins.filter(isInstalledPluginRecord);
@@ -473,7 +567,9 @@ async function readInstalledPluginRecords(
   }
 }
 
-function isInstalledPluginRecord(value: unknown): value is InstalledPluginRecord {
+function isInstalledPluginRecord(
+  value: unknown,
+): value is InstalledPluginRecord {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
@@ -482,14 +578,20 @@ function isInstalledPluginRecord(value: unknown): value is InstalledPluginRecord
   );
 }
 
-async function collectPluginAgentMarkdownPaths(rootPath: string): Promise<string[]> {
+async function collectPluginAgentMarkdownPaths(
+  rootPath: string,
+): Promise<string[]> {
   const manifest = await readPluginManifest(rootPath);
   const roots = collectPluginAgentRoots(rootPath, manifest?.agents);
-  const paths = await Promise.all(roots.map((root) => collectAgentMarkdownPaths(root, true)));
+  const paths = await Promise.all(
+    roots.map((root) => collectAgentMarkdownPaths(root, true)),
+  );
   return paths.flat().sort((left, right) => left.localeCompare(right));
 }
 
-async function readPluginManifest(rootPath: string): Promise<Record<string, unknown> | null> {
+async function readPluginManifest(
+  rootPath: string,
+): Promise<Record<string, unknown> | null> {
   for (const relativePath of PLUGIN_MANIFEST_PATHS) {
     try {
       const raw = await readFile(join(rootPath, relativePath), "utf-8");
@@ -502,7 +604,10 @@ async function readPluginManifest(rootPath: string): Promise<Record<string, unkn
   return null;
 }
 
-function collectPluginAgentRoots(rootPath: string, manifestAgents: unknown): string[] {
+function collectPluginAgentRoots(
+  rootPath: string,
+  manifestAgents: unknown,
+): string[] {
   const roots: string[] = [];
   const seen = new Set<string>();
   const root = resolve(rootPath);
@@ -525,13 +630,18 @@ function collectPluginAgentRoots(rootPath: string, manifestAgents: unknown): str
   return roots;
 }
 
-function applyPluginAgentOverrides(agent: AgentSummary, state: AgentsStateFile): AgentSummary {
+function applyPluginAgentOverrides(
+  agent: AgentSummary,
+  state: AgentsStateFile,
+): AgentSummary {
   const override = state.pluginAgentModelSelectionOverrides[agent.id];
   // 插件文件只提供默认值；覆盖替换整份选择，不能混入原模型的档位。
   return {
     ...agent,
     defaultModelSelection: agent.modelSelection,
-    ...(override ? { modelSelection: override, modelSelectionOverride: override } : {}),
+    ...(override
+      ? { modelSelection: override, modelSelectionOverride: override }
+      : {}),
   };
 }
 
@@ -539,19 +649,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function normalizeBuiltInSelectionOverrides(
+/** 内置覆盖的正式读取规则：每项单独校验，非法项丢弃。数据同步按同一规则读取两端。 */
+export function normalizeBuiltInSelectionOverrides(
   structured: unknown,
 ): BuiltInSubagentModelSelectionOverrides {
   const result: BuiltInSubagentModelSelectionOverrides = {};
   const structuredRecord = isRecord(structured) ? structured : {};
-  const generalPurpose = modelSelectionSchema.safeParse(structuredRecord["general-purpose"]).data;
+  const generalPurpose = modelSelectionSchema.safeParse(
+    structuredRecord["general-purpose"],
+  ).data;
   const explore = modelSelectionSchema.safeParse(structuredRecord.Explore).data;
   if (generalPurpose) result["general-purpose"] = generalPurpose;
   if (explore) result.Explore = explore;
   return result;
 }
 
-export function createSubagentsService(options?: SubagentsServiceOptions): ISubagentsService & {
+export function createSubagentsService(
+  options?: SubagentsServiceOptions,
+): ISubagentsService & {
   /** Host 启动/重启 Agent 前准备配置，不暴露为 Renderer RPC。 */
   prepareRuntimeState(workspace?: {
     workspacePath: string;
@@ -594,13 +709,20 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       disposed = true;
       runtimeConfig.dispose();
     },
-    async prepareRuntimeState(workspace?: { workspacePath: string; workspaceIdentity?: string }) {
+    async prepareRuntimeState(workspace?: {
+      workspacePath: string;
+      workspaceIdentity?: string;
+    }) {
       return enqueue(async () => {
         const markdownMigration = await migrateUserSubagentMarkdown(
           await resolveUserSubagentRoot(storageOptions),
         );
         for (const failure of markdownMigration.failures)
-          subagentLogger.warn(undefined, "用户 Subagent Markdown 迁移失败，保留原文件", failure);
+          subagentLogger.warn(
+            undefined,
+            "用户 Subagent Markdown 迁移失败，保留原文件",
+            failure,
+          );
         // state 的迁移由缓存读取入口统一执行，IO 失败同样发布回退，不能提前阻断 CLI 启动。
         await runtimeConfig.prepare(workspace);
       });
@@ -622,12 +744,15 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
         for (const failure of migration.failures)
           diagnostics.push({
             code: "agent_read_failed",
-            message: "Subagent Markdown migration failed; original file preserved",
+            message:
+              "Subagent Markdown migration failed; original file preserved",
             path: failure.path,
           });
       }
       const state = await readAgentStateFile(storageOptions);
-      const builtInAgents = createBuiltInAgents(state.builtInModelSelectionOverrides);
+      const builtInAgents = createBuiltInAgents(
+        state.builtInModelSelectionOverrides,
+      );
       const fileAgents = await discoverFileAgents({
         diagnostics,
         includeUserAgents: capability.userScopeAvailable,
@@ -672,7 +797,10 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       };
     },
 
-    async setEnabled(params: { agentId: string; enabled: boolean }): Promise<void> {
+    async setEnabled(params: {
+      agentId: string;
+      enabled: boolean;
+    }): Promise<void> {
       const runUpdate = async () => {
         const state = await readAgentStateFile(storageOptions);
         const previous = new Set(state.disabledAgentIds);
@@ -688,13 +816,17 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       await mutate(runUpdate);
     },
 
-    async setBuiltInModelOverride(params: BuiltInSubagentModelOverrideParams): Promise<void> {
+    async setBuiltInModelOverride(
+      params: BuiltInSubagentModelOverrideParams,
+    ): Promise<void> {
       const runUpdate = async () => {
         const state = await readAgentStateFile(storageOptions);
         const builtInModelSelectionOverrides = {
           ...state.builtInModelSelectionOverrides,
         };
-        const modelSelection = normalizeSubagentModelSelection(params.modelSelection);
+        const modelSelection = normalizeSubagentModelSelection(
+          params.modelSelection,
+        );
         if (modelSelection) {
           builtInModelSelectionOverrides[params.agentName] = modelSelection;
         } else {
@@ -712,13 +844,20 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       await mutate(runUpdate);
     },
 
-    async setPluginAgentModelOverride(params: PluginSubagentModelOverrideParams): Promise<void> {
-      if (!params.agentId.startsWith("plugin:") || params.agentId.trim() !== params.agentId)
+    async setPluginAgentModelOverride(
+      params: PluginSubagentModelOverrideParams,
+    ): Promise<void> {
+      if (
+        !params.agentId.startsWith("plugin:") ||
+        params.agentId.trim() !== params.agentId
+      )
         throw new Error("无效插件 Subagent 身份");
       const runUpdate = async () => {
         const state = await readAgentStateFile(storageOptions);
         const overrides = { ...state.pluginAgentModelSelectionOverrides };
-        const selection = normalizeSubagentModelSelection(params.modelSelection);
+        const selection = normalizeSubagentModelSelection(
+          params.modelSelection,
+        );
         if (selection) overrides[params.agentId] = selection;
         else delete overrides[params.agentId];
         await writeAgentStateFile(
@@ -729,7 +868,9 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       await mutate(runUpdate);
     },
 
-    async getPrimaryUserAgentsDirectory(_params: { provider: ZCodeProvider }): Promise<{
+    async getPrimaryUserAgentsDirectory(_params: {
+      provider: ZCodeProvider;
+    }): Promise<{
       path: string;
     }> {
       const path = await resolveUserSubagentRoot(storageOptions);
@@ -737,46 +878,74 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
       return { path };
     },
 
-    async createAgent(params: AgentCreateParams): Promise<{ agent: AgentSummary }> {
+    async createAgent(
+      params: AgentCreateParams,
+    ): Promise<{ agent: AgentSummary }> {
       validateUserAgentConfig(params.config);
       assertNotBuiltInName(params.config.name);
 
       const scope = params.scope ?? "user";
       const agentDir =
         scope === "workspace"
-          ? resolveWorkspaceSubagentRoot(requireWorkspacePath(params.workspacePath))
+          ? resolveWorkspaceSubagentRoot(
+              requireWorkspacePath(params.workspacePath),
+            )
           : await resolveUserSubagentRoot(storageOptions);
-      const filePath = join(agentDir, `${params.config.name.trim().toLowerCase()}.md`);
+      const filePath = join(
+        agentDir,
+        `${params.config.name.trim().toLowerCase()}.md`,
+      );
       await mkdir(agentDir, { recursive: true });
       if (await exists(filePath)) {
         throw new Error(`Agent file "${basename(filePath)}" already exists`);
       }
 
       const content = serializeSubagentMarkdown(normalizeConfig(params.config));
-      const agent = parseSavedAgent(content, filePath, scope, params.workspacePath);
+      const agent = parseSavedAgent(
+        content,
+        filePath,
+        scope,
+        params.workspacePath,
+      );
       // 先验证即将写入的 Markdown 可解析，避免 serializer 回归时把坏 profile 落盘。
       await writeFile(filePath, content, { encoding: "utf-8", flag: "wx" });
       return { agent };
     },
 
-    async updateAgent(params: AgentUpdateParams): Promise<{ agent: AgentSummary }> {
+    async updateAgent(
+      params: AgentUpdateParams,
+    ): Promise<{ agent: AgentSummary }> {
       validateUserAgentConfig(params.config);
       assertNotBuiltInName(params.config.name);
 
       const scope = params.scope ?? "user";
       const agentDir =
         scope === "workspace"
-          ? resolveWorkspaceSubagentRoot(requireWorkspacePath(params.workspacePath))
+          ? resolveWorkspaceSubagentRoot(
+              requireWorkspacePath(params.workspacePath),
+            )
           : await resolveUserSubagentRoot(storageOptions);
-      const filePath = join(agentDir, `${params.config.name.trim().toLowerCase()}.md`);
+      const filePath = join(
+        agentDir,
+        `${params.config.name.trim().toLowerCase()}.md`,
+      );
       await mkdir(agentDir, { recursive: true });
 
-      if (params.oldFilePath && params.oldFilePath !== filePath && (await exists(filePath))) {
+      if (
+        params.oldFilePath &&
+        params.oldFilePath !== filePath &&
+        (await exists(filePath))
+      ) {
         throw new Error(`Agent file "${basename(filePath)}" already exists`);
       }
 
       const content = serializeSubagentMarkdown(normalizeConfig(params.config));
-      const agent = parseSavedAgent(content, filePath, scope, params.workspacePath);
+      const agent = parseSavedAgent(
+        content,
+        filePath,
+        scope,
+        params.workspacePath,
+      );
       // 更新时同样先 parse 再覆盖旧文件，避免失败保存破坏已有用户 agent。
       await writeFile(filePath, content, "utf-8");
       // enabled 状态按 agent id 存储；重命名会生成新 id，必须迁移旧禁用记录，
@@ -800,9 +969,12 @@ export function createSubagentsService(options?: SubagentsServiceOptions): ISuba
   };
   return {
     ...service,
-    createAgent: (params: AgentCreateParams) => mutate(() => service.createAgent(params)),
-    updateAgent: (params: AgentUpdateParams) => mutate(() => service.updateAgent(params)),
-    deleteAgent: (params: AgentDeleteParams) => mutate(() => service.deleteAgent(params)),
+    createAgent: (params: AgentCreateParams) =>
+      mutate(() => service.createAgent(params)),
+    updateAgent: (params: AgentUpdateParams) =>
+      mutate(() => service.updateAgent(params)),
+    deleteAgent: (params: AgentDeleteParams) =>
+      mutate(() => service.deleteAgent(params)),
   };
 }
 
@@ -811,8 +983,13 @@ function validateUserAgentConfig(config: SubAgentConfig): void {
   const nameRegex = /^[a-zA-Z0-9-]+$/;
   const minNameLength = 3;
   const maxNameLength = 50;
-  if (trimmedName.length < minNameLength || trimmedName.length > maxNameLength) {
-    throw new Error(`Name must be between ${minNameLength} and ${maxNameLength} characters`);
+  if (
+    trimmedName.length < minNameLength ||
+    trimmedName.length > maxNameLength
+  ) {
+    throw new Error(
+      `Name must be between ${minNameLength} and ${maxNameLength} characters`,
+    );
   }
   if (!nameRegex.test(trimmedName)) {
     throw new Error("Name can only contain letters, numbers, and hyphens");
@@ -827,7 +1004,9 @@ function validateUserAgentConfig(config: SubAgentConfig): void {
 
 function assertNotBuiltInName(name: string): void {
   if (BUILT_IN_AGENT_NAMES.has(name.trim())) {
-    throw new Error(`Agent name "${name.trim()}" is reserved by a built-in agent`);
+    throw new Error(
+      `Agent name "${name.trim()}" is reserved by a built-in agent`,
+    );
   }
 }
 
@@ -867,7 +1046,8 @@ function normalizeConfig(config: SubAgentConfig): SubAgentConfig {
 
 function requireWorkspacePath(workspacePath: string | undefined): string {
   const value = workspacePath?.trim();
-  if (!value) throw new Error("Workspace path is required for workspace subagents");
+  if (!value)
+    throw new Error("Workspace path is required for workspace subagents");
   return value;
 }
 
@@ -883,7 +1063,9 @@ function parseSavedAgent(
     scope,
   });
   if (parsed.diagnostic || !parsed.agent) {
-    throw new Error(parsed.diagnostic?.message ?? `Failed to parse saved agent: ${path}`);
+    throw new Error(
+      parsed.diagnostic?.message ?? `Failed to parse saved agent: ${path}`,
+    );
   }
   return {
     ...parsed.agent,

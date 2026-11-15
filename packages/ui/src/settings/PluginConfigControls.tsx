@@ -1,6 +1,10 @@
 import { Eye, EyeOff, RotateCcw, Save, Trash2 } from "lucide-react";
 import { useState } from "react";
-import type { ZCodePluginInfo, ZCodePluginScope, ZCodePluginUserConfigOption } from "@zcode/shared";
+import type {
+  ZCodePluginInfo,
+  ZCodePluginScope,
+  ZCodePluginUserConfigOption,
+} from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { Switch } from "@/components/ui/switch.js";
@@ -16,8 +20,12 @@ interface PluginConfigControlsProps {
   isOptionClearPending?: (pluginId: string, key: string) => boolean;
   onClearOption?: (pluginId: string, key: string, clear: boolean) => void;
   onSave: (plugin: ZCodePluginInfo) => void;
-  onSetDraft: (pluginId: string, key: string, value: string | number | boolean) => void;
-  operationId: string | null;
+  onSetDraft: (
+    pluginId: string,
+    key: string,
+    value: string | number | boolean,
+  ) => void;
+  activeOperations: ReadonlyArray<{ id: string }>;
   plugin: ZCodePluginInfo;
   scope: ZCodePluginScope;
 }
@@ -28,16 +36,20 @@ export function PluginConfigControls({
   onClearOption,
   onSave,
   onSetDraft,
-  operationId,
+  activeOperations,
   plugin,
   scope,
 }: PluginConfigControlsProps) {
   const { intl } = useZCodeIntl();
-  const [revealedSecrets, setRevealedSecrets] = useState<Record<string, boolean>>({});
+  const [revealedSecrets, setRevealedSecrets] = useState<
+    Record<string, boolean>
+  >({});
   const entries = Object.entries(plugin.userConfig ?? {});
   if (entries.length === 0) return null;
 
-  const isSaving = operationId === `plugin:configure:${plugin.id}`;
+  const isSaving = activeOperations.some(
+    (operation) => operation.id === `plugin:configure:${plugin.id}`,
+  );
   return (
     <div
       className="mt-3 border-t border-border pt-3"
@@ -99,7 +111,9 @@ export function PluginConfigControls({
                     })}
                   </span>
                 ) : null}
-                <SettingsScopeBadge scope={plugin.optionSources?.[key] ?? "default"} />
+                <SettingsScopeBadge
+                  scope={plugin.optionSources?.[key] ?? "default"}
+                />
               </span>
               {option.sensitive ? (
                 <div className="flex items-center gap-1">
@@ -111,7 +125,9 @@ export function PluginConfigControls({
                     className="h-8 min-w-0 flex-1 rounded-lg"
                     value={String(value)}
                     disabled={isSaving}
-                    onChange={(event) => onSetDraft(plugin.id, key, event.target.value)}
+                    onChange={(event) =>
+                      onSetDraft(plugin.id, key, event.target.value)
+                    }
                   />
                   <Button
                     type="button"
@@ -150,7 +166,9 @@ export function PluginConfigControls({
                     data-config-key={key}
                     checked={Boolean(value)}
                     disabled={isSaving}
-                    onCheckedChange={(checked) => onSetDraft(plugin.id, key, checked)}
+                    onCheckedChange={(checked) =>
+                      onSetDraft(plugin.id, key, checked)
+                    }
                   />
                   {clearButton}
                 </div>
@@ -164,7 +182,9 @@ export function PluginConfigControls({
                     className="h-8 min-w-0 flex-1 rounded-lg"
                     value={String(value)}
                     disabled={isSaving}
-                    onChange={(event) => onSetDraft(plugin.id, key, event.target.value)}
+                    onChange={(event) =>
+                      onSetDraft(plugin.id, key, event.target.value)
+                    }
                   />
                   {clearButton}
                 </div>

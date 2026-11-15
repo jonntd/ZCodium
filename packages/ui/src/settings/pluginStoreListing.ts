@@ -17,6 +17,7 @@ import {
   resolvePluginDisplayName,
   ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
 } from "@zcode/shared";
+import { isExtensionEngineCompatible } from "@zcode/shared/extension-host";
 import { DEFAULT_MARKETPLACE_ID } from "@/settings/recommendedPlugins.js";
 import { pluginSearchMatches } from "@/settings/pluginSearch.js";
 
@@ -72,48 +73,145 @@ export interface StorePluginItem {
 // 市场和右侧推荐共用按插件的忙碌判定，避免安装一个插件时禁用整个推荐列表。
 export function isItemBusy(
   item: StorePluginItem,
-  actions: { activeOperations: ReadonlyArray<{ id: string }>; togglingPluginId: string | null },
+  actions: {
+    activeOperations: ReadonlyArray<{ id: string }>;
+    togglingPluginId: string | null;
+  },
 ): boolean {
   return (
     actions.activeOperations.some(
-      (operation) => operation.id === `plugin:install:${item.name}@${item.marketplace}`,
+      (operation) =>
+        operation.id === `plugin:install:${item.name}@${item.marketplace}`,
     ) ||
-    actions.activeOperations.some((operation) => operation.id === `plugin:restore:${item.id}`) ||
-    actions.activeOperations.some((operation) => operation.id === `plugin:uninstall:${item.id}`) ||
-    actions.activeOperations.some((operation) => operation.id === `plugin:update:${item.id}`) ||
+    actions.activeOperations.some(
+      (operation) => operation.id === `plugin:restore:${item.id}`,
+    ) ||
+    actions.activeOperations.some(
+      (operation) => operation.id === `plugin:uninstall:${item.id}`,
+    ) ||
+    actions.activeOperations.some(
+      (operation) => operation.id === `plugin:update:${item.id}`,
+    ) ||
     actions.activeOperations.some(
       (operation) => operation.id === `plugin:reset-config:${item.id}`,
     ) ||
     // 保存配置也是同插件写操作；漏掉它时恢复默认、更新可在保存期间被点击。
-    actions.activeOperations.some((operation) => operation.id === `plugin:configure:${item.id}`) ||
+    actions.activeOperations.some(
+      (operation) => operation.id === `plugin:configure:${item.id}`,
+    ) ||
     actions.togglingPluginId === item.id
   );
 }
 
-export function isUiPluginItem(item: StorePluginItem): boolean {
-  // 已安装清单优先于目录宣传；禁用仍保留经过校验的 surface 元数据。
-  if (item.info) return Boolean(item.info.uiSurfaces?.length);
-  return Boolean(
-    (item.installedMeta?.componentTypes ?? item.summary?.componentTypes)?.includes("ui"),
-  );
-}
-
-export type PluginUpdateStatus = NonNullable<ZCodeInstalledPluginSummary["updateStatus"]>;
+export type PluginUpdateStatus = NonNullable<
+  ZCodeInstalledPluginSummary["updateStatus"]
+>;
 
 export function isPluginUpdatePending(
   updateStatus: PluginUpdateStatus | undefined,
 ): updateStatus is Exclude<PluginUpdateStatus, "none"> {
-  return updateStatus === "update-available" || updateStatus === "version-changed";
+  return (
+    updateStatus === "update-available" || updateStatus === "version-changed"
+  );
+}
+
+/**
+ * 目录里的这一版带扩展，且本 App 的插件 API 版本跑不了它（docs/plugins/plugin-publishing.md §3.2、§4.3）。
+ * 用扩展进程加载清单时的同一个判断；范围写法不认识时也算不兼容（新版 App 可能认识）。
+ * 没有扩展摘要（不带扩展，或旧 CLI 没给）时不挡，装上后由扩展进程判「版本不兼容」。
+ */
+export function isExtensionIncompatible(
+  listing: Pick<ZCodePluginStoreListing, "extensionSummary"> | undefined,
+): boolean {
+  const range = listing?.extensionSummary?.engines.zcode;
+  return range !== undefined && !isExtensionEngineCompatible(range);
+}
+
+/** 未安装条目要先更新 ZCode 才能装。卡片、详情页按钮与 handleInstall 共用这一个判断。 */
+export function isStoreItemInstallBlocked(
+  item: Pick<StorePluginItem, "installed" | "restorable" | "listing">,
+): boolean {
+  return (
+    !item.installed && !item.restorable && isExtensionIncompatible(item.listing)
+  );
+}
+
+/**
+ * CLI 只按版本号报更新；目录最新版不兼容时 App 不提示更新（§4.3）。
+ * 已装插件的 listing 来自目录最新版条目，所以这里看的是最新版的扩展摘要。
+ */
+export function hasInstallableUpdate(
+  summary:
+    | Pick<ZCodeInstalledPluginSummary, "updateStatus" | "listing">
+    | undefined,
+): boolean {
+  return (
+    isPluginUpdatePending(summary?.updateStatus) &&
+    !isExtensionIncompatible(summary?.listing)
+  );
 }
 
 /**
  * 孤立插件可能保留删除来源前的 updateStatus；若各入口只判断该缓存状态，
- * 详情页会在菜单已禁用更新时仍显示更新按钮。更新能力必须同时满足“来源存在”和“有更新”。
+ * 详情页会在菜单已禁用更新时仍显示更新按钮。更新能力必须同时满足“来源存在”和“有可装的更新”。
  */
 export function canUpdatePluginItem(
   item: Pick<StorePluginItem, "installedMeta" | "orphaned"> | null | undefined,
 ): boolean {
-  return Boolean(item && !item.orphaned && isPluginUpdatePending(item.installedMeta?.updateStatus));
+  return Boolean(
+    item && !item.orphaned && hasInstallableUpdate(item.installedMeta),
+  );
+}
+
+/**
+ * 「全部更新」每轮读 store 判断是否仍需更新：updateStatus 要等 loadInto 结束才变 none，
+ * 行内更新已发出但未结束时只能靠 activeOperations 识别，否则同一插件会并发两次 plugins/update。
+ */
+export function needsPluginUpdate(
+  state: {
+    installedPlugins: readonly Pick<
+      ZCodeInstalledPluginSummary,
+      "id" | "updateStatus" | "listing"
+    >[];
+    activeOperations: readonly { id: string }[];
+  },
+  pluginId: string,
+): boolean {
+  if (
+    state.activeOperations.some(
+      (operation) => operation.id === `plugin:update:${pluginId}`,
+    )
+  ) {
+    return false;
+  }
+  return hasInstallableUpdate(
+    state.installedPlugins.find((plugin) => plugin.id === pluginId),
+  );
+}
+
+/**
+ * 「全部更新」：逐个等待单插件更新，单个失败（含抛错）不中断后续插件。
+ * guard 读 store 当前状态：批量耗时较长，期间用户可能切换 Scope 或在行内先更新了某个插件。
+ * 上下文变化即中止，且不计入切换期间完成的那一个（runWorkspaceOperation 此时返回 false，但可能已落盘）。
+ */
+export async function updatePluginsSerially(
+  pluginIds: readonly string[],
+  update: (pluginId: string) => Promise<boolean>,
+  guard: {
+    isCurrent: () => boolean;
+    needsUpdate: (pluginId: string) => boolean;
+  },
+): Promise<{ succeeded: string[]; failed: string[]; aborted: boolean }> {
+  const succeeded: string[] = [];
+  const failed: string[] = [];
+  for (const pluginId of pluginIds) {
+    if (!guard.isCurrent()) return { succeeded, failed, aborted: true };
+    if (!guard.needsUpdate(pluginId)) continue;
+    const ok = await update(pluginId).catch(() => false);
+    if (!guard.isCurrent()) return { succeeded, failed, aborted: true };
+    (ok ? succeeded : failed).push(pluginId);
+  }
+  return { succeeded, failed, aborted: false };
 }
 
 export function resolveLocalizedList(
@@ -126,24 +224,37 @@ export function resolveLocalizedList(
     if (exact && exact.length > 0) return exact;
     const language = locale.split("-")[0];
     if (language) {
-      const match = Object.entries(i18n).find(([key]) => key.split("-")[0] === language);
+      const match = Object.entries(i18n).find(
+        ([key]) => key.split("-")[0] === language,
+      );
       if (match?.[1] && match[1].length > 0) return match[1];
     }
   }
   return base && base.length > 0 ? base : undefined;
 }
 
-export function formatCanonicalMarketplaceName(name: string, locale: string): string {
+export function formatCanonicalMarketplaceName(
+  name: string,
+  locale: string,
+): string {
   return formatCanonicalPluginName(name, locale);
 }
 
-export function resolveItemDisplayName(item: StorePluginItem, locale: string): string {
+export function resolveItemDisplayName(
+  item: StorePluginItem,
+  locale: string,
+): string {
   return resolvePluginDisplayName(item, locale);
 }
 
-export function resolveItemDescription(item: StorePluginItem, locale: string): string | undefined {
+export function resolveItemDescription(
+  item: StorePluginItem,
+  locale: string,
+): string | undefined {
   const base =
-    item.summary?.description ?? item.info?.description ?? item.installedMeta?.description;
+    item.summary?.description ??
+    item.info?.description ??
+    item.installedMeta?.description;
   return resolveLocalizedText(locale, base, item.listing?.descriptionI18n);
 }
 
@@ -156,7 +267,9 @@ export function resolveManagedPluginDisplay(
   const matchingItem = item?.id === plugin.id ? item : undefined;
   return {
     name: resolvePluginDisplayName(matchingItem ?? plugin, locale),
-    description: matchingItem ? resolveItemDescription(matchingItem, locale) : plugin.description,
+    description: matchingItem
+      ? resolveItemDescription(matchingItem, locale)
+      : plugin.description,
   };
 }
 
@@ -182,6 +295,25 @@ export interface StoreCategoryGroup {
   items: StorePluginItem[];
 }
 
+export type PluginStoreSegment = "public" | "community" | "personal";
+
+export function resolvePluginStoreSegment(
+  item: StorePluginItem,
+): PluginStoreSegment {
+  if (!isPublicStoreMarketplaceId(item.marketplace)) return "personal";
+  return item.listing?.publisherType === "community" ? "community" : "public";
+}
+
+export function isUiPluginItem(item: StorePluginItem): boolean {
+  // 已安装清单优先于目录宣传；禁用仍保留经过校验的 surface 元数据。
+  if (item.info) return Boolean(item.info.uiSurfaces?.length);
+  return Boolean(
+    (
+      item.installedMeta?.componentTypes ?? item.summary?.componentTypes
+    )?.includes("ui"),
+  );
+}
+
 /** 个人分段的市场分组：marketplace 是排序键，title 是展示名。 */
 export interface PersonalMarketplaceGroup {
   marketplace: string;
@@ -202,7 +334,9 @@ export function sortMarketplaceSources(
   marketplaces: readonly ZCodePluginMarketplaceSummary[],
   locale: string,
 ): ZCodePluginMarketplaceSummary[] {
-  const officialRank = new Map(OFFICIAL_MARKETPLACE_ORDER.map((id, index) => [id, index]));
+  const officialRank = new Map(
+    OFFICIAL_MARKETPLACE_ORDER.map((id, index) => [id, index]),
+  );
   return marketplaces.toSorted((left, right) => {
     const leftRank = officialRank.get(left.id);
     const rightRank = officialRank.get(right.id);
@@ -232,7 +366,9 @@ export function sortPersonalMarketplaceGroups(
 ): PersonalMarketplaceGroup[] {
   const lastUpdatedById = new Map(
     marketplaces.flatMap((marketplace) =>
-      marketplace.lastUpdated ? ([[marketplace.id, marketplace.lastUpdated]] as const) : [],
+      marketplace.lastUpdated
+        ? ([[marketplace.id, marketplace.lastUpdated]] as const)
+        : [],
     ),
   );
   return groups.toSorted((left, right) => {
@@ -257,7 +393,9 @@ export function buildStoreItems(input: {
   restorableBuiltins: ZCodeAvailablePluginSummary[];
 }): StorePluginItem[] {
   const infoById = new Map(input.plugins.map((plugin) => [plugin.id, plugin]));
-  const metaById = new Map(input.installedPlugins.map((item) => [item.id, item]));
+  const metaById = new Map(
+    input.installedPlugins.map((item) => [item.id, item]),
+  );
   const marketplaceIds = new Set(input.marketplaces.map((item) => item.id));
   const items = new Map<string, StorePluginItem>();
 
@@ -268,13 +406,17 @@ export function buildStoreItems(input: {
       name: summary.name,
       marketplace: summary.marketplace,
       installed:
-        info?.packageStatus === "missing" ? false : summary.installed || info !== undefined,
+        info?.packageStatus === "missing"
+          ? false
+          : summary.installed || info !== undefined,
       restorable: false,
       orphaned: false,
       ...(summary.listing ? { listing: summary.listing } : {}),
       summary,
       ...(info ? { info } : {}),
-      ...(metaById.get(summary.id) ? { installedMeta: metaById.get(summary.id) } : {}),
+      ...(metaById.get(summary.id)
+        ? { installedMeta: metaById.get(summary.id) }
+        : {}),
     });
   }
   for (const summary of input.restorableBuiltins) {
@@ -284,7 +426,9 @@ export function buildStoreItems(input: {
       // Marketplace ownership 时才覆盖为 restorable。若 installed/installedMeta/info
       // 已表明同名 CDN 插件归用户所有，必须保留 installed，避免详情页误显示 Restore。
       const hasMarketplaceOwnership =
-        existing.installed || existing.installedMeta !== undefined || existing.info !== undefined;
+        existing.installed ||
+        existing.installedMeta !== undefined ||
+        existing.info !== undefined;
       if (hasMarketplaceOwnership) continue;
       items.set(summary.id, {
         ...existing,
@@ -327,7 +471,9 @@ export function buildStoreItems(input: {
         info.source === "cache" &&
         !marketplaceIds.has(info.marketplace),
       info,
-      ...(metaById.get(info.id) ? { installedMeta: metaById.get(info.id) } : {}),
+      ...(metaById.get(info.id)
+        ? { installedMeta: metaById.get(info.id) }
+        : {}),
     });
   }
   return [...items.values()];
@@ -374,15 +520,23 @@ export function groupItemsByCategory(
     order,
   );
   for (const item of sorted) {
-    const category = resolveStoreCategory(item.listing?.category) ?? FALLBACK_CATEGORY;
+    const category =
+      resolveStoreCategory(item.listing?.category) ?? FALLBACK_CATEGORY;
     const group = groups.get(category) ?? [];
     group.push(item);
     groups.set(category, group);
   }
-  return [...groups.entries()].map(([category, items]) => ({ category, items }));
+  return [...groups.entries()].map(([category, items]) => ({
+    category,
+    items,
+  }));
 }
 
-export function storeItemMatches(item: StorePluginItem, keyword: string, locale: string): boolean {
+export function storeItemMatches(
+  item: StorePluginItem,
+  keyword: string,
+  locale: string,
+): boolean {
   return pluginSearchMatches(
     keyword,
     [
@@ -394,7 +548,11 @@ export function storeItemMatches(item: StorePluginItem, keyword: string, locale:
       item.listing?.category ?? "",
       item.listing?.author ?? "",
     ],
-    [item.name, item.listing?.displayName, ...Object.values(item.listing?.displayNameI18n ?? {})],
+    [
+      item.name,
+      item.listing?.displayName,
+      ...Object.values(item.listing?.displayNameI18n ?? {}),
+    ],
   );
 }
 
