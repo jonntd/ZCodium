@@ -33,6 +33,11 @@ test('legacy telemetry credentials are discarded without retaining a capture API
 });
 test('TTFT recorder and standalone protocol notification are removed', async () => {
   await assert.rejects(access(new URL('apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/local-ttft.ts', root)));
-  assert.doesNotMatch(await read('packages/shared/src/zcode-protocol-v4/transport.ts'), /v4\/telemetry\/local-ttft/);
-  assert.doesNotMatch(await read('apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/v4-gateway.ts'), /LocalTtftRecorder|emitLocalTtftFacts/);
+  // A2（与 ui 守卫同口径）：fork 在 cb4ba336「阶段 2a 前置扩展」里有意把
+  // V4_NOTIFICATIONS.localTtftFacts 这条**协议路径常量**重新并入 shared transport，
+  // 用于与上游 v4 通知表保持结构对齐；它是死路径（fork 已在 b9b5ed1b 删掉
+  // localTtftFactsEmitter、且全仓无代码读取 V4_NOTIFICATIONS.localTtftFacts，不产生
+  // egress），故不再视为违规。真正的“采集/上报入口”由下面两条钉死：recorder 文件必须
+  // 保持删除（上面的 ENOENT），v4-gateway 不得出现 LocalTtftRecorder/emitLocalTtftFacts。
+  await assert.doesNotMatch(await read('apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/v4-gateway.ts'), /LocalTtftRecorder|emitLocalTtftFacts/);
 });
