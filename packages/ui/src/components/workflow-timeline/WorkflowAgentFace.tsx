@@ -92,11 +92,18 @@ function Eyes() {
 export function WorkflowAgentFace({
   avatarIndex,
   className,
+  color,
   name,
   status,
 }: {
   avatarIndex: number | undefined;
   className?: string;
+  // 调用方（如 SubagentsSection）按业务色（SUBAGENT_WORKFLOW_COLOR）显式传入时优先使用；
+  // 不传（如 WorkflowAgentPill 等旧调用点）保持原样按 avatarIndex/name 派生，行为不变。
+  color?: string;
+  // 保留调用方传来的动效语义位：本组件当前只有 idle 一种动效（data-motion 固定 idle），
+  // 故仅纳入类型以对齐调用方契约，不引入未使用绑定。
+  idle?: boolean;
   name: string;
   status: StepRunStatus | undefined;
 }) {
@@ -105,7 +112,9 @@ export function WorkflowAgentFace({
   useEffect(() => {
     if (ref.current) return startFaceMotion(ref.current, state);
   }, [state]);
-  const style = { "--wf-face-body": agentColor(avatarIndex, name) } as CSSProperties;
+  const style = {
+    "--wf-face-body": color ?? agentColor(avatarIndex, name),
+  } as CSSProperties;
   return (
     <svg
       aria-hidden

@@ -21,6 +21,10 @@ import {
 export function useWorkspaceHookInlineTrust(input: {
   workspacePath?: string | null;
   workspaceIdentity?: string;
+  // 调用方（如 HooksSection 的 cacheAuthorityKey）按 workspace 身份传入的缓存/身份键。
+  // 本 hook 当前的信任判定只用 workspacePath/workspaceIdentity，authorityKey 暂未参与；
+  // 纳入入参类型只为对齐调用方契约（v3.18.2 合流时调用方已显式传该字段），不引入未使用绑定。
+  authorityKey?: string;
   hooksService?: IHooksService;
   rpcReady?: boolean;
 }) {

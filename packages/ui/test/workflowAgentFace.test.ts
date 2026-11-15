@@ -45,6 +45,26 @@ describe("WorkflowAgentFace", () => {
     expect(agentColor(undefined, "Ada")).toBe(avatarColor("Ada"));
   });
 
+  // v3.18.2 合流：调用方（SubagentsSection）按业务色显式传入 color 时优先采用，
+  // 不传则保持按 avatarIndex/name 派生（旧行为，WorkflowAgentPill 等调用点不受影响）。
+  it("显式 color 覆盖派生色；不传则回退 avatarIndex/name 派生", () => {
+    const withColor = render(
+      createElement(WorkflowAgentFace, {
+        avatarIndex: 0,
+        name: "Ada",
+        status: "running",
+        color: "#AABBCC",
+      }),
+    );
+    expect(face(withColor).style.getPropertyValue("--wf-face-body")).toBe("#AABBCC");
+    withColor.unmount();
+    const withoutColor = render(
+      createElement(WorkflowAgentFace, { avatarIndex: 0, name: "Ada", status: "running" }),
+    );
+    expect(face(withoutColor).style.getPropertyValue("--wf-face-body")).toBe(agentColor(0, "Ada"));
+    withoutColor.unmount();
+  });
+
   it("基础表情遵循执行状态，采用 20 格 r7 和 4×6 白色 pill 几何", () => {
     for (const [status, expression] of [
       ["pending", "dots"],
