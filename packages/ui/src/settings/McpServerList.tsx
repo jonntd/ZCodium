@@ -1,10 +1,9 @@
+import { type McpServerStatus, type ZCodeMcpServer } from "@zcode/shared";
 import {
   TID_MCP_OPEN_AUTHORIZATION_BUTTON,
   TID_MCP_SERVER_ROW,
   testId,
-  type McpServerStatus,
-  type ZCodeMcpServer,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import { Switch } from "@/components/ui/switch.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -16,7 +15,7 @@ import {
   resolveMcpFailureMessageId,
 } from "@/settings/McpFailurePresentation.js";
 import { SettingsResourceList } from "@/settings/SettingsResourceGroup.js";
-import { CircleIcon, Cable, Loader2Icon, ExternalLink, Plus } from "lucide-react";
+import { CircleIcon, Cable, LoaderCircle, ExternalLink, Plus } from "lucide-react";
 
 export function McpStatusDot({
   status,
@@ -37,13 +36,13 @@ export function McpStatusDot({
         ? "text-yellow-500"
         : status === "error"
           ? "text-red-500"
-          : attention
-            ? "text-yellow-500"
+          : attention || status === "untrusted"
+            ? "text-warning"
             : "text-foreground-subtlest";
 
   const icon =
     !disabled && status === "connecting" ? (
-      <Loader2Icon className={`size-3 shrink-0 animate-spin ${color}`} aria-hidden="true" />
+      <LoaderCircle className={`size-3 shrink-0 animate-spin ${color}`} aria-hidden="true" />
     ) : (
       <CircleIcon className={`size-2.5 shrink-0 fill-current ${color}`} aria-hidden="true" />
     );
@@ -65,12 +64,14 @@ function McpServerItem({
   onEdit,
   onToggle,
   onOpenAuthorization,
+  onTrust,
   hideMetadata,
 }: {
   server: ZCodeMcpServer;
   onEdit: (server: ZCodeMcpServer) => void;
   onToggle: (id: string, enabled: boolean) => void;
   onOpenAuthorization?: (server: ZCodeMcpServer) => void;
+  onTrust?: (server: ZCodeMcpServer) => void;
   hideMetadata: boolean;
 }) {
   const { intl } = useZCodeIntl();
@@ -84,26 +85,32 @@ function McpServerItem({
   });
   const statusReason = intl.formatMessage({
     id:
-      server.status === "error"
-        ? resolveMcpFailureMessageId(server.failureKind)
-        : server.status === "connected"
-          ? "settings.mcp.status.connectedReason"
-          : server.status === "connecting"
-            ? "settings.mcp.status.connectingReason"
-            : server.status === "disconnected"
-              ? "settings.mcp.status.disconnectedReason"
-              : "settings.mcp.status.unknownReason",
+      server.status === "untrusted"
+        ? "settings.mcp.trust.pending"
+        : server.status === "error"
+          ? resolveMcpFailureMessageId(server.failureKind)
+          : server.status === "connected"
+            ? "settings.mcp.status.connectedReason"
+            : server.status === "connecting"
+              ? "settings.mcp.status.connectingReason"
+              : server.status === "disconnected"
+                ? "settings.mcp.status.disconnectedReason"
+                : "settings.mcp.status.unknownReason",
   });
 
-  const description = server.config.url
-    ? `${typeLabel} · ${server.config.url}`
-    : server.config.command
-      ? `${typeLabel} · ${server.config.command} ${(server.config.args ?? []).join(" ")}`
-      : typeLabel;
+  // 工作区声明只在 Host 脱敏的审核摘要中展示，列表不能先泄露 args/URL 里的凭据。
+  const description =
+    server.scope === "workspace"
+      ? typeLabel
+      : server.config.url
+        ? `${typeLabel} · ${server.config.url}`
+        : server.config.command
+          ? `${typeLabel} · ${server.config.command} ${(server.config.args ?? []).join(" ")}`
+          : typeLabel;
 
   return (
     <div
-      className={`grid cursor-default grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 transition-colors ${canEdit ? "hover:bg-hover" : ""}`}
+      className={`grid cursor-default ${server.scope === "workspace" && onTrust ? "grid-cols-[auto_minmax(0,1fr)] sm:grid-cols-[auto_minmax(0,1fr)_auto]" : "grid-cols-[auto_minmax(0,1fr)_auto]"} items-center gap-3 px-4 py-3 transition-colors ${canEdit ? "hover:bg-hover" : ""}`}
       {...settingsResourceRowInteraction(canEdit ? () => onEdit(server) : undefined)}
       data-mcp-status={server.status ?? ""}
       data-mcp-tool-count={server.toolCount}
@@ -114,7 +121,7 @@ function McpServerItem({
         data-mcp-status-dot-placement="icon-corner"
       >
         <Cable className="size-4" aria-hidden="true" />
-        <span className="absolute -end-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-background">
+        <span className="absolute -right-1 -bottom-1 flex size-4 items-center justify-center rounded-full bg-background">
           <McpStatusDot status={server.status} reason={statusReason} />
         </span>
       </div>
@@ -132,11 +139,45 @@ function McpServerItem({
           )}
         </div>
         <div className="mt-1 truncate text-ui-sm text-foreground-subtle">{description}</div>
+        {server.scope === "workspace" &&
+        (server.workspaceTrust || server.status === "untrusted") ? (
+          <div
+            className="mt-1 text-ui-sm text-foreground-subtle"
+            data-mcp-trusted={server.workspaceTrust?.trusted ?? false}
+          >
+            {intl.formatMessage({
+              id: server.workspaceTrust?.trusted
+                ? "settings.mcp.trust.trusted"
+                : "settings.mcp.trust.pending",
+            })}
+          </div>
+        ) : null}
         {server.status === "error" ? (
           <McpFailurePresentation error={server.error} failureKind={server.failureKind} />
         ) : null}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      {/* 手机窄屏把新增信任按钮放到下一行，避免挤压声明名称和信任状态。 */}
+      <div
+        className={`flex shrink-0 items-center gap-2 ${server.scope === "workspace" && onTrust ? "col-span-2 justify-self-end sm:col-span-1" : ""}`}
+      >
+        {server.scope === "workspace" && onTrust ? (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!server.workspaceTrust}
+            data-testid={testId("mcp-workspace-trust", server.name)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onTrust(server);
+            }}
+          >
+            {intl.formatMessage({
+              id: server.workspaceTrust?.trusted
+                ? "settings.mcp.trust.revoke"
+                : "settings.mcp.trust.action",
+            })}
+          </Button>
+        ) : null}
         {canOpenAuthorization && (
           <Button
             variant="link"
@@ -163,6 +204,7 @@ export function McpServerList({
   onEdit,
   onToggle,
   onOpenAuthorization,
+  onTrust,
   emptyTitle,
   emptyDescription,
   hideMetadata = false,
@@ -172,6 +214,7 @@ export function McpServerList({
   onEdit: (server: ZCodeMcpServer) => void;
   onToggle: (id: string, enabled: boolean) => void;
   onOpenAuthorization?: (server: ZCodeMcpServer) => void;
+  onTrust?: (server: ZCodeMcpServer) => void;
   emptyTitle: string;
   emptyDescription: string;
   hideMetadata?: boolean;
@@ -205,6 +248,7 @@ export function McpServerList({
           onEdit={onEdit}
           onToggle={onToggle}
           onOpenAuthorization={onOpenAuthorization}
+          onTrust={onTrust}
           hideMetadata={hideMetadata}
         />
       )}

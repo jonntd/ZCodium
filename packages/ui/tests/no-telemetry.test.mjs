@@ -16,21 +16,27 @@ async function sources(dir) {
   );
   return nested.flat();
 }
+// A2（保持移除遥测，但允许 v3.18.2 上游空桥）：fork 经 763c3e33/d430d8d0 有意把
+// reportTelemetryEvent / reportArmsCustomEvent 收成 IPlatformService 的“空桥”契约
+// （web/src/main.tsx 空实现、data-sync 退化为直通回调，宿主侧不采集），因此这两个符号
+// 不再是违规；本守卫继续拦的是“真实采集/上报入口”——runUserAction / startUserAction /
+// ConversationTelemetrySupervisor / reportAppTelemetryEvent / 直接 import 的 /telemetry/ 模块。
 test("UI and platform adapters have no telemetry collection or reporting entrypoints", async () => {
   for (const dir of ["packages/ui/src", "packages/web/src", "packages/desktop/src/renderer"]) {
     for (const file of await sources(root + dir)) {
       assert.doesNotMatch(
         await readFile(file, "utf8"),
-        /reportTelemetryEvent|reportArmsCustomEvent|reportAppTelemetryEvent|runUserAction|startUserAction|ConversationTelemetrySupervisor|\/telemetry\//,
+        /reportAppTelemetryEvent|runUserAction|startUserAction|ConversationTelemetrySupervisor|\/telemetry\//,
         file,
       );
     }
   }
 });
+// platform.ts 允许保留上面那组“空桥”方法（不产生 egress），但不得引入真实采集/上报入口。
 test("platform and server do not expose or initialize reporting", async () => {
   assert.doesNotMatch(
     await readFile(root + "packages/shared/src/platform.ts", "utf8"),
-    /reportTelemetryEvent|reportArmsCustomEvent|RendererActionTrace/,
+    /reportAppTelemetryEvent|runUserAction|startUserAction|ConversationTelemetrySupervisor|\/telemetry\//,
   );
   for (const dir of ["packages/server/src", "packages/zcode-server-cli/src"]) {
     for (const file of await sources(root + dir))
