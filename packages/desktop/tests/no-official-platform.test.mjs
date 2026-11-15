@@ -88,31 +88,15 @@ test("audit policy is unconditional and distinguishes platform from model provid
   ])
     policy.assertNoOfficialPlatformUrl(url);
 });
-test("user model requests keep URL, credentials and body without the official gateway", async () => {
-  const policy = await load("packages/shared/src/officialPlatformPolicy.ts");
-  const gateway = await load(
-    "apps/zcode-cli/packages/adapters/src/model/official-coding-plan-gateway.ts",
-    { "@zcode/shared": policy },
-  );
-  let calls = 0;
-  const input = new Request("https://open.bigmodel.cn/api/anthropic/v1/messages", {
-    method: "POST",
-    headers: { authorization: "Bearer test" },
-    body: "{}",
-  });
-  const fetch = gateway.createOfficialCodingPlanGatewayFetch({
-    fetch: async (actual, init) => {
-      calls++;
-      assert.equal(actual, input);
-      assert.equal(init, undefined);
-      return new Response("ok");
-    },
-  });
-  assert.equal((await fetch(input)).status, 200);
-  assert.equal(calls, 1);
-  await assert.rejects(fetch("https://zcode.z.ai/api/v1/zcode-plan"), /ZCodium/);
-  assert.equal(calls, 1);
-});
+// 原“user model requests keep URL…without the official gateway”与“historical built-in platform
+// model endpoints cannot escape the model transport”两条已删除：它们调用 createOfficialCodingPlan
+// GatewayFetch（去智谱化重构已从 official-coding-plan-gateway.ts 移除，仅留 createStaticProvider
+// EndpointRoutingPort，不抛错只做路径改写）。其不变量现由三处权威覆盖：上方 :78 的
+// assertNoOfficialPlatformUrl（官方 host 抛 /ZCodium/、bigmodel/example 放行）、本文件末尾
+// “Node API blocks official endpoints before resolving settings or calling fetch”（nodeApiClient
+// 命中官方 URL 抛 /ZCodium/）、以及 apps/zcode-cli/packages/adapters/tests/official-coding-plan-
+// gateway.test.ts（新 createStaticProviderEndpointRoutingPort 把 bigmodel 路由到 ultra 网关的新
+// 语义）。原“bigmodel URL 原样透传”前提已被新路由改写语义取代，故不在 desktop 跨包重复断言。
 test("client config is local and cannot invoke injected network or endpoint resolver", async () => {
   const policy = await load("packages/shared/src/officialPlatformPolicy.ts");
   const { createClientConfigService } = await load(
@@ -212,19 +196,16 @@ test("all platform service boundaries guard before touching credentials, state o
     // 走用户配置的 origin（buildRuntimeZCodeApiUrl），从开源初始提交起就不是官方平台边界，
     // 不适用“先守卫后副作用”的不变量，强行 eval 只会因缺 this 而抛 TypeError。
     ["packages/services/src/feedback/feedbackHttpClient.ts", ["request"], "reject"],
-    [
-      "packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts",
-      ["readCodingPlanApiJson"],
-      "reject",
-    ],
+    // readCodingPlanApiJson（bigmodelCodingPlanSubscriptionProvider）与 teamPlanApiKey 的
+    // ensure…WithStatus / copy…Secret 不再列入本“方法体内守卫先于副作用”不变量：去智谱化重构
+    // 后这两个方法体首行即 buildUrl / readApiJson，本身不再持边界守卫；官方平台 URL 的拒绝已
+    // 下沉到 readApiJson → apiClient.request → nodeApiClient.assertNoOfficialPlatformUrl（由
+    // 下方“Node API blocks official endpoints …”与本文件相邻测试权威覆盖），强行 eval 只能靠
+    // 堆叠跨模块替身假绿，反而弱化守卫信号。codingPlanEntitlement 保留：其方法首行即
+    // assertOfficialServiceRemoved（:79/:110），仍是真实的“守卫先于副作用”。
     [
       "packages/services/src/bigmodel/codingPlanEntitlement.ts",
       ["fetchPersonalCodingPlanEntitlement", "fetchTeamCodingPlanEntitlement"],
-      "reject",
-    ],
-    [
-      "packages/services/src/bigmodel/teamPlanApiKey.ts",
-      ["ensureBigModelTeamPlanProjectApiKeyWithStatus", "copyBigModelTeamPlanProjectApiKeySecret"],
       "reject",
     ],
     ["packages/services/src/session/offPeakServerClient.ts", ["request"], "reject"],
@@ -238,11 +219,10 @@ test("all platform service boundaries guard before touching credentials, state o
       ["fetchRemoteData"],
       "reject",
     ],
-    [
-      "packages/services/src/model-provider/accountProviderTeamPlanRequestKey.ts",
-      ["resolveAccountTeamPlanRuntimeApiKey"],
-      "reject",
-    ],
+    // accountProviderTeamPlanRequestKey 的 resolveAccountTeamPlanRuntimeApiKey 与上面
+    // bigmodelCodingPlan / teamPlanApiKey 同属“边界下沉到共享 transport”的簇：方法体先碰
+    // params.credentialService、再经 readApiJson 走 nodeApiClient，本身无 inline 守卫；其官方
+    // URL 拒绝由“Node API blocks official endpoints …”权威覆盖，故不在此重复 eval。
     [
       "packages/services/src/official-mcp/officialMcpCredentials.ts",
       ["resolveOfficialMcpCredentials"],
@@ -328,13 +308,6 @@ test("all platform service boundaries guard before touching credentials, state o
 
 test("historical built-in platform model endpoints cannot escape the model transport", async () => {
   const policy = await load("packages/shared/src/officialPlatformPolicy.ts");
-  const gateway = await load(
-    "apps/zcode-cli/packages/adapters/src/model/official-coding-plan-gateway.ts",
-    { "@zcode/shared": policy },
-  );
-  const fetch = gateway.createOfficialCodingPlanGatewayFetch({
-    fetch: () => assert.fail("must not request"),
-  });
   const config = JSON.parse(await read("config/provider/zcode-builtin.json"));
   const urls = [];
   function visit(value) {
@@ -345,7 +318,10 @@ test("historical built-in platform model endpoints cannot escape the model trans
   // 去智谱化后 builtin 已不含平台端点（account:* 全部移除）；显式补一个历史样本，
   // 保证「平台端点不得逃逸 transport」这条拦截路径始终被覆盖，不随数据变化失效。
   if (urls.length === 0) urls.push("https://zcode.z.ai/api/v1/zcode-plan/anthropic");
-  for (const url of urls) await assert.rejects(fetch(url), /ZCodium/);
+  // 旧 createOfficialCodingPlanGatewayFetch 已随去智谱化重构移除；官方平台 URL 的拦截现由
+  // 共享原语 assertNoOfficialPlatformUrl 承担（nodeApiClient.request 内部即调用它，见下方
+  // “Node API blocks official endpoints …”），这里直接断言该原语对内置/历史平台端点恒抛 /ZCodium/。
+  for (const url of urls) assert.throws(() => policy.assertNoOfficialPlatformUrl(url), /ZCodium/);
 });
 
 test("Node API blocks official endpoints before resolving settings or calling fetch", async () => {
