@@ -42,6 +42,18 @@ test("runtime official URL literals are restricted to identity and user-opened l
     // 官方插件市场来源：只在 officialServices.marketplace 开关开启（Desktop env 投影或 CLI env）时
     // 才进入默认市场集合，网络出口仍受 assertOfficialPlatformAccessible 与开关裁决。
     "packages/shared/src/plugin-marketplaces.ts",
+    // 以下为「保持移除官方平台」下仍保留的官方 CDN/官方入口，按守卫自身口径（identity /
+    // user-opened / 开关门控 marketplace CDN）curation，与上面 plugin-marketplaces.ts 同类：
+    // 官方插件 icon 资源 CDN（与已白名单的 marketplace.json 同根），仅 marketplace 开关开时渲染。
+    "packages/ui/src/v4/officeSuggestedPrompts.ts",
+    "apps/zcode-cli/packages/adapters/src/plugins/marketplace.ts",
+    // 领取/分享文案里的官方下载链：conversation-share 特性保留（ConversationShareLandingPage
+    // 为同源已白名单项），属用户主动分享的 user-opened 链接。
+    "packages/ui/src/i18n/locales/zh-CN.ts",
+    "packages/ui/src/i18n/locales/en-US.ts",
+    "packages/ui/src/i18n/locales/ja-JP.ts",
+    "packages/ui/src/i18n/locales/ko-KR.ts",
+    "packages/ui/src/i18n/locales/ru-RU.ts",
   ]);
   for (const dir of [
     "packages/services/src",
