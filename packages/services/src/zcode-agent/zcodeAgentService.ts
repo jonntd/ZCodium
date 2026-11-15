@@ -16,7 +16,10 @@ import type {
   ZCodeAgentRuntimeExitedEvent,
 } from "./zcodeAgent.js";
 import { createContextCompositionClient } from "#src/zcode-agent/contextCompositionClient.js";
-import { createPluginHostQueriesClient } from "#src/zcode-agent/pluginHostQueriesClient.js";
+import {
+  createPluginHostQueriesClient,
+  type PluginUserOptionsReader,
+} from "#src/zcode-agent/pluginHostQueriesClient.js";
 import { isRemoteInputPredictionEnabled } from "./inputPredictionSwitch.js";
 import { supportsHistoryFirst } from "./independentPlanSupport.js";
 import {
@@ -40,7 +43,7 @@ import {
   type ChannelReplyResult,
 } from "@zcode/shared";
 import { requestPluginReferenceCatalog } from "#src/zcode-agent/pluginReferenceCatalogRequest.js";
-import { sessionDebugSnapshotSchema, type LocalTtftFacts } from "@zcode/shared";
+import { sessionDebugSnapshotSchema } from "@zcode/shared";
 /* oxlint-disable eslint(max-lines) -- ZCode Protocol transport、通知 wiring 和 app-facing session 方法必须共享同一个 client/emitter 上下文。 */
 import { ensureIndependentPlanSupport } from "./independentPlanSupport.js";
 import { createHash, randomUUID } from "node:crypto";
@@ -1336,13 +1339,35 @@ export function createZCodeAgentService(
   const conversationFrameEmitters = new Map<string, Emitter<ConversationTopicWireCandidate>>();
   const conversationTelemetryFactEmitters = new Map<string, Emitter<ConversationTelemetryFact>>();
   const offPeakLifecycleEmitters = new Map<string, Emitter<OffPeakLifecycleNotification>>();
-  // fork 恢复：上游 v3.18.2 的 localTtft/插件降级/遥测 emitter 群（并集时丢失，行模型升级后重新落地）。
-  const localTtftFactsEmitter = new Emitter<{ workspaceKey: string; facts: LocalTtftFacts }>();
+  // fork 恢复：上游 v3.18.2 的插件降级/遥测 emitter 群（并集时丢失，行模型升级后重新落地）。
+  // 同批的 localTtftFactsEmitter 不重建：上游在 upstream/main:2783 由 V4_NOTIFICATIONS.localTtftFacts
+  // 灌入，但审计版已移除本地 TTFT 上报、onDynamicLocalTtftFacts 只返回空事件，本分支也完全不路由该
+  // 通知，留着就是没有生产者的死 emitter；后续移植 localTtft 路由时再一并恢复。
   const pluginStartupDegradedEmitter = new Emitter<{
     workspaceKey: string;
     client: ZCodeProtocolClient;
   }>();
+  // fire 点尚未落地：上游由 RemoteConversationTelemetry 采集器在 report 回调里灌入
+  // （upstream/main:1519-1534 collectRemoteConversationFact）。该采集器与手机→Host 遥测 relay 入口
+  // 同属后续阶段，这里先保留消费端，使 onDynamicRemoteConversationTelemetry 契约保持稳定。
   const remoteConversationTelemetryEmitter = new Emitter<RemoteConversationTelemetryEvent>();
+  // fork 恢复（阶段 2a-3 接线）：上游 v3.18.2 的两个 client 此前只 import 未实例化，
+  // v4 contextCompositionChanged 与 modelRequestMetrics 通知因此被静默丢弃。
+  // existing-only：查询绝不为了读上下文组成把已退出的 runtime 拉起来。
+  const contextComposition = createContextCompositionClient({
+    getExistingClient: (target) => getReadOnlyClient(target, "existing-only"),
+    isRuntimeUnavailableError: (error) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE,
+    resolveWorkspaceKey,
+    logger,
+  });
+  // 插件宿主查询：user 层设置走插件管理面进程；`@` 候选项走持有会话的工作区 CLI（existing-only）。
+  const pluginHostQueries = createPluginHostQueriesClient({
+    getPluginManagementClient: () => getPluginManagementClient(),
+    getExistingClient: (target) => getReadOnlyClient(target, "existing-only"),
+  });
   const pluginUiToolResultEmitter = new Emitter<
     PluginUiToolResultNotification & ZCodeAgentWorkspaceTarget
   >();
@@ -2241,6 +2266,43 @@ export function createZCodeAgentService(
     const disposables = [
       topicResources,
       client.onNotification((message) => {
+        // fork 恢复（阶段 2a-3）：这两条通知此前无人路由，两个 emitter 从不 fire，UI 只能靠
+        // listManagedProcesses 回放与轮询兜底（见 onDynamicPluginStartupDegraded 的回放分支）。
+        if (message.method === zcodeProtocolMethods.sessionLifecycleChanged) {
+          // 只接受当前 active entry 的 client：已替换进程/stale run 的快照不能覆盖新运行时的状态。
+          if (activeClientsByWorkspaceKey.get(resolveWorkspaceKey(workspace))?.client !== client) {
+            return;
+          }
+          const parsed = sessionLifecycleSnapshotSchema.safeParse(message.params);
+          if (parsed.success) {
+            sessionLifecycleEmitter.fire({
+              workspaceKey: resolveWorkspaceKey(workspace),
+              snapshot: parsed.data,
+            });
+          } else {
+            // 与消息流同数量级：非法快照只记 debug，生产环境不落盘。
+            logger.debug(undefined, "丢弃无效 session lifecycle 快照通知", {
+              issues: parsed.error.issues.map((issue) => ({
+                code: issue.code,
+                message: issue.message,
+                path: issue.path.join("."),
+              })),
+              workspaceKey: resolveWorkspaceKey(workspace),
+            });
+          }
+          return;
+        }
+        if (message.method === zcodeProtocolNotifications.pluginStartupDegraded) {
+          // 降级标记由 ZCodeProtocolClient 在校验通过后置位（zcodeProtocolClient.ts:377-384），早于本
+          // 回调，因此直接读 flag 即可；client 已释放时不再通知，避免订阅方拿到死进程句柄。
+          if (client.pluginStartupDegraded && !client.isDisposed) {
+            pluginStartupDegradedEmitter.fire({
+              workspaceKey: resolveWorkspaceKey(workspace),
+              client,
+            });
+          }
+          return;
+        }
         if (message.method === zcodeProtocolNotifications.providerRuntimeHeadersCancelled) {
           const parsed = zcodeProviderRuntimeHeadersCancelledSchema.safeParse(message.params);
           if (
@@ -2369,6 +2431,10 @@ export function createZCodeAgentService(
           }
           return;
         }
+
+        // v4 contextCompositionChanged / modelRequestMetrics：交给 client 按 workspaceKey 分片路由；
+        // 命中即返回，避免被后续未知通知分支按噪声记录。
+        if (contextComposition.handleNotification(workspace, message)) return;
 
         if (message.method === V4_NOTIFICATIONS.conversationTelemetryFact) {
           const parsed = conversationTelemetryFactSchema.safeParse(message.params);
@@ -3716,6 +3782,10 @@ export function createZCodeAgentService(
     conversationTelemetryFactEmitters.clear();
     for (const emitter of offPeakLifecycleEmitters.values()) emitter.dispose();
     offPeakLifecycleEmitters.clear();
+    sessionLifecycleEmitter.dispose();
+    pluginStartupDegradedEmitter.dispose();
+    remoteConversationTelemetryEmitter.dispose();
+    contextComposition.dispose();
     cuaPermissionObservationEmitter.dispose();
     pluginUiToolResultEmitter.dispose();
     for (const emitter of workspaceConfigFrameEmitters.values()) {
@@ -3931,7 +4001,7 @@ export function createZCodeAgentService(
     return envelope;
   }
 
-  return {
+  const service: IZCodeAgentService & { disposeAllAndWait(): Promise<void> } = {
     async prepareStorage(params) {
       const client = await processManager.getClient(params);
       wireClient(client, params, "chat");
@@ -6946,6 +7016,18 @@ export function createZCodeAgentService(
     onDynamicRemoteConversationTelemetry() {
       return remoteConversationTelemetryEmitter.event;
     },
+    async getContextComposition(params) {
+      return contextComposition.getContextComposition(params);
+    },
+    async getPluginMentionItems(params) {
+      return pluginHostQueries.getPluginMentionItems(params);
+    },
+    onDynamicContextCompositionChanged(target) {
+      return contextComposition.onDidChange(target);
+    },
+    onDynamicModelRequestMetrics(target) {
+      return contextComposition.onModelRequestMetrics(target);
+    },
     async conversationInputPredictionV4(params: ZCodeAgentConversationInputPredictionParams) {
       if (!isRemoteInputPredictionEnabled()) {
         return emptyInputPredictionResult("unavailable", params.requestId);
@@ -7031,4 +7113,29 @@ export function createZCodeAgentService(
       disposeLocalState();
     },
   };
+  // 阶段 2a-3 接线：readPluginUserOptions（含敏感值）不能进 IZCodeAgentService——整个 ZCodeAgent 频道
+  // 经 ProxyChannel 按属性名分派暴露给 Renderer 与手机远控，任何客户端都能调它。这里放进 WeakMap 侧表，
+  // 只有同进程的 Local Host 装配能取到（extensions/settingsBackend.ts 的 deps.reader）。
+  inProcessPluginUserOptionsReaders.set(service, {
+    readPluginUserOptions: (params) => pluginHostQueries.readPluginUserOptions(params),
+  });
+  return service;
+}
+
+const inProcessPluginUserOptionsReaders = new WeakMap<
+  IZCodeAgentService,
+  PluginUserOptionsReader
+>();
+
+/**
+ * 取出本进程内 ZCode Agent service 的插件 user 层设置读取器。
+ * 只由 node.ts 的 Local Host 装配调用；远端与测试替身拿不到 reader 时返回 undefined，
+ * 调用方据此按「无 user 层设置」降级，不抛错。
+ * 注意：pluginHostQueriesClient.ts / zcodeAgent.ts 注释里写的 `getPluginUserOptionsReader(services)`
+ * 是上游早期命名，落地的实现即本函数（按 service 实例取，不是按 services 容器）。
+ */
+export function getInProcessPluginUserOptionsReader(
+  service: IZCodeAgentService,
+): PluginUserOptionsReader | undefined {
+  return inProcessPluginUserOptionsReaders.get(service);
 }
