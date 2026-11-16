@@ -3936,6 +3936,10 @@ const koKR: Record<string, string> = {
   "settings.mcp.statusOnlyUnsupported":
     "이 ZCode Agent는 OAuth 상태를 새로고침할 수 없습니다. ZCode를 업그레이드하거나 다시 시작한 다음, MCP 설정을 다시 열어 전체 새로고침을 실행하세요.",
   "settings.mcp.refreshFailed": "MCP 상태를 새로고침하지 못했습니다: {error}",
+  "settings.mcp.configLoadFailed":
+    "MCP 구성을 로드하지 못했습니다. 기기 연결을 확인한 후 다시 시도하세요.",
+  "settings.mcp.persistFailed":
+    "MCP 사용 상태를 저장하지 못했습니다. 다시 불러오면 저장된 상태가 표시됩니다.",
   "settings.mcp.status.toolCount": "도구 {count}개",
   "settings.mcp.status.connectedReason": "연결되어 사용할 수 있습니다.",
   "settings.mcp.status.connectingReason": "MCP 런타임에 연결하는 중입니다.",

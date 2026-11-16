@@ -2666,6 +2666,10 @@ const faIR: Record<string, string> = {
   "settings.mcp.statusOnlyUnsupported":
     "این ZCodium Agent نمی‌تواند وضعیت OAuth را به‌روزرسانی کند. ZCodium را ارتقا دهید یا دوباره راه‌اندازی کنید، سپس تنظیمات MCP را دوباره باز کنید تا یک به‌روزرسانی کامل انجام شود.",
   "settings.mcp.refreshFailed": "به‌روزرسانی وضعیت MCP ناموفق بود: {error}",
+  "settings.mcp.configLoadFailed":
+    "بارگذاری پیکربندی MCP ناموفق بود. اتصال دستگاه را بررسی کنید و دوباره تلاش کنید.",
+  "settings.mcp.persistFailed":
+    "حالت فعال MCP ذخیره نشد. پس از بارگذاری مجدد، حالت ذخیره‌شده نمایش داده می‌شود.",
   "settings.mcp.status.toolCount": "{count} ابزار",
   "settings.mcp.status.connectedReason": "متصل و در دسترس.",
   "settings.mcp.status.connectingReason": "در حال اتصال به زمان اجرای MCP.",

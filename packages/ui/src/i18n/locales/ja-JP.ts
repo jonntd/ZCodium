@@ -4037,6 +4037,10 @@ const jaJP: Record<string, string> = {
   "settings.mcp.statusOnlyUnsupported":
     "この ZCode Agent は OAuth の状態を更新できません。ZCode をアップグレードまたは再起動してから、MCP 設定を開き直して完全な更新を実行してください。",
   "settings.mcp.refreshFailed": "MCP の状態を更新できませんでした: {error}",
+  "settings.mcp.configLoadFailed":
+    "MCP 構成の読み込みに失敗しました。デバイスの接続を確認して、もう一度お試しください。",
+  "settings.mcp.persistFailed":
+    "MCP の有効状態を保存できませんでした。再読み込みすると保存済みの状態が表示されます。",
   "settings.mcp.status.toolCount": "{count} 個のツール",
   "settings.mcp.status.connectedReason": "接続済みで利用できます。",
   "settings.mcp.status.connectingReason": "MCP ランタイムに接続中です。",

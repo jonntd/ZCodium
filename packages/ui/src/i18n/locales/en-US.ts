@@ -3302,6 +3302,18 @@ const enUS: Record<string, string> = {
   "settings.mcp.statusOnlyUnsupported":
     "This ZCodium Agent cannot refresh OAuth status. Upgrade or restart ZCodium, then reopen MCP settings to run a full refresh.",
   "settings.mcp.refreshFailed": "Failed to refresh MCP status: {error}",
+  "settings.mcp.configLoadFailed": "Failed to load the MCP configuration. Check the device connection and try again.",
+  "settings.mcp.persistFailed": "The MCP enable state was not saved. Reload to see the persisted state.",
+  "settings.mcp.trust.action": "Trust",
+  "settings.mcp.trust.revoke": "Revoke trust",
+  "settings.mcp.trust.title": "Trust workspace MCP: {name}",
+  "settings.mcp.trust.revokeTitle": "Revoke trust for workspace MCP: {name}",
+  "settings.mcp.trust.description":
+    "Connections may run code or send data. Trusting does not enable the MCP. Existing chats keep their authorization. Changes apply to new or restarted chats.",
+  "settings.mcp.trust.pending": "The current declaration is awaiting trust",
+  "settings.mcp.trust.trusted": "The current declaration is trusted",
+  "settings.mcp.trust.failed":
+    "The declaration changed or trust is unavailable. Refresh and try again.",
   "settings.mcp.status.toolCount": "{count} tools",
   "settings.mcp.status.connectedReason": "Connected and available.",
   "settings.mcp.status.connectingReason": "Connecting to the MCP runtime.",
@@ -3445,6 +3457,11 @@ const enUS: Record<string, string> = {
   "settings.mcpServers.import.resultEmpty": "No MCP server results were returned.",
   "settings.mcpServers.import.finish": "Done",
   "settings.scope.label": "Scope",
+  "settings.scope.localDevice": "This computer",
+  "settings.scope.deviceOffline":
+    "{device} is offline. Configuration cannot be read or changed until it reconnects.",
+  "settings.scope.deviceConnecting": "Connecting to {device}…",
+  "settings.machine.unknownRemote": "Remote device",
   "settings.scope.user": "User",
   "settings.scope.workspace": "Workspace",
   "settings.scope.default": "Default",

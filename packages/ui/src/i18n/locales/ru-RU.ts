@@ -4012,6 +4012,10 @@ const ruRU: Record<string, string> = {
   "settings.mcp.statusOnlyUnsupported":
     "Этот ZCode Agent не умеет обновлять статус OAuth. Обновите или перезапустите ZCode и снова откройте настройки MCP для полного обновления.",
   "settings.mcp.refreshFailed": "Не удалось обновить статус MCP: {error}",
+  "settings.mcp.configLoadFailed":
+    "Не удалось загрузить конфигурацию MCP. Проверьте подключение к устройству и повторите попытку.",
+  "settings.mcp.persistFailed":
+    "Не удалось сохранить состояние включения MCP. После перезагрузки будет показано сохранённое состояние.",
   "settings.mcp.status.toolCount": "Инструментов: {count}",
   "settings.mcp.status.connectedReason": "Подключён и доступен.",
   "settings.mcp.status.connectingReason": "Подключение к среде выполнения MCP.",
