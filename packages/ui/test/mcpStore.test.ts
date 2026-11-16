@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { setMcpStoreDirectoryService, setMcpStorePlatform, useMcpStore } from "@/store/mcpStore.js";
+import { setMcpStorePlatform, useMcpStore } from "@/store/mcpStore.js";
 import { DEFAULT_MCP_CONFIG, MCP_CONFIG_KEY } from "@/store/mcpStoreHelpers.js";
 import { logger } from "@/logger.js";
 
@@ -19,8 +19,9 @@ function createLocalStorageStub(initial: Record<string, string> = {}) {
 describe("mcpStore", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
-    setMcpStoreDirectoryService(null);
     setMcpStorePlatform(null);
+    // 目录服务不再有全局 setter：随目标经 ensureLoadedForWorkspace 绑定，
+    // 这里把绑定字段一并复位，避免上一个用例的目标绑定泄漏到下一个用例。
     useMcpStore.setState((state) => ({
       ...state,
       config: { ...DEFAULT_MCP_CONFIG },
@@ -29,6 +30,8 @@ describe("mcpStore", () => {
       statusSnapshots: {},
       currentProjectPath: "",
       currentWorkspaceIdentity: undefined,
+      currentAuthorityKey: undefined,
+      currentDirectoryService: null,
       enabledStates: {},
       deletedPreloadMcpServers: new Set(),
       isConfigLoaded: false,
@@ -276,6 +279,167 @@ describe("mcpStore", () => {
     warn.mockRestore();
   });
 
+  it("远端「用户」目标只有 authority 没有 identity 时必须绑定目录服务，缺失则 fail-closed 不回退本机", async () => {
+    vi.stubGlobal("window", {});
+    // Bug 回归：远端「用户」没有 workspace identity，旧实现无 identity 就丢弃传入服务走本机
+    // platform，导致在本机 tab 选「B · 用户」读到本机配置。现在缺绑定服务必须失败而不是回退。
+    const platformLoad = vi.fn(async () => ({
+      servers: [
+        {
+          source: "zcodeagentmcp" as const,
+          scope: "user" as const,
+          name: "local-secret",
+          config: { type: "http" as const, url: "https://local.example.test/mcp" },
+        },
+      ],
+    }));
+    setMcpStorePlatform({
+      loadMcpFromUserDirectory: platformLoad,
+      migrateLegacyCommonMcp: vi.fn(async () => ({
+        importedCount: 0,
+        servers: {},
+        skippedCount: 0,
+        totalCount: 0,
+      })),
+      saveMcpToUserDirectory: vi.fn(async () => ({ success: true })),
+    });
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+
+    await expect(
+      useMcpStore
+        .getState()
+        .ensureLoadedForWorkspace("/home/dev", undefined, undefined, "source-settings:device-b"),
+    ).resolves.toBe(false);
+
+    expect(platformLoad).not.toHaveBeenCalled();
+    expect(useMcpStore.getState().servers).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("远端「用户」目标绑定目录服务后按该服务读取，不落回本机 platform", async () => {
+    vi.stubGlobal("window", {});
+    const platformLoad = vi.fn(async () => ({ servers: [] }));
+    setMcpStorePlatform({
+      loadMcpFromUserDirectory: platformLoad,
+      migrateLegacyCommonMcp: vi.fn(async () => ({
+        importedCount: 0,
+        servers: {},
+        skippedCount: 0,
+        totalCount: 0,
+      })),
+      saveMcpToUserDirectory: vi.fn(async () => ({ success: true })),
+    });
+    const directoryService = {
+      loadMcpFromUserDirectory: vi.fn(async () => ({
+        servers: [
+          {
+            source: "zcodeagentmcp" as const,
+            scope: "user" as const,
+            name: "device-b-http",
+            config: { type: "http" as const, url: "https://device-b.example.test/mcp" },
+          },
+        ],
+      })),
+      saveMcpToUserDirectory: vi.fn(async () => {}),
+    };
+
+    await useMcpStore
+      .getState()
+      .ensureLoadedForWorkspace("/home/dev", directoryService, undefined, "source-settings:device-b");
+
+    expect(directoryService.loadMcpFromUserDirectory).toHaveBeenCalledWith({
+      workspacePath: "/home/dev",
+    });
+    expect(platformLoad).not.toHaveBeenCalled();
+    expect(useMcpStore.getState().servers.map((server) => server.name)).toEqual(["device-b-http"]);
+  });
+
+  it("toggleServer 落盘失败时返回 false，本地开关仍翻转", async () => {
+    vi.stubGlobal("window", {});
+    setMcpStorePlatform({
+      loadMcpFromUserDirectory: vi.fn(async () => ({ servers: [] })),
+      migrateLegacyCommonMcp: vi.fn(async () => ({
+        importedCount: 0,
+        servers: {},
+        skippedCount: 0,
+        totalCount: 0,
+      })),
+      saveMcpToUserDirectory: vi.fn(async () => {
+        throw new Error("EACCES: permission denied");
+      }),
+    });
+    useMcpStore.setState({
+      currentProjectPath: "/local/workspace",
+      isConfigLoaded: true,
+      servers: [
+        {
+          id: "zcodeagentmcp-global-everything",
+          name: "everything",
+          config: { type: "stdio" as const, command: "node", args: ["server.mjs"] },
+          enabled: true,
+          status: "connected" as const,
+          source: "zcodeagentmcp" as const,
+          scope: "user" as const,
+        },
+      ],
+    });
+
+    // 结果必须交给调用方提示用户：本地展示态照常翻转，但磁盘开关没写进去。
+    await expect(
+      useMcpStore.getState().toggleServer("zcodeagentmcp-global-everything", false),
+    ).resolves.toBe(false);
+    expect(useMcpStore.getState().servers[0]?.enabled).toBe(false);
+    expect(useMcpStore.getState().enabledStates["zcodeagentmcp-global-everything"]).toBe(false);
+  });
+
+  it("toggleServer 按当前绑定目标的目录服务落盘并返回 true", async () => {
+    vi.stubGlobal("window", {});
+    setMcpStorePlatform({
+      loadMcpFromUserDirectory: vi.fn(async () => ({ servers: [] })),
+      migrateLegacyCommonMcp: vi.fn(async () => ({
+        importedCount: 0,
+        servers: {},
+        skippedCount: 0,
+        totalCount: 0,
+      })),
+      saveMcpToUserDirectory: vi.fn(async () => ({ success: true })),
+    });
+    const directoryService = {
+      loadMcpFromUserDirectory: vi.fn(async () => ({ servers: [] })),
+      saveMcpToUserDirectory: vi.fn(async () => {}),
+    };
+    // 先绑定目标（ensure 会按 config 重建 servers），再放行被测的 server 行。
+    await useMcpStore
+      .getState()
+      .ensureLoadedForWorkspace("/remote/workspace", directoryService, "ssh:host:/remote/workspace");
+    useMcpStore.setState({
+      isConfigLoaded: true,
+      servers: [
+        {
+          id: "zcodeagentmcp-global-everything",
+          name: "everything",
+          config: { type: "stdio" as const, command: "node", args: ["server.mjs"] },
+          enabled: true,
+          status: "connected" as const,
+          source: "zcodeagentmcp" as const,
+          scope: "user" as const,
+        },
+      ],
+    });
+
+    await expect(
+      useMcpStore.getState().toggleServer("zcodeagentmcp-global-everything", false),
+    ).resolves.toBe(true);
+    expect(directoryService.saveMcpToUserDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "set-enabled",
+        name: "everything",
+        enabled: false,
+      }),
+    );
+  });
+
   it("本地 workspace 即使存在目录服务也保留 platform 迁移 legacy common MCP", async () => {
     vi.stubGlobal("window", {});
     vi.stubGlobal(
@@ -333,8 +497,9 @@ describe("mcpStore", () => {
       })),
       saveMcpToUserDirectory: vi.fn(async () => {}),
     };
-    setMcpStoreDirectoryService(directoryService);
 
+    // 本机目标（无 identity、无 authority）即使传入目录服务也走 platform 路径，
+    // 目录服务只随远端目标绑定，不再有全局服务。
     await useMcpStore.getState().ensureLoadedForWorkspace("/local/workspace", directoryService);
 
     expect(directoryService.loadMcpFromUserDirectory).not.toHaveBeenCalled();

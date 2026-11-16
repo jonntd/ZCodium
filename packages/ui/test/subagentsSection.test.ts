@@ -33,13 +33,46 @@ const mockSubagentsService = vi.hoisted(() => ({
   setPluginAgentModelOverride: vi.fn(),
 }));
 const mockRefreshLoadedSubagentsStoreForWorkspace = vi.hoisted(() => vi.fn(async () => {}));
+const mockRefreshSubagentsStoreForRemoteWorkspaces = vi.hoisted(() => vi.fn(async () => {}));
+const mockServicesResolution = vi.hoisted(() => ({
+  // 解析结果必须引用稳定（真实实现是 useMemo）：初始化 effect 依赖 pluginManagementService，
+  // 每次渲染都发新对象会让「init → loadAgents → setState」无限循环。
+  services: {
+    subagentsService: mockSubagentsService,
+    pluginManagementService: { id: "mock-plugin-management" },
+  },
+  rpcReady: true,
+}));
 vi.mock("@/workspace-config-catalog/index.js", () => ({
   useConfigWorkspaceTargets: () => mockTabs.tabs,
-  useConfigWorkspaceServicesResolution: () => ({
-    services: { subagentsService: mockSubagentsService, pluginManagementService: {} },
-    rpcReady: true,
-  }),
+  useConfigWorkspaceServicesResolution: () => mockServicesResolution,
 }));
+vi.mock("@/settings-scope/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/settings-scope/index.js")>();
+  // Scope 的设备分组依赖平台能力、管理快照与配置目录表；本文件只测 Section 自身逻辑。
+  // 桩不调用任何 hook（保持文件内 useState 调用序不变），语义对齐真实本机帧：
+  // 「本机 · 用户」ready，锚点取 Section 的 workspacePath（真实 localAnchor 同语义）。
+  return {
+    ...actual,
+    useSettingsScope: () => ({
+      groups: [],
+      selectedScopeKey: "user",
+      setSelectedScopeKey: () => undefined,
+      resolution: { status: "ready", key: "user", kind: "user", device: { kind: "local" } },
+      device: { kind: "local" },
+      deviceTargets: mockTabs.tabs,
+      user: {
+        status: "ready",
+        target: { workspacePath: "/repo", label: "/repo" },
+        unscopedServices: {},
+      },
+      syncSourceServerId: null,
+      isActiveWorkspaceDevice: true,
+      toLocalScopeKey: (key: string) => key,
+      toPageScopeKey: (key: string) => key,
+    }),
+  };
+});
 const mockUseModelProviders = vi.hoisted(() =>
   vi.fn(() => ({
     displayOrder: { providerIds: [] },
@@ -305,6 +338,7 @@ vi.mock("@/hooks/useServices.js", () => ({
 
 vi.mock("@/store/subagentsStore.js", () => ({
   refreshLoadedSubagentsStoreForWorkspace: mockRefreshLoadedSubagentsStoreForWorkspace,
+  refreshSubagentsStoreForRemoteWorkspaces: mockRefreshSubagentsStoreForRemoteWorkspaces,
 }));
 
 vi.mock("@/hooks/useModelProviders.js", () => ({
@@ -456,6 +490,7 @@ describe("SubagentsSection", () => {
       },
     });
     mockRefreshLoadedSubagentsStoreForWorkspace.mockResolvedValue(undefined);
+    mockRefreshSubagentsStoreForRemoteWorkspaces.mockResolvedValue(undefined);
   });
 
   it.each([false, true])(
@@ -481,7 +516,8 @@ describe("SubagentsSection", () => {
       });
       expect(mockSubagentsService.list).toHaveBeenCalledTimes(unmounted ? 1 : 2);
       expect(mockSubagentsService.list).toHaveBeenLastCalledWith(
-        expect.objectContaining({ workspacePath: "", mode: "settingsUserOnly" }),
+        // 用户视图的 list 路径是 Scope 锚点（本机为 Section 的 workspacePath），不再是空串。
+        expect.objectContaining({ workspacePath: "/repo", mode: "settingsUserOnly" }),
       );
     },
   );
@@ -762,8 +798,8 @@ describe("SubagentsSection", () => {
     stateOverrides = new Map<number, unknown>([
       [1, []],
       [2, { userScopeAvailable: true }],
-      [7, true],
-      [8, customAgent],
+      // index 7 现在是 useSettingsScopeForm 的 form 状态（旧代码是 showForm + editingAgent 两个状态）。
+      [7, { deviceKey: "local", value: { agent: customAgent } }],
     ]);
 
     await renderSubagentsSection();
@@ -859,7 +895,7 @@ describe("SubagentsSection", () => {
     });
     await waitFor(() =>
       expect(mockSubagentsService.list).toHaveBeenCalledWith({
-        workspacePath: "",
+        workspacePath: "/repo",
         workspaceIdentity: undefined,
         provider: "glm",
         mode: "settingsUserOnly",
@@ -1306,7 +1342,8 @@ describe("SubagentsSection", () => {
   it("renders tools permissions using the workspace-access row pattern", async () => {
     stateOverrides = new Map<number, unknown>([
       [2, { userScopeAvailable: true }],
-      [7, true],
+      // index 7 是 useSettingsScopeForm 的 form 状态；agent=null 表示「新建」表单。
+      [7, { deviceKey: "local", value: { agent: null } }],
     ]);
 
     const html = await renderSubagentsSection();
@@ -1323,7 +1360,7 @@ describe("SubagentsSection", () => {
   it("uses the real chat toolbar model picker values with an inherit option in the form", async () => {
     stateOverrides = new Map<number, unknown>([
       [2, { userScopeAvailable: true }],
-      [7, true],
+      [7, { deviceKey: "local", value: { agent: null } }],
     ]);
 
     const html = await renderSubagentsSection();
@@ -1412,7 +1449,7 @@ describe("SubagentsSection", () => {
       model,
       modelAvailable: true,
       modelSelectionView: null,
-      modelSelectionLoading: true,
+      modelCatalogStatus: "loading",
       thoughtLevel: initial.thoughtLevel,
     });
     expect(unknownState).toEqual({ kind: "unknown", status: "loading" });
@@ -1422,7 +1459,7 @@ describe("SubagentsSection", () => {
       model,
       modelAvailable: true,
       modelSelectionView: mockModelSelectionView,
-      modelSelectionLoading: false,
+      modelCatalogStatus: "ready",
       thoughtLevel: initial.thoughtLevel,
     });
     expect(supportedState.option?.currentValue).toBe("");
@@ -1439,7 +1476,7 @@ describe("SubagentsSection", () => {
       model,
       modelAvailable: true,
       modelSelectionView: mockModelSelectionView,
-      modelSelectionLoading: false,
+      modelCatalogStatus: "ready",
       thoughtLevel: undefined,
     });
 
@@ -1492,14 +1529,14 @@ describe("SubagentsSection", () => {
     const base = {
       model: "custom:custom-openai:gpt-5.4",
       modelAvailable: true,
-      modelSelectionLoading: false,
+      modelCatalogStatus: "ready",
       thoughtLevel: undefined,
     };
 
     const loading = resolveSubagentThoughtOptionState({
       ...base,
       modelSelectionView: null,
-      modelSelectionLoading: true,
+      modelCatalogStatus: "loading",
     });
     expect(loading).toEqual({ kind: "unknown", status: "loading" });
     // Registry 尚未发布时保持未知，不能把已保存的档位误判为非法并清空。
@@ -1524,7 +1561,7 @@ describe("SubagentsSection", () => {
       ...base,
       thoughtLevel: "max",
       modelSelectionView: null,
-      modelSelectionLoading: true,
+      modelCatalogStatus: "loading",
     });
     expect(targetModelReconciling).toEqual({ kind: "unknown", status: "loading" });
 
@@ -1647,7 +1684,7 @@ describe("SubagentsSection", () => {
     expect(
       resolveSubagentThoughtOptionState({
         ...base,
-        modelSelectionLoading: true,
+        modelCatalogStatus: "loading",
       }),
     ).toMatchObject({
       kind: "supported",
@@ -1659,7 +1696,7 @@ describe("SubagentsSection", () => {
     expect(
       resolveSubagentThoughtOptionState({
         ...base,
-        modelSelectionLoading: false,
+        modelCatalogStatus: "ready",
       }),
     ).toMatchObject({
       kind: "supported",
@@ -1679,10 +1716,21 @@ describe("SubagentsSection", () => {
         model: encodeCustomModelValue("provider-demo", "GLM-5.2"),
         modelAvailable: true,
         modelSelectionView: null,
-        modelSelectionLoading: true,
+        modelCatalogStatus: "loading",
         thoughtLevel: undefined,
       }),
     ).toEqual({ kind: "unknown", status: "loading" });
+    // 目录不可用（读取失败或远端「用户」没有目录）不会自行变成 ready：状态必须是 unavailable，
+    // 不能像旧实现那样一直按 loading 转圈。
+    expect(
+      resolveSubagentThoughtOptionState({
+        model: encodeCustomModelValue("provider-demo", "GLM-5.2"),
+        modelAvailable: true,
+        modelSelectionView: null,
+        modelCatalogStatus: "unavailable",
+        thoughtLevel: undefined,
+      }),
+    ).toEqual({ kind: "unknown", status: "unavailable" });
   });
 
   it("uses the Registry disabled option instead of App metadata", async () => {
@@ -1692,7 +1740,7 @@ describe("SubagentsSection", () => {
       model: "custom:custom-openai:plain-chat",
       modelAvailable: true,
       modelSelectionView: mockModelSelectionView,
-      modelSelectionLoading: false,
+      modelCatalogStatus: "ready",
       thoughtLevel: "high",
     };
     const disabled = resolveSubagentThoughtOptionState(base);
@@ -1707,12 +1755,14 @@ describe("SubagentsSection", () => {
     expect(isSubagentThoughtLevelAvailable(disabled, "high")).toBe(false);
   });
 
-  it("defers persisted model availability validation only during initial provider loading", async () => {
+  it("defers persisted model availability validation while the catalog is not ready", async () => {
     const { isSubagentModelAvailable } = await import("../src/settings/SubagentsSection.js");
     const model = "custom:custom-anthropic:claude-opus-4-8";
 
-    expect(isSubagentModelAvailable([], model, true)).toBe(true);
-    expect(isSubagentModelAvailable([], model, false)).toBe(false);
+    // 目录首读中与目录不可用（读取失败、远端「用户」没有目录）都无法判定失效，保留原意图。
+    expect(isSubagentModelAvailable([], model, "loading")).toBe(true);
+    expect(isSubagentModelAvailable([], model, "unavailable")).toBe(true);
+    expect(isSubagentModelAvailable([], model, "ready")).toBe(false);
   });
 
   it("defaults new and legacy custom agents to AGENTS.md injection and preserves false", async () => {
@@ -1832,7 +1882,8 @@ describe("SubagentsSection", () => {
     stateOverrides = new Map<number, unknown>([
       [1, [agent]],
       [2, { userScopeAvailable: true }],
-      [8, agent],
+      // index 7 是 useSettingsScopeForm 的 form 状态，编辑表单以 { deviceKey, value: { agent } } 给出。
+      [7, { deviceKey: "local", value: { agent } }],
     ]);
     mockToolbarConfigState.status = "error";
 

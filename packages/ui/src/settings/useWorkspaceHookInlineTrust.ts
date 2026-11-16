@@ -21,9 +21,9 @@ import {
 export function useWorkspaceHookInlineTrust(input: {
   workspacePath?: string | null;
   workspaceIdentity?: string;
-  // 调用方（如 HooksSection 的 cacheAuthorityKey）按 workspace 身份传入的缓存/身份键。
-  // 本 hook 当前的信任判定只用 workspacePath/workspaceIdentity，authorityKey 暂未参与；
-  // 纳入入参类型只为对齐调用方契约（v3.18.2 合流时调用方已显式传该字段），不引入未使用绑定。
+  // 调用方（如 HooksSection 的 cacheAuthorityKey）按目标身份传入的缓存权威键。
+  // 信任判定本身只用 workspacePath/workspaceIdentity；authorityKey 参与 refresh 的
+  // 投影 key（hooksStore.getHooksCacheKey），保证刷新结果归属同一绑定目标。
   authorityKey?: string;
   hooksService?: IHooksService;
   rpcReady?: boolean;
@@ -75,17 +75,22 @@ export function useWorkspaceHookInlineTrust(input: {
     });
     previousReviewInteractionId.current = activeReviewInteractionId;
     if (!settled || !input.workspacePath || !canUseHooksService) return;
-    // 三元组与 service 同刻捕获，防止 refresh 等待期间 scope 切换后污染新 workspace。
+    // 四元组与 service 同刻捕获，防止 refresh 等待期间 scope 切换后污染新目标。
+    // 信任审核是 workspace 语义：refresh key 带上 scope:"workspace" 与 authorityKey，
+    // 否则 hooksStore 的新投影 key（含 scope）比对不上，刷新会被静默丢弃。
     const service = hooksService!;
     const target = {
       workspacePath: input.workspacePath,
       workspaceIdentity: input.workspaceIdentity,
+      authorityKey: input.authorityKey,
+      scope: "workspace" as const,
     };
     void refreshHooks(service, target);
   }, [
     activeReviewInteractionId,
     canUseHooksService,
     hooksService,
+    input.authorityKey,
     input.workspaceIdentity,
     input.workspacePath,
     refreshHooks,

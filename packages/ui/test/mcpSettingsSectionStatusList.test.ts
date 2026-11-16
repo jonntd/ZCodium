@@ -12,6 +12,7 @@ import {
   createMcpOAuthAuthorizationStatusRefreshDeadline,
   createMcpStatusListRefreshQueue,
   isMcpOAuthAuthorizationStatusRefreshExpired,
+  resolveMcpConfigLoadOutcome,
   resolveMcpStatusListRefreshSkipReason,
   shouldShowPluginMcpServersInMcpSettings,
   refreshMcpServerStatusList,
@@ -699,6 +700,8 @@ describe("McpSettingsSection status list", () => {
       {
         headers: [],
         name: "figma",
+        // 转换结果现在携带 scope：agent 侧 mcp/list 需要区分 user / workspace 配置来源。
+        scope: "user",
         type: "http",
         url: "https://mcp.example.test/mcp",
       },
@@ -850,6 +853,64 @@ describe("McpSettingsSection status list", () => {
           trigger: "manual",
         }),
       ).toBe("config-not-loaded");
+    });
+  });
+
+  describe("resolveMcpConfigLoadOutcome", () => {
+    const requestedWorkspaceKey = "source-settings:device-a\0/home/dev";
+
+    it("目标仍归本页且连接就绪的未加载是明确失败", () => {
+      expect(
+        resolveMcpConfigLoadOutcome({
+          loaded: false,
+          loadedWorkspaceKey: requestedWorkspaceKey,
+          requestedWorkspaceKey,
+          rpcReady: true,
+        }),
+      ).toBe("failed");
+    });
+
+    it("等待连接（rpcReady=false）是中间态，不进入失败", () => {
+      // 远端 attachment / session 未就绪时加载必然返回 false；这属于等待而不是错误，
+      // 显示错误横幅会把连接等待误报成失败。
+      expect(
+        resolveMcpConfigLoadOutcome({
+          loaded: false,
+          loadedWorkspaceKey: requestedWorkspaceKey,
+          requestedWorkspaceKey,
+          rpcReady: false,
+        }),
+      ).toBe("pending");
+    });
+
+    it("目标已漂移（store 被其他绑定抢占）不算失败，交回绑定翻转重试", () => {
+      expect(
+        resolveMcpConfigLoadOutcome({
+          loaded: false,
+          loadedWorkspaceKey: "workspace\0/local/other-tab",
+          requestedWorkspaceKey,
+          rpcReady: true,
+        }),
+      ).toBe("pending");
+    });
+
+    it("加载成功且目标匹配为 ready；目标漂移时为 pending", () => {
+      expect(
+        resolveMcpConfigLoadOutcome({
+          loaded: true,
+          loadedWorkspaceKey: requestedWorkspaceKey,
+          requestedWorkspaceKey,
+          rpcReady: true,
+        }),
+      ).toBe("ready");
+      expect(
+        resolveMcpConfigLoadOutcome({
+          loaded: true,
+          loadedWorkspaceKey: "workspace\0/local/other-tab",
+          requestedWorkspaceKey,
+          rpcReady: true,
+        }),
+      ).toBe("pending");
     });
   });
 });

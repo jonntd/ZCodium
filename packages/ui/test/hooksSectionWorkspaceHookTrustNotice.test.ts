@@ -10,7 +10,9 @@ import { HooksSection } from "@/settings/HooksSection.js";
 const hooksStateMock = vi.hoisted(() => ({
   workspacePath: "/workspace-a",
   workspaceIdentity: null as string | null,
-  loadedWorkspaceKey: "/workspace-a" as string | null,
+  // 与 hooksStore.getHooksCacheKey 同格式（scope\0identity|path）：本机用户视图 =
+  // "user\0/workspace-a"。提示的归属判定按此 key 比对，不再接受裸路径。
+  loadedWorkspaceKey: "user\0/workspace-a" as string | null,
   hooks: [] as Hook[],
   loading: false,
   error: null as string | null,
@@ -38,7 +40,10 @@ const serviceResolutionMock = vi.hoisted(() => ({
   rpcReady: true,
 }));
 
-vi.mock("@/store/hooksStore.js", () => ({
+vi.mock("@/store/hooksStore.js", async (importOriginal) => ({
+  // 保留真实的 getHooksCacheKey：Trust 提示 key 比对依赖同一投影 key 格式，
+  // 只替换 store 本体，避免 mock 漂移出第二套拼法。
+  ...(await importOriginal<typeof import("@/store/hooksStore.js")>()),
   useHooksStore: () => hooksStateMock,
 }));
 
@@ -57,6 +62,32 @@ vi.mock("@/workspace-config-catalog/index.js", () => ({
     },
   }),
 }));
+
+vi.mock("@/settings-scope/index.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/settings-scope/index.js")>();
+  // Scope 的设备分组依赖 ServiceProvider / 平台能力 / 管理快照，本文件聚焦 Trust notice。
+  // 桩不调用任何 hook，语义对齐真实本机帧：「本机 · 用户」ready，锚点为当前 workspace。
+  return {
+    ...actual,
+    useSettingsScope: () => ({
+      groups: [],
+      selectedScopeKey: "user",
+      setSelectedScopeKey: () => undefined,
+      resolution: { status: "ready", key: "user", kind: "user", device: { kind: "local" } },
+      device: { kind: "local" },
+      deviceTargets: [],
+      user: {
+        status: "ready",
+        target: { workspacePath: hooksStateMock.workspacePath, label: "" },
+        unscopedServices: {},
+      },
+      syncSourceServerId: null,
+      isActiveWorkspaceDevice: true,
+      toLocalScopeKey: (key: string) => key,
+      toPageScopeKey: (key: string) => key,
+    }),
+  };
+});
 
 vi.mock("@/hooks/useConfirmDialog.js", () => ({
   useConfirmDialog: () => vi.fn(async () => false),
@@ -171,7 +202,7 @@ describe("HooksSection workspace Hook Trust notice", () => {
   beforeEach(() => {
     hooksStateMock.workspacePath = "/workspace-a";
     hooksStateMock.workspaceIdentity = null;
-    hooksStateMock.loadedWorkspaceKey = "/workspace-a";
+    hooksStateMock.loadedWorkspaceKey = "user\0/workspace-a";
     hooksStateMock.hooks = [workspaceHook()];
     hooksStateMock.loading = false;
     hooksStateMock.error = null;
