@@ -32,6 +32,18 @@
  * BarMaximized 返回后再重设一次（setTimeout 0），防止内核后续布局把 resize 覆盖回去。
  * 2026-11-10 resize 失败不再静默吞（catch 内 console.error）：内核改名/结构变化导致
  * 抛错时至少留一条可定位日志，而不是退回「最大化没反应」且零痕迹。
+ * 2026-11-17 修「历史补丁变体把部署链路锁死」：2026-11-09 23:11(+0800) 实机部署用的是
+ * 4f7af632 提交之前的工作区版补丁（catch 空块、无 no-op 留痕），而本脚本只认 ORIGINAL /
+ * 当前 PATCHED 两种精确匹配态 → 该变体被判 unknown：--patch 拒绝执行（exit 1）、
+ * --status 退出码 2、deploy.sh 尾部整条部署命令非零退出，4f7af632 的日志改动也永远
+ * 部署不上。现给 maximize-keeps-editor 登记 LEGACY_PATCHED 已知历史变体（b86011ef 初版 /
+ * 空块部署版 / 4f7af632 版）：--status 报 patched(legacy) 不再计 unknown（退出码 0），
+ * --patch 就地迁移到当前 PATCHED（split/join，替换前后唯一性断言，写盘仍走原子替换 +
+ * node --check）。迁移同时带入三处行为增强：编辑器区域隐藏时 M=0，不再空占 420px 保留
+ * 宽（T 上限被不可见区域无谓压低）；目标宽 ≤ 当前宽（窄窗口/已拉满）时跳过 resizeView
+ * 并 console.warn 留痕，不再静默 no-op——此前状态翻转、视觉无变化，用户感知「点了没
+ * 反应」；setTimeout(0) 重设之外追加 requestAnimationFrame 再重设一次，压缩内核后续
+ * 布局覆盖补丁宽度的时间窗。
  * 也就是说：最大化 = 「把对话栏拉宽」，而不是「把别的都收起来」。
  *
  * 用法：
@@ -91,6 +103,49 @@ const META = `${BACKUP}.json`;
 const LEGACY_BACKUP = `${TARGET}.gode-orig.bak`;
 
 /**
+ * 最大化补丁当前版（行为增强见文件头 2026-11-17 条目）：
+ *  - M（编辑器最小保留宽）按编辑器区域可见性取值：编辑器本就隐藏时取 0，
+ *    不再让 T 的上限 `U-M` 被 420px 空占；
+ *  - 目标宽 T ≤ 当前宽 i（窄窗口/辅助栏已拉满）时跳过 resizeView 并 console.warn
+ *    留痕——此前状态照常翻转（按钮变「还原」）但布局分毫不动，静默 no-op；
+ *  - setTimeout(0) 重设之外追加 requestAnimationFrame 再重设一次，压缩内核后续
+ *    布局覆盖补丁宽度的时间窗。
+ */
+const MAXIMIZE_PATCHED =
+  '(()=>{const G=this.workbenchGrid,A=G.getViewSize().width,S=this.isVisible("workbench.parts.sidebar")?G.getViewSize(this.sideBarPartView).width:0,B=this.isVisible("workbench.parts.activitybar")?G.getViewSize(this.activityBarPartView).width:0,U=Math.max(0,A-S-B),M=this.isVisible("workbench.parts.editor")?Math.min(420,Math.round(U*.35)):0,T=Math.max(i,Math.min(U-M,Math.max(i+80,Math.round(U*.6)))),F=()=>{try{G.resizeView(this.auxiliaryBarPartView,{width:T,height:G.getViewSize(this.auxiliaryBarPartView).height}),S>0&&G.getViewSize(this.sideBarPartView).width!==S&&G.resizeView(this.sideBarPartView,{width:S,height:G.getViewSize(this.sideBarPartView).height})}catch(_){console.error("[gode] maximize resize failed",_)}};T<=i?console.warn("[gode] maximize: target<=current, skip resize"):(F(),setTimeout(F,0),requestAnimationFrame(F))})(),/* gode: maximize keeps editor + sidebar visible */this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)';
+
+/**
+ * 4f7af632 版（2026-11-14 入仓）形态：当前版去掉上述三处增强。
+ * 从 MAXIMIZE_PATCHED 派生而非手抄，杜绝多份 800 字节串之间的抄写漂移。
+ */
+const MAXIMIZE_LEGACY_4F7AF632 = MAXIMIZE_PATCHED.replace(
+  'M=this.isVisible("workbench.parts.editor")?Math.min(420,Math.round(U*.35)):0',
+  "M=Math.min(420,Math.round(U*.35))",
+).replace(
+  'T<=i?console.warn("[gode] maximize: target<=current, skip resize"):(F(),setTimeout(F,0),requestAnimationFrame(F))',
+  "F(),setTimeout(F,0)",
+);
+
+/**
+ * maximize-keeps-editor 的已知历史部署变体（LEGACY_PATCHED）。同一 bundle 至多含其一，
+ * --patch 对命中的变体做唯一性断言后整段替换为 MAXIMIZE_PATCHED（= 自动升级）。
+ * 详见文件头 2026-11-17 条目。
+ */
+const MAXIMIZE_LEGACY_PATCHED = [
+  // 2026-11-09 23:11(+0800) 实机部署版（先于 4f7af632 提交的工作区版）：= 4f7af632 版但
+  // catch 空块。不登记则本机永远 unknown，--patch 拒绝执行、deploy.sh 尾部退出 1。
+  MAXIMIZE_LEGACY_4F7AF632.replace(
+    'catch(_){console.error("[gode] maximize resize failed",_)}',
+    "catch(_){}",
+  ),
+  // 4f7af632 版：曾入仓，但当时 bundle 已是上一行变体（unknown），从未实际部署成功。
+  MAXIMIZE_LEGACY_4F7AF632,
+  // b86011ef 初版（2026-11-09 00:27 入仓）：无 +80 下限与重设，Math.max(当前,目标) 有
+  // 「目标更小即 no-op」缺陷。显式登记（结构不同无法派生），让最老的部署机自动升级。
+  '(()=>{const t=this.workbenchGrid.getViewSize().width,n=this.isVisible("workbench.parts.sidebar")?this.workbenchGrid.getViewSize(this.sideBarPartView).width:0,r=this.isVisible("workbench.parts.activitybar")?this.workbenchGrid.getViewSize(this.activityBarPartView).width:0,s=Math.max(0,t-n-r),o=Math.max(i,Math.min(Math.round(s*.6),s-Math.max(420,Math.round(s*.4))));this.workbenchGrid.resizeView(this.auxiliaryBarPartView,{width:o,height:this.workbenchGrid.getViewSize(this.auxiliaryBarPartView).height}),n>0&&this.workbenchGrid.getViewSize(this.sideBarPartView).width!==n&&this.workbenchGrid.resizeView(this.sideBarPartView,{width:n,height:this.workbenchGrid.getViewSize(this.sideBarPartView).height})})(),/* gode: maximize keeps editor + sidebar visible */this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
+];
+
+/**
  * 原版 openPanel（minified，唯一）。
  * 补丁后：保留宽度调整，去掉打开容器与可见性广播。
  */
@@ -116,8 +171,8 @@ const PATCHES = [
     name: "最大化辅助栏不再隐藏编辑器/资源管理器（改为拉宽）",
     ORIGINAL:
       'e.sideBarVisible&&this.setSideBarHidden(!0),e.panelVisible&&this.setPanelHidden(!0),e.editorVisible&&this.setEditorHidden(!0),this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
-    PATCHED:
-      '(()=>{const G=this.workbenchGrid,A=G.getViewSize().width,S=this.isVisible("workbench.parts.sidebar")?G.getViewSize(this.sideBarPartView).width:0,B=this.isVisible("workbench.parts.activitybar")?G.getViewSize(this.activityBarPartView).width:0,U=Math.max(0,A-S-B),M=Math.min(420,Math.round(U*.35)),T=Math.max(i,Math.min(U-M,Math.max(i+80,Math.round(U*.6)))),F=()=>{try{G.resizeView(this.auxiliaryBarPartView,{width:T,height:G.getViewSize(this.auxiliaryBarPartView).height}),S>0&&G.getViewSize(this.sideBarPartView).width!==S&&G.resizeView(this.sideBarPartView,{width:S,height:G.getViewSize(this.sideBarPartView).height})}catch(_){console.error("[gode] maximize resize failed",_)}};F(),setTimeout(F,0)})(),/* gode: maximize keeps editor + sidebar visible */this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
+    PATCHED: MAXIMIZE_PATCHED,
+    LEGACY_PATCHED: MAXIMIZE_LEGACY_PATCHED,
   },
 ];
 
@@ -278,6 +333,9 @@ function countOccurrences(data, needle) {
 
 function patchState(data, patch) {
   if (data.includes(patch.PATCHED)) return "patched";
+  // legacy = 已登记的历史部署变体（如 2026-11-09 的空 catch 版）：逻辑等价、可迁移，
+  // 不算 unknown——否则该变体会把 --patch/deploy.sh 永久锁死（2026-11-17 实测）。
+  if (patch.LEGACY_PATCHED?.some((variant) => data.includes(variant))) return "legacy";
   if (data.includes(patch.ORIGINAL)) return "original";
   return "unknown";
 }
@@ -316,7 +374,9 @@ function status() {
   for (const patch of PATCHES) {
     const state = patchState(data, patch);
     if (state === "unknown") unknownCount += 1;
-    console.log(`[ide-patch] ${patch.name}：${state}`);
+    // legacy 是已知历史部署变体：不算 unknown（退出码 0），提示重跑一次即可迁移。
+    const label = state === "legacy" ? "patched(legacy，重跑本脚本可迁移)" : state;
+    console.log(`[ide-patch] ${patch.name}：${label}`);
   }
   const { known, unknown } = auditShowSites(data);
   console.log(
@@ -387,7 +447,10 @@ function restore({ force }) {
 function patch({ dryRun }) {
   let data = readTargetOrFail();
   const states = PATCHES.map((patch) => [patch, patchState(data, patch)]);
-  const alreadyPatched = states.some(([, state]) => state === "patched");
+  // legacy 也是「补丁态」（只是旧变体）：备份守卫同样不能把它当原版建基线。
+  const alreadyPatched = states.some(
+    ([, state]) => state === "patched" || state === "legacy",
+  );
 
   // 备份：首补丁时创建。若 bundle 已经是补丁态而备份缺失，**不能**把当前文件
   // 当原版备份（那是补丁版，恢复回去等于没恢复）——必须让人重装。
@@ -424,10 +487,32 @@ function patch({ dryRun }) {
       console.log(`[ide-patch] ✓ 已是补丁状态，跳过：${entry.name}`);
       continue;
     }
+    if (state === "legacy") {
+      // 已知历史部署变体 → 当前 PATCHED：整段替换（语义等价 + 补回增强），与原版路径
+      // 共用同一套写盘安全检查（唯一性断言 / 原子替换 / node --check / 终验）。
+      const variants = entry.LEGACY_PATCHED.filter((variant) => data.includes(variant));
+      for (const variant of variants) {
+        const hits = countOccurrences(data, variant);
+        if (hits !== 1) {
+          fail(
+            `历史补丁变体在 bundle 中出现 ${hits} 处（期望恰好 1 处）：${entry.name}。` +
+              "已中止，未写入。",
+          );
+        }
+        data = data.split(variant).join(entry.PATCHED);
+      }
+      if (!data.includes(entry.PATCHED)) {
+        fail(`写入前自检失败（补丁片段缺失）：${entry.name}`);
+      }
+      console.log(
+        `[ide-patch] ✓ ${dryRun ? "(dry-run) 将迁移" : "已迁移"}历史补丁变体 → 当前版：${entry.name}`,
+      );
+      continue;
+    }
     if (state !== "original") {
       fail(
-        `内核 bundle 与「${entry.name}」的已知原版不匹配（IDE 版本更新？）。\n` +
-          "请人工核对后更新本脚本的 ORIGINAL/PATCHED 片段；本次未写入任何文件。",
+        `内核 bundle 与「${entry.name}」的已知原版/历史变体均不匹配（IDE 版本更新，或出现未登记的补丁变体？）。\n` +
+          "请人工核对后更新本脚本的 ORIGINAL/PATCHED/LEGACY_PATCHED 片段；本次未写入任何文件。",
       );
     }
     const hits = countOccurrences(data, entry.ORIGINAL);
