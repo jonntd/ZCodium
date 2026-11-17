@@ -12,7 +12,7 @@ import {
 import { ArchiveManagement } from "@/project-sidebar/ArchiveManagement.js";
 import type { ProjectTask } from "@/project-sidebar/contract.js";
 
-const { directory, controller, confirm, removeTaskState } = vi.hoisted(() => ({
+const { directory, controller, taskService, confirm, removeTaskState } = vi.hoisted(() => ({
   directory: {
     tree: { projects: [], tasks: [] as ProjectTask[] },
     directory: { hosts: [] },
@@ -21,6 +21,11 @@ const { directory, controller, confirm, removeTaskState } = vi.hoisted(() => ({
     refresh: vi.fn(async () => undefined),
   },
   controller: { mutateTask: vi.fn(async () => undefined) },
+  taskService: {
+    unarchiveTask: vi.fn(async () => undefined),
+    deleteTask: vi.fn(async () => undefined),
+    archiveTask: vi.fn(async () => undefined),
+  },
   confirm: vi.fn(async () => false),
   removeTaskState: vi.fn(),
 }));
@@ -30,7 +35,12 @@ vi.mock("@/project-sidebar/ProjectDirectoryProvider.js", () => ({
 }));
 vi.mock("@/project-sidebar/RemoteHostSection.js", () => ({ remoteHostLabel: () => undefined }));
 vi.mock("@/hooks/useWorkspaceServices.js", () => ({
-  useBaseWorkspaceServices: () => ({ windowControllerService: controller }),
+  // 双通道：本地直连任务走 zcodeTaskService，远端/跨 Source 任务走 windowControllerService
+  // （task-mutation.isLocalDirectTask 的语义，修「归档任务失败」后生效）。
+  useBaseWorkspaceServices: () => ({
+    zcodeTaskService: taskService,
+    windowControllerService: controller,
+  }),
 }));
 vi.mock("@/hooks/useResolvedRemoteWorkspaceSessionId.js", () => ({
   resolveRemoteWorkspaceSessionIdForTarget: () => undefined,
@@ -87,21 +97,22 @@ describe("#99 归档入口与既有管理路径", () => {
     },
   );
 
-  it("搜索/展开后取消归档沿用完整任务地址和 Host mutation，刷新后该行消失", async () => {
+  it("搜索/展开后取消归档直连本机 task service（本地直连不经 controller），刷新后该行消失", async () => {
     const view = render(createElement(ArchiveManagement));
     fireEvent.change(screen.getByTestId("archive-search"), { target: { value: "restore" } });
     fireEvent.click(screen.getByTestId("archive-group-toggle"));
     expect(screen.getAllByTestId("archive-task")).toHaveLength(1);
     fireEvent.click(screen.getByTestId("archive-unarchive"));
     await waitFor(() => expect(directory.refresh).toHaveBeenCalledOnce());
-    expect(controller.mutateTask).toHaveBeenCalledExactlyOnceWith({
-      address: {
-        workspacePath: "/navigation-fixture",
-        workspaceIdentity: undefined,
-        taskId: "restore",
-      },
-      mutation: { kind: "archive", archived: false },
+    // 本地任务（无 identity、无 Source、无 session）按 isLocalDirectTask 语义直连本机
+    // task service：controller 代理恒为真值但插件 host 不注册该频道，走 controller 会把
+    // 写操作发到不存在的频道（应用反馈「归档任务失败/删除不了任务」的根因）。
+    expect(taskService.unarchiveTask).toHaveBeenCalledExactlyOnceWith({
+      workspacePath: "/navigation-fixture",
+      workspaceIdentity: undefined,
+      taskId: "restore",
     });
+    expect(controller.mutateTask).not.toHaveBeenCalled();
     expect(removeTaskState).not.toHaveBeenCalled();
     directory.tree = {
       ...directory.tree,
@@ -122,22 +133,49 @@ describe("#99 归档入口与既有管理路径", () => {
     await waitFor(() =>
       expect(within(row).getByTestId("archive-delete").hasAttribute("disabled")).toBe(false),
     );
-    expect(controller.mutateTask).not.toHaveBeenCalled();
+    expect(taskService.deleteTask).not.toHaveBeenCalled();
     confirm.mockResolvedValueOnce(true);
     fireEvent.click(within(row).getByTestId("archive-delete"));
     await waitFor(() => expect(directory.refresh).toHaveBeenCalledOnce());
-    expect(controller.mutateTask).toHaveBeenCalledExactlyOnceWith({
-      address: {
-        workspacePath: "/navigation-fixture",
-        workspaceIdentity: undefined,
-        taskId: "delete",
-      },
-      mutation: { kind: "delete" },
+    expect(taskService.deleteTask).toHaveBeenCalledExactlyOnceWith({
+      workspacePath: "/navigation-fixture",
+      workspaceIdentity: undefined,
+      taskId: "delete",
     });
+    expect(controller.mutateTask).not.toHaveBeenCalled();
     expect(removeTaskState).toHaveBeenCalledExactlyOnceWith(
       "/navigation-fixture",
       "delete",
       undefined,
     );
+  });
+
+  it("远端任务（带 workspace identity）保持 controller 路由并携带完整地址", async () => {
+    directory.tree = {
+      ...directory.tree,
+      tasks: directory.tree.tasks.map((task) =>
+        task.taskId === "restore"
+          ? {
+              ...task,
+              workspacePath: "/remote/repo",
+              workspaceIdentity: "remote:ssh:dev:/remote/repo",
+            }
+          : task,
+      ),
+    };
+    render(createElement(ArchiveManagement));
+    fireEvent.change(screen.getByTestId("archive-search"), { target: { value: "restore" } });
+    fireEvent.click(screen.getByTestId("archive-group-toggle"));
+    fireEvent.click(screen.getByTestId("archive-unarchive"));
+    await waitFor(() => expect(directory.refresh).toHaveBeenCalledOnce());
+    expect(controller.mutateTask).toHaveBeenCalledExactlyOnceWith({
+      address: {
+        workspacePath: "/remote/repo",
+        workspaceIdentity: "remote:ssh:dev:/remote/repo",
+        taskId: "restore",
+      },
+      mutation: { kind: "archive", archived: false },
+    });
+    expect(taskService.unarchiveTask).not.toHaveBeenCalled();
   });
 });

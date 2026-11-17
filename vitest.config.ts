@@ -14,6 +14,7 @@ const processLifecycleTests = [
 const nodeRunTestFiles = [
   "packages/services/test/modelhubFetchModels.test.ts",
   "packages/services/test/promptEnhanceGenerator.test.ts",
+  "packages/services/test/zcodeAgentProcessManager.backoff.test.ts",
   "packages/shared/test/customSystemPrompt.test.ts",
   "packages/shared/test/deleteProtection.test.ts",
   "packages/shared/test/remoteRelayE2ee.test.ts",
@@ -31,6 +32,9 @@ const nodeRunTestFiles = [
   "packages/ui/test/systemPromptDraft.test.ts",
   "packages/ui/test/systemPromptTemplates.test.ts",
   "packages/ui/test/webRemoteLocale.test.ts",
+  // 漏登记的 node:test 入口会被 Vitest affected 选择器误加载（No test suite found）。
+  "packages/ui/test/v4ComposerContinueAction.test.ts",
+  "packages/ui/test/workspaceSidebarVisibilityPreference.test.ts",
 ];
 const forkIsolatedTests = [
   ...processLifecycleTests,

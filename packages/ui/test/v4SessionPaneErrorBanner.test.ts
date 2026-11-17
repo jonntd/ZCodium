@@ -45,6 +45,8 @@ vi.mock("@/hooks/useSettingService.js", () => ({
 }));
 
 vi.mock("@/hooks/useServices.js", () => ({
+  // SessionPane 读取 composer 命名空间 context；整模块 mock 必须同步该导出。
+  useComposerClientNamespace: () => "",
   useOptionalServices: () => null,
   useServices: () => ({
     zcodeSessionService: {

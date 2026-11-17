@@ -166,7 +166,10 @@ vi.mock("@/feedback/feedbackStore.js", () => ({
     }),
 }));
 
-vi.mock("@/hooks/usePlatform.js", () => ({
+vi.mock("@/hooks/usePlatform.js", async (importOriginal) => ({
+  // WorkspaceShellLayout 用 useOptionalPlatform 判定原生终端宿主；透传真实导出，
+  // 只替换 usePlatform 的 stub。
+  ...(await importOriginal<typeof import("@/hooks/usePlatform.js")>()),
   usePlatform: () => ({
     openCommunity: vi.fn(async () => {}),
     openExternal: vi.fn(),

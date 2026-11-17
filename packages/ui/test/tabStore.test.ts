@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { applyWorkspaceTriggerSelection } from "../src/WorkspaceSidebar.js";
+// applyWorkspaceTriggerSelection 已随侧栏拆分迁到 WorkspaceSidebar/ 子模块。
+import { applyWorkspaceTriggerSelection } from "../src/WorkspaceSidebar/workspaceSidebarSelection.js";
 import {
   createTabStore,
   isWorkspaceReadOnly,

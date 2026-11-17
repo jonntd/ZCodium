@@ -29,13 +29,23 @@ const stableHookValues = vi.hoisted(() => ({
   selectRegistrations: 0,
   effectiveSelection: undefined as ModelSelection | null | undefined,
   selectionInputs: [] as Array<{ selection: ModelSelection | null } | undefined>,
+  selectionOwnerInputs: [] as Array<{
+    workspacePath: string | null;
+    remoteSessionId?: string | null;
+    workspaceIdentity?: string | null;
+    remoteTarget?: unknown;
+  }>,
+  mockModelSelectionService: { __mock: "model-selection" },
   locale: "zh-CN" as "zh-CN" | "en-US",
   services: { zcodeAgentService: {} },
 }));
 
 vi.mock("@/components/ui/select.js", async () => {
-  const { createElement: h, useEffect } = await import("react");
+  const { createElement: h, createContext, useContext, useEffect } = await import("react");
   const passthrough = ({ children }: { children?: ReactNode }) => h("div", null, children);
+  // 项目选择器已从一排按钮改为 Radix Select；mock 让 SelectItem 渲染成可点击 button
+  // 并在点击时回发 onValueChange，用例保持「按名称点选项目」的交互语义。
+  const ValueChangeContext = createContext<(value: string) => void>(() => {});
   return {
     Select: ({
       children,
@@ -62,12 +72,34 @@ vi.mock("@/components/ui/select.js", async () => {
         }, 0);
         return () => window.clearTimeout(timer);
       }, []);
-      return h("div", null, children);
+      return h(
+        ValueChangeContext.Provider,
+        { value: onValueChange ?? (() => {}) },
+        children,
+      );
     },
     SelectContent: passthrough,
-    SelectItem: passthrough,
     SelectTrigger: passthrough,
     SelectValue: passthrough,
+    SelectItem: ({
+      children,
+      value,
+    }: {
+      children?: ReactNode;
+      value?: string;
+    }) => {
+      // useContext 必须在组件体内调用；事件处理器里调用会抛 Invalid hook call。
+      const onValueChange = useContext(ValueChangeContext);
+      return h(
+        "button",
+        {
+          type: "button",
+          "data-select-item": value,
+          onClick: () => onValueChange(value ?? ""),
+        },
+        children,
+      );
+    },
   };
 });
 
@@ -232,7 +264,69 @@ vi.mock("@/hooks/useModelSelectionView.js", () => ({
       reload: vi.fn(),
     };
   },
+  // AutomationEditView 改用 service-view 入口（参数带 enabled 与 unavailableReason），
+  // 语义与 useModelSelectionView 相同，复用同一份桩值。
+  useModelSelectionServiceView: (
+    service: unknown,
+    enabled: boolean,
+    _unavailableReason?: string,
+    input?: { selection: ModelSelection | null },
+  ) => {
+    void service;
+    stableHookValues.selectionInputs.push(input);
+    return {
+      state: stableHookValues.modelSelectionView
+        ? {
+            status: "ready" as const,
+            view: {
+              ...stableHookValues.modelSelectionView,
+              ...(input
+                ? {
+                    effectiveSelection:
+                      stableHookValues.effectiveSelection === undefined
+                        ? input.selection
+                        : stableHookValues.effectiveSelection,
+                  }
+                : {}),
+            },
+          }
+        : enabled
+          ? { status: "loading" as const }
+          : { status: "unavailable" as const, reason: "missing-target" },
+      reload: vi.fn(),
+    };
+  },
 }));
+vi.mock("@/workspace-config-catalog/index.js", () => ({
+  // 「切换项目后从对应 Host 读取模型视图」的断言承载点：新链路的路由信息由
+  // useConfigWorkspaceServicesResolution 的入参（而非 model selection hook 参数）表达。
+  useConfigWorkspaceServicesResolution: (
+    workspacePath: string | null,
+    remoteSessionId?: string | null,
+    workspaceIdentity?: string | null,
+    remoteTarget?: unknown,
+  ) => {
+    stableHookValues.selectionOwnerInputs.push({
+      workspacePath,
+      remoteSessionId,
+      workspaceIdentity,
+      remoteTarget,
+    });
+    return {
+      services: { modelSelectionService: stableHookValues.mockModelSelectionService },
+      rpcReady: true,
+    };
+  },
+}));
+
+vi.mock("@/store/TabStoreProvider.js", () => ({
+  // AutomationEditView 经 useConfigWorkspaceServicesResolution → useResolvedRemoteWorkspaceSessionId
+  // 读 tab store（active tab 匹配决定 remoteSessionId fallback）。用例只关心编辑视图自身的
+  // 状态派生，提供空 tab 集合即可：selector 读 activeTabId/tabs，空集返回 null。
+  useTabStore: (selector: (state: { activeTabId: string | null; tabs: unknown[] }) => unknown) =>
+    selector({ activeTabId: null, tabs: [] }),
+}));
+
 vi.mock("@/i18n/IntlProvider.js", () => ({
   useZCodeIntl: () => ({
     intl: {
@@ -329,6 +423,7 @@ beforeEach(() => {
   stableHookValues.projectOptions.length = 0;
   stableHookValues.modelSelectionView = null;
   stableHookValues.modelSelectionTargets.length = 0;
+  stableHookValues.selectionOwnerInputs.length = 0;
   stableHookValues.effectiveSelection = undefined;
   stableHookValues.selectionInputs.length = 0;
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
@@ -472,7 +567,7 @@ describe("AutomationEditView session-created dirty state", () => {
     fireEvent.click(screen.getByRole("button", { name: "remote" }));
 
     await waitFor(() => {
-      expect(stableHookValues.modelSelectionTargets.at(-1)).toEqual({
+      expect(stableHookValues.selectionOwnerInputs.at(-1)).toEqual({
         workspacePath: "/remote/project",
         remoteSessionId: "remote-session",
         workspaceIdentity: "ssh:server:/remote/project",
@@ -492,6 +587,10 @@ describe("AutomationEditView session-created dirty state", () => {
       ...uiCreatedAutomation,
       workspaceKey: conversationWorkspacePath,
       workspacePath: conversationWorkspacePath,
+      // 会话工作区没有虚拟项目：组件以 projectId === null 判定会话态并展示
+      // workOutsideProject 文案与 MessageCircle 图标。
+      projectId: null,
+      hostId: "local",
     };
 
     const { container } = render(

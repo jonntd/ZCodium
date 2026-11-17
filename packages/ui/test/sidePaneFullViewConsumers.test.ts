@@ -12,7 +12,12 @@ vi.mock("@/hooks/useInterfaceMode.js", () => ({ useIsOfficeMode: () => false }))
 vi.mock("@/hooks/useDeveloperToolsVisibility.js", () => ({
   useDeveloperToolsVisibility: () => false,
 }));
-vi.mock("@/hooks/usePlatform.js", () => ({ usePlatform: () => ({}) }));
+vi.mock("@/hooks/usePlatform.js", async (importOriginal) => ({
+  // AnimatedSidePanePanel 用 useOptionalPlatform 判定原生终端宿主；整模块 mock
+  // 未同步新导出会让组件在业务断言前就失败，透传真实导出只替换 usePlatform。
+  ...(await importOriginal<typeof import("@/hooks/usePlatform.js")>()),
+  usePlatform: () => ({}) as never,
+}));
 vi.mock("@/lib/mobileTextInput.js", () => ({ useIsMobileTextInputViewport: () => false }));
 vi.mock("@/i18n/IntlProvider.js", () => ({
   useZCodeIntl: () => ({ intl: { formatMessage: ({ id }: { id: string }) => id } }),
