@@ -2670,6 +2670,16 @@ const faIR: Record<string, string> = {
     "بارگذاری پیکربندی MCP ناموفق بود. اتصال دستگاه را بررسی کنید و دوباره تلاش کنید.",
   "settings.mcp.persistFailed":
     "حالت فعال MCP ذخیره نشد. پس از بارگذاری مجدد، حالت ذخیره‌شده نمایش داده می‌شود.",
+  "settings.mcp.trust.action": "اعتماد",
+  "settings.mcp.trust.revoke": "لغو اعتماد",
+  "settings.mcp.trust.title": "اعتماد به MCP فضای کاری: {name}",
+  "settings.mcp.trust.revokeTitle": "لغو اعتماد MCP فضای کاری: {name}",
+  "settings.mcp.trust.description":
+    "اتصال‌ها ممکن است کد اجرا کنند یا داده ارسال کنند. اعتماد دادن، MCP را فعال نمی‌کند. گفتگوهای موجود مجوز خود را حفظ می‌کنند. تغییرها روی گفتگوهای جدید یا راه‌اندازی‌شدهٔ مجدد اعمال می‌شود.",
+  "settings.mcp.trust.pending": "اعلان فعلی در انتظار اعتماد است",
+  "settings.mcp.trust.trusted": "به اعلان فعلی اعتماد شده است",
+  "settings.mcp.trust.failed":
+    "اعلان تغییر کرده یا اعتماد در دسترس نیست. بازخوانی کنید و دوباره تلاش کنید.",
   "settings.mcp.status.toolCount": "{count} ابزار",
   "settings.mcp.status.connectedReason": "متصل و در دسترس.",
   "settings.mcp.status.connectingReason": "در حال اتصال به زمان اجرای MCP.",
@@ -2770,6 +2780,11 @@ const faIR: Record<string, string> = {
   "settings.mcpServers.import.finish": "انجام شد",
   "settings.scope.label": "دامنه",
   "settings.scope.user": "کاربر",
+  "settings.scope.localDevice": "این دستگاه",
+  "settings.scope.deviceOffline":
+    "{device} آفلاین است. تا زمان اتصال مجدد، نمی‌توان پیکربندی را خواند یا تغییر داد.",
+  "settings.scope.deviceConnecting": "در حال اتصال به {device}…",
+  "settings.machine.unknownRemote": "دستگاه راه دور",
   "settings.scope.workspace": "فضای کاری",
   "settings.scope.default": "پیش‌فرض",
   "settings.plugins.scope.inheritedUser": "از پیش‌فرض کاربر پیروی می‌کند",

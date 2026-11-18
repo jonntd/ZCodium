@@ -33,7 +33,8 @@ const REQUIRED_KEYS = [
 ] as const;
 
 describe("settings pages i18n coverage (primary locales)", () => {
-  for (const locale of ["en-US", "zh-CN"] as const) {
+  // fa 此前整组缺失 trust/scope 提示文案（上游同步漂移），2026-11-19 补齐后一并钉住。
+  for (const locale of ["en-US", "zh-CN", "fa"] as const) {
     it(`covers required settings keys in ${locale}`, () => {
       const content = readFileSync(
         new URL(`../src/i18n/locales/${locale}.ts`, import.meta.url),
@@ -45,7 +46,7 @@ describe("settings pages i18n coverage (primary locales)", () => {
   }
 
   it("trust title placeholders keep the {name} interpolation", () => {
-    for (const locale of ["en-US", "zh-CN"] as const) {
+    for (const locale of ["en-US", "zh-CN", "fa"] as const) {
       const content = readFileSync(
         new URL(`../src/i18n/locales/${locale}.ts`, import.meta.url),
         "utf-8",
