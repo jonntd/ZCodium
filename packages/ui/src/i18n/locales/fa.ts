@@ -2780,6 +2780,9 @@ const faIR: Record<string, string> = {
   "settings.mcpServers.import.finish": "انجام شد",
   "settings.scope.label": "دامنه",
   "settings.scope.user": "کاربر",
+  "settings.scope.projects": "پروژه‌ها",
+  "settings.scope.searchProjects": "جستجوی پروژه‌ها…",
+  "settings.scope.noMatchingProjects": "پروژه‌ای مطابقت ندارد",
   "settings.scope.localDevice": "این دستگاه",
   "settings.scope.deviceOffline":
     "{device} آفلاین است. تا زمان اتصال مجدد، نمی‌توان پیکربندی را خواند یا تغییر داد.",
@@ -3844,6 +3847,35 @@ const faIR: Record<string, string> = {
   "settings.plugins.checkForUpdates.found": "{count} به‌روزرسانی افزونه در دسترس یافت شد",
   "settings.plugins.checkForUpdates.none": "همه افزونه‌های نصب‌شده به‌روز هستند",
   "settings.plugins.list.updateAvailable": "به‌روزرسانی",
+  "settings.plugins.updateAll": "به‌روزرسانی همه ({count})",
+  "settings.plugins.updateAll.done": "{count} افزونه به‌روزرسانی شد",
+  "settings.plugins.updateAll.partial":
+    "{succeeded} مورد به‌روزرسانی شد، {failed} مورد ناموفق: {plugins}",
+  "settings.plugins.updateAll.aborted":
+    "دامنهٔ افزونه تغییر کرد؛ به‌روزرسانی گروهی متوقف شد. {count} افزونه به‌روزرسانی شده بود",
+  "settings.plugins.marketplaces.riskWarning":
+    "بازارهای افزونهٔ غیررسمی ممکن است افزونه‌های مخربی داشته باشند که به دستگاه آسیب می‌زنند. پیش از افزودن، منبع را بررسی کنید و احتیاط‌های لازم را به‌کار بگیرید.",
+  "settings.plugins.marketplaces.riskAcknowledgement":
+    "ریسک‌ها را می‌دانم، منبع را بررسی و احتیاط‌های لازم را به‌کار برده‌ام.",
+  "settings.plugins.store.segment.community": "جامعه",
+  "settings.plugins.store.communityEmpty": "هنوز افزونهٔ جامعه‌ای نیست",
+  "settings.plugins.store.ui.title": "افزونه‌های کاربردی",
+  "settings.plugins.store.ui.open": "باز کردن",
+  "settings.plugins.store.ui.preview": "بزرگ‌نمایی پیش‌نمایش",
+  "settings.plugins.store.ui.capability":
+    "رابط تعاملی‌ای فراهم می‌کند که در پنل کناری باز می‌شود.",
+  "settings.plugins.store.ui.chooseSurface": "انتخاب رابط افزونه",
+  "settings.plugins.store.ui.needsSession":
+    "برای استفاده از این افزونه، ابتدا یک نشست در دسترسِ پروژهٔ جاری را باز کنید.",
+  "settings.plugins.store.extension.title": "افزونهٔ توسعه",
+  "settings.plugins.store.extension.description":
+    "این افزونه یک مؤلفهٔ توسعه درون میزبان برنامه به همراه دارد.",
+  "settings.plugins.store.extension.grantsTitle": "مجوزهای مورد نیاز",
+  "settings.plugins.store.extension.noGrants": "مجوزی لازم نیست",
+  "settings.plugins.store.extension.consentNote":
+    "نصب این افزونه مجوزهای فهرست‌شده را اعطا می‌کند؛ پیش از ادامه بررسی کنید.",
+  "settings.plugins.store.extension.incompatibleHint": "با میزبان فعلی ناسازگار است",
+  "settings.plugins.store.extension.requiresUpdate": "به‌روزرسانی لازم است",
   "settings.plugins.list.versionChanged": "تغییر کرده",
   "settings.plugins.restore": "بازگردانی",
   "settings.plugins.restorableBuiltins.title": "بازگردانی افزونه‌های داخلی",

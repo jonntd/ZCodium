@@ -3460,6 +3460,9 @@ const enUS: Record<string, string> = {
   "settings.scope.localDevice": "This computer",
   "settings.scope.deviceOffline":
     "{device} is offline. Configuration cannot be read or changed until it reconnects.",
+  "settings.scope.projects": "Projects",
+  "settings.scope.searchProjects": "Search projects",
+  "settings.scope.noMatchingProjects": "No matching projects",
   "settings.scope.deviceConnecting": "Connecting to {device}…",
   "settings.machine.unknownRemote": "Remote device",
   "settings.scope.user": "User",
@@ -4920,6 +4923,36 @@ const enUS: Record<string, string> = {
   "settings.plugins.checkForUpdates.found": "Found {count} plugin update(s) available",
   "settings.plugins.checkForUpdates.none": "All installed plugins are up to date",
   "settings.plugins.list.updateAvailable": "Update",
+  "settings.plugins.updateAll": "Update all ({count})",
+  "settings.plugins.updateAll.done": "Updated {count} plugins",
+  "settings.plugins.updateAll.partial":
+    "Updated {succeeded}, failed {failed}: {plugins}",
+  "settings.plugins.updateAll.aborted":
+    "Plugin scope changed; bulk update stopped. {count} plugins were updated",
+  "settings.plugins.marketplaces.riskWarning":
+    "Unofficial plugin marketplaces may contain malicious plugins that can harm your device. Verify the source and take precautions before adding one.",
+  "settings.plugins.marketplaces.riskAcknowledgement":
+    "I understand the risks and have verified the source and taken precautions.",
+  "settings.plugins.store.segment.community": "Community",
+  "settings.plugins.store.communityEmpty": "No community plugins yet",
+  "settings.plugins.store.ui.title": "App plugins",
+  "settings.plugins.store.ui.open": "Open",
+  "settings.plugins.store.ui.preview": "Enlarge preview",
+  "settings.plugins.store.ui.capability":
+    "Provides an interactive interface that opens in the side panel.",
+  "settings.plugins.store.ui.chooseSurface": "Choose a plugin interface",
+  "settings.plugins.store.ui.needsSession":
+    "Open an available session of the current project to use this plugin.",
+  "settings.plugins.store.extension.title": "Extension plugin",
+  "settings.plugins.store.extension.description":
+    "This plugin ships an extension that runs inside the app host.",
+  "settings.plugins.store.extension.grantsTitle": "Required grants",
+  "settings.plugins.store.extension.noGrants": "No grants required",
+  "settings.plugins.store.extension.consentNote":
+    "Installing this plugin grants the capabilities listed above. Review them before continuing.",
+  "settings.plugins.store.extension.incompatibleHint":
+    "Incompatible with the current host",
+  "settings.plugins.store.extension.requiresUpdate": "Update required",
   "settings.plugins.list.versionChanged": "Changed",
   "settings.plugins.restore": "Restore",
   "settings.plugins.restorableBuiltins.title": "Restore built-in plugins",

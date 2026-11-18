@@ -30,6 +30,33 @@ const REQUIRED_KEYS = [
   // 数据同步入口
   "settings.mcp.remoteSync.open",
   "settings.skills.remoteSync.open",
+  // Scope 菜单设备分组内的项目区（PluginScopeMenu，zh 界面曾显示原始 key）
+  "settings.scope.projects",
+  "settings.scope.searchProjects",
+  "settings.scope.noMatchingProjects",
+  // 插件批量更新与市场风险确认
+  "settings.plugins.updateAll",
+  "settings.plugins.updateAll.done",
+  "settings.plugins.updateAll.partial",
+  "settings.plugins.updateAll.aborted",
+  "settings.plugins.marketplaces.riskWarning",
+  "settings.plugins.marketplaces.riskAcknowledgement",
+  // 插件商店 UI 与扩展插件详情
+  "settings.plugins.store.segment.community",
+  "settings.plugins.store.communityEmpty",
+  "settings.plugins.store.ui.title",
+  "settings.plugins.store.ui.open",
+  "settings.plugins.store.ui.preview",
+  "settings.plugins.store.ui.capability",
+  "settings.plugins.store.ui.chooseSurface",
+  "settings.plugins.store.ui.needsSession",
+  "settings.plugins.store.extension.title",
+  "settings.plugins.store.extension.description",
+  "settings.plugins.store.extension.grantsTitle",
+  "settings.plugins.store.extension.noGrants",
+  "settings.plugins.store.extension.consentNote",
+  "settings.plugins.store.extension.incompatibleHint",
+  "settings.plugins.store.extension.requiresUpdate",
 ] as const;
 
 describe("settings pages i18n coverage (primary locales)", () => {

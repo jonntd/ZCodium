@@ -3246,6 +3246,9 @@ const zhCN: Record<string, string> = {
   "settings.scope.label": "作用域",
   "settings.scope.localDevice": "本机",
   "settings.scope.deviceOffline": "{device} 已离线，重新连接前无法读取或修改配置。",
+  "settings.scope.projects": "项目",
+  "settings.scope.searchProjects": "搜索项目…",
+  "settings.scope.noMatchingProjects": "没有匹配的项目",
   "settings.scope.deviceConnecting": "正在连接 {device}…",
   "settings.machine.unknownRemote": "远程设备",
   "settings.scope.user": "用户",
@@ -4612,6 +4615,35 @@ const zhCN: Record<string, string> = {
   "settings.plugins.checkForUpdates.found": "发现 {count} 个插件可更新",
   "settings.plugins.checkForUpdates.none": "所有已安装插件已是最新",
   "settings.plugins.list.updateAvailable": "可更新",
+  "settings.plugins.updateAll": "全部更新（{count}）",
+  "settings.plugins.updateAll.done": "已更新 {count} 个插件",
+  "settings.plugins.updateAll.partial":
+    "已更新 {succeeded} 个、{failed} 个失败：{plugins}",
+  "settings.plugins.updateAll.aborted":
+    "插件作用域已变更，已停止批量更新；已更新 {count} 个插件",
+  "settings.plugins.marketplaces.riskWarning":
+    "非官方插件市场可能包含损害设备的恶意插件。添加前请核实来源并采取防护措施。",
+  "settings.plugins.marketplaces.riskAcknowledgement":
+    "我已了解风险，并核实了来源、采取了防护措施。",
+  "settings.plugins.store.segment.community": "社区",
+  "settings.plugins.store.communityEmpty": "暂无社区插件",
+  "settings.plugins.store.ui.title": "应用插件",
+  "settings.plugins.store.ui.open": "打开",
+  "settings.plugins.store.ui.preview": "放大预览",
+  "settings.plugins.store.ui.capability":
+    "提供可在侧边面板打开的交互界面。",
+  "settings.plugins.store.ui.chooseSurface": "选择插件界面",
+  "settings.plugins.store.ui.needsSession":
+    "请先打开当前项目的可用会话，再使用该插件。",
+  "settings.plugins.store.extension.title": "扩展插件",
+  "settings.plugins.store.extension.description":
+    "该插件包含运行在应用宿主内的扩展。",
+  "settings.plugins.store.extension.grantsTitle": "所需权限",
+  "settings.plugins.store.extension.noGrants": "无需任何权限",
+  "settings.plugins.store.extension.consentNote":
+    "安装该插件即授予上述能力，请先确认再继续。",
+  "settings.plugins.store.extension.incompatibleHint": "与当前宿主不兼容",
+  "settings.plugins.store.extension.requiresUpdate": "需要更新",
   "settings.plugins.list.versionChanged": "版本变化",
   "settings.plugins.restore": "恢复",
   "settings.plugins.restorableBuiltins.title": "恢复内置插件",
