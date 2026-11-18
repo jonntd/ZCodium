@@ -44,6 +44,22 @@
  * 并 console.warn 留痕，不再静默 no-op——此前状态翻转、视觉无变化，用户感知「点了没
  * 反应」；setTimeout(0) 重设之外追加 requestAnimationFrame 再重设一次，压缩内核后续
  * 布局覆盖补丁宽度的时间窗。
+ * 2026-11-19 收尾两个补丁未覆盖路径（补丁 4/5，行为见各自条目注释）：
+ * 【补丁 4】setAuxiliaryBarMaximized(false) 退出分支按「进入时刻快照」重放
+ * setEditorHidden/setPanelHidden/setSideBarHidden。补丁 3 之后进入最大化已不隐藏
+ * 任何区域，退出却仍强设可见性 → 用户在最大化期间打开/关闭的面板、资源管理器、
+ * 编辑器在还原时被强行回滚（最大化前面板隐藏、期间手动打开，还原后面板被吞）。
+ * 补丁后退出分支只还原宽度、可见性一律不动。旧版「最大化残留隐藏态」自愈路径
+ * （setXHidden(false)）随快照回放一并移除：进入最大化不再制造隐藏态，自愈对象
+ * 不复存在，启动态归补丁 2 管辖。
+ * 【补丁 5】applyAuxiliaryBarMaximizedOverride（workbench.secondarySideBar.
+ * defaultVisibility= maximized/maximizedInWorkspace 的启动路径）原样把
+ * SIDEBAR/PANEL/EDITOR_HIDDEN 全部置真，独占语义完全绕过补丁 3。补丁后该路径只
+ * 显示辅助栏并置最大化标志，不再隐藏任何区域；拉宽不在此做（grid 未建，无法安全
+ * resize）。AUXILIARYBAR_HIDDEN,!1 保留 → auditShowSites 仍按已知点登记。
+ * 另核实（不改代码，撤案）：此前报告的「最大化后窗口 resize 比例失效」不成立——
+ * resize 由 grid 等比重分配承接，比例天然保持；退出 IDE 时 onWillSaveState 把当前
+ * 宽度写回 AUXILIARYBAR_SIZE，重启不回缩。
  * 也就是说：最大化 = 「把对话栏拉宽」，而不是「把别的都收起来」。
  *
  * 用法：
@@ -173,6 +189,33 @@ const PATCHES = [
       'e.sideBarVisible&&this.setSideBarHidden(!0),e.panelVisible&&this.setPanelHidden(!0),e.editorVisible&&this.setEditorHidden(!0),this.stateModel.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,e)',
     PATCHED: MAXIMIZE_PATCHED,
     LEGACY_PATCHED: MAXIMIZE_LEGACY_PATCHED,
+  },
+  {
+    id: "maximize-exit-width-only",
+    name: "最大化退出只还原宽度，不回放可见性快照",
+    // 依据（2026-11-19）：补丁 3 之后进入最大化不再隐藏任何区域，退出却仍按「进入
+    // 时刻快照」重放 setXHidden——最大化期间用户打开的面板被吞、关掉的编辑器被
+    // 重开（修复对象 F）。宽度化语义下「快照回放」只剩害处；旧版自愈路径对象
+    // （最大化制造的隐藏态）已不存在，启动态归补丁 2 管辖。三连调用在 bundle 中
+    // 唯一（已断言），不会误伤面板最大化等其他路径。
+    ORIGINAL:
+      'this.setEditorHidden(!e?.editorVisible),this.setPanelHidden(!e?.panelVisible),this.setSideBarHidden(!e?.sideBarVisible)',
+    PATCHED:
+      '/* gode: maximize exit restores width only; visibility changes made while maximized are kept */',
+  },
+  {
+    id: "startup-override-no-exclusive",
+    name: "启动最大化 override 不再独占（只显示辅助栏）",
+    // 依据（2026-11-19）：workbench.secondarySideBar.defaultVisibility= maximized /
+    // maximizedInWorkspace 时 applyOverrides 调 applyAuxiliaryBarMaximizedOverride，
+    // 原样把 SIDEBAR/PANEL/EDITOR_HIDDEN 全部置真——独占语义完全绕过补丁 3（修复
+    // 对象 G，潜伏）。补丁后：保留快照记录与 WAS_LAST_MAXIMIZED 标志（按钮态一致），
+    // 不再隐藏任何区域；LAST_NON_MAXIMIZED_SIZE 仍取初始化值（此时 grid 未建，无法
+    // 安全拉宽）。AUXILIARYBAR_HIDDEN,!1 保留 → auditShowSites 仍按已知点登记。
+    ORIGINAL:
+      'applyAuxiliaryBarMaximizedOverride(){this.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,{sideBarVisible:!this.getRuntimeValue(dr.SIDEBAR_HIDDEN),panelVisible:!this.getRuntimeValue(dr.PANEL_HIDDEN),editorVisible:!this.getRuntimeValue(dr.EDITOR_HIDDEN),auxiliaryBarVisible:!this.getRuntimeValue(dr.AUXILIARYBAR_HIDDEN)}),this.setRuntimeValue(dr.SIDEBAR_HIDDEN,!0),this.setRuntimeValue(dr.PANEL_HIDDEN,!0),this.setRuntimeValue(dr.EDITOR_HIDDEN,!0),this.setRuntimeValue(dr.AUXILIARYBAR_HIDDEN,!1),this.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_SIZE,this.getInitializationValue(dr.AUXILIARYBAR_SIZE)),this.setRuntimeValue(dr.AUXILIARYBAR_WAS_LAST_MAXIMIZED,!0)}',
+    PATCHED:
+      'applyAuxiliaryBarMaximizedOverride(){this.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_VISIBILITY,{sideBarVisible:!0,panelVisible:!0,editorVisible:!0,auxiliaryBarVisible:!this.getRuntimeValue(dr.AUXILIARYBAR_HIDDEN)}),/* gode: startup override shows aux bar without hiding editor/sidebar/panel */this.setRuntimeValue(dr.AUXILIARYBAR_HIDDEN,!1),this.setRuntimeValue(dr.AUXILIARYBAR_LAST_NON_MAXIMIZED_SIZE,this.getInitializationValue(dr.AUXILIARYBAR_SIZE)),this.setRuntimeValue(dr.AUXILIARYBAR_WAS_LAST_MAXIMIZED,!0)}',
   },
 ];
 
