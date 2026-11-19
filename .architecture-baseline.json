@@ -1037,6 +1037,15 @@
       "global": false
     },
     {
+      "rule": "max-file-lines",
+      "file": "apps/zcode-vscode/src/container.ts",
+      "module": "zcode-vscode",
+      "detail": "1199",
+      "message": "文件 1199 行，超过上限 800 行",
+      "fingerprint": "5c4d776f6228a78f",
+      "global": false
+    },
+    {
       "rule": "unmanaged-new-file",
       "file": "packages/design-runtime/src/designMessages.ts",
       "module": null,
@@ -2393,15 +2402,6 @@
       "detail": "unregistered",
       "message": "新文件不属于任何已登记模块；请用 pnpm architecture:adopt <id> --root <dir> 登记后再提交",
       "fingerprint": "f1aadc9cf89bbfaa",
-      "global": false
-    },
-    {
-      "rule": "max-file-lines",
-      "file": "apps/zcode-vscode/src/container.ts",
-      "module": "zcode-vscode",
-      "detail": "1196",
-      "message": "文件 1196 行，超过上限 800 行",
-      "fingerprint": "f389d165ee354bd2",
       "global": false
     },
     {

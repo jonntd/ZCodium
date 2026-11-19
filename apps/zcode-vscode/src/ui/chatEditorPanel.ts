@@ -125,6 +125,17 @@ export class ChatEditorPanel {
   }
 
   /**
+   * 存活页签数（宿主冒烟只读探针）。
+   *
+   * 为什么不走 `vscode.window.tabGroups`：隔离实例（--extensionTestsPath）里
+   * tabGroups 对 webview 页签跨进程同步不可靠（本文件及宿主冒烟脚本均有注释），
+   * 面板存活表是 reveal/activeConnectionId 判定的同一事实源，直接读它才确定。
+   */
+  tabCount(): number {
+    return this.panels.size;
+  }
+
+  /**
    * 总是新建一个对话页签（状态栏「新建页签」按钮 / 无存活页签时的「新建会话」）：
    * 多页签并存，**新页签从草稿态开始**（Claude 同款：新标签 = 新对话；已有会话经
    * 共享标签栏切换）。达到上限时退化为聚焦已有页签——每个页签是完整 webview 实例，

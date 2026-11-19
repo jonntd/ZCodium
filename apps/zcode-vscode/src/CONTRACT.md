@@ -99,6 +99,14 @@ webview-react(React 装配) → 桥 shim → 同一 wire 协议 → host
    「文件改动历史」TreeView 及 `gode.changes.*` 命令族已按产品决策整体移除，
    不再装配会话订阅 / 状态栏角标 / 编辑器标题栏按钮；`ChangesTracker`、
    `ChangesService` 仅作为历史模块保留，不参与 activate 装配。
+6. 编辑器命令推 UI 帧后的开窗口径（`createCodeActionEntry.revealChatWhenMissing` 与
+   `pickSession` 分支同一判定，闭包注入自 `container.hasChatSurface`）：
+   `composer-insert` / `session-switch` 帧投给最近活动对话页（pushToActiveHostFrame），
+   **已有对话面（编辑器页签或侧栏）时不再执行 `gode.openChat`**；仅当一面都没有
+   （帧在 pending 队列等 renderer ready flush）才开。无条件的 openChat 会在
+   "只开着侧栏"时凭空新建编辑器页签（2026-11-19 右键「加入对话上下文」弹新窗口、
+   2026-11-08「点加号创建出一个 TAB」，同一类缺陷）。回归测试：
+   `test/composerEntrySurface.test.ts`。
 
 ## 禁止事项
 

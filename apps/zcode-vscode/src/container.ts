@@ -587,6 +587,13 @@ export async function createContainer(
       hostRuntime.pushHostFrame(kind, payload);
     }
   };
+  // 是否已有对话面（编辑器页签/侧栏视图）：命令面共用判定——UI 帧投给最近活动
+  // 对话页后，已有面就不再执行 gode.openChat（无条件 openChat 会在"只开着侧栏"
+  // 时凭空新建编辑器页签：2026-11-19 右键「加入对话上下文」弹新窗口、
+  // 2026-11-08「点加号创建出一个 TAB」均为同一类缺陷）。
+  const hasChatSurface = () =>
+    chatEditorPanel.activeConnectionId() !== null ||
+    hostRuntime.hasConnection(CHAT_VIEW_ID);
   const editorFeatureDisposables = registerEditorCommands({
     getWorkspacePath: editorWorkspacePath,
     currentSessionId: () => {
@@ -598,13 +605,9 @@ export async function createContainer(
     generateText: createGenerateText(runWithServices, editorWorkspacePath()),
     quickEditProvider,
     runWithServices,
-    // 「历史会话」选中后是否需要打开对话面：已有面（编辑器页签/侧栏）就不再开新的，
-    // 否则"在侧栏点历史会话"会凭空多出一个编辑器 TAB。
-    hasChatSurface: () =>
-      chatEditorPanel.activeConnectionId() !== null ||
-      hostRuntime.hasConnection(CHAT_VIEW_ID),
+    hasChatSurface,
   });
-  const codeActionEntry = createCodeActionEntry(editorPushFrame);
+  const codeActionEntry = createCodeActionEntry(editorPushFrame, hasChatSurface);
   const codeActionDisposable = languages.registerCodeActionsProvider(
     { scheme: "file" },
     new GodeCodeActionProvider(codeActionEntry),

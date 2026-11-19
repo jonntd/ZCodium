@@ -146,10 +146,26 @@ describe("贡献点一致性", () => {
     // 没有编辑器页签时 openChat 会直接建一个 TAB——与「点加号多出一个 TAB」同源。
     expect(block).toContain("hasChatSurface()");
     expect(block).toContain('executeCommand("gode.openChat")');
-    // 容器注入的判定口径：编辑器页签 || 侧栏连接。
+    // 容器注入的判定口径：编辑器页签 || 侧栏连接。共享闭包（2026-11-19 起编辑器
+    // 命令与 Code Action 的 createCodeActionEntry 共用同一 hasChatSurface——
+    // 「加入对话上下文」曾在只开侧栏时无条件 openChat 凭空弹出新编辑器页签）。
     const container = readSource("src/container.ts");
-    expect(container).toContain("hasChatSurface: () =>");
+    expect(container).toContain("const hasChatSurface = () =>");
     expect(container).toContain("hostRuntime.hasConnection(CHAT_VIEW_ID)");
+    expect(container).toContain(
+      "createCodeActionEntry(editorPushFrame, hasChatSurface)",
+    );
+    // createCodeActionEntry 的开窗动作必须过 hasChatSurface 门控（不能回到无条件 openChat）。
+    const editorCommands = readSource("src/features/editorCommands.ts");
+    const entryStart = editorCommands.indexOf("export function createCodeActionEntry");
+    expect(entryStart).toBeGreaterThan(-1);
+    const entryEnd = editorCommands.indexOf("export function registerEditorCommands");
+    const entryBlock = editorCommands.slice(
+      entryStart,
+      entryEnd === -1 ? undefined : entryEnd,
+    );
+    expect(entryBlock).toContain("if (!hasChatSurface())");
+    expect(entryBlock).toContain('executeCommand("gode.openChat")');
   });
 
   it("菜单引用的命令都已声明（或为宿主内置命令）", () => {

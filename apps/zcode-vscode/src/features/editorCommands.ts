@@ -52,9 +52,12 @@ export interface EditorCommandDependencies {
   /**
    * 是否已有对话面（编辑器页签或侧栏视图）可承接 UI 帧。
    *
-   * 用途：「历史会话」选中后**不再无条件 openChat**——`openChat` 在"没有编辑器
+   * 用途：UI 帧投递后**不再无条件 openChat**——`openChat` 在"没有编辑器
    * 页签"时会新建一个对话 TAB（与用户反馈的「点加号创建出一个 TAB」同一类：
    * 用户只想在眼前这一面切会话，却凭空多出一个窗口）。没有对话面时才需要打开。
+   *
+   * 消费方：`registerEditorCommands` 内的 pickSession 分支，以及
+   * `createCodeActionEntry`（submit/addContext 两族命令共用此判定）。
    */
   readonly hasChatSurface: () => boolean;
 }
@@ -82,6 +85,8 @@ function compactContextText(item: PendingContext): string {
 /** Code Action / 命令共用的对话入口（host 帧 → webview composer 预填）。 */
 export function createCodeActionEntry(
   pushFrame: EditorCommandDependencies["pushFrame"],
+  /** 已有对话面（编辑器页签/侧栏视图）判定：true 时不执行 gode.openChat。 */
+  hasChatSurface: () => boolean,
 ): {
   submit: (
     instruction: string,
@@ -95,6 +100,24 @@ export function createCodeActionEntry(
    *   塞进输入框；模型按引用自行读文件；
    * - 指令文本保持紧凑可读。
    */
+  /**
+   * 帧已投给「最近活动对话页」后是否还要打开对话面：只在**一个对话面都没有**
+   * 时才执行 gode.openChat（此时帧在 pending 队列里，等新开的 webview ready 后
+   * flush，openChat 是必要路径）。
+   *
+   * 门控依据（与 registerEditorCommands 的 pickSession 分支同一口径）：
+   * - 无条件 openChat 会在用户只开着**侧栏**对话面时凭空新建一个编辑器页签
+   *   （2026-11-19 用户反馈：右键「加入对话上下文」弹出的是新窗口而非送进当前
+   *   激活的对话面，与 2026-11-08「点加号创建出一个 TAB」同一类缺陷）；
+   * - 已有面时帧的投递目标就是最近活动的那一面（pushToActiveHostFrame），
+   *   用户眼前这一面本来就会收到预填，不需要再开窗。
+   */
+  const revealChatWhenMissing = async (): Promise<void> => {
+    if (!hasChatSurface()) {
+      await vscode.commands.executeCommand("gode.openChat");
+    }
+  };
+
   const submit = async (
     instruction: string,
     context: readonly PendingContext[],
@@ -112,7 +135,7 @@ export function createCodeActionEntry(
       "composer-insert",
       mention ? { text, mention, mode: "replace" } : { text },
     );
-    await vscode.commands.executeCommand("gode.openChat");
+    await revealChatWhenMissing();
   };
   const addContext = async (
     items: readonly PendingContext[],
@@ -123,7 +146,7 @@ export function createCodeActionEntry(
       pushFrame("composer-insert", {
         text: items.map((item) => item.text).join("\n"),
       });
-      await vscode.commands.executeCommand("gode.openChat");
+      await revealChatWhenMissing();
       return;
     }
     // 单帧批量（spec: composer-insert-delivery）：store 是单槽，N 帧连续 push 会互相
@@ -142,7 +165,7 @@ export function createCodeActionEntry(
       mentions,
       mode: "prepend-if-missing",
     });
-    await vscode.commands.executeCommand("gode.openChat");
+    await revealChatWhenMissing();
   };
   return { submit, addContext };
 }
@@ -159,7 +182,7 @@ export function registerEditorCommands(
     disposables.push(vscode.commands.registerCommand(id, handler));
   };
 
-  const codeActionEntry = createCodeActionEntry(deps.pushFrame);
+  const codeActionEntry = createCodeActionEntry(deps.pushFrame, deps.hasChatSurface);
 
   /** host 帧 → webview composer 预填（草稿态直插；会话态由 webview 侧按其口径处理）。 */
   const submitViaComposer = codeActionEntry.submit;
