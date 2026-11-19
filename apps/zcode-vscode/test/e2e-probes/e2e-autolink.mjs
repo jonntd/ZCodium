@@ -1,39 +1,70 @@
 /**
  * E2E 探针（自动关联修复验证）：
- * 自起隔离数据根的全新 server（新产物）→ saveProject（server 作用域）→
+ * 自起隔离数据根的全新 server（新产物）+ 本地 Mock 模型（fixtures provider 指向
+ * 127.0.0.1:18101，不触碰真实 ~/.zcodium）→ saveProject（server 作用域）→
  * createSession **不带 projectId**（此前必报 project.remote-project-required 的路径）→
  * 订阅 → 轮询 rows。
  * 成功判据：createSession 返回 sessionId（gate 修复生效）；assistant 回复作为附加观察。
  */
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, copyFileSync } from "node:fs";
-import { tmpdir, homedir } from "node:os";
+import { mkdtempSync, mkdirSync, copyFileSync, writeFileSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { ChannelClient, SocketProtocol, VSBuffer, Emitter } from "@zcode/rpc";
 import { RemoteServiceAccess } from "@zcode/client";
 
-const REPO = "/Users/jonntd/Gode";
+// 仓库根：脚本所在目录向上四级（apps/zcode-vscode/test/e2e-probes/ → 仓库根）。
+const REPO = process.env.ZCODE_REPO_ROOT?.trim() ||
+  fileURLToPath(new URL("../../../..", import.meta.url));
 const ENTRY = join(REPO, "packages/server/dist/entry-http.js");
 const NODE = process.execPath;
-const WS_PATH = "/tmp/zcode-antigravity-test";
+const WS_PATH = mkdtempSync(join(tmpdir(), "zcode-autolink-ws-"));
 const DATA_ROOT = mkdtempSync(join(tmpdir(), "zcode-autolink-e2e-"));
 
-// 隔离根复用真实凭据（只读拷贝；tasks-index 由新 server 自建，不碰真实数据）。
-mkdirSync(join(DATA_ROOT, "v2"), { recursive: true });
-for (const name of [
-  "credentials.json",
-  "provider_config.json",
-  "config.json",
-  "setting.json",
-  "onboarding-record.json",
+// Provider 隔离（2026-11-20 起不再引用真实 ~/.zcodium——此前该隔离只拷凭据标记、
+// 不带 provider 配置，createSession 即被 providerCount:0 门禁拒（checklist §6.3）：
+// 数据根写入归属标记 + mock provider fixture，模型流量指向本地 Mock 服务器）。
+// 数据根口径 = <ZCODE_DATA_BASE_DIR>/.zcodium（services/src/paths.ts getAppConfigDir）。
+const MOCK_PORT = 18101;
+const FIXTURES = join(REPO, "apps/zcode-vscode/e2e/fixtures");
+const MOCK_SERVER = join(REPO, "apps/zcode-vscode/scripts/mock-model-server.mjs");
+const v2Dir = join(DATA_ROOT, ".zcodium", "v2");
+mkdirSync(v2Dir, { recursive: true });
+writeFileSync(join(DATA_ROOT, ".zcodium", ".zcodium-root.json"), JSON.stringify({
+  product: "dev.zcodium.app",
+  schemaVersion: 1,
+  createdBy: "server",
+  createdAt: new Date().toISOString(),
+  firstSeenVersion: "0.2.0",
+}, null, 2) + "\n");
+copyFileSync(join(FIXTURES, "mock-provider-config.json"), join(v2Dir, "provider_config.json"));
+
+// 前置产物检查（与 e2e-mock-full 同口径：缺什么、怎么补一次说清）。
+for (const [label, path] of [
+  ["server 产物（先 pnpm --filter @zcode/server build）", ENTRY],
+  ["CLI bundle", join(REPO, "apps/zcode-vscode/cli-bundle/zcode.cjs")],
+  ["mock fixtures", join(FIXTURES, "mock-provider-config.json")],
+  ["mock 模型服务器", MOCK_SERVER],
 ]) {
-  try {
-    copyFileSync(join(homedir(), ".zcodium/v2", name), join(DATA_ROOT, "v2", name));
-  } catch { /* 可选文件缺失不阻塞 */ }
+  if (!existsSync(path)) {
+    console.log(`E2E-RESULT: FAIL（前置缺失：${label} → ${path}）`);
+    process.exit(2);
+  }
 }
 
 // 随机可用端口
 const PORT = 41000 + Math.floor(Math.random() * 20000);
+
+const children = [];
+console.log(`启动 mock 模型服务器: port=${MOCK_PORT}`);
+const mock = spawn(NODE, [MOCK_SERVER], {
+  env: { ...process.env, MOCK_MODEL_PORT: String(MOCK_PORT) },
+  stdio: ["ignore", "pipe", "pipe"],
+});
+children.push(mock);
+mock.stdout.on("data", (c) => process.stdout.write(`  [mock] ${c}`));
+mock.stderr.on("data", (c) => process.stdout.write(`  [mock-err] ${c}`));
 
 console.log(`启动隔离 server: port=${PORT} dataRoot=${DATA_ROOT}`);
 const server = spawn(NODE, [ENTRY], {
@@ -44,17 +75,20 @@ const server = spawn(NODE, [ENTRY], {
     HOST: "127.0.0.1",
     PORT: String(PORT),
     ZCODE_DATA_BASE_DIR: DATA_ROOT,
+    // agent（CLI app-server）的 storageRoot 不读 ZCODE_DATA_BASE_DIR（默认硬编码
+    // ~/.zcodium），不显式指到隔离根会抢真实数据根的 agents-state.json.lock。
+    ZCODE_STORAGE_DIR: join(DATA_ROOT, ".zcodium"),
     ZCODE_AGENT_SERVER_COMMAND: NODE,
     ZCODE_AGENT_SERVER_ARGS_JSON: JSON.stringify([
       join(REPO, "apps/zcode-vscode/cli-bundle/zcode.cjs"),
       "app-server",
       "--stdio",
     ]),
-    // Provider 目录：内置目录 + 真实个人配置（只读引用）。
+    // Provider 目录：内置目录（modelRules 通配默认档位）+ mock fixture 个人配置。
     ZCODE_BUILTIN_PROVIDER_CONFIG_FILE: join(
       REPO, "apps/zcode-vscode/cli-bundle/provider/zcode-builtin.json",
     ),
-    ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: join(homedir(), ".zcodium/v2/provider_config.json"),
+    ZCODE_PERSONAL_PROVIDER_CONFIG_FILE: join(FIXTURES, "mock-provider-config.json"),
   },
 });
 let serverLog = "";
@@ -80,7 +114,7 @@ if (!httpReady) {
 }
 console.log("server 就绪");
 
-const cleanup = () => { try { server.kill("SIGKILL"); } catch { /* ignore */ } };
+const cleanup = () => { for (const child of [server, ...children]) { try { child.kill("SIGKILL"); } catch { /* ignore */ } } };
 
 try {
   const ws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);

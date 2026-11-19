@@ -458,7 +458,8 @@
     "package": "node esbuild.mjs && vsce package --no-dependencies --out dist/ && node scripts/check-bundle-size.mjs",
     "test:host": "bash scripts/run-extension-host-smoke.sh",
     "test:e2e": "pnpm exec esbuild e2e/e2e-mock-full.mjs --bundle --platform=node --format=esm --outfile=e2e/e2e-mock-full-bundle.mjs && node e2e/e2e-mock-full-bundle.mjs",
-    "test:pending-changes": "vitest run test/pendingChangesDataPipeline.test.ts test/beforeContent.test.ts test/beforeContentRoundTrip.test.ts test/changesTracker.test.ts test/changesService.test.ts test/debouncedPersister.test.ts test/historyTree.test.ts"
+    "test:pending-changes": "vitest run test/pendingChangesDataPipeline.test.ts test/beforeContent.test.ts test/beforeContentRoundTrip.test.ts test/changesTracker.test.ts test/changesService.test.ts test/debouncedPersister.test.ts test/historyTree.test.ts",
+    "test:e2e:autolink": "pnpm exec esbuild test/e2e-probes/e2e-autolink.mjs --bundle --platform=node --format=esm --outfile=test/e2e-probes/e2e-autolink-bundle.mjs && node test/e2e-probes/e2e-autolink-bundle.mjs"
   },
   "dependencies": {
     "@zcode/client": "workspace:*",
@@ -476,6 +477,8 @@
     "@types/react-dom": "^19.2.0",
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^3.0.0",
+    "@zcode/provider": "workspace:*",
+    "@zcode/provider-node": "workspace:*",
     "esbuild": "0.25.12",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

@@ -222,3 +222,22 @@
   可用 provider；② 桌面端打开侧栏产生 live server 后，改跑 rows-probe / e2e-fullui。
 - **诚实声明**：上表 FAIL 为真实输出原样回填；未跑项未编造结果。复跑前本节不构成
   server 链路的 PASS 证据，仅记录归位事实、命令与当前阻塞。
+
+### 6.4 探针 mock 化与路径派生修复（2026-11-20，§6.3 阻塞解除）
+
+- **e2e-autolink mock 化**：provider 隔离从「复用真实 `~/.zcodium/v2`」切到 mock
+  三件套（`.zcodium-root.json` 归属标记 + `e2e/fixtures/mock-provider-config.json`
+  + 本地 mock-model-server，模型流量指向 127.0.0.1:18101）+ `ZCODE_STORAGE_DIR`
+  指向隔离根——§6.3 的 providerCount:0 阻塞不复存在，且不再触碰真实数据根。
+  仓库根路径经 `import.meta.url` 派生（`ZCODE_REPO_ROOT` 可覆盖，含修复
+  `test/e2e-probes/` 比 `e2e/` 深一级的相对层级）。
+- **运行入口**：`pnpm --filter gode test:e2e:autolink`（bundle → run）。
+  本机实测 **PASS**：gate 生效（无 projectId createSession 返回 sessionId）+
+  任务归属项目 + assistant 回复 OK-OK（mock 模型）——2026-11-06 的 ❌ 已解除。
+- **fixture-check 修复**：硬编码路径改脚本位置派生；`ProviderConfigService` 桩补
+  `onDidChange`（服务契约变更）；provider 统计改读 `personalProviders`（旧字段
+  已不存在）。运行：仓库根 `pnpm exec tsx apps/zcode-vscode/e2e/fixture-check.mjs`
+  → 解析出 `mock:local-e2e / MockLocal`。两包以 devDeps `workspace:*` 测试对打
+  （同 `providerConfigSeed.test.ts` 口径，不随 vsce 打包）。
+- **rows-probe / e2e-fullui**：无硬编码路径，仍按 §6.2 语义对 live server 运行
+  （依赖真实侧栏会话），维持 ⬜ 口径。
