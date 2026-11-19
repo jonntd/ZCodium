@@ -59,7 +59,7 @@ webview → host：{t:"rpc",b64} --base64ToBytes--> Uint8Array --VSBuffer.wrap--
    协议形状（`src/CONTRACT.md` 禁止事项）。桌面端与插件端消费同一份 schema 文件，
    同 commit 生效——不存在「桌面 v4 与插件 v4 版本不一致」的可能面。
 4. **升级路径**：升级 = 在 monorepo 内改 `packages/shared` 并重新构建本扩展
-   （`pnpm --filter zcode-vscode build`）。`workspace:*` 自动跟随，无需改本包版本号。
+   （`pnpm --filter gode build`）。`workspace:*` 自动跟随，无需改本包版本号。
 5. **`@zcode/rpc`**（wire 编解码底座，workspace 内部包 1.0.0）经
    `@zcode/client`/`@zcode/services` 依赖进入两份 bundle，锁定关系同上。
 6. **兼容口径**：桥 wire（§1 帧族）与 v4 协议 schema 解耦。改 wire 必须同时改

@@ -8,7 +8,7 @@
 >   本环境无法执行，**如实标注未运行**，发布前须人工逐项打勾；
 > - 🤖 自动回归 —— 由 vitest 门禁承接（命令见 §1），随每次回归自动执行。
 >
-> 真机前置：安装 zcodium CLI（`zcodium --version` 可用）；`pnpm --filter zcode-vscode
+> 真机前置：安装 zcodium CLI（`zcodium --version` 可用）；`pnpm --filter gode
 > package` 产出 `dist/zcode-vscode-0.2.0.vsix`；`code --install-extension <vsix>`；
 > F5 扩展开发宿主亦可。诊断出口：`ZCodium: 显示 ZCodium 日志`。
 
@@ -16,12 +16,12 @@
 
 | 门禁 | 命令 | 状态 |
 |---|---|---|
-| 单测（桥/装配/平台服务/P0 等价/onboarding） | `pnpm --filter zcode-vscode test` | 本轮见 §4 执行记录 |
-| 类型 | `pnpm --filter zcode-vscode typecheck`（`tsc -b`） | 本轮见 §4 执行记录 |
+| 单测（桥/装配/平台服务/P0 等价/onboarding） | `pnpm --filter gode test` | 本轮见 §4 执行记录 |
+| 类型 | `pnpm --filter gode typecheck`（`tsc -b`） | 本轮见 §4 执行记录 |
 | 架构治理 | `pnpm architecture:check`（根脚本） | 本轮见 §4 执行记录 |
-| 构建 | `pnpm --filter zcode-vscode build` | 本轮见 §4 执行记录 |
-| 体积门禁（§7.2 预算） | `pnpm --filter zcode-vscode size` | 本轮见 §4 执行记录 |
-| 打包（vsce，零 node_modules） | `pnpm --filter zcode-vscode package` | 本轮见 §4 执行记录 |
+| 构建 | `pnpm --filter gode build` | 本轮见 §4 执行记录 |
+| 体积门禁（§7.2 预算） | `pnpm --filter gode size` | 本轮见 §4 执行记录 |
+| 打包（vsce，零 node_modules） | `pnpm --filter gode package` | 本轮见 §4 执行记录 |
 | 根套件接入（2026-11-20） | 仓库根 `pnpm vitest run --project vscode-ext`（随 test:unit / affected / unit-nightly / coverage 覆盖） | ✅ 44 文件 / 509 用例全绿；affected 选择命中（方案见 `docs/testing.md`） |
 | L2 命令面集成（2026-11-20） | `pnpm --filter gode test`（含 commandSurface.integration） | ✅ 9 用例：命令注册完整性 / addToContext 门控与定向投递 / addFileToContext / pickSession 广播 / stop |
 | L3 宿主冒烟（2026-11-20） | `pnpm --filter gode test:host`（真实 IDE 隔离实例） | ✅ PASS（含 F4/F5 门控场景） |
@@ -87,7 +87,7 @@
 | F1 | @ 文件引用 | 输入 `@` 补全选文件 | composer 生成引用 chip；发送后 Agent 收到正确路径（多根为相对 folder 路径） | ⬜ 未运行 |
 | F2 | 选区 chip | 编辑器选中代码 → 侧栏点选区 chip | `[file Lx-Ly]` 注入区块进入 composer | ⬜ 未运行 |
 | F3 | 诊断注入 | 制造 Error 后 `ZCodium: 发送诊断信息`（两档） | 仅错误/全部两档内容正确预填 composer；无诊断时入口禁用 | ⬜ 未运行 |
-| F4 | 加入上下文不弹新窗（已有编辑器页签） | 打开文件 → 对话页签已开 → 右键「加入对话上下文」 | 内容预填当前对话面；**不出现第二个对话页签** | 🤖 宿主冒烟场景 A（`pnpm --filter zcode-vscode test:host`，2026-11-20 隔离实例通过） |
+| F4 | 加入上下文不弹新窗（已有编辑器页签） | 打开文件 → 对话页签已开 → 右键「加入对话上下文」 | 内容预填当前对话面；**不出现第二个对话页签** | 🤖 宿主冒烟场景 A（`pnpm --filter gode test:host`，2026-11-20 隔离实例通过） |
 | F5 | 加入上下文不弹新窗（只剩侧栏面，2026-11-19 缺陷主场景） | 关光对话页签、侧栏挂桥 → 右键「加入对话上下文」 | 内容送进侧栏面；**不 reveal/create 新编辑器页签**（一面都没有时才开） | 🤖 宿主冒烟场景 B（同上，2026-11-20 隔离实例通过） |
 
 ### G. 模型/模式/思考/压缩/用量/子代理（P1-11/P1-14/P1-7/P1-15）
@@ -150,12 +150,12 @@
 
 | 命令 | 结果 |
 |---|---|
-| `pnpm --filter zcode-vscode test` | ✅ 18 文件 / 242 用例全绿（含本清单配套新增 `test/welcomePage.test.ts` 18 例） |
-| `pnpm --filter zcode-vscode typecheck` | ✅ `tsc -b` 零错误 |
+| `pnpm --filter gode test` | ✅ 18 文件 / 242 用例全绿（含本清单配套新增 `test/welcomePage.test.ts` 18 例） |
+| `pnpm --filter gode typecheck` | ✅ `tsc -b` 零错误 |
 | `pnpm architecture:check` | ❌ 41 项违规（修订 `src/module.ts` 注释误匹配后由 113 降为 41）；其中 zcode-vscode 域 7 项全部为前序组遗留：缺 `contract.example.ts`（T01 产物面）、5 处 `@zcode/rpc` 直引未登记 policy（修复需改 `module.ts` requires + `CONTRACT.md`，归组1 契约面，本组不改）、组4 `ImportClaudeSessions.tsx` 1 条 lint-disable；其余 34 项在 `packages/ui` 等模块，均为既有状态 |
-| `pnpm --filter zcode-vscode build` | ✅ 三产物齐（extension.js / webview/main.js / webview/styles.css） |
-| `pnpm --filter zcode-vscode size` | ⚠️ 单产物 4 项全过（extension.js 5.02/9 MB、webview main.js 5.65/8 MB、gzip 1.64/2.5 MB、styles.css 132.4/400 KB）；`dist 总量` 38.59 MB 超 25 MB 原始字节近似——为前序组 webview 懒加载 chunk 集所致（esbuild 已按 §7.2 处置顺序完成桩替换/拆分/minify），**实际 vsix 压缩后 10.64 MB，在 §7.2「vsix 总量 ≤25 MB」预算内**（见下行 vsce 实测）；该门禁为 T01 脚本口径，本组不改其语义 |
-| `pnpm --filter zcode-vscode package` | ⚠️ 因上一行 size 门禁非零退出（package 串在 vsce 之前）；vsce 环节直跑 `npx vsce package --no-dependencies --out dist/` 复验：✅ 产出 `dist/zcode-vscode-0.2.0.vsix`（4336 文件 / 10.64 MB / **零 node_modules** / 无 src·test 残留 / package.json 版本 0.2.0、13 条命令与 contributes 一致）。本轮已将 package 脚本的 vsce 段加 `--out dist/`（T14 终稿：产物落 dist/，与 README/本清单路径一致）〔历史快照注（2026-11-06）：「13 条命令」为当时 vsce 产物的实测快照，此后 M1 编辑器命令与 fullui 落地使 contributes.commands 增至 31 条；现行权威口径见 `src/CONTRACT.md` 命令面条目——本行数字不回改，仅加注〕 |
+| `pnpm --filter gode build` | ✅ 三产物齐（extension.js / webview/main.js / webview/styles.css） |
+| `pnpm --filter gode size` | ⚠️ 单产物 4 项全过（extension.js 5.02/9 MB、webview main.js 5.65/8 MB、gzip 1.64/2.5 MB、styles.css 132.4/400 KB）；`dist 总量` 38.59 MB 超 25 MB 原始字节近似——为前序组 webview 懒加载 chunk 集所致（esbuild 已按 §7.2 处置顺序完成桩替换/拆分/minify），**实际 vsix 压缩后 10.64 MB，在 §7.2「vsix 总量 ≤25 MB」预算内**（见下行 vsce 实测）；该门禁为 T01 脚本口径，本组不改其语义 |
+| `pnpm --filter gode package` | ⚠️ 因上一行 size 门禁非零退出（package 串在 vsce 之前）；vsce 环节直跑 `npx vsce package --no-dependencies --out dist/` 复验：✅ 产出 `dist/zcode-vscode-0.2.0.vsix`（4336 文件 / 10.64 MB / **零 node_modules** / 无 src·test 残留 / package.json 版本 0.2.0、13 条命令与 contributes 一致）。本轮已将 package 脚本的 vsce 段加 `--out dist/`（T14 终稿：产物落 dist/，与 README/本清单路径一致）〔历史快照注（2026-11-06）：「13 条命令」为当时 vsce 产物的实测快照，此后 M1 编辑器命令与 fullui 落地使 contributes.commands 增至 31 条；现行权威口径见 `src/CONTRACT.md` 命令面条目——本行数字不回改，仅加注〕 |
 
 > 结论：build→size→vsce 链路 mechanics 复验通过（vsix 本体在预算内且零 node_modules）；
 > 挂点是 T01 的 size 门禁以 dist 原始字节（38.59 MB）近似 vsix 体积，与 §7.2 的

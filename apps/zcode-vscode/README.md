@@ -13,7 +13,7 @@
    code --install-extension apps/zcode-vscode/dist/zcode-vscode-0.2.0.vsix
    ```
 
-   从源码产出 vsix：`pnpm --filter zcode-vscode package`（esbuild 构建 → `vsce package
+   从源码产出 vsix：`pnpm --filter gode package`（esbuild 构建 → `vsce package
    --no-dependencies` → 体积门禁实测 `dist/*.vsix` 对照 §7 预算），vsix 内零 node_modules。
 
    **CLI 解析优先级**：设置 `gode.cliPath` → PATH 上的 `zcodium` → 内置 bundle
@@ -128,13 +128,16 @@
 ## 开发
 
 ```bash
-pnpm --filter zcode-vscode build       # esbuild 双入口 → dist/
-pnpm --filter zcode-vscode test        # vitest（桥/装配/平台服务/P0 等价回归）
-pnpm --filter zcode-vscode typecheck   # tsc -b
-pnpm --filter zcode-vscode size        # 产物体积门禁（§7 预算）
-pnpm --filter zcode-vscode package     # vsce package → dist/*.vsix（零 node_modules）
+pnpm --filter gode build       # esbuild 双入口 → dist/
+pnpm --filter gode test        # vitest（桥/装配/平台服务/P0 等价回归；随根套件 vscode-ext project 覆盖）
+pnpm --filter gode typecheck   # tsc -b
+pnpm --filter gode size        # 产物体积门禁（§7 预算）
+pnpm --filter gode package     # vsce package → dist/*.vsix（零 node_modules）
+pnpm --filter gode test:host   # 真实 IDE 扩展宿主冒烟（隔离实例；详见 docs/testing.md）
+pnpm --filter gode test:e2e    # mock 全链路 E2E（真 server + CLI bundle + 本地 Mock 模型）
 ```
 
+测试方案（三层：单元/集成/端到端，框架选择依据与 CI 接线）见 `docs/testing.md`。
 模块结构与治理约束见 `src/CONTRACT.md`；桥 wire schema、`@zcode/shared` 版本锁定
 关系与 v4 协议命令面消费清单见 `docs/contract-check.md`（协议 schema 唯一事实来源
 `packages/shared/src/zcode-protocol-v4/`）。端到端真机回归清单见 `test/e2e.checklist.md`。

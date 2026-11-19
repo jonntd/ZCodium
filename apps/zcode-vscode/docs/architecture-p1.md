@@ -357,7 +357,7 @@ legacy `session/create|resume` 仅作降级路径：`agentV4ConnectionHandshake`
 ### T01 — 打包与依赖基建【P0】
 - **文件**：`package.json`（workspace 依赖 + scripts）、`esbuild.mjs`（三产物：extension.js / webview/main.js / webview/styles.css tailwind v4）、`tsconfig.json`（paths 对齐 ui 包 alias）、`vitest.config.ts`、`src/webview-react/index.tsx`（可渲染最小 `<PlatformProvider>` 空实现桩）、`.vscodeignore`、`scripts/check-bundle-size.mjs`（体积门禁）
 - **依赖**：无（基线仓库登记在 T01 内一并提交）
-- **验收**：`pnpm --filter zcode-vscode build` 三产物齐；webview bundle 构建期断言 `platform:browser`（node import 即失败）；`check-bundle-size.mjs` 对照 §7 预算；架构登记改动（§5.2）提交且 `architecture:check --changed` 通过
+- **验收**：`pnpm --filter gode build` 三产物齐；webview bundle 构建期断言 `platform:browser`（node import 即失败）；`check-bundle-size.mjs` 对照 §7 预算；架构登记改动（§5.2）提交且 `architecture:check --changed` 通过
 - **覆盖**：基础设施；Q1 裁决落地
 
 ### T02 — Host 服务装配 + 桥 host 侧【P0】

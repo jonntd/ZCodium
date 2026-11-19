@@ -317,7 +317,7 @@ sequenceDiagram
 - **文件**：`apps/zcode-vscode/package.json`、`tsconfig.json`、`esbuild.mjs`、`.vscodeignore`、`vitest.config.ts`、`src/extension.ts`（可激活空壳）、`media/zcodium.svg`、`README.md`；仓库登记改动（§9：pnpm-workspace.yaml / 根 typecheck / architecture-policy.yaml）
 - **依赖**：无
 - **优先级**：P0
-- **验收**：`node scripts/check-workspace-freshness.mjs` 通过；`pnpm install` 后 `pnpm --filter zcode-vscode build` 产出 `dist/extension.js`；`pnpm typecheck` 全仓通过；`vsce package` 产出 .vsix 且包内无 node_modules；VS Code 加载空扩展可激活（contributes 的 view 容器出现）。
+- **验收**：`node scripts/check-workspace-freshness.mjs` 通过；`pnpm install` 后 `pnpm --filter gode build` 产出 `dist/extension.js`；`pnpm typecheck` 全仓通过；`vsce package` 产出 .vsix 且包内无 node_modules；VS Code 加载空扩展可激活（contributes 的 view 容器出现）。
 - **覆盖需求**：—（基础设施）
 
 ### T2 — 协议契约层：手工同步类型 + 帧编解码

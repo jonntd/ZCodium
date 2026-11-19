@@ -76,7 +76,7 @@ VS Code 插件端同序，仅中间一跳不同：`platform.modelhubFetchModels`
 | Web 端入口 | Host 支持时「拉取模型」按钮出现且可用；旧 Host 上保持隐藏 | 浏览器 E2E（本机 relay + 桌面 Host） |
 | VS Code 端入口 | 「拉取模型」按钮出现；plat-req 逐字透传 payload；host 白名单外方法拒绝面不回归 | `apps/zcode-vscode/test/modelhubPlatformMethod.test.ts`、`platformService.test.ts`、`hostBridge.test.ts` |
 
-运行：`pnpm --filter @zcode/services test`；VS Code 端：`pnpm --filter zcode-vscode test`（按该包实际测试入口）
+运行：`pnpm --filter @zcode/services test`；VS Code 端：`pnpm --filter gode test`（按该包实际测试入口）
 
 ## 6. 未做
 
