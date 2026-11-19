@@ -22,6 +22,10 @@
 | 构建 | `pnpm --filter zcode-vscode build` | 本轮见 §4 执行记录 |
 | 体积门禁（§7.2 预算） | `pnpm --filter zcode-vscode size` | 本轮见 §4 执行记录 |
 | 打包（vsce，零 node_modules） | `pnpm --filter zcode-vscode package` | 本轮见 §4 执行记录 |
+| 根套件接入（2026-11-20） | 仓库根 `pnpm vitest run --project vscode-ext`（随 test:unit / affected / unit-nightly / coverage 覆盖） | ✅ 44 文件 / 509 用例全绿；affected 选择命中（方案见 `docs/testing.md`） |
+| L2 命令面集成（2026-11-20） | `pnpm --filter gode test`（含 commandSurface.integration） | ✅ 9 用例：命令注册完整性 / addToContext 门控与定向投递 / addFileToContext / pickSession 广播 / stop |
+| L3 宿主冒烟（2026-11-20） | `pnpm --filter gode test:host`（真实 IDE 隔离实例） | ✅ PASS（含 F4/F5 门控场景） |
+| L3 mock 全链路（2026-11-20） | `pnpm --filter gode test:e2e`（真 server + CLI bundle + WS accessor + Mock 模型） | ✅ 7/7 PASS；CI 挂 unit-nightly 的 `e2e-mock-full` job |
 
 ## 2. 端到端真机清单（DoD）
 
@@ -83,6 +87,8 @@
 | F1 | @ 文件引用 | 输入 `@` 补全选文件 | composer 生成引用 chip；发送后 Agent 收到正确路径（多根为相对 folder 路径） | ⬜ 未运行 |
 | F2 | 选区 chip | 编辑器选中代码 → 侧栏点选区 chip | `[file Lx-Ly]` 注入区块进入 composer | ⬜ 未运行 |
 | F3 | 诊断注入 | 制造 Error 后 `ZCodium: 发送诊断信息`（两档） | 仅错误/全部两档内容正确预填 composer；无诊断时入口禁用 | ⬜ 未运行 |
+| F4 | 加入上下文不弹新窗（已有编辑器页签） | 打开文件 → 对话页签已开 → 右键「加入对话上下文」 | 内容预填当前对话面；**不出现第二个对话页签** | 🤖 宿主冒烟场景 A（`pnpm --filter zcode-vscode test:host`，2026-11-20 隔离实例通过） |
+| F5 | 加入上下文不弹新窗（只剩侧栏面，2026-11-19 缺陷主场景） | 关光对话页签、侧栏挂桥 → 右键「加入对话上下文」 | 内容送进侧栏面；**不 reveal/create 新编辑器页签**（一面都没有时才开） | 🤖 宿主冒烟场景 B（同上，2026-11-20 隔离实例通过） |
 
 ### G. 模型/模式/思考/压缩/用量/子代理（P1-11/P1-14/P1-7/P1-15）
 

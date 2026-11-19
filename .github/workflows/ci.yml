@@ -40,6 +40,13 @@ jobs:
       - name: Unit tests (node:test packages)
         run: pnpm --filter @zcode/shared --filter @zcode/services --filter @zcode/ui test
 
+      # VS Code 扩展（apps/zcode-vscode）包级 vitest 套件（~45 文件，秒级）：此前 push 级
+      # 完全不跑扩展测试。该包同时已接入根 vitest 套件（vitest.config.ts 的 vscode-ext
+      # project，随 test:unit / affected 选择 / unit-nightly 覆盖）；此步是 push 级快门禁，
+      # 与根套件互为兜底（providerConfigSeed.test.ts 因跨工程源码导入只在此处执行）。
+      - name: VS Code extension tests (vitest)
+        run: pnpm --filter gode test
+
       # 桌面/UI/CLI 无遥测守卫（node:test，不在 vitest 范围）：上游同步带回
       # ARMS/OTLP SDK、遥测核心或上报 IPC 通道时此步先红。规则见
       # packages/desktop/specs/no-telemetry.md，源码级关键词守卫另见

@@ -175,11 +175,40 @@ export default defineConfig({
           sequence: { groupOrder: 1 },
         },
       },
+      {
+        // VS Code 扩展（apps/zcode-vscode）：此前根套件不含 apps/*，扩展单测只在
+        // 包级 `pnpm --filter gode test` 手动入口跑，test:unit / affected 选择 /
+        // unit-nightly / coverage 全部不覆盖。独立 project 接入后沿用根 alias
+        // （@ → packages/ui/src，与包级 vitest.config.ts 一致）与 setupFiles。
+        // 真实进程类测试不在本层（宿主冒烟 test:host 走 --extensionTestsPath，
+        // mock 全链路 e2e 走 node 脚本，均不进 vitest）。
+        extends: true,
+        test: {
+          name: "vscode-ext",
+          include: [
+            "apps/zcode-vscode/test/**/*.test.ts",
+            // 架构治理口径：managed 模块 contract 测试同样在模块目录内（同 packages/*/src）。
+            "apps/zcode-vscode/src/contract.test.ts",
+          ],
+          exclude: [
+            // providerConfigSeed 跨工程相对导入 packages/provider-node 源码
+            // （extensionless TS）：repo root 下 vitest 把该导入交给 node ESM 解析
+            // 直接失败（实测 "Cannot find module"；project 级 root 覆盖在 vitest 4
+            // 内联 project 上 setupFiles 解析另有缺陷），包 root 下才由 vite 处理。
+            // 该文件仍由包级 `pnpm --filter gode test` 与 ci.yml 的包级 step 覆盖，
+            // 只是不进根套件/affected 选择（tests: 1，代价可接受）。
+            "apps/zcode-vscode/test/providerConfigSeed.test.ts",
+            // .mjs 探针由 node 直接执行（e2e/*.mjs），*.test.ts glob 本就不会命中；显式排除防将来改名混入。
+            "apps/zcode-vscode/test/e2e-probes/**",
+          ],
+          environment: "node",
+        },
+      },
       "packages/zcode-cua/vitest.config.ts",
     ],
     coverage: {
       provider: "v8",
-      include: ["packages/*/src/**/*.ts"],
+      include: ["packages/*/src/**/*.ts", "apps/zcode-vscode/src/**/*.ts"],
     },
   },
 });
