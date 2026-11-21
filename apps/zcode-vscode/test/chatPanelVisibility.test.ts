@@ -7,8 +7,11 @@
  * 内部挂了多点延迟收栏（closeAuxiliaryBar + **closeSidebar**，对抗 IDE 对 agent
  * webview 的自动展开），于是把用户**自己点开的**面板与主侧栏（资源管理器）一起关掉。
  *
- * 修复后：可见性不产生任何命令调用，只记录状态；收栏兜底只收辅助栏，且侧栏对话
+ * 修复后：可见性不产生任何命令调用；收栏兜底只收辅助栏，且侧栏对话
  * 可见时整体让位。
+ * 边界更新（2026-11-21，审查 medium 修复）：可见性变化额外推送 visibility host 帧
+ * （pushHostFrameTo，只驱动 webview 渲染暂停），**不参与任何布局/reveal 决策**——
+ * 2026-11-08 的命令面约束不变。
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -81,6 +84,8 @@ function makeHostRuntime() {
     handleWebviewMessage: vi.fn(),
     attachWebview: vi.fn(),
     detachWebview: vi.fn(),
+    // 渲染暂停的 host 半（2026-11-21）：可见性变化 → visibility 帧（非命令面）。
+    pushHostFrameTo: vi.fn(),
   };
 }
 

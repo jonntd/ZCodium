@@ -71,6 +71,19 @@ export class ChatPanel implements WebviewViewProvider {
       }),
     );
     this.hostRuntime.attachWebview(CHAT_VIEW_ID, view.webview);
+    // 可见性帧（架构 §2.2 双源 host 半；审查 medium 修复）：hostFrameKinds 的
+    // visibility 帧注释声称本面板生产，实际从未接线——「webview 隐藏即暂停渲染」
+    // 两端都没接上。侧栏折叠/显示时推帧 + resolve 时发初值，webview 侧
+    // useRenderPaused 与 document.visibilitychange 双源合成暂停渲染。
+    // 边界（2026-11-08 缺陷修复仍有效）：此帧只驱动**渲染暂停**，绝不参与布局/
+    // reveal 决策（那类消费已被明确移除，勿复用此帧做跳板）。
+    const pushVisibilityFrame = (): void => {
+      this.hostRuntime.pushHostFrameTo(CHAT_VIEW_ID, "visibility", {
+        visible: view.visible === false ? false : true,
+      });
+    };
+    pushVisibilityFrame();
+    this.resolveSubscriptions.push(view.onDidChangeVisibility(pushVisibilityFrame));
     // 可见性**不参与任何决策**（缺陷修复 2026-11-08）：
     // 原「侧栏可见跳板」在视图可见时去 reveal 编辑器标签，而 reveal() 内部会多点
     // 延迟收起侧栏——于是**用户自己点活动栏图标打开的对话面板**被我们自己的收栏

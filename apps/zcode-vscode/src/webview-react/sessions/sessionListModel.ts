@@ -84,6 +84,35 @@ export function removeSessionFromList(
   return entries.filter((entry) => entry.sessionId !== sessionId);
 }
 
+/** 已知任务集的最小形状（zcodeSessionStore 工作区切片的投影面）。 */
+export interface KnownTaskSet {
+  optimisticTaskListByTaskId: Readonly<Record<string, unknown>>;
+  /** store 里为 `[] | null`（null = 尚未加载）。 */
+  taskListCache?: readonly { taskId: string }[] | null;
+}
+
+/**
+ * activeTaskId → null 时是否应上报「会话已删除」。
+ * 修复（审查 medium）：回草稿/新建会话同样产生 null 迁移（startDraft 写
+ * activeTaskId: null），此前 App 一律上报 notifySessionDeleted，host 侧误清
+ * per-folder 最近会话恢复键并拆掉 pending-changes 会话绑定，与「保留恢复状态」
+ * 的设计意图相反。只有会话确认已不在已知任务集（乐观列表 + 列表缓存）才上报；
+ * 任务集未加载（两处都查不到数据）时保守不报——误删绑定不可恢复，漏报可由
+ * host 悬空键的恢复失败路径兜底。
+ */
+export function shouldReportSessionDeleted(
+  removedTaskId: string,
+  known: KnownTaskSet,
+): boolean {
+  const inOptimistic = known.optimisticTaskListByTaskId[removedTaskId] !== undefined;
+  const inCache = known.taskListCache?.some((task) => task.taskId === removedTaskId) ?? false;
+  // 任务集有数据才判定（缓存缺位且乐观集为空 = store 尚未加载列表，保守不报）
+  const taskSetLoaded =
+    known.taskListCache != null ||
+    Object.keys(known.optimisticTaskListByTaskId).length > 0;
+  return !inOptimistic && !inCache && taskSetLoaded;
+}
+
 /** 状态徽标文案（P1-1.1 状态列；未知降级原样展示）。 */
 export function sessionStatusLabel(status: string): string {
   switch (status) {

@@ -10,7 +10,7 @@
  *   的只读列表（编辑面归 ui SettingsPage 范畴，本期不展开）。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button.js";
 import { useServices } from "@/hooks/useServices.js";
 import { SubagentDrilldown } from "@/v4/SubagentDrilldown.js";
@@ -49,8 +49,15 @@ function SubagentsInner({ workspacePath, sessionId, onClose }: SubagentsPanelPro
   const [error, setError] = useState<string | null>(null);
   const [drilldownChildId, setDrilldownChildId] = useState<string | null>(null);
 
+  // 修复（审查 medium）：refreshEnded 无 stale-response 防护——切换会话 A→B 时，
+  // A 的在途慢响应晚到会覆盖 B 的已结束列表（running 区已随投影切到 B，ended 区
+  // 却还是 A 的数据）。以请求序号守卫：只有「最新一次发起」的响应才允许落账。
+  // 同时修 useCallback 依赖缺 workspacePath——workspacePath 变化后闭包仍用旧路径
+  // 查询（SessionCommandScope 只换 Provider value，不重挂子组件，实例被复用）。
+  const refreshSeqRef = useRef(0);
   const refreshEnded = useCallback(async () => {
     if (!sessionId) return;
+    const seq = ++refreshSeqRef.current;
     setError(null);
     try {
       const result = await zcodeAgentService.listSessionSubagents({
@@ -58,11 +65,13 @@ function SubagentsInner({ workspacePath, sessionId, onClose }: SubagentsPanelPro
         workspacePath,
         endedLimit: 20,
       });
+      if (seq !== refreshSeqRef.current) return; // 已有更新的请求，丢弃过期响应
       setEnded(projectEndedSubagents(result));
     } catch (err) {
+      if (seq !== refreshSeqRef.current) return;
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [sessionId, zcodeAgentService]);
+  }, [sessionId, workspacePath, zcodeAgentService]);
 
   useEffect(() => {
     void refreshEnded();

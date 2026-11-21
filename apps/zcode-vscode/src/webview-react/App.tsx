@@ -48,6 +48,7 @@ import {
   type VscodeThemeKind,
 } from "./themeBridge";
 import { useRenderPaused } from "./lifecycle/visibility";
+import { shouldReportSessionDeleted } from "./sessions/sessionListModel";
 import { mapVscodeLanguage } from "./i18nSetup";
 import type { HostFrameBus } from "./bridge/hostFrames";
 import type {
@@ -170,7 +171,11 @@ export function App({
   }, [frameBus, onActiveSessionChange]);
 
   // 可见性双源 gate：host visibility 帧 + document.visibilitychange 任一隐藏即暂停。
-  useRenderPaused(frameBus);
+  // 修复（审查 medium）：返回值此前被丢弃、useRenderPaused 自身也无外部副作用——
+  // 「webview 隐藏即暂停渲染」在装配层是 no-op。现在经 content-visibility 挂起
+  // 对话区子树的布局/绘制：保持 DOM 状态（不卸载 Root，滚动/输入/草稿不丢），
+  // 只跳过隐藏期间的重渲染成本。
+  const renderPaused = useRenderPaused(frameBus);
 
   // capabilities 帧：只取两类提示文案（Agent 运行时不兼容/二进制帧降级提示）。
   // Root 自身的能力门控（终端入口等）由其内部按 platform/services 自行裁决。
@@ -268,9 +273,22 @@ export function App({
           // 上报失败不阻塞本地选择态；host 侧 restore 仍按 store 旧值兜底。
         });
       } else if (removed) {
-        void reporting.notifySessionDeleted?.(removed).catch(() => {
-          // 同上：host 键清理失败不阻塞本地回草稿。
-        });
+        // 修复（审查 medium）：activeTaskId→null ≠ 会话删除——「新建会话/回草稿」
+        // 同样产生该迁移（startDraft 写 activeTaskId: null），此前一律上报
+        // notifySessionDeleted，host 误清 per-folder 最近会话恢复键并无条件拆掉
+        // pending-changes 会话绑定，与「保留恢复状态」的设计意图相反。
+        // 只在会话确认已不在已知任务集时才上报删除（判定面见 sessionListModel）。
+        const known = state.getWorkspaceState(workspacePath);
+        if (
+          shouldReportSessionDeleted(removed, {
+            optimisticTaskListByTaskId: known.optimisticTaskListByTaskId,
+            taskListCache: known.taskListCache,
+          })
+        ) {
+          void reporting.notifySessionDeleted?.(removed).catch(() => {
+            // 同上：host 键清理失败不阻塞本地回草稿。
+          });
+        }
       }
     });
   }, [platform, workspacePath, onActiveSessionChange]);
@@ -358,7 +376,10 @@ export function App({
           />
           {/* 能力提示横幅行已移除（spec: workspace-header-status-hint）：
               文案经 workspaceHeaderHintStore 并入 WorkspaceHeader 单排 chip。 */}
-          <div className="min-h-0 flex-1">
+          <div
+            className="min-h-0 flex-1"
+            style={renderPaused ? { contentVisibility: "hidden" } : undefined}
+          >
             <Root
               key={switchTarget.seq}
               services={services}

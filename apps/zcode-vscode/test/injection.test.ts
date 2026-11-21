@@ -248,3 +248,39 @@ describe("selectionChip（活动编辑器选区投影）", () => {
     expect(prefill.text.startsWith("[src/file.rs L12-L40]")).toBe(true);
   });
 });
+
+// 回归（审查 medium）：sameRoot 用 startsWith 前缀判定时，嵌套 root（/a/b vs /a/bc）
+// 的命中会误用 relativePath，mention 解析回错误文件。已知来源 root 用精确相等，
+// 缺省走段级包含判定（与 ui fileMentionProvider 同口径）。
+describe("mentionSource：嵌套 root 不误判同根", () => {
+  const fileEntry = (partial: Partial<WorkspaceFileEntry> & { path: string; relativePath: string; name: string }): WorkspaceFileEntry =>
+    ({ type: "file", ...partial } as WorkspaceFileEntry);
+
+  it("已知来源 root：与 workspacePath 精确相等才用相对路径", () => {
+    const nested = toFileMentionItem(
+      fileEntry({ path: "/a/bc/d.txt", relativePath: "d.txt", name: "d.txt" }),
+      "/a/b",
+      "/a/bc",
+    );
+    expect(nested.value).toBe("/a/bc/d.txt");
+    const mainRoot = toFileMentionItem(
+      fileEntry({ path: "/a/b/e.txt", relativePath: "e.txt", name: "e.txt" }),
+      "/a/b",
+      "/a/b",
+    );
+    expect(mainRoot.value).toBe("e.txt");
+  });
+
+  it("缺省来源 root：段级包含判定（/a/bc 不是 /a/b 的子路径）", () => {
+    const nested = toFileMentionItem(
+      fileEntry({ path: "/a/bc/d.txt", relativePath: "d.txt", name: "d.txt" }),
+      "/a/b",
+    );
+    expect(nested.value).toBe("/a/bc/d.txt");
+    const inside = toFileMentionItem(
+      fileEntry({ path: "/a/b/sub/e.txt", relativePath: "sub/e.txt", name: "e.txt" }),
+      "/a/b",
+    );
+    expect(inside.value).toBe("sub/e.txt");
+  });
+});

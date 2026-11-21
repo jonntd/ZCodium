@@ -16,6 +16,7 @@ import {
   projectSessionEntries,
   removeSessionFromList,
   sessionStatusLabel,
+  shouldReportSessionDeleted,
 } from "../src/webview-react/sessions/sessionListModel";
 import {
   folderLabel,
@@ -194,5 +195,44 @@ describe("多根 QuickPick：组2 pickWorkspaceFolder plat mock（P1-2）", () =
     expect(folderLabel("/Users/dev/repo-a")).toBe("repo-a");
     expect(folderLabel("C:\\dev\\repo-b")).toBe("repo-b");
     expect(folderLabel("/")).toBe("/");
+  });
+});
+
+// 回归（审查 medium）：activeTaskId→null ≠ 会话删除——回草稿/新建会话同样产生
+// 该迁移，此前 App 一律上报 notifySessionDeleted，host 误清 per-folder 恢复键并
+// 拆掉 pending-changes 会话绑定。只有会话确认已不在已知任务集才上报。
+describe("shouldReportSessionDeleted：null 迁移的删除上报判定", () => {
+  const taskId = "s-1";
+  const loaded = {
+    optimisticTaskListByTaskId: {} as Record<string, unknown>,
+    taskListCache: [{ taskId: "s-1" }, { taskId: "s-2" }],
+  };
+
+  it("会话仍在列表/乐观集中（回草稿/新建会话）→ 不上报", () => {
+    expect(shouldReportSessionDeleted(taskId, loaded)).toBe(false);
+    expect(
+      shouldReportSessionDeleted(taskId, {
+        optimisticTaskListByTaskId: { [taskId]: {} },
+        taskListCache: undefined,
+      }),
+    ).toBe(false);
+  });
+
+  it("会话已不在已知任务集（真删除）→ 上报", () => {
+    expect(
+      shouldReportSessionDeleted(taskId, {
+        optimisticTaskListByTaskId: {},
+        taskListCache: [{ taskId: "s-2" }],
+      }),
+    ).toBe(true);
+  });
+
+  it("任务集未加载（缓存缺位且乐观集为空）→ 保守不报（误删不可恢复）", () => {
+    expect(
+      shouldReportSessionDeleted(taskId, {
+        optimisticTaskListByTaskId: {},
+        taskListCache: undefined,
+      }),
+    ).toBe(false);
   });
 });

@@ -92,17 +92,27 @@ export function useSessionCommandDispatcher(sessionId: string | null) {
         sessionId,
         baseRevision: snapshot.revision,
       });
-      const ack = await sendCommand(envelope, { projectId: null });
-      if (ack.status === "accepted" || ack.status === "duplicate" || ack.status === "noop") {
-        return { ok: true, message: "" };
+      // 修复（审查 medium）：sendCommand 会 reject（握手失败/断连：transport 的
+      // ensureHandshake / sendConversationCommandV4），此前无捕获——调用方
+      // `void handleModelChange(value)` 触发时 reject 即未处理拒绝，setError 永不
+      // 执行，断连时切模型/协作模式静默失败。catch 后按失败结果返回，UI 的
+      // setError/提示链路才接得上。
+      try {
+        const ack = await sendCommand(envelope, { projectId: null });
+        if (ack.status === "accepted" || ack.status === "duplicate" || ack.status === "noop") {
+          return { ok: true, message: "" };
+        }
+        if (ack.status === "stale") {
+          return { ok: false, message: "会话已更新（revision 变化），请重试" };
+        }
+        return {
+          ok: false,
+          message: `切换被拒绝：${ack.reasonCode ?? ack.status}${ack.message ? `（${ack.message}）` : ""}`,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ok: false, message: `命令发送失败：${message}` };
       }
-      if (ack.status === "stale") {
-        return { ok: false, message: "会话已更新（revision 变化），请重试" };
-      }
-      return {
-        ok: false,
-        message: `切换被拒绝：${ack.reasonCode ?? ack.status}${ack.message ? `（${ack.message}）` : ""}`,
-      };
     },
     [sendCommand, sessionId, snapshot],
   );

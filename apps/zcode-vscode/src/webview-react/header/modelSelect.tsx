@@ -171,8 +171,14 @@ function CompactActionButton(params: {
   const allowed = isCompactAllowed(params.snapshot);
   const handleClick = useCallback(async () => {
     if (!params.sessionId) return;
-    const ack = await sendCommand(buildCompactEnvelope(params.sessionId), { projectId: null });
-    setMessage(interpretCompactAck(ack).message);
+    // 修复（审查 medium）：sendCommand 会 reject（断连/握手失败），裸 await 经
+    // `void handleClick()` 触发即未处理拒绝 + 静默失败。catch 后走既有 message 面呈现。
+    try {
+      const ack = await sendCommand(buildCompactEnvelope(params.sessionId), { projectId: null });
+      setMessage(interpretCompactAck(ack).message);
+    } catch (error) {
+      setMessage(`压缩失败：${error instanceof Error ? error.message : String(error)}`);
+    }
   }, [params.sessionId, sendCommand]);
   return (
     <>

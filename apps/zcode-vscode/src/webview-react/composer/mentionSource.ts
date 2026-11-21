@@ -25,9 +25,23 @@ export interface FileMentionItem {
   data: { kind: "file" | "directory"; path: string; relativePath: string };
 }
 
-/** 单条文件命中 → mention item（与 ui fileMentionProvider.mapWorkspaceFileToMentionItem 同口径）。 */
-export function toFileMentionItem(entry: WorkspaceFileEntry, workspacePath: string): FileMentionItem {
-  const sameRoot = normalize(entry.path).startsWith(normalize(workspacePath));
+/**
+ * 单条文件命中 → mention item（与 ui fileMentionProvider.mapWorkspaceFileToMentionItem 同口径）。
+ * 修复（审查 medium）：sameRoot 此前用 startsWith 前缀判定——workspacePath=/a/b、
+ * folder root=/a/bc 时，来自 root2 的 /a/bc/d.txt 也以 /a/b 为前缀 → 误用
+ * relativePath，注入后按 /a/b 相对解析指向不存在的文件。改为：已知来源 root 时
+ * 精确相等（ui fileMentionProvider 同口径）；缺省按段级包含判定（嵌套 root 不误判）。
+ */
+export function toFileMentionItem(
+  entry: WorkspaceFileEntry,
+  workspacePath: string,
+  /** 命中来源 root（多根查询逐 root 搜出）；缺省按 entry.path 段级包含判定。 */
+  sourceRoot?: string,
+): FileMentionItem {
+  const sameRoot =
+    sourceRoot !== undefined
+      ? normalize(sourceRoot) === normalize(workspacePath)
+      : isPathUnderRoot(entry.path, workspacePath);
   const mentionPath = sameRoot ? entry.relativePath : entry.path;
   const label = entry.name;
   return {
@@ -39,6 +53,14 @@ export function toFileMentionItem(entry: WorkspaceFileEntry, workspacePath: stri
     description: entry.relativePath,
     data: { kind: entry.type, path: entry.path, relativePath: entry.relativePath },
   };
+}
+
+/** 段级包含判定：`/a/bc` 不是 `/a/b` 的子路径（startsWith 前缀匹配会误判嵌套 root）。 */
+function isPathUnderRoot(path: string, root: string): boolean {
+  const normalizedPath = normalize(path);
+  const normalizedRoot = normalize(root);
+  if (normalizedRoot === "") return true;
+  return normalizedPath === normalizedRoot || normalizedPath.startsWith(`${normalizedRoot}/`);
 }
 
 /** 提及插入请求（requestComposerTextInsert 的 text+mention 组装；纯函数可测）。 */
@@ -73,7 +95,9 @@ export async function searchWorkspaceFileMentions(params: {
       });
       for (const entry of entries ?? []) {
         if (!byPath.has(entry.path)) {
-          byPath.set(entry.path, toFileMentionItem(entry, params.workspacePath));
+          // 传入来源 root：多根查询里非主 workspace 的命中按精确相等判定，
+          // 嵌套 root（/a/b vs /a/bc）不再误用 relativePath
+          byPath.set(entry.path, toFileMentionItem(entry, params.workspacePath, rootPath));
         }
       }
     } catch (error) {

@@ -11,7 +11,7 @@
  * - 「改动后需重建会话生效」提示：所有写回面共用（host 应答 requiresSessionRebuild）。
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { IServiceAccessor } from "@zcode/services";
 import type { ZCodeMcpListResult } from "@zcode/shared";
 import { Button } from "@/components/ui/button.js";
@@ -97,19 +97,33 @@ function McpSettingsInner({
   const [statusLoading, setStatusLoading] = useState(false);
   const [writtenAllow, setWrittenAllow] = useState<Set<string>>(new Set());
 
-  const refreshSettings = useCallback(async () => {
-    try {
-      const snapshot = normalizeWorkspaceSettingsSnapshot(
-        await plat.call("getWorkspaceSettings"),
-      );
-      setServers(snapshot.mcpServers.map(toEditableServer));
-      setAllowlist(snapshot.toolAllowlist);
-      setDenylist(snapshot.toolDenylist);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [plat]);
+  /**
+   * 按 scope 拉取 settings 并**只覆盖对应编辑态**。
+   * 修复（审查 medium）：三个编辑面（servers/allowlist/denylist）各自独立保存却
+   * 共享一个全量刷新器——任一保存成功后全量覆盖会把其他面未保存的草稿静默回滚
+   * 成 host 值（先保存的一方吃掉后编辑的一方）。保存后只刷新自己写的那一面；
+   * 「本次会话允许」写回只影响规则面，不动 servers。
+   */
+  const refreshSettings = useCallback(
+    async (scope: "servers" | "rules" | "all" = "all") => {
+      try {
+        const snapshot = normalizeWorkspaceSettingsSnapshot(
+          await plat.call("getWorkspaceSettings"),
+        );
+        if (scope === "servers" || scope === "all") {
+          setServers(snapshot.mcpServers.map(toEditableServer));
+        }
+        if (scope === "rules" || scope === "all") {
+          setAllowlist(snapshot.toolAllowlist);
+          setDenylist(snapshot.toolDenylist);
+        }
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [plat],
+  );
 
   useEffect(() => {
     void refreshSettings();
@@ -145,7 +159,7 @@ function McpSettingsInner({
         message: string;
       };
       setWriteBack(result.message);
-      await refreshSettings();
+      await refreshSettings("servers");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -159,7 +173,7 @@ function McpSettingsInner({
           message: string;
         };
         setWriteBack(result.message);
-        await refreshSettings();
+        await refreshSettings("rules");
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -177,7 +191,8 @@ function McpSettingsInner({
         )) as SessionAllowlistWriteBack;
         setWriteBack(result.message);
         setWrittenAllow((current) => new Set(current).add(item.interactionId));
-        await refreshSettings();
+        // 「本次会话允许」写回只影响规则面，不覆盖 servers 编辑态
+        await refreshSettings("rules");
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -367,13 +382,13 @@ function McpSettingsInner({
             label="allowlist 规则（每行一条，Tool 或 Tool(args)）"
             rules={allowlist}
             onChange={setAllowlist}
-            onSave={() => void handleSaveRules("allowlist", allowlist)}
+            onSave={(rules) => void handleSaveRules("allowlist", rules)}
           />
           <RuleEditor
             label="denylist 规则（每行一条）"
             rules={denylist}
             onChange={setDenylist}
-            onSave={() => void handleSaveRules("denylist", denylist)}
+            onSave={(rules) => void handleSaveRules("denylist", rules)}
           />
         </div>
       ) : null}
@@ -408,29 +423,44 @@ function RuleEditor(params: {
   label: string;
   rules: string[];
   onChange: (rules: string[]) => void;
-  onSave: () => void;
+  /** 接收归一化后的规则（而非读父态）：保存与 onChange 同步触发时父态尚未更新。 */
+  onSave: (rules: string[]) => void;
 }) {
+  // 修复（审查 medium）：受控值 = rules.join("\n") 且 onChange 立即 trim/filter——
+  // 行尾回车被立即吃掉（空串被 filter(Boolean) 移除后回填），无法用回车新增规则行，
+  // 常规逐行录入流程走不通。改为本地草稿：textarea 保留原文（换行/空格不丢），
+  // 保存时才归一化；外部刷新（保存成功回读/初始装载）才覆盖草稿。
+  const [draft, setDraft] = useState(() => params.rules.join("\n"));
+  const syncedJoin = useRef(params.rules.join("\n"));
+  useEffect(() => {
+    const nextJoin = params.rules.join("\n");
+    if (nextJoin !== syncedJoin.current) {
+      syncedJoin.current = nextJoin;
+      setDraft(nextJoin);
+    }
+  }, [params.rules]);
   return (
     <div className="mb-1">
       <div className="text-foreground-subtle">{params.label}</div>
       <textarea
         className="h-16 w-full rounded border border-card-border bg-background p-1 font-mono text-ui-xs"
-        value={params.rules.join("\n")}
-        onChange={(event) =>
-          params.onChange(
-            event.target.value
-              .split("\n")
-              .map((line) => line.trim())
-              .filter(Boolean),
-          )
-        }
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
       />
       <Button
         type="button"
         variant="ghost"
         size="sm"
         className="h-6 px-2 enabled:cursor-pointer"
-        onClick={params.onSave}
+        onClick={() => {
+          const normalized = draft
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean);
+          syncedJoin.current = normalized.join("\n");
+          params.onChange(normalized);
+          params.onSave(normalized);
+        }}
       >
         保存规则
       </Button>
