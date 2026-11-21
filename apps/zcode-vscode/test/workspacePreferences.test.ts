@@ -180,6 +180,84 @@ describe("MCP servers CRUD（P1-8.1 settings 形状）", () => {
     });
   });
 
+  it("往返保留表单外字段（env/cwd/timeoutMs/headers/oauth），不再整批清空", () => {
+    // 回归依据：此前 fromEditableServer 无条件回写空 env/headers，保存一次即丢失既有配置
+    const stdio = toEditableServer({
+      name: "fs",
+      command: "npx",
+      args: ["-y", "fs-mcp"],
+      env: [{ name: "KEY", value: "v" }],
+      cwd: "/w",
+      timeoutMs: 5000,
+      alwaysLoad: true,
+      scope: "workspace",
+      unknownField: { x: 1 },
+    });
+    expect(fromEditableServer(stdio)).toEqual({
+      name: "fs",
+      command: "npx",
+      args: ["-y", "fs-mcp"],
+      env: [{ name: "KEY", value: "v" }],
+      cwd: "/w",
+      timeoutMs: 5000,
+      alwaysLoad: true,
+      scope: "workspace",
+    });
+
+    const http = toEditableServer({
+      name: "web",
+      type: "http",
+      url: "https://mcp.example",
+      headers: [{ name: "Authorization", value: "Bearer t" }],
+      oauth: { type: "client_credentials", clientId: "a", clientSecret: "b" },
+    });
+    expect(fromEditableServer(http)).toEqual({
+      name: "web",
+      type: "http",
+      url: "https://mcp.example",
+      headers: [{ name: "Authorization", value: "Bearer t" }],
+      oauth: { type: "client_credentials", clientId: "a", clientSecret: "b" },
+    });
+  });
+
+  it("preserved 字段互斥：stdio 不携带 headers，http/sse 不携带 env（strict schema 不拒绝）", () => {
+    const stdio = toEditableServer({
+      name: "fs",
+      command: "c",
+      env: [{ name: "K", value: "v" }],
+      headers: [{ name: "H", value: "v" }],
+    });
+    const stdioOut = fromEditableServer(stdio);
+    expect("headers" in stdioOut).toBe(false);
+    expect("type" in stdioOut).toBe(false);
+
+    const http = toEditableServer({
+      name: "web",
+      type: "http",
+      url: "u",
+      env: [{ name: "K", value: "v" }],
+    });
+    const httpOut = fromEditableServer(http);
+    expect("env" in httpOut).toBe(false);
+    expect("command" in httpOut).toBe(false);
+  });
+
+  it("畸形 preserved 值被过滤，env/headers 必填数组仍成立", () => {
+    const stdio = toEditableServer({
+      name: "x",
+      command: "c",
+      env: [{ name: "", value: "bad" }, "raw", { name: "OK", value: "v" }],
+      cwd: 123,
+      timeoutMs: -1,
+    });
+    expect(fromEditableServer(stdio)).toEqual({
+      name: "x",
+      command: "c",
+      args: [],
+      env: [{ name: "OK", value: "v" }],
+    });
+  });
+
   it("写回归一化：丢弃空名/空命令行；上限截断", () => {
     const servers = [
       { name: "ok", transport: "stdio" as const, commandOrUrl: "cmd", args: [] },

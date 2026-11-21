@@ -15,21 +15,29 @@
 
 import { sessionAllowlistRule } from "../../approvals/approvalService";
 
-/** stdio/http-sse 两形态的最小编辑形状（面板表单面；多余字段原样保留）。 */
+/** stdio/http-sse 两形态的最小编辑形状（面板表单面；schema 已知的多余字段经 preserved 原样保留）。 */
 export interface EditableMcpServer {
   name: string;
   /** stdio：命令；http/sse：URL。 */
   commandOrUrl: string;
   transport: "stdio" | "http" | "sse";
-  /** stdio: args；http/sse: 忽略（headers 面板暂不编辑，原样保留）。 */
+  /** stdio: args；http/sse: 忽略（headers 面板暂不编辑，经 preserved 原样保留）。 */
   args: string[];
+  /**
+   * 表单外的既有 settings 字段（stdio: env/cwd/scope/isolation/protocolVersion/alwaysLoad/timeoutMs；
+   * http/sse: headers/oauth/scope/isolation/protocolVersion/alwaysLoad/timeoutMs）。
+   * 写回时原样合并。修复依据：此前 fromEditableServer 无条件回写空 env/headers，
+   * 经 container.updateMcpServers → writeGodeSetting("mcp.servers") 整体覆盖，
+   * 用户既有配置在面板一次保存后全部丢失（与注释「多余字段原样保留」相反）。
+   */
+  preserved?: Record<string, unknown>;
 }
 
 export const MCP_SERVER_NAME_LIMIT = 64;
 /** settings 建议上限（协议未硬限；防御手改/批量粘贴）。 */
 export const MCP_SERVERS_LIMIT = 64;
 
-/** 未知对象 → 可编辑形状；无法识别的字段缺失回落空值（面板可修）。 */
+/** 未知对象 → 可编辑形状；无法识别的字段缺失回落空值（面板可修）；schema 已知的表单外字段进 preserved。 */
 export function toEditableServer(raw: unknown): EditableMcpServer {
   const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
   const name = typeof record.name === "string" ? record.name : "";
@@ -39,6 +47,7 @@ export function toEditableServer(raw: unknown): EditableMcpServer {
       transport: record.type,
       commandOrUrl: typeof record.url === "string" ? record.url : "",
       args: [],
+      preserved: pickPreservedFields(record, record.type),
     };
   }
   return {
@@ -48,25 +57,114 @@ export function toEditableServer(raw: unknown): EditableMcpServer {
     args: Array.isArray(record.args)
       ? record.args.filter((arg): arg is string => typeof arg === "string")
       : [],
+    preserved: pickPreservedFields(record, "stdio"),
   };
 }
 
-/** 面板行 → settings 载荷：stdio 形态丢弃 type/url，http/sse 形态丢弃 command/args。 */
+/**
+ * stdio/http-sse 各自的 preserved 字段集（对齐 zcodeProtocolMcpServerSchema）。
+ * 写回 schema 是 .strict()：两形态互斥字段与未知字段不能携带，否则 CLI 整条拒绝，
+ * 因此 stdio 不保留 headers/type/url，http/sse 不保留 env/command/args，未知字段一律丢弃。
+ */
+const PRESERVED_STDIO_KEYS = [
+  "env",
+  "cwd",
+  "scope",
+  "isolation",
+  "protocolVersion",
+  "alwaysLoad",
+  "timeoutMs",
+] as const;
+const PRESERVED_HTTP_KEYS = [
+  "headers",
+  "oauth",
+  "scope",
+  "isolation",
+  "protocolVersion",
+  "alwaysLoad",
+  "timeoutMs",
+] as const;
+
+/** entry 校验（对齐 zcodeProtocolMcpEntrySchema：{name 非空字符串, value 字符串}）。 */
+function isMcpEntry(entry: unknown): boolean {
+  if (typeof entry !== "object" || entry === null) return false;
+  const record = entry as Record<string, unknown>;
+  return (
+    typeof record.name === "string" &&
+    record.name.length > 0 &&
+    typeof record.value === "string"
+  );
+}
+
+/**
+ * 各 preserved 字段的最轻量形状校验（对齐 zcodeProtocolMcpServerSchema 的枚举/类型）：
+ * 畸形值原样带回会让 CLI 按 strict 校验整条拒绝，故只保留能过校验的值。
+ */
+function isPreservableValue(key: string, value: unknown): boolean {
+  switch (key) {
+    case "cwd":
+      return typeof value === "string" && value.length > 0;
+    case "scope":
+      return value === "user" || value === "workspace";
+    case "isolation":
+      return value === "session" || value === "workspace";
+    case "protocolVersion":
+      return value === "legacy" || value === "auto" || value === "2026-07-28";
+    case "alwaysLoad":
+      return typeof value === "boolean";
+    case "timeoutMs":
+      return typeof value === "number" && Number.isInteger(value) && value > 0;
+    case "oauth":
+      return typeof value === "object" && value !== null && !Array.isArray(value);
+    default:
+      return false;
+  }
+}
+
+/** 从既有 settings 记录里挑出表单外、能过形状校验的字段（无则返回 undefined，保持对象精简）。 */
+function pickPreservedFields(
+  record: Record<string, unknown>,
+  transport: "stdio" | "http" | "sse",
+): Record<string, unknown> | undefined {
+  const keys = transport === "stdio" ? PRESERVED_STDIO_KEYS : PRESERVED_HTTP_KEYS;
+  const preserved: Record<string, unknown> = {};
+  for (const key of keys) {
+    const value = record[key];
+    if (value === undefined) continue;
+    if (key === "env" || key === "headers") {
+      // schema 必填数组：逐条过滤畸形 entry，保留能过校验的条目（全有或全无会连合法条目一起丢）
+      preserved[key] = Array.isArray(value) ? value.filter(isMcpEntry) : [];
+      continue;
+    }
+    if (isPreservableValue(key, value)) {
+      preserved[key] = value;
+    }
+  }
+  return Object.keys(preserved).length > 0 ? preserved : undefined;
+}
+
+/**
+ * 面板行 → settings 载荷：stdio 形态丢弃 type/url，http/sse 形态丢弃 command/args；
+ * preserved 原样合并（表单字段优先），env/headers 为 schema 必填数组，缺失回落空数组。
+ */
 export function fromEditableServer(server: EditableMcpServer): Record<string, unknown> {
   const name = server.name.trim().slice(0, MCP_SERVER_NAME_LIMIT);
+  const preserved = server.preserved ?? {};
   if (server.transport === "stdio") {
     return {
+      ...preserved,
       name,
       command: server.commandOrUrl.trim(),
       args: server.args.map((arg) => arg.trim()).filter(Boolean),
-      env: [] as unknown[],
+      env: Array.isArray(preserved.env) ? preserved.env : [],
     };
   }
   return {
+    ...preserved,
     name,
     type: server.transport,
     url: server.commandOrUrl.trim(),
-    headers: [] as unknown[],
+    headers: Array.isArray(preserved.headers) ? preserved.headers : [],
   };
 }
 
