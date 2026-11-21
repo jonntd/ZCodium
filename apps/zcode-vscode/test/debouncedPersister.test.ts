@@ -70,4 +70,44 @@ describe("DebouncedPersister", () => {
     persister.push({ a: 1 });
     expect(writes).toEqual([{ a: 1 }]);
   });
+
+  // 双层合批契约（container.ts dispose 顺序，审查 medium 修复）：ChangesService
+  // 内层 persister 推给外层、外层写 store。必须先 dispose 内层（尾笔推进外层）
+  // 再 dispose 外层（flush + 落闸），尾笔才同步落盘，不依赖 250ms 定时器。
+  it("双层合批：先 dispose 内层再 dispose 外层，尾笔同步落盘", () => {
+    const storeWrites: unknown[] = [];
+    const outer = new DebouncedPersister((state) => storeWrites.push(state), 250);
+    const inner = new DebouncedPersister((state) => outer.push(state), 250);
+
+    inner.push({ v: 1 });
+    vi.advanceTimersByTime(250); // 内层窗口到期 → 推进外层（staged，未落盘）
+    expect(storeWrites).toEqual([]);
+    inner.push({ v: 2 }); // dispose 前的最后一笔（内层 staged）
+
+    inner.dispose(); // 内层 flush：尾笔推进外层
+    outer.dispose(); // 外层 flush + 落闸：trailing 只写最新
+    expect(storeWrites).toEqual([{ v: 2 }]);
+    vi.advanceTimersByTime(1000);
+    expect(storeWrites).toEqual([{ v: 2 }]);
+  });
+
+  // 历史缺陷存档（防回归）：先 flush 外层再 dispose 内层——外层 flush 只写得出
+  // 内层此前已推来的笔，内层 dispose→flush 的尾笔经外层 push 重新进入 250ms
+  // trailing 调度（外层只 flush 未 dispose），窗口关闭进程退出时 timer 未触发即丢。
+  it("历史缺陷存档：先 flush 外层再 dispose 内层，尾笔只能等定时器", () => {
+    const storeWrites: unknown[] = [];
+    const outer = new DebouncedPersister((state) => storeWrites.push(state), 250);
+    const inner = new DebouncedPersister((state) => outer.push(state), 250);
+
+    inner.push({ v: 1 });
+    vi.advanceTimersByTime(250);
+    inner.push({ v: 2 });
+
+    outer.flush();
+    inner.dispose();
+    // 尾笔此刻未落盘——只能等 250ms 定时器（进程退出即丢）；外层 dispose 后才收敛
+    expect(storeWrites).toEqual([{ v: 1 }]);
+    outer.dispose();
+    expect(storeWrites).toEqual([{ v: 1 }, { v: 2 }]);
+  });
 });

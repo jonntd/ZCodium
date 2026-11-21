@@ -405,8 +405,16 @@ export async function createContainer(
   context.subscriptions.push({
     dispose: () => {
       sessionDiscovery.dispose();
-      changesPersister.flush();
+      // 修复（审查 medium）：必须先 dispose 内层 ChangesService（其 dispose 会
+      // flush 内部 DebouncedPersister，尾笔经 persist 推进外层合批器），再
+      // dispose 外层——dispose = flush + 落闸，尾笔同步落盘。此前顺序是
+      // 「flush 外层 → dispose 内层」：外层 flush 只写得出内层此前已推来的笔，
+      // 内层 dispose→flush 的尾笔经外层 push 重新进入 250ms trailing 调度
+      // （外层只 flush 未 dispose，disposed 仍 false），窗口关闭进程退出时
+      // timer 未触发即丢，重启恢复的 pending/history 缺最近一笔（如刚做出的
+      // 保留/撤销决议回滚）。
       pendingChangesService.dispose();
+      changesPersister.dispose();
     },
   });
 
