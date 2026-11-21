@@ -947,6 +947,10 @@ exceptions:
     rule: max-file-lines
     paths: [ packages/ui/src/remote-connection-flow/index.ts ]
     reason: Preserve the existing single hook owner and closure; module adoption must not mechanically split state to satisfy line counts.
+  - id: vscode-container-legacy-over-limit
+    rule: max-file-lines
+    paths: [ apps/zcode-vscode/src/container.ts ]
+    reason: 容器装配文件在本分支已存量超限（1198+ 行，先于本缺陷修复轮）；本轮仅在其内修复审查发现的既有缺陷（净 +36 行）。按模块拆分装配编排属独立重构任务，不借行数闸门机械拆分；拆分后应移除本例外。
   - id: gen-ui-tweak-runtime-size
     rule: max-file-lines
     paths: [ packages/desktop/src/renderer/src/plugin-sandbox/genUiTweakRuntime.js ]
