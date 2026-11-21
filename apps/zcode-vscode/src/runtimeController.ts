@@ -25,6 +25,34 @@ export interface RuntimeResumeFailure {
   folder: string;
   sessionId: string;
   error: string;
+  /**
+   * 键悬空判定：会话实体确认不存在（Session not found 等）。true 时控制器清理
+   * 内存/持久化映射，宿主可推纠正帧（session-switch null）；false = 瞬时故障
+   * （spawn 失败/超时/连接断/settings 非法），绑定保留、下次 activate 重试，
+   * 不广播纠正帧——否则一次抖动即误删绑定并把活跃页拉回草稿。
+   */
+  dangling: boolean;
+}
+
+/**
+ * resume 失败是否意味着持久化会话键已悬空（会话实体确实不存在）。
+ * 修复（审查 medium）：此前不分类一律清绑定——注释假设失败=「Session not found」，
+ * 但 resolveResumeParams 每次动态读 settings，工具面/MCP 配置非法、协议超时、
+ * CLI spawn 失败都会 reject，瞬时故障同样清掉 workspaceSessions 映射。
+ * 分类口径（保守）：协议 target 未加载错误码 + 消息文本明确指会话不存在；
+ * 其余一律按瞬时故障处理（保留绑定，恢复语义不因一次抖动被永久破坏）。
+ */
+export function isDanglingSessionResumeFailure(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code?: unknown }).code)
+      : "";
+  return (
+    code === "ZCODE_SESSION_TARGET_NOT_FOUND" ||
+    /session not found/i.test(message) ||
+    /session target is not loaded/i.test(message)
+  );
 }
 
 export interface RuntimeRestoreResult {
@@ -44,10 +72,12 @@ export interface RuntimeControllerEvents {
   /** 进程换代编排结果（横幅帧生产 + 失败降级提示，P1-6）。 */
   onRuntimeRestart?(outcome: RuntimeRestartOutcome): void;
   /**
-   * per-folder 会话恢复失败（启动恢复/换代自动恢复共用）。恢复失败说明持久化键已悬空
-   * （如 Session not found）：控制器会清理内存与持久化映射，宿主可据此向 webview 推
-   * 纠正帧（session-switch null → 回草稿），否则 UI 按 bootstrap 旧 ID 订阅会报
-   * fault.subscribe.sessionNotFound。
+   * per-folder 会话恢复失败（启动恢复/换代自动恢复共用）。
+   * `failure.dangling === true`（会话实体确认不存在，如 Session not found）：控制器
+   * 已清理内存与持久化映射，宿主可据此向 webview 推纠正帧（session-switch null →
+   * 回草稿），否则 UI 按 bootstrap 旧 ID 订阅会报 fault.subscribe.sessionNotFound。
+   * `dangling === false`（瞬时故障）：绑定保留待重试，宿主只应记录诊断，
+   * 不清绑定也不拉回草稿态。
    */
   onSessionRestoreFailure?(failure: RuntimeResumeFailure): void;
 }
@@ -239,16 +269,21 @@ export class RuntimeController {
         await this.resumeSession(sessionId, folder);
         restored.push(sessionId);
       } catch (error) {
+        // 失效映射清理：仅当会话实体确认不存在（键悬空）才清绑定——不清则每次
+        // activate 都会复活失效会话，webview 亦按旧 ID 订阅报 sessionNotFound；
+        // 瞬时故障保留绑定，下次 activate 重试（恢复语义不被一次抖动永久破坏）。
+        const dangling = isDanglingSessionResumeFailure(error);
         const failure: RuntimeResumeFailure = {
           folder,
           sessionId,
           error: error instanceof Error ? error.message : String(error),
+          dangling,
         };
-        // 失效映射清理：resume 失败（Session not found 等）说明持久化键悬空——不清则
-        // 每次 activate 都会复活失效会话，webview 亦按旧 ID 订阅报 sessionNotFound。
-        const key = folderKey(folder);
-        this.activeSessions.delete(key);
-        this.options.workspaceSessions?.set(key, undefined);
+        if (dangling) {
+          const key = folderKey(folder);
+          this.activeSessions.delete(key);
+          this.options.workspaceSessions?.set(key, undefined);
+        }
         this.options.events?.onSessionRestoreFailure?.(failure);
         failures.push(failure);
       }

@@ -13,7 +13,9 @@ import {
   HostSettingsBridge,
   ZCODE_AGENT_SERVER_BASE_ARGS,
   mergeAllowlistRules,
+  normalizeAdditionalDirectories,
   normalizeSettingsSnapshot,
+  normalizeToolRules,
   resolveZcodeAgentSpawnCommand,
   type HostSettingsSnapshot,
 } from "../src/host/hostSettingsBridge";
@@ -131,5 +133,34 @@ describe("「本次会话允许」写回（P0-8 写回面）", () => {
       "Bash(git status:*)",
       "bash(ls -la)",
     ]);
+  });
+});
+
+// 回归（审查 medium）：settings 手写成字符串时（如 "gode.permissions.allowlist": "npm"），
+// for-of 会把字符串逐字符拆成单字符规则直送 createSession 污染权限面。非数组在此拦下。
+describe("形状防御：settings 手写成非数组时不污染参数面", () => {
+  it("normalizeToolRules：字符串/对象入参回落空数组，数组入参行为不变", () => {
+    expect(normalizeToolRules("npm" as never)).toEqual([]);
+    expect(normalizeToolRules({ a: 1 } as never)).toEqual([]);
+    expect(normalizeToolRules(null as never)).toEqual([]);
+    expect(normalizeToolRules([" Bash(git status:*) ", "", 42 as never])).toEqual([
+      "Bash(git status:*)",
+    ]);
+  });
+
+  it("normalizeAdditionalDirectories：字符串入参回落空数组，数组入参去重截断不变", () => {
+    expect(normalizeAdditionalDirectories("/tmp" as never)).toEqual([]);
+    expect(normalizeAdditionalDirectories([" /a ", "/a", "/b"])).toEqual(["/a", "/b"]);
+  });
+
+  it("normalizeSettingsSnapshot：字符串 allowlist 整体回落空数组（不逐字符拆解）", () => {
+    const snapshot = normalizeSettingsSnapshot({
+      toolAllowlist: "npm" as never,
+      toolDenylist: "rm" as never,
+      additionalDirectories: "/tmp" as never,
+    });
+    expect(snapshot.toolAllowlist).toEqual([]);
+    expect(snapshot.toolDenylist).toEqual([]);
+    expect(snapshot.additionalDirectories).toEqual([]);
   });
 });

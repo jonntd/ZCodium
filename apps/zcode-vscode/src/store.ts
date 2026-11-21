@@ -7,6 +7,7 @@
 
 import type { ExtensionContext, Memento } from "vscode";
 import { randomUUID } from "node:crypto";
+import { writeStateQuietly } from "./features/stateWrite";
 import type { PersistedChanges } from "./host/pendingChanges/changesService";
 
 const SESSION_ID_PREFIX = "gode.sessionId.";
@@ -24,10 +25,15 @@ export class ExtensionStore implements SessionIdStore {
     private readonly globalState: Memento,
     /** pendingChanges/clientId 面（spec §8：workspaceState，per-window 生命周期）。 */
     private readonly workspaceState?: Memento,
+    /** Memento 写失败汇报面（输出通道）；缺省安静降级（见 writeStateQuietly）。 */
+    private readonly onWriteError?: (message: string) => void,
   ) {}
 
-  static fromContext(context: ExtensionContext): ExtensionStore {
-    return new ExtensionStore(context.globalState, context.workspaceState);
+  static fromContext(
+    context: ExtensionContext,
+    onError?: (message: string) => void,
+  ): ExtensionStore {
+    return new ExtensionStore(context.globalState, context.workspaceState, onError);
   }
 
   getSessionId(workspaceKey: string): string | undefined {
@@ -35,7 +41,17 @@ export class ExtensionStore implements SessionIdStore {
   }
 
   setSessionId(workspaceKey: string, id: string | undefined): void {
-    void this.globalState.update(SESSION_ID_PREFIX + workspaceKey, id);
+    // 修复（审查 medium）：裸 `void Memento.update(...)` 不接住拒绝（stateWrite.ts
+    // 头注：配额/磁盘异常/扩展卸载期失败 = 未处理 Promise 拒绝 + 静默丢持久化，
+    // 「同类缺陷两次踩过」）。setSessionId 是会话创建/切换的高频写穿透路径
+    // （runtimeController.trackSession），且卸载期恰是 update 最易失败的时刻。
+    // 统一走 writeStateQuietly 收口，与 container sessionTabsPersistence 同口径。
+    writeStateQuietly(
+      this.globalState,
+      SESSION_ID_PREFIX + workspaceKey,
+      id,
+      this.onWriteError,
+    );
   }
 
   /**
@@ -59,7 +75,13 @@ export class ExtensionStore implements SessionIdStore {
     const existing = this.workspaceState.get<string>(CHANGES_CLIENT_ID_KEY);
     if (existing) return existing;
     const created = `host-${randomUUID()}`;
-    void this.workspaceState.update(CHANGES_CLIENT_ID_KEY, created);
+    // 同 setSessionId：拒绝收口（stateWrite 头注），不裸 void。
+    writeStateQuietly(
+      this.workspaceState,
+      CHANGES_CLIENT_ID_KEY,
+      created,
+      this.onWriteError,
+    );
     return created;
   }
 
@@ -73,6 +95,10 @@ export class ExtensionStore implements SessionIdStore {
   }
 
   setPendingChanges(state: PersistedChanges): void {
-    void this.workspaceState?.update(PENDING_CHANGES_KEY, state);
+    // 同 setSessionId：拒绝收口（stateWrite 头注）。此写是 DebouncedPersister 的
+    // 最终落盘面，失败静默 = 待审/历史账本尾部丢失。
+    if (this.workspaceState) {
+      writeStateQuietly(this.workspaceState, PENDING_CHANGES_KEY, state, this.onWriteError);
+    }
   }
 }

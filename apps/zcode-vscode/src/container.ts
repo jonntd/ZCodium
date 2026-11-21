@@ -143,7 +143,9 @@ export async function createContainer(
    * 这类问题完全无法归因。
    */
   const logPersistFailure = (message: string): void => diagnostics.log(message);
-  const store = ExtensionStore.fromContext(context);
+  // store 的三处 Memento 写统一走 writeStateQuietly 收口（审查 medium 修复），
+  // 失败经诊断通道留痕，不再裸 void 成未处理 Promise 拒绝。
+  const store = ExtensionStore.fromContext(context, logPersistFailure);
   const diffViewer = new DiffViewer();
   // per-folder 会话键控（P1-1.5/P1-2 host 半）：webview 侧 workspaceSessions 与
   // host 编排共用同一 ExtensionStore 键空间（只读复用 + 编排层写穿透）。
@@ -343,9 +345,17 @@ export async function createContainer(
         hostRuntime.pushHostFrame("restart", outcome);
       },
       onSessionRestoreFailure: (failure) => {
-        // 纠正帧：webview 可能已按 bootstrap data-session-id 订阅失效会话（HTML 构建
+        // 修复（审查 medium）：纠正帧只在键悬空（dangling=true，会话实体确认不存在）
+        // 时发——webview 可能已按 bootstrap data-session-id 订阅失效会话（HTML 构建
         // 早于恢复完成，竞态固有）→ session-switch null 拉回草稿态，避免
-        // fault.subscribe.sessionNotFound 错误卡住对话区。
+        // fault.subscribe.sessionNotFound 错误卡住对话区。瞬时故障（spawn/超时/
+        // settings 非法）绑定保留待重试，广播 null 会把正在对话的页错误拉回草稿。
+        if (!failure.dangling) {
+          diagnostics.log(
+            `[runtime] 恢复失败（瞬时，绑定保留）：folder=${failure.folder} sessionId=${failure.sessionId} error=${failure.error}`,
+          );
+          return;
+        }
         diagnostics.log(
           `[runtime] 恢复失败纠正：folder=${failure.folder} → webview 回草稿态`,
         );
@@ -551,12 +561,19 @@ export async function createContainer(
   // ── activate 后：per-folder 最近会话恢复（P1-1.5 host 半；resume 恒带约束面） ──
   void runtimeController
     .restoreWorkspaceSessions()
-    .then((restored) => {
+    .then(() => {
       const folder = listFolders()[0] ?? null;
-      const sessionId =
-        folder
-          ? (restored.restored.at(-1) ?? workspaceSessions.get(folderKey(folder)) ?? null)
-          : null;
+      // 修复（审查 medium）：pendingChanges 绑定 folder[0] **自己的**会话——恢复
+      // 成功即经 trackSession 写入 activeSessions，按 folder 取（activeSession），
+      // 不再用 restored.at(-1)：多根 workspace 下那是「最后恢复成功 folder」的
+      // 会话，配上 listFolders()[0]（第一个 folder）就错配，ChangesService 的
+      // 账本订阅与 revertFiles 的 workspaceRoot/sessionId 全部作用到错误会话/
+      // 错误根（撤销、审查功能错乱）。单 folder 时二者恰等，缺陷被掩盖。
+      const sessionId = folder
+        ? (runtimeController.activeSession(folder) ??
+          workspaceSessions.get(folderKey(folder)) ??
+          null)
+        : null;
       pendingChangesService.setSession(sessionId ?? undefined, folder);
     })
     .catch(() => pendingChangesService.setSession(undefined, null));

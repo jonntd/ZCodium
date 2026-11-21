@@ -20,6 +20,7 @@ import {
 } from "../src/host/hostSettingsBridge";
 import { createWorkspaceSessions } from "../src/webview-react/session/workspaceSessions";
 import {
+  isDanglingSessionResumeFailure,
   RuntimeController,
   type RuntimeRestartOutcome,
   type RuntimeUiState,
@@ -315,6 +316,43 @@ describe("RuntimeController 接线（T02/① + P1-6 编排链路）", () => {
     expect(fixture.logs.some((line) => line.includes("自动恢复失败"))).toBe(true);
     fixture.dispose();
   }, 30_000);
+
+  // 回归（审查 medium）：resume 失败不分类一律清绑定——瞬时故障（spawn 失败/
+  // 超时/settings 非法）同样清掉 workspaceSessions 映射，误删绑定且下次 activate
+  // 不再自动恢复。只有会话实体确认不存在（键悬空）才清。
+  it("resume 失败分类：键悬空清绑定；瞬时故障保留绑定待重试", async () => {
+    // 瞬时失败：绑定保留
+    const transientHarness = makeHarness();
+    const transient = makeController(transientHarness, { presetSessions: { "/repo-a": "s-1" } });
+    transientHarness.fake.resumeError = "spawn failed: CLI 进程起不来";
+    transientHarness.fake.emitRuntimeRestart("/repo-a");
+    await until(() => transient.states.at(-1) === "crashed");
+    expect(transient.ids.get("/repo-a")).toBe("s-1");
+    transient.dispose();
+
+    // 键悬空失败：清理内存与持久化映射（防每次 activate 复活失效会话）
+    const danglingHarness = makeHarness();
+    const dangling = makeController(danglingHarness, { presetSessions: { "/repo-a": "s-2" } });
+    danglingHarness.fake.resumeError = "Session not found: s-2";
+    danglingHarness.fake.emitRuntimeRestart("/repo-a");
+    await until(() => dangling.states.at(-1) === "crashed");
+    expect(dangling.ids.has("/repo-a")).toBe(false);
+    dangling.dispose();
+  }, 30_000);
+
+  it("isDanglingSessionResumeFailure：只认会话实体不存在的失败", () => {
+    expect(isDanglingSessionResumeFailure(new Error("Session not found: s-1"))).toBe(true);
+    expect(isDanglingSessionResumeFailure(new Error("session NOT FOUND"))).toBe(true);
+    expect(
+      isDanglingSessionResumeFailure(
+        Object.assign(new Error("target gone"), { code: "ZCODE_SESSION_TARGET_NOT_FOUND" }),
+      ),
+    ).toBe(true);
+    expect(isDanglingSessionResumeFailure(new Error("spawn failed"))).toBe(false);
+    expect(isDanglingSessionResumeFailure(new Error("timeout"))).toBe(false);
+    expect(isDanglingSessionResumeFailure(new Error("model provider not found"))).toBe(false);
+    expect(isDanglingSessionResumeFailure("Session not found: s-1")).toBe(true);
+  });
 
   it("workspaceKey 未命中时对齐唯一有会话的 folder（兜底编排）", async () => {
     const harness = makeHarness();

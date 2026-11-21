@@ -11,7 +11,11 @@ import {
   parseModelSelection,
   type GodeConfig,
 } from "./configSettings";
-import type { HostSettingsSnapshot } from "./host/hostSettingsBridge";
+import {
+  normalizeAdditionalDirectories,
+  normalizeToolRules,
+  type HostSettingsSnapshot,
+} from "./host/hostSettingsBridge";
 
 export { parseModelSelection, DEFAULT_GODE_CONFIG } from "./configSettings";
 export type { GodeConfig, ZCodeSessionMode } from "./configSettings";
@@ -29,10 +33,16 @@ export function readConfig(): GodeConfig {
 export function readHostSettingsSnapshot(): HostSettingsSnapshot {
   const section: WorkspaceConfiguration = workspace.getConfiguration("gode");
   return {
-    toolAllowlist: section.get<string[]>("permissions.allowlist", []),
-    toolDenylist: section.get<string[]>("permissions.denylist", []),
+    // 修复（审查 medium）：get<T> 只在 undefined 时回落默认值、不校验形状——
+    // settings 手写成字符串时原样透出（HostSettingsBridge 不做内部归一化，
+    // container 直传本快照给 resolveCreate/ResumeParams）。读取面统一过形状
+    // 归一，与同函数 mcpServers 路径的 Array.isArray 防御同口径。
+    toolAllowlist: normalizeToolRules(section.get("permissions.allowlist")),
+    toolDenylist: normalizeToolRules(section.get("permissions.denylist")),
     mcpServers: section.get<unknown[]>("mcp.servers", []),
-    additionalDirectories: section.get<string[]>("context.additionalDirectories", []),
+    additionalDirectories: normalizeAdditionalDirectories(
+      section.get("context.additionalDirectories"),
+    ),
     mode: section.get<string>("mode", "build"),
     rawModel: section.get<string>("model", ""),
   };

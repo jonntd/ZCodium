@@ -27,7 +27,12 @@ export interface HostSettingsSnapshot extends ToolRuleSet {
 export const ADDITIONAL_DIRECTORIES_LIMIT = 256;
 
 /** 归一化工具规则列表：去空白、去空项；`Tool(args)` 形式原样保留。 */
-export function normalizeToolRules(rules: readonly unknown[]): string[] {
+export function normalizeToolRules(rules: unknown): string[] {
+  // 修复（审查 medium）：settings 手写成字符串时（如 "gode.permissions.allowlist": "npm"），
+  // for-of 会把字符串逐字符迭代成 ["n","p","m"] 三条单字符规则，直送 createSession 的
+  // toolAllowlist 污染权限面。入参声明虽是数组，运行时值来自 settings 原文，非数组在此
+  // 拦下（与 normalizeSettingsSnapshot 里 mcpServers 路径的 Array.isArray 防御同口径）。
+  if (!Array.isArray(rules)) return [];
   const out: string[] = [];
   for (const rule of rules) {
     if (typeof rule !== "string") continue;
@@ -38,7 +43,9 @@ export function normalizeToolRules(rules: readonly unknown[]): string[] {
 }
 
 /** 归一化附加目录：去空白、去空项、去重，超 256 截断（协议上限）。 */
-export function normalizeAdditionalDirectories(dirs: readonly unknown[]): string[] {
+export function normalizeAdditionalDirectories(dirs: unknown): string[] {
+  // 同 normalizeToolRules：settings 手写成字符串时 for-of 逐字符拆解，非数组在此拦下。
+  if (!Array.isArray(dirs)) return [];
   const seen = new Set<string>();
   for (const dir of dirs) {
     if (typeof dir !== "string") continue;
