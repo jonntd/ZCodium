@@ -5,7 +5,7 @@
  *   桌面端 bundled resolver 同款形态）与既有可执行形态回归。
  */
 
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,6 +22,9 @@ function tempCliFile(name: string, body = "// fake cli entry"): string {
   tempDirs.push(dir);
   const file = join(dir, name);
   writeFileSync(file, body);
+  // PATH/cliPath 命中的都是「将被 execFile 直接 spawn」的独立可执行形态，
+  // 真实安装形态带执行位；Locator 现按执行位校验（目录/无执行位文件不照收）。
+  chmodSync(file, 0o755);
   return file;
 }
 
@@ -60,6 +63,49 @@ describe("CliLocator：内置 bundle 三级兜底", () => {
   it("内置 bundle 文件缺失 → locate 返回 null（维持 CLI 未找到引导链路）", async () => {
     const locator = new CliLocator("", join(tmpdir(), "zcode-cli-bundle-missing", "zcode.cjs"));
     await expect(locator.locate()).resolves.toBeNull();
+  });
+
+  // 回归（审查 medium）：Windows PATH 探测只收可直接 spawn 的形态（.exe/.com）。
+  // npm/pnpm 全局 bin 同时存在 `zcodium`（sh shim）、`.cmd`、`.ps1`——此前命中
+  // sh shim 即 return：agent 起不来且内置 bundle 兜底被预占绕过。
+  it("Windows：sh shim 存在时优先命中 .exe；只有 shim 则回落内置 bundle", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zcode-cli-win-"));
+    tempDirs.push(dir);
+    writeFileSync(join(dir, "zcodium"), "#!/bin/sh\nnode zcodium \"$@\"");
+    const exe = join(dir, "zcodium.exe");
+    writeFileSync(exe, "fake-exe");
+    chmodSync(exe, 0o755);
+    const bundled = tempCliFile("zcode.cjs");
+
+    const hit = await new CliLocator(dir, bundled, "win32").locate();
+    expect(hit?.path).toBe(exe);
+
+    const shimOnlyDir = mkdtempSync(join(tmpdir(), "zcode-cli-win-"));
+    tempDirs.push(shimOnlyDir);
+    writeFileSync(join(shimOnlyDir, "zcodium"), "#!/bin/sh\nnode zcodium \"$@\"");
+    const fallback = await new CliLocator(shimOnlyDir, bundled, "win32").locate();
+    expect(fallback?.path).toBe(bundled);
+    expect(fallback?.nodeScript).toBe(true);
+  });
+
+  // POSIX 侧补执行位校验：无执行位文件/目录不再照收（此前只查存在性）。
+  it("POSIX：无执行位的文件不命中，回落内置 bundle", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zcode-cli-exec-"));
+    tempDirs.push(dir);
+    const noExec = join(dir, "zcodium");
+    writeFileSync(noExec, "not executable");
+    const bundled = tempCliFile("zcode.cjs");
+    const info = await new CliLocator(dir, bundled).locate();
+    expect(info?.path).toBe(bundled);
+  });
+
+  it("POSIX：目录冒充候选名不命中", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "zcode-cli-dir-"));
+    tempDirs.push(dir);
+    mkdirSync(join(dir, "zcodium"));
+    const bundled = tempCliFile("zcode.cjs");
+    const info = await new CliLocator(dir, bundled).locate();
+    expect(info?.path).toBe(bundled);
   });
 });
 
