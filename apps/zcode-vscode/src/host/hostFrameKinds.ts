@@ -83,6 +83,19 @@ export const DIAGNOSTIC_SEVERITY_ERROR = 0;
 export const DIAGNOSTIC_SEVERITY_WARNING = 1;
 
 /**
+ * P1-5.1：诊断条目是否纳入「当前文件」载荷（hostCommands.toDiagnosticsEntries 的判定面）。
+ * 修复（审查 medium）：无活动编辑器必须落空集——此前守卫写成 `activeFile && …`，
+ * activeFile 为 undefined 时短路放行全部条目，全工作区诊断被整包下发
+ * （gode.sendDiagnostics 无 when 门控，焦点在对话面板时即触发）。
+ */
+export function isDiagnosticEntryForActiveFile(
+  activeFsPath: string | undefined,
+  entryFsPath: string,
+): boolean {
+  return activeFsPath !== undefined && entryFsPath === activeFsPath;
+}
+
+/**
  * 两档诊断 → diagnostics 帧载荷（T09：仅错误 / 错误+警告）。
  * "errors" 档只保留 Error 级条目；"all" 档保留 Error+Warning（P1-5 两档口径
  * 与 QuickPick/composer 标注一字一致，不混入 Info/Hint）；items 按传入顺序保留。

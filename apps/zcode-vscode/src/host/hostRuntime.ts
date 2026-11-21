@@ -252,9 +252,21 @@ export class HostRuntime {
     if (this.connections.has(id)) this.detachWebview(id);
     // 新连接 = 用户刚打开的对话页：后续 UI 定向帧优先投给它。
     this.lastActiveConnectionId = id;
+    // 本轮 attach 的连接对象（下方赋值）；platformRpc 的应答投递凭它做身份校验。
+    let attached: BridgeConnection | undefined;
     const platformRpc = new PlatformRpcHandler({
       methods: this.options.platformMethods,
-      post: (frame) => this.postById(id, frame),
+      // 修复（审查 medium）：plat-res 应答投递必须校验连接身份，不能按 id 现查。
+      // 同 id detach+re-attach（chatPanel 每次 resolveWebviewView 都重挂）后，
+      // 旧连接在途 plat-req 的应答若按 id 投递会落进**新**连接——新页
+      // PlatformRpcClient.seq 每实例从 0 起步，陈旧应答会 resolve 新页同 seq 的
+      // pending 请求，跨页状态错配。绑定对象后：非当前注册连接的应答一律丢弃
+      // （请求方所在的旧 webview 已不存在，丢弃即正确语义）。
+      post: (frame) => {
+        if (attached && this.connections.get(attached.id) === attached) {
+          this.post(attached, frame);
+        }
+      },
       warn: this.options.log,
     });
     const protocol = new HostBridgeProtocol(sender, (frame) => {
@@ -270,6 +282,7 @@ export class HostRuntime {
       onDidDisconnect,
     };
     this.connections.set(id, connection);
+    attached = connection;
 
     // 连接事件交给 IPCServer：等首条消息（ctx）后建 ChannelServer/ChannelClient。
     this.connectionEvent.fire({

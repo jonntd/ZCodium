@@ -19,6 +19,7 @@ import type { IZCodeAgentService } from "@zcode/services";
 import type { HostFrameKind } from "../bridge/wire";
 import {
   buildDiagnosticsFramePayload,
+  isDiagnosticEntryForActiveFile,
   type DiagnosticsSourceEntry,
   type DiagnosticsHostFramePayload,
   type OpenPanelHostFramePayload,
@@ -92,7 +93,9 @@ function toDiagnosticsEntries(activeFile: Uri | undefined): DiagnosticsSourceEnt
   const entries: DiagnosticsSourceEntry[] = [];
   for (const [uri, diagnostics] of languages.getDiagnostics()) {
     // P1-5.1：只收集 Problems 面板当前文件的条目（无活动编辑器时为空集）。
-    if (activeFile && uri.fsPath !== activeFile.fsPath) continue;
+    // 判定面提到纯层（isDiagnosticEntryForActiveFile）回归锁定：此前守卫写成
+    // `activeFile && …`，undefined 时短路放行全部条目，全工作区诊断被整包下发。
+    if (!isDiagnosticEntryForActiveFile(activeFile?.fsPath, uri.fsPath)) continue;
     for (const diagnostic of diagnostics) {
       entries.push({
         path: uri.fsPath,

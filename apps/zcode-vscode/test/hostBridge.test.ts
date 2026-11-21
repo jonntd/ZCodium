@@ -29,6 +29,7 @@ import { HOST_FRAME_KINDS } from "../src/host/hostFrameKinds";
 import {
   buildDiagnosticsFramePayload,
   composeEditorTabTitle,
+  isDiagnosticEntryForActiveFile,
   parseEditorTabUiPayload,
   parseSessionTabsPayload,
   type DiagnosticsSourceEntry,
@@ -235,6 +236,45 @@ describe("PlatformRpcHandler（经 HostRuntime 分流）", () => {
     expect(posted[0]).toMatchObject({ t: "plat-res", id: 10, ok: false });
     expect((posted[0] as { error: string }).error).toContain("not implemented");
   });
+
+  // 回归（审查 medium）：plat-res 投递绑定连接身份。同 id detach+re-attach
+  // （chatPanel 每次 resolveWebviewView 都重挂）后，旧连接在途应答不得按 id
+  // 撞进新连接——新页 PlatformRpcClient.seq 从 0 起步，陈旧应答会以旧值
+  // resolve 新页同 seq 的 pending 请求，跨页状态错配。
+  it("同 id 重挂后：旧连接在途 plat-res 不投给新连接", async () => {
+    let resolveSlow: (value: unknown) => void = () => {};
+    const loopback = makeLoopback({
+      modelhubFetchModels: () =>
+        new Promise((resolve) => {
+          resolveSlow = resolve;
+        }),
+    });
+    const first = tapSender(loopback.sender);
+    loopback.runtime.handleWebviewMessage("test", {
+      t: "plat-req",
+      id: 1,
+      method: "modelhubFetchModels",
+      args: [],
+    });
+    await new Promise((r) => setTimeout(r, 10)); // 请求进入在途
+
+    // 重挂：同 id、新 sender（模拟侧栏 resolveWebviewView 重挂）
+    loopback.runtime.detachWebview("test");
+    const secondFrames: unknown[] = [];
+    loopback.runtime.attachWebview("test", {
+      postMessage: (message: unknown) => {
+        secondFrames.push(message);
+      },
+    });
+
+    resolveSlow({ ok: true }); // 旧连接的在途应答此刻完成
+    await new Promise((r) => setTimeout(r, 10));
+
+    const stale = secondFrames.find((f) => (f as { t?: string }).t === "plat-res");
+    expect(stale).toBeUndefined();
+    const oldSide = first.frames.find((f) => (f as { t?: string }).t === "plat-res");
+    expect(oldSide).toBeUndefined();
+  });
 });
 
 describe("host 帧协议（T02/⑤：visibility/diagnostics/restart/open-panel）", () => {
@@ -288,6 +328,15 @@ describe("host 帧协议（T02/⑤：visibility/diagnostics/restart/open-panel�
     const all = buildDiagnosticsFramePayload("all", entries, 124);
     expect(all.items).toHaveLength(2);
     expect(all.generatedAt).toBe(124);
+  });
+
+  // 回归（审查 medium）：P1-5.1 「当前文件」判定面。此前守卫写成
+  // `activeFile && …`，无活动编辑器时短路放行全部条目——全工作区诊断被
+  // 整包下发给对话页，与注释声明的「空集」相反。
+  it("诊断当前文件判定：无活动编辑器 → 空集；路径不匹配 → 跳过", () => {
+    expect(isDiagnosticEntryForActiveFile(undefined, "/a.ts")).toBe(false);
+    expect(isDiagnosticEntryForActiveFile("/a.ts", "/a.ts")).toBe(true);
+    expect(isDiagnosticEntryForActiveFile("/a.ts", "/b.ts")).toBe(false);
   });
 });
 

@@ -54,4 +54,31 @@ describe("isPathInsideWorkspace（安全审查 S1：文件读面 fail-closed 收
     expect(isPathInsideWorkspace("c:/users/u/proj/a.md", winFolders)).toBe(true);
     expect(isPathInsideWorkspace("C:\\USERS\\u\\proj2\\a.md", winFolders)).toBe(false);
   });
+
+  // 回归（安全修复）：`\` 只有 Windows 形路径才作分隔符。此前 POSIX 路径也按 [\\/]+ 折叠，
+  // 文件名含 `\` 时 `/a/b\x`（在 /a 下）被误判进 `/a/b`（fail-open 越界放行）。
+  it("POSIX 文件名含反斜杠：不当分隔符，包含判定不失真", () => {
+    expect(isPathInsideWorkspace("/home/u/proj/b\\x", folders)).toBe(true);
+    expect(isPathInsideWorkspace("/home/u/proj-other\\x", folders)).toBe(false);
+    const projFolders = ["/a/b"];
+    expect(isPathInsideWorkspace("/a/b\\x", projFolders)).toBe(false);
+    expect(isPathInsideWorkspace("/a/b\\c/d", projFolders)).toBe(false);
+    expect(isPathInsideWorkspace("/a/b/c", projFolders)).toBe(true);
+  });
+
+  // 回归：UNC 路径大小写不敏感（底层文件系统大小写不敏感），此前只归一盘符路径。
+  it("UNC：大小写不敏感、逐段前缀判定", () => {
+    const uncFolders = ["\\\\server\\share"];
+    expect(isPathInsideWorkspace("\\\\SERVER\\share\\f", uncFolders)).toBe(true);
+    expect(isPathInsideWorkspace("\\\\server\\share2\\f", uncFolders)).toBe(false);
+    expect(isPathInsideWorkspace("\\\\server\\other\\f", uncFolders)).toBe(false);
+  });
+
+  // 回归：folder 为根（POSIX `/` / 盘符根 `c:/`）时 `${folderKey}/` 拼出 `//`/`c://` 永不匹配，
+  // 除根本体外全部合法子路径被误拒（fail-closed 误伤所有读面）。
+  it("workspace folder 为根：子路径放行，根外路径仍拒绝", () => {
+    expect(isPathInsideWorkspace("/foo", ["/"])).toBe(true);
+    expect(isPathInsideWorkspace("/foo/bar", ["/"])).toBe(true);
+    expect(isPathInsideWorkspace("C:/foo", ["C:/"])).toBe(true);
+  });
 });
