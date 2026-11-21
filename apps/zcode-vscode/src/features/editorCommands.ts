@@ -347,13 +347,34 @@ export function registerEditorCommands(
     }
     const { contextFromUri } = await import("./editorContextFiles");
     const contexts: NonNullable<Awaited<ReturnType<typeof contextFromUri>>>[] = [];
+    // 修复（审查 medium）：单目标读取失败（文件已删/权限/untitled: 等 scheme）此前
+    // 直接冒泡成未处理 rejection（IDE 红条），for 循环中途抛出时已成功的目标也全部
+    // 丢弃；且下方「无法读取该路径的上下文」分支不可达（contextFromUri 从不返回
+    // undefined——失败走 throw 而非 null）。逐目标 try/catch：失败目标记日志并提示，
+    // 其余目标继续加入。
+    let failedCount = 0;
     for (const target of targets) {
-      const context = await contextFromUri(target);
-      if (context) contexts.push(context);
+      try {
+        const context = await contextFromUri(target);
+        if (context) contexts.push(context);
+      } catch (error) {
+        failedCount += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        log.warn(
+          "editor-commands",
+          `addFileToContext：读取失败 ${target.fsPath}：${message}`,
+        );
+      }
     }
     if (contexts.length === 0) {
-      void vscode.window.showInformationMessage("无法读取该路径的上下文。");
+      const detail = failedCount > 0 ? `（${failedCount} 个目标读取失败，详见编辑器功能日志）` : "";
+      void vscode.window.showInformationMessage(`无法读取该路径的上下文${detail}。`);
       return;
+    }
+    if (failedCount > 0) {
+      void vscode.window.showWarningMessage(
+        `Gode：有 ${failedCount} 个目标读取失败已跳过，其余已加入对话上下文`,
+      );
     }
     log.debug(
       "editor-commands",

@@ -143,28 +143,73 @@ export async function runQuickEdit(deps: QuickEditDeps): Promise<void> {
     "放弃",
   );
   if (choice !== "应用") {
-    await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+    await closeQuickEditDiffTab(beforeUri, afterUri);
     return;
   }
 
-  const applied = await applySelectionRewrite(editor, cleaned);
+  const applied = await applySelectionRewrite(editor, selection, original, cleaned);
   if (!applied) return;
 
-  await vscode.commands.executeCommand("workbench.action.closeActiveEditor");
+  await closeQuickEditDiffTab(beforeUri, afterUri);
   void vscode.window.setStatusBarMessage("Gode：改写已应用", 4000);
+}
+
+/**
+ * 关闭本次改写打开的 diff 预览页签（按 TabInputTextDiff 的 before/after URI 定位）。
+ * 修复（审查 medium）：此前用 `workbench.action.closeActiveEditor`——「应用/放弃」
+ * 通知为非模态、不阻塞不抢焦点，决策期间焦点可漂移，用户切到别的编辑器再点按钮
+ * 时关掉的是用户正开着的文件，而不是 diff 预览页。
+ */
+async function closeQuickEditDiffTab(
+  beforeUri: vscode.Uri,
+  afterUri: vscode.Uri,
+): Promise<void> {
+  for (const group of vscode.window.tabGroups.all) {
+    const tab = group.tabs.find((candidate) => {
+      const input = candidate.input as
+        | { original?: vscode.Uri; modified?: vscode.Uri }
+        | undefined;
+      // TabInputTextDiff 形状属性探测（不 import 内部类型，diff 输入才带这两个属性）。
+      return (
+        input !== undefined &&
+        "original" in input &&
+        "modified" in input &&
+        input.original?.toString() === beforeUri.toString() &&
+        input.modified?.toString() === afterUri.toString()
+      );
+    });
+    if (tab) {
+      await vscode.window.tabGroups.close(tab);
+      return;
+    }
+  }
 }
 
 async function applySelectionRewrite(
   editor: vscode.TextEditor,
+  /** 生成期捕获的选区（发起改写那一刻），非应用时刻的实时选区。 */
+  range: vscode.Range,
+  /** 生成期捕获的原文，用于应用前一致性校验。 */
+  original: string,
   replacement: string,
 ): Promise<boolean> {
   const document = editor.document;
-  const range = editor.selection;
+  // 修复（审查 medium）：应用时改用生成期捕获的 range 并校验原文未变。
+  // 此前重读 editor.selection——输入框/生成/diff 预览是长异步窗口，期间用户编辑
+  // 文档或移动选区后，按过期位置盲替换（WorkspaceEdit 不校验内容一致性，
+  // applyEdit 对仍在文档内的过期 range 返回 true），模型产出写到错误位置、
+  // 覆盖用户新输入。原文对不上就拒绝应用，让用户重新发起。
+  if (document.getText(range) !== original) {
+    void vscode.window.showErrorMessage(
+      "文档在预览期间已变更，本次改写未应用（请重新发起改写）。",
+    );
+    return false;
+  }
   const edit = new vscode.WorkspaceEdit();
   edit.replace(document.uri, range, replacement);
   const ok = await vscode.workspace.applyEdit(edit);
   if (!ok) {
-    void vscode.window.showErrorMessage("应用改写失败：文档已变更，请重试。");
+    void vscode.window.showErrorMessage("应用改写失败：请重试。");
     return false;
   }
   return true;

@@ -17,8 +17,16 @@ export async function sendTerminalSelection(
   }
 
   const previous = await Promise.resolve(vscode.env.clipboard.readText()).catch(() => "");
+  // 修复（审查 medium）：内核 `workbench.action.terminal.copySelection` 在终端无选区时
+  // **不写剪贴板**、只弹警告——随后读回的正是用户原有剪贴板内容，旧内容被包装成
+  // <terminal-output> 发送，且下方「终端里没有选中内容」防护分支永不触发。
+  // 哨兵探测：先写哨兵，复制后读回——仍是哨兵 ⇒ 内核没有复制 ⇒ 按无选区处理。
+  // （不能用「与复制前一致」判定：用户剪贴板恰好等于选中文本时会误判。）
+  const probe = `gode-terminal-probe-${Date.now().toString(36)}`;
+  await Promise.resolve(vscode.env.clipboard.writeText(probe)).catch(() => undefined);
   await vscode.commands.executeCommand("workbench.action.terminal.copySelection");
-  const selection = (await Promise.resolve(vscode.env.clipboard.readText()).catch(() => "")).trim();
+  const copied = await Promise.resolve(vscode.env.clipboard.readText()).catch(() => probe);
+  const selection = copied === probe ? "" : copied.trim();
   // 恢复用户剪贴板：发送完就不该再留副作用。
   await Promise.resolve(vscode.env.clipboard.writeText(previous)).catch(() => undefined);
 

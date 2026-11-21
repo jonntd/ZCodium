@@ -18,9 +18,19 @@ export interface OneShotTextOptions {
 
 export function createGenerateText(
   runWithServices: <T>(run: (accessor: import("@zcode/services").IServiceAccessor) => Promise<T>) => Promise<T>,
-  workspacePath: string,
+  /**
+   * workspace 路径或其惰性取值器。
+   * 修复（审查 medium）：container 装配期若提前调用取值器（`editorWorkspacePath()`），
+   * 路径被固化成字符串快照——workspace folder 之后增删/切换，一次性文本生成
+   * （Quick Edit、生成提交信息）恒路由到激活时的旧路径，oneShotText 以错误的
+   * workspaceKey 复用/装配会话。传函数每次调用实时求值，与同调用面里
+   * currentSessionId/getWorkspacePath 的惰性闭包行为一致。
+   */
+  workspacePath: string | (() => string),
 ): (prompt: string, options?: OneShotTextOptions) => Promise<string> {
   return async (prompt, options) => {
+    const resolvedWorkspacePath =
+      typeof workspacePath === "function" ? workspacePath() : workspacePath;
     const selection = readModelSelection();
     if (!selection) {
       throw new Error(
@@ -29,7 +39,7 @@ export function createGenerateText(
     }
     const result = await runWithServices((accessor) =>
       accessor.zcodeAgentService.generateWorkspaceText({
-        workspacePath,
+        workspacePath: resolvedWorkspacePath,
         selection,
         prompt,
         querySource: "vscode-extension",

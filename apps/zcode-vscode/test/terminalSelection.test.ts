@@ -97,4 +97,41 @@ describe("sendTerminalSelection：终端选区 → 对话上下文", () => {
     expect(submit).toHaveBeenCalledTimes(1);
     expect(clipboard.writeText).toHaveBeenCalledWith("");
   });
+
+  // 回归（审查 medium）：内核 copySelection 在终端无选区时**不写剪贴板**（只弹警告），
+  // 此后读回的正是用户原有剪贴板内容——旧内容被包装成 <terminal-output> 发送，
+  // 「终端里没有选中内容」防护分支永不触发。修复后以哨兵探测判定复制是否发生。
+  it("终端无选区（内核不写剪贴板）：不把旧剪贴板内容当终端输出发送", async () => {
+    windowMock().activeTerminal = { name: "zsh" };
+    let lastWrite: string | undefined;
+    clipboard.writeText.mockImplementation((value: string) => {
+      lastWrite = value;
+      return Promise.resolve();
+    });
+    // 第 1 次读 = 备份用户原内容；之后读回 = 最后写入（哨兵仍在 ⇒ 内核没有复制）
+    clipboard.readText
+      .mockResolvedValueOnce("用户之前复制的内容")
+      .mockImplementation(() => Promise.resolve(lastWrite ?? ""));
+    const submit = vi.fn();
+
+    await sendTerminalSelection(submit);
+
+    expect(showInformationMessage).toHaveBeenCalledWith("终端里没有选中内容。");
+    expect(submit).not.toHaveBeenCalled();
+    // 用户原剪贴板内容恢复（不留哨兵/选区残留）
+    expect(clipboard.writeText).toHaveBeenCalledWith("用户之前复制的内容");
+  });
+
+  // 哨兵探测不误伤：用户剪贴板恰好等于选中文本时仍能正确发送。
+  it("剪贴板内容恰好等于选中文本：仍按有选区发送", async () => {
+    windowMock().activeTerminal = { name: "zsh" };
+    clipboard.readText
+      .mockResolvedValueOnce("Error: boom") // 备份（恰好等于选区）
+      .mockResolvedValueOnce("Error: boom"); // copySelection 后读回
+    const submit = vi.fn().mockResolvedValue(undefined);
+
+    await sendTerminalSelection(submit);
+
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
 });

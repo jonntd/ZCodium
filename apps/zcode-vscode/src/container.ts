@@ -25,6 +25,7 @@ import {
   createCodeActionEntry,
   registerEditorCommands,
 } from "./features/editorCommands";
+import { trackRecentEdits } from "./features/contextCollector";
 import { createGenerateText } from "./features/oneShotText";
 import { createQuickEditContentProvider } from "./features/quickEdit";
 import { GodeCodeActionProvider } from "./features/codeActions";
@@ -627,11 +628,21 @@ export async function createContainer(
       return workspaceSessions.get(folderKey(primary)) ?? null;
     },
     pushFrame: editorPushFrame,
-    generateText: createGenerateText(runWithServices, editorWorkspacePath()),
+    // 修复（审查 medium）：传惰性取值器而非提前调用——装配期 `editorWorkspacePath()`
+    // 会把路径固化成字符串快照，workspace folder 增删/切换后 Quick Edit、生成提交
+    // 信息恒路由到激活时的旧 workspace。与同调用面 currentSessionId/getWorkspacePath
+    // 的惰性闭包行为对齐。
+    generateText: createGenerateText(runWithServices, editorWorkspacePath),
     quickEditProvider,
     runWithServices,
     hasChatSurface,
   });
+  // FR-B22「最近编辑」追踪接线（审查 medium）：trackRecentEdits 此前全仓从未注册，
+  // recentEdits Map 恒空，openEditorsAndRecentEdits 档位的「最近 5 分钟内编辑过的
+  // 文件」半边静默失效。注意：buildAutoContext/readAutoContextMode 管线暂无发送路径
+  // 消费方（发送动作在 webview，host 无法在发送时附加）——完整接线属跨边界设计决策，
+  // 待对齐后落地；追踪先落数据（bounded Map，5 分钟窗口自动清理）。
+  context.subscriptions.push(trackRecentEdits());
   const codeActionEntry = createCodeActionEntry(editorPushFrame, hasChatSurface);
   const codeActionDisposable = languages.registerCodeActionsProvider(
     { scheme: "file" },

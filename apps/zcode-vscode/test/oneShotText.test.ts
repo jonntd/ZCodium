@@ -86,4 +86,29 @@ describe("createGenerateText：一次性文本生成", () => {
     const text = await createGenerateText(runWithServices as never, "/w")("x");
     expect(text).toBe("");
   });
+
+  // 回归（审查 medium）：传惰性取值器时每次调用实时求值——此前 container 装配期
+  // 提前调用 editorWorkspacePath() 固化路径快照，workspace folder 切换后
+  // Quick Edit/生成提交信息恒路由到激活时的旧 workspace。
+  it("惰性 workspacePath 取值器：每次调用实时求值，不固化快照", async () => {
+    readModelSelection.mockReturnValue("prov/model");
+    const generateWorkspaceText = vi.fn().mockResolvedValue({ text: "t" });
+    const runWithServices = vi.fn((run: (accessor: unknown) => Promise<unknown>) =>
+      run({ zcodeAgentService: { generateWorkspaceText } } as never),
+    );
+
+    let current = "/first";
+    const generate = createGenerateText(runWithServices as never, () => current);
+
+    await generate("a");
+    expect(generateWorkspaceText).toHaveBeenCalledWith(
+      expect.objectContaining({ workspacePath: "/first" }),
+    );
+
+    current = "/second"; // 模拟 workspace folder 切换
+    await generate("b");
+    expect(generateWorkspaceText).toHaveBeenLastCalledWith(
+      expect.objectContaining({ workspacePath: "/second" }),
+    );
+  });
 });
