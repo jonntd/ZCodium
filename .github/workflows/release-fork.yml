@@ -524,7 +524,7 @@ jobs:
 
   publish:
     needs: [release, build, desktop, relay, vscode-extension]
-    if: ${{ always() && inputs.keep_draft != true && needs.release.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped') && (needs.relay.result == 'success' || needs.relay.result == 'skipped') && (needs.vscode_extension.result == 'success' || needs.vscode_extension.result == 'skipped') }}
+    if: ${{ always() && inputs.keep_draft != true && needs.release.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped') && (needs.relay.result == 'success' || needs.relay.result == 'skipped') && (needs['vscode-extension'].result == 'success' || needs['vscode-extension'].result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
