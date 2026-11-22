@@ -38,9 +38,10 @@ describe("reserveCreatedTask 本地精确根归属", () => {
   it("本地未传 projectId：已有工程声明该根目录 → 任务归入该工程", () => {
     const { repo, db } = makeRepository();
     const project = repo.saveProject({ roots: ["/repo"], primaryRoot: "/repo" });
+    // 「未传」以 undefined 表达（三态契约：undefined 自动认领 / null 显式无归属）。
     repo.reserveCreatedTask({
       task: { taskId: "t1", workspacePath: "/repo" },
-      projectId: null,
+      projectId: undefined,
     });
     expect(storedProjectId(db, "t1")).toBe(project.id);
   });
@@ -50,7 +51,7 @@ describe("reserveCreatedTask 本地精确根归属", () => {
     repo.saveProject({ roots: ["/repo"], primaryRoot: "/repo" });
     repo.reserveCreatedTask({
       task: { taskId: "t2", workspacePath: "/repo/sub" },
-      projectId: null,
+      projectId: undefined,
     });
     expect(storedProjectId(db, "t2")).toBeNull();
   });

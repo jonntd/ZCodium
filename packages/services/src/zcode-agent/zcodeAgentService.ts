@@ -1035,6 +1035,7 @@ interface CreateZCodeAgentServiceOptions extends Omit<
   ) => Promise<import("@zcode/shared").ProjectExecutionSnapshot>;
   prepareSessionCreation?: (
     target: ZCodeAgentSessionTarget & {
+      /** null = 显式无归属（legacy 归一）；string = 显式项目。 */
       projectId: string | null;
       additionalDirectories?: string[];
     },
@@ -3953,6 +3954,9 @@ export function createZCodeAgentService(
           ? await options?.prepareSessionCreation?.({
               ...params,
               sessionId: sessionId!,
+              // V4 legacy 协议路径：envelope 省略 projectId 一律归一为 null（显式无归属，
+              // 不走按根自动认领——「reserves explicit NULL for legacy V4 callers」契约）。
+              // workspace-first 的自动认领由调用方以 undefined 直达仓储表达。
               projectId: params.projectId ?? null,
               additionalDirectories: payload.additionalDirectories,
             })

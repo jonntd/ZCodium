@@ -443,7 +443,8 @@ export class ProjectRepository implements ProjectRepositoryContract {
 
   reserveCreatedTask(input: {
     task: ProjectTaskRef;
-    projectId: string | null;
+    /** undefined = 调用方未表态（workspace-first，按根精确自动认领）；null = 显式无归属。 */
+    projectId: string | null | undefined;
     additionalDirectories?: string[];
   }): ProjectDirectories {
     return transaction(this.db, () => {
@@ -452,13 +453,17 @@ export class ProjectRepository implements ProjectRepositoryContract {
       if (host !== (this.ownerHostId ?? "local"))
         throw new Error("project.cross-host-move");
       if (!readTask(this.db, input.task)) {
-        // 调用方未显式指定项目：按 workspacePath 在本 Host 项目里做精确根匹配自动关联
-        // （本地/远端一致，spec: ide-workspace-project-binding）。桌面端从项目列表进入
-        // 会话时 projectId 由 UI 传入；嵌入完整界面的插件（workspace-first 入口）新会话
+        // 调用方未显式指定项目（undefined）：按 workspacePath 在本 Host 项目里做精确根匹配
+        // 自动关联（本地/远端一致，spec: ide-workspace-project-binding）。桌面端从项目列表
+        // 进入会话时 projectId 由 UI 传入；嵌入完整界面的插件（workspace-first 入口）新会话
         // 没有项目导航上下文，不应把"先选项目"这个步骤强加给它——只要已有项目声明了
         // 该根目录就复用。精确根匹配不猜项目：子目录不命中声明根为父目录的工程。
+        // Bug 原因（contract「keeps explicit NULL」）：此前用 `!projectId` 判空，把调用方
+        // 显式传入的 null（明确决定「不归属任何项目」，如全局/跨项目入口）与 undefined
+        // 混同走自动认领，显式 NULL 预留行被错误挂到恰好声明同根的项目上。
+        // 修复：三态区分——undefined 自动认领、null 保持 NULL、string 显式校验。
         let projectId = input.projectId;
-        if (!projectId) {
+        if (projectId === undefined) {
           const claimed = readProjects(this.db, false).find(
             (project) =>
               project.hostId === host &&
@@ -502,7 +507,8 @@ export class ProjectRepository implements ProjectRepositoryContract {
             input.task.taskId,
             host,
             input.task.workspacePath,
-            projectId,
+            // undefined（未表态，自动认领后仍无命中）与 null（显式无归属）都落 NULL。
+            projectId ?? null,
             OWNERSHIP_DECIDED,
             input.additionalDirectories === undefined
               ? null

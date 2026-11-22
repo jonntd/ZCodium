@@ -119,7 +119,8 @@ export interface ProjectRepositoryContract {
   /** CLI 创建之前原子预留归属；无事实的预留行不进入列表，重试不覆盖组织操作。 */
   reserveCreatedTask(input: {
     task: ProjectTaskRef;
-    projectId: string | null;
+    /** undefined = 调用方未表态（按根精确自动认领）；null = 显式无归属（本地合法、远端拒绝）；string = 显式项目。 */
+    projectId: string | null | undefined;
     /** Host 已固化的执行目录；首次预留持久化，重试不改。undefined 为普通新建。 */
     additionalDirectories?: string[];
   }): ProjectDirectories;

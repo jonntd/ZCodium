@@ -8,17 +8,20 @@ describe("project repository contract", () => {
     const repo = port.repository(db, "remote:server:s");
     const project = repo.saveProject({ roots: ["/remote"] });
     // workspace-first 入口（嵌入完整界面的插件）不带 projectId 也能创建会话。
+    // 三态契约（2026-11-22）：undefined = 缺席（自动认领）；null = 显式无归属——
+    // 远程侧「不得产生无归属」（CONTRACT.md），显式 null 在远端同样拒绝；
+    // 本地显式 null 合法（本地允许 0..n roots），见「keeps explicit NULL」用例。
     expect(
       repo.reserveCreatedTask({
         task: { taskId: "auto", workspacePath: "/remote", workspaceIdentity: "remote:server:s:/remote" },
-        projectId: null,
+        projectId: undefined,
       }),
     ).toEqual({ workspacePath: "/remote", projectId: project.id, additionalDirectories: [] });
     // 未被任何项目声明的目录仍拒绝。
     expect(() =>
       repo.reserveCreatedTask({
         task: { taskId: "unclaimed", workspacePath: "/elsewhere", workspaceIdentity: "remote:server:s:/elsewhere" },
-        projectId: null,
+        projectId: undefined,
       }),
     ).toThrow("project.remote-project-required");
     // 已删除项目不参与自动关联。
@@ -26,6 +29,14 @@ describe("project repository contract", () => {
     expect(() =>
       repo.reserveCreatedTask({
         task: { taskId: "auto2", workspacePath: "/remote", workspaceIdentity: "remote:server:s:/remote" },
+        projectId: undefined,
+      }),
+    ).toThrow("project.remote-project-required");
+    // 远程侧显式 null 同样拒绝（不得产生无归属）。
+    repo.saveProject({ roots: ["/remote"] });
+    expect(() =>
+      repo.reserveCreatedTask({
+        task: { taskId: "explicit-null", workspacePath: "/remote", workspaceIdentity: "remote:server:s:/remote" },
         projectId: null,
       }),
     ).toThrow("project.remote-project-required");
