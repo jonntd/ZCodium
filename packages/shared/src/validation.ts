@@ -1231,6 +1231,12 @@ export const hostRemoteWorkspaceContextBoundResponseSchema = z
   .object({
     type: z.literal("remote-workspace-context-bound"),
     requestId: nonEmptyStringSchema,
+    // Host 权威 workspace scope（bind 的唯一事实源）。desktopRemoteSessions 的 handler
+    // 依赖它重挂 renderer attachment；缺失时走显式「missing authoritative descriptor」
+    // 错误路径而不是 safeParse 静默丢弃——因此保持 optional，不让 strict 校验吞掉
+    // 可诊断的坏帧（2026-11-23 修复：收紧 schema 时 descriptor 字段被整段弄丢，
+    // 所有带 descriptor 的合法 ACK 被静默丢弃，bind 永远挂起）。
+    descriptor: windowHostRemoteWorkspaceDescriptorSchema.optional(),
     // Desktop tab rekey only；手机 replayable attachment 不消费该提示。
     previousWorkspaceIdentity: nonEmptyStringSchema.optional(),
   })
