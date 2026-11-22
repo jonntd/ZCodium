@@ -298,6 +298,12 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm typecheck
 
+      # v3.15.7 release CI 实测（run 45052412508）：新 ubuntu 镜像不再预装 bsdtar，
+      # electron-builder 的 fpm 打包（.MTREE/.PKGINFO）exit 127 —— 装 libarchive-tools。
+      - name: Install bsdtar (linux)
+        if: ${{ matrix.target == 'linux' }}
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools
+
       # CUA helper 随包（docs/spec/cua-runtime-builtin.md §B）：先跑 prepare 从官方 CDN
       # 抽 Developer-ID helper（bundle 阶段的 prepare 会幂等复用）。buildId 不再注入构建
       # （build-time define 已退役，§C）：运行时由主进程实读随包 helper 的 Info.plist
