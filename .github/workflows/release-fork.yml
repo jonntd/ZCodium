@@ -141,6 +141,7 @@ jobs:
           - **Windows (.exe)**: run `ZCodium-<VERSION>-win-x64.exe`. The installer is not signed by ZCode, so SmartScreen shows a warning - a warning, not a system block; click **More info** -> **Run anyway**.
           - **Linux x64 (.AppImage)**: `chmod +x ZCodium-<VERSION>-linux-x86_64.AppImage && ./ZCodium-<VERSION>-linux-x86_64.AppImage`.
           - **Linux arm64 (.AppImage)**: `chmod +x ZCodium-<VERSION>-linux-arm64.AppImage && ./ZCodium-<VERSION>-linux-arm64.AppImage`.
+          - **VS Code / Antigravity IDE extension (.vsix)**: `gode-vscode-<VERSION>.vsix` — the ZCodium workbench as an IDE extension (agent CLI bundled inside, no separate CLI install needed). Install via the Extensions view → `···` → **Install from VSIX…**, or from a terminal: `code --install-extension gode-vscode-<VERSION>.vsix` (also works in VS Code forks such as Antigravity IDE).
           - **CLI (.tar.gz)**: requires Node.js 24. Extract and run:
 
             ```bash
@@ -172,6 +173,7 @@ jobs:
           - **Windows（.exe）**：运行 `ZCodium-<VERSION>-win-x64.exe`。没有 ZCode 官方签名，SmartScreen 会显示警告——只是警告，点"**更多信息**" -> "**仍要运行**"。
           - **Linux x64（.AppImage）**：`chmod +x ZCodium-<VERSION>-linux-x86_64.AppImage && ./ZCodium-<VERSION>-linux-x86_64.AppImage`.
           - **Linux arm64（.AppImage）**：`chmod +x ZCodium-<VERSION>-linux-arm64.AppImage && ./ZCodium-<VERSION>-linux-arm64.AppImage`.
+          - **VS Code / Antigravity IDE 插件（.vsix）**：`gode-vscode-<VERSION>.vsix`——把 ZCodium 工作台装进 IDE（内置 agent CLI，无需另装 CLI）。扩展面板 `···` → **从 VSIX 安装…**，或命令行 `code --install-extension gode-vscode-<VERSION>.vsix`（Antigravity IDE 等 VS Code 分支同款可用）。
           - **自建中继（Docker，可选）**：只在要用手机远控时需要。镜像里带着与本版桌面**同版本**的 web 产物，不会再出现「桌面更新了、手机页还是旧的」：
 
             ```bash
@@ -189,6 +191,7 @@ jobs:
           - Linux x64: `ZCodium-<VERSION>-linux-x86_64.AppImage`
           - Linux arm64: `ZCodium-<VERSION>-linux-arm64.AppImage`
           - CLI: `zcodium-<VERSION>.tar.gz`
+          - VS Code / Antigravity extension: `gode-vscode-<VERSION>.vsix`
           - Relay image: `ghcr.io/<OWNER>/zcode-relay:<VERSION>`（+ `zcode-relay-<VERSION>.tar.gz`）
           NOTES
           sed -i "s/<VERSION>/${TAG#v}/g" /tmp/release-notes.md
@@ -349,6 +352,71 @@ jobs:
           echo "::error::gh release upload failed after 3 attempts"
           exit 1
 
+  # VS Code / Antigravity 插件（vsix）：与桌面同版本发布。扩展自带 agent CLI bundle
+  # （cli-bundle/zcode.cjs），装上即用、无需另装 CLI。产物平台无关——纯 esbuild JS
+  # 产物，node-pty 等原生依赖不进包（vscode surface 的终端入口由能力门控裁决，
+  # 见 .vscodeignore 与 check-bundle-size 的 node_modules 口径），单 ubuntu job 即可。
+  # 打包链（esbuild → vsce package → 体积门禁）由 package 脚本承载，门禁失败 =
+  # 本 job 失败 = publish 条件不满足 → release 保持 draft，不带残缺产物公开。
+  vscode-extension:
+    needs: release
+    if: ${{ inputs.build_artifacts }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # 扩展版本与 release 同版本号（audit 预发布形如 3.14.0-audit.20260922.2 是合法
+      # semver）；vsce 从 package.json 读版本、无命令行覆盖参数，先改写再打包。
+      - name: Stamp extension version to release version
+        env:
+          RELEASE_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          node -e "const fs=require('fs');const f='apps/zcode-vscode/package.json';const p=JSON.parse(fs.readFileSync(f,'utf8'));p.version=process.env.RELEASE_VERSION;fs.writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
+          node -p "require('./apps/zcode-vscode/package.json').version"
+
+      - name: Package vscode extension
+        run: pnpm --filter gode run package
+
+      - name: Upload vscode extension asset to release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release.outputs.tag }}
+        run: |
+          set -euo pipefail
+          ls -la apps/zcode-vscode/dist/
+          shopt -s nullglob
+          files=(apps/zcode-vscode/dist/gode-*.vsix)
+          if [ ${#files[@]} -ne 1 ]; then
+            echo "::error::expected exactly one vsix in apps/zcode-vscode/dist, got ${#files[@]}"
+            exit 1
+          fi
+          asset="gode-vscode-${TAG#v}.vsix"
+          mv "${files[0]}" "$asset"
+          for attempt in 1 2 3; do
+            if gh release upload "$TAG" "$asset" --clobber; then
+              exit 0
+            fi
+            echo "::warning::gh release upload failed (attempt $attempt/3), retrying in 10s"
+            sleep 10
+          done
+          echo "::error::gh release upload failed after 3 attempts"
+          exit 1
+
   # 中继镜像：与桌面同版本发布，让 VPS 上的中继不再和桌面版本漂移。
   # 原先中继的 web bundle 靠手动 scp 到 VPS，桌面更新后手机可能还在跑旧 bundle；
   # 这里把 bundle 烘进镜像，一次发布 = 桌面 + 匹配的中继镜像。
@@ -443,8 +511,8 @@ jobs:
           exit 1
 
   publish:
-    needs: [release, build, desktop, relay]
-    if: ${{ always() && inputs.keep_draft != true && needs.release.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped') && (needs.relay.result == 'success' || needs.relay.result == 'skipped') }}
+    needs: [release, build, desktop, relay, vscode-extension]
+    if: ${{ always() && inputs.keep_draft != true && needs.release.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped') && (needs.desktop.result == 'success' || needs.desktop.result == 'skipped') && (needs.relay.result == 'success' || needs.relay.result == 'skipped') && (needs.vscode_extension.result == 'success' || needs.vscode_extension.result == 'skipped') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

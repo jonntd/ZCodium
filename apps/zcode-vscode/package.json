@@ -5,6 +5,11 @@
   "version": "0.2.0",
   "publisher": "gode",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonntd/ZCodium.git",
+    "directory": "apps/zcode-vscode"
+  },
   "private": true,
   "type": "commonjs",
   "engines": {
