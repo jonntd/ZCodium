@@ -1204,6 +1204,30 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
     },
     [onCreateTask, showChatMainView, workspaceReadOnlyReason],
   );
+  // 手机远控 renderTaskHome 槽的 onNavigateToChat 只在槽作用域内可得（Shell 渲染期传入），
+  // 而 WorkspaceSidebar 是 memo 组件——props 必须稳定引用（reactStableReferences 守卫）。
+  // 槽参数经 ref 桥接进组件级稳定回调（与 ConversationComposer 的 draftRestoreDepsRef
+  // 同一 latest-ref 口径）：槽渲染期同步最新值，用户动作发生在 commit 之后，读到的必是
+  // 当次渲染传入的导航函数。
+  const taskHomeNavigateRef = useRef<() => void>(undefined);
+  const handleWebRemoteSidebarCreateTask = useCallback(
+    (request?: Parameters<typeof onCreateTask>[0]) => {
+      handleCreateTaskInChat({
+        ...(typeof request === "string" ? { provider: request } : request),
+        onComplete: () => taskHomeNavigateRef.current?.(),
+      });
+    },
+    [handleCreateTaskInChat],
+  );
+  const handleWebRemoteSidebarCreateConversationTask = useCallback(() => {
+    handleCreateTaskInChat({
+      projectId: null,
+      onComplete: () => taskHomeNavigateRef.current?.(),
+    });
+  }, [handleCreateTaskInChat]);
+  const handleWebRemoteSidebarTaskOpen = useCallback(() => {
+    taskHomeNavigateRef.current?.();
+  }, []);
   const shellWorkbenchBinding = useMemo<WorkbenchSessionBinding | null>(
     () =>
       activeTaskId
@@ -1933,40 +1957,38 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
         headerTestId={TID_APP_HEADER}
       >
         <WebRemoteControlMobileShell
-          renderTaskHome={({ onNavigateToChat, onSwitchingChange }) => (
-            <WorkspaceSidebar
-              workspacePath={workspaceAbsPath}
-              workspaceIdentity={workspaceIdentity}
-              workspaceRemoteSessionId={workspaceRemoteSessionId}
-              theme={theme}
-              isWebRemoteControl
-              onSelectTask={handleSelectTaskInChat}
-              onStartDraftInWorkspace={handleCreateProjectDraft}
-              onCreateTask={(request) =>
-                handleCreateTaskInChat({
-                  ...(typeof request === "string" ? { provider: request } : request),
-                  onComplete: onNavigateToChat,
-                })
-              }
-              onCreateConversationTask={() =>
-                handleCreateTaskInChat({ projectId: null, onComplete: onNavigateToChat })
-              }
-              onOpenFolderFromWorkspaceMenu={onOpenFolderFromWorkspaceMenu}
-              webRemoteControlWorkspaceSwitcher={webRemoteControlWorkspaceSwitcher}
-              onConnectRemote={onConnectRemote}
-              onSelectRemoteProject={onSelectRemoteProject}
-              onCancelRemoteProject={onCancelRemoteProject}
-              onReconnectRemoteWorkspace={onReconnectRemoteWorkspace}
-              reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
-              remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}
-              onOpenCommandCenter={handleOpenCommandCenter}
-              onWebRemoteTaskOpen={() => onNavigateToChat()}
-              onWebRemoteTaskSwitchingChange={onSwitchingChange}
-              fileTreeOpenRequest={fileTreeOpenRequest}
-              onOpenCodeViewer={handleOpenCodeViewer}
-              activePreviewPath={activePreviewPath}
-            />
-          )}
+          renderTaskHome={({ onNavigateToChat, onSwitchingChange }) => {
+            // 槽参数经 ref 桥接进组件级稳定回调（见 taskHomeNavigateRef 注释）：
+            // 槽每次渲染同步最新导航函数，memo 组件的 props 保持稳定引用。
+            taskHomeNavigateRef.current = onNavigateToChat;
+            return (
+              <WorkspaceSidebar
+                workspacePath={workspaceAbsPath}
+                workspaceIdentity={workspaceIdentity}
+                workspaceRemoteSessionId={workspaceRemoteSessionId}
+                theme={theme}
+                isWebRemoteControl
+                onSelectTask={handleSelectTaskInChat}
+                onStartDraftInWorkspace={handleCreateProjectDraft}
+                onCreateTask={handleWebRemoteSidebarCreateTask}
+                onCreateConversationTask={handleWebRemoteSidebarCreateConversationTask}
+                onOpenFolderFromWorkspaceMenu={onOpenFolderFromWorkspaceMenu}
+                webRemoteControlWorkspaceSwitcher={webRemoteControlWorkspaceSwitcher}
+                onConnectRemote={onConnectRemote}
+                onSelectRemoteProject={onSelectRemoteProject}
+                onCancelRemoteProject={onCancelRemoteProject}
+                onReconnectRemoteWorkspace={onReconnectRemoteWorkspace}
+                reconnectingRemoteWorkspaceKeys={reconnectingRemoteWorkspaceKeys}
+                remoteWorkspaceErrorByWorkspaceKey={remoteWorkspaceErrorByWorkspaceKey}
+                onOpenCommandCenter={handleOpenCommandCenter}
+                onWebRemoteTaskOpen={handleWebRemoteSidebarTaskOpen}
+                onWebRemoteTaskSwitchingChange={onSwitchingChange}
+                fileTreeOpenRequest={fileTreeOpenRequest}
+                onOpenCodeViewer={handleOpenCodeViewer}
+                activePreviewPath={activePreviewPath}
+              />
+            );
+          }}
           activeTaskId={activeTaskId}
           activeWorkspaceIdentity={workspaceIdentity}
           activeWorkspacePath={workspaceAbsPath}

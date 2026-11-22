@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useMemo, type ReactNode } from "react";
 import type { SettingsScopeDevice } from "@/settings-scope/contract.js";
 
 interface SettingsScopeDeviceContextValue {
@@ -26,8 +26,14 @@ export function SettingsScopeDeviceProvider({
   userAvailable?: boolean;
   children?: ReactNode;
 }) {
+  // context value 必须 useMemo（reactStableReferences 守卫）：内联对象让每次渲染的
+  // value 都是新引用，全部消费者被无谓重渲染。
+  const value = useMemo<SettingsScopeDeviceContextValue>(
+    () => ({ device, userAvailable }),
+    [device, userAvailable],
+  );
   return (
-    <SettingsScopeDeviceContext.Provider value={{ device, userAvailable }}>
+    <SettingsScopeDeviceContext.Provider value={value}>
       {children}
     </SettingsScopeDeviceContext.Provider>
   );

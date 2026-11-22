@@ -110,6 +110,12 @@ export function getWindowControllerTaskListRegistry(
   let generation = 0;
   let notificationScheduled = false;
   let frameDisposable: { dispose(): void } | null = null;
+  /** controller workspaces 帧的上次观测（logEpoch + payload 指纹），用于 no-op 快照去重。 */
+  let lastControllerWorkspacesSeen:
+    | { logEpoch: string; payloadKey: string }
+    | null = null;
+  /** 控制器流当前代际（跨 topic：tasks/workspaces 任一帧都推进），Source 换代判定用。 */
+  let lastControllerLogEpoch: string | null = null;
 
   const notifyOnce = (): void => {
     if (notificationScheduled) return;
@@ -145,6 +151,10 @@ export function getWindowControllerTaskListRegistry(
     frameDisposable = controller.onDynamicControllerFrame()((frame: WindowHostControllerFrame) => {
       if (!started || generation !== startGeneration) return;
       const cursor = cursors.get(frame.subscriptionId);
+      // Source 换代判定跨 topic：本帧到达前的控制器流 epoch（tasks/workspaces 任一帧
+      // 都推进它）。workspaces 帧的 epoch 与之不同 = Source 换代（重连/重挂）。
+      const previousControllerLogEpoch = lastControllerLogEpoch;
+      lastControllerLogEpoch = frame.logEpoch;
       if (
         cursor &&
         frame.payload.kind !== "snapshot" &&
@@ -168,9 +178,22 @@ export function getWindowControllerTaskListRegistry(
       });
       if (frame.topic === CONTROLLER_WORKSPACES_TOPIC) {
         // Source 换代需要重新建立观察，即使 scope 和可见任务集合没有变化。
-        sourceRevision += 1;
-        directoryRevision += 1;
-        notifyOnce();
+        // 2026-11-22 收敛：bump 条件 = 控制器流换代（本帧 logEpoch ≠ 此前任一帧的
+        // epoch——重连/重挂场景，回归锁 activity/refresh「同 scope 来源重连恢复观察」）
+        // 或同代内 payload 实际变化；同代同 payload（no-op 重放）与首帧基线不失效
+        // 全部任务查询（回归锁 windowControllerTaskListRegistry「只失效 task delta…」）。
+        // controller workspaces 是小快照，JSON 对比可忽略。
+        const payloadKey = JSON.stringify(frame.payload);
+        const seen = lastControllerWorkspacesSeen;
+        const sourceChanged =
+          previousControllerLogEpoch !== frame.logEpoch ||
+          (seen !== null && seen.payloadKey !== payloadKey);
+        lastControllerWorkspacesSeen = { logEpoch: frame.logEpoch, payloadKey };
+        if (sourceChanged) {
+          sourceRevision += 1;
+          directoryRevision += 1;
+          notifyOnce();
+        }
         return;
       }
       const taskFrame = frame as WindowHostControllerTaskFrame;

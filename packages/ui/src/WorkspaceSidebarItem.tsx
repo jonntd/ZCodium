@@ -7,6 +7,7 @@ import {
   useState,
   type CSSProperties,
   type MouseEvent,
+  type ReactNode,
 } from "react";
 import {
   CheckIcon,
@@ -96,6 +97,25 @@ export type SortableBindings = Pick<
 // workspace 行在流式工具事件期间会因父级刷新而重渲染；
 // TaskList 如果每次收到新的空数组，会把等价数据误判成变化并连带刷新任务行。
 const EMPTY_PINNED_TASKS: ZCodeTaskMeta[] = [];
+
+/**
+ * 新建会话按钮的提示包装：正常状态不渲染 tooltip（按钮 aria-label 已带「新建会话」，
+ * 再包一层 tooltip 是重复提示），仅只读状态展示禁用原因。
+ *
+ * Bug 原因（workspaceSidebarNewTaskTooltip 守卫契约）：直接写
+ * `title={readOnlyReason ?? "新建会话"}` 会让正常状态也弹「新建会话」提示；显示层
+ * 对齐时该修复被带回退过一次，2026-11-22 在新位置（WorkspaceSidebarItem）重修。
+ */
+function NewThreadTooltip({
+  disabledReason,
+  children,
+}: {
+  disabledReason?: string;
+  children: ReactNode;
+}) {
+  if (!disabledReason) return children;
+  return <ControlHintTooltip title={disabledReason}>{children}</ControlHintTooltip>;
+}
 
 function isHomeWorkspacePath(path: string): boolean {
   const normalizedPath = path.replace(/\\/g, "/").replace(/\/+$/, "");
@@ -1236,12 +1256,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                         </ControlHintTooltip>
                       )
                     ) : shouldMountWorkspaceRowActions ? (
-                      <ControlHintTooltip
-                        title={
-                          readOnlyReason ??
-                          intl.formatMessage({ id: "taskList.newThread" })
-                        }
-                      >
+                      <NewThreadTooltip disabledReason={readOnlyReason}>
                         <Button
                           type="button"
                           variant="ghost"
@@ -1256,7 +1271,7 @@ export const WorkspaceSidebarItem = memo(function WorkspaceSidebarItem({
                         >
                           <MessageCirclePlus className="h-3.5 w-3.5" />
                         </Button>
-                      </ControlHintTooltip>
+                      </NewThreadTooltip>
                     ) : null}
                   </div>
                 </div>
