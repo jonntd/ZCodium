@@ -195,8 +195,8 @@ function shouldNormalizeLeadingChineseSlashAliasInput({
   );
 }
 
-/** 提取编辑器内容；mention 节点会在这里输出 markdown */
-function getEditorMarkdown(editorState: EditorState): string {
+/** 提取编辑器内容；mention 节点会在这里输出 markdown。导出供 vitest 驱动真实节点复现。 */
+export function getEditorMarkdown(editorState: EditorState): string {
   let text = "";
   editorState.read(() => {
     text = $getPromptMarkdown();
@@ -295,8 +295,9 @@ function replaceEditorWithMention(
  *
  * 不能通过 getMarkdown → setMention 重建：setMention 是替换型预填，会把旧 mention
  * 序列化后作为普通 TextNode 放回编辑器，导致已有 Plugin / 文件 / Skill chip 降级。
+ * 导出供 vitest 驱动真实节点复现（composer-insert 落点/保真回归）。
  */
-function prependEditorMentionIfMissing(
+export function prependEditorMentionIfMissing(
   editor: LexicalEditor,
   mention: ComposerMentionPrefill,
 ): boolean {

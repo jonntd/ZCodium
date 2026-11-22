@@ -55,6 +55,34 @@ host 命令（资源管理器右键「加入 Gode 对话」、编辑器选区「
 背景：Antigravity 的「资源管理器多选拖拽进 webview」不产生任何 DOM drag 事件
 （探针实测，单拖正常），多文件加入走右键多选入口。
 
+**落点 key（2026-11-22 修订）**：webview 侧 `requestComposerTextInsert` 与聚焦请求
+`requestComposerFocus` 的 workspace key，以及会话归属上报
+（`notifySessionCreated`/`notifySessionDeleted`）与编辑器页签标题
+（`notifyEditorTabUi`）读取的 activeTaskId，必须是**当前可见对话区**的 workspace，
+即 tabStore 的 active workspace
+（`resolveRootWorkspaceShellTarget` 同一解析面：path + workspaceIdentity），不能再用
+App/bootstrap 层的 `workspacePath`（1915364a 起侧栏挂载桌面 Root 后两者是**独立状态**：
+Root 页签内切换工作区不产生任何 host workspace 帧，App 层 key 冻结在 bootstrap folder）。
+会话上报附加语义：**切页签不是删除**——旧会话仍活着、其 folder 恢复键保持不动；
+新页签有会话则重报归属（host 侧幂等），仅同 key 内的 activeTaskId→null 才走删除判定
+（`shouldReportSessionDeleted`）。
+分叉时请求会落进一个没有可见 composer 消费的 store 桶——host 日志显示帧已推送、
+命令链路全程无错，用户侧表现为「右键加入毫无反应」（2026-11-21 事故：面板页签
+切到 zcode-patcher 后在 IDE 主 folder 里 6 次右键全部落空）。tabStore 尚无 active
+workspace（面板刚打开、Root 未挂载）时回退 App 层 key——此刻 Root 首个页签就是
+bootstrap folder，两者将收敛为同一值。
+
+**pill 持久化保真（2026-11-22 修订）**：编辑器 onChange（含 composer-insert 程序化
+插入触发的变化、拖放/菜单插入）进入草稿 store 时必须**同一拍携带 editorStateJson
+快照**（`snapshotDraftOfEditor`），不得只写 `text` 等 350ms 防抖补 JSON。背景：
+`updateComposerContent` 会无条件抹掉 `editorStateJson/mention`；若 onChange 只写
+text，insert→wipe→恢复重放的窗口内（`draftFocusVersion` 翻动即改变
+`updateComposerContent` 身份并重放草稿恢复 effect），纯文本草稿经 `setText` 复原会把
+mention pill 降级为 canonical markdown 纯文本，且 wipe 经 `persistDraft` 同步落盘、
+后续防抖快照拍到的已是降级后的编辑器——降级永久化（2026-11-22 用户实测：pill 显示成
+`[README.md 14-17](./README.md)`，webview localStorage 草稿记录为同步 wipe 写实证）。
+恢复口径不变：`editorStateJson` 存在即优先结构化复原。
+
 **帧排队**：`pushHostFrame` 在无 webview 连接时进入**有界 FIFO 队列**（≤32 条，
 超出丢最旧）；`attachWebview` 后不立即 flush——等收到 webview 的**首条消息**
 （bootstrap ctx / notifyRendererReady，证明 main.js 已注册监听）才按序 flush。
@@ -67,7 +95,8 @@ host 命令（资源管理器右键「加入 Gode 对话」、编辑器选区「
              → executeCommand("gode.openChat")
 hostRuntime：有连接 → 直发；无连接 → 入队（≤32）
 webview attach → 首条 webview→host 消息 → flush 队列
-webview index.tsx → requestComposerTextInsert(activeWorkspace, …, mentions, mode)
+webview index.tsx → 落点 key = tabStore 可见工作区（回退 App 层 key）
+                   → requestComposerTextInsert(target, …, mentions, mode)
 SessionPane(focused) → ConversationComposer.applyExternalTextInsertRequestToComposer
                      → 循环应用 mentions → updateText + requestFocus
                      → onExternalTextInsertApplied → clearComposerTextInsertRequest
@@ -94,4 +123,6 @@ debug 日志（mention 数、帧数），投递断点可用输出通道定位。
 4. 同文件不同行选区各 ⌘⌥A 一次 → 两个不同 pill（label `name start-end`）；
 5. 重复加入同一选区 → 不新增 pill，但输入框获得焦点；
 6. 多文件上下文一次加入 → 单帧批量，N 个 pill 顺序与传入一致；
-7. 非前台 pane 不消费；store 请求应用后清理。
+7. 非前台 pane 不消费；store 请求应用后清理；
+8. 面板页签切换过工作区（Root tabStore active ≠ bootstrap folder）：右键加入 →
+   pill 出现在**当前可见对话区**（诊断注入同口径）。

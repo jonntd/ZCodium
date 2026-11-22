@@ -27,6 +27,8 @@ import {
   sendClientContext,
 } from "./bridge/webviewMessagePort";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import { getCurrentWindowTabStore } from "@/store/TabStoreProvider.js";
+import { resolveComposerInsertTarget } from "./composer/insertTarget";
 import {
   applyWorkspaceSidebarVisibleFromHost,
   setWorkspaceSidebarVisibleReporter,
@@ -253,19 +255,20 @@ function WebviewRoot({
   useEffect(
     () =>
       hostFrames.on<DiagnosticsHostFramePayload>("diagnostics", (payload) => {
-        // requestComposerTextInsert 的 workspace 键取当前聚焦 folder（诊断来自活动编辑器）。
-        const activeWorkspace = foldersRef.current.includes(
+        // 落点 key = 可见对话区 workspace（spec: composer-insert-delivery 落点 key 规则）。
+        const target = resolveComposerInsertTarget(
+          getCurrentWindowTabStore()?.getState() ?? null,
           workspaceRef.current,
-        )
-          ? workspaceRef.current
-          : (foldersRef.current[0] ?? workspaceRef.current);
+          foldersRef.current,
+        );
         // 增量审查 X6：顶部已静态 import 同一模块，此处原动态 import 是多余的
         // Promise 链（诊断帧每帧执行一次）——直接走静态引用。
         useZCodeSessionStore
           .getState()
           .requestComposerTextInsert(
-            activeWorkspace,
+            target.workspacePath,
             buildDiagnosticsInjection(payload),
+            target.workspaceIdentity,
           );
       }),
     [hostFrames],
@@ -279,17 +282,25 @@ function WebviewRoot({
       hostFrames.on<ComposerInsertHostFramePayload>(
         "composer-insert",
         (payload) => {
-          const activeWorkspace = foldersRef.current.includes(
+          // 修复（2026-11-21 右键加入失效）：落点 key 不能取 App/bootstrap 层
+          // workspaceRef——侧栏挂桌面 Root 后，可见对话区的 workspace 由 Root
+          // tabStore 持有（页签内切换工作区不发 host workspace 帧），两份状态分叉时
+          // 请求会写进无可见 composer 消费的 store 桶，表现为「点击毫无反应」。
+          // 落点改为当前窗口 tabStore 的 active workspace（同一解析面
+          // resolveRootWorkspaceShellTarget，实例经 getCurrentWindowTabStore 登记），
+          // Provider 未挂载时回退 App 层 key（此刻 Root 首页签 = bootstrap folder，
+          // 收敛同值）。
+          const target = resolveComposerInsertTarget(
+            getCurrentWindowTabStore()?.getState() ?? null,
             workspaceRef.current,
-          )
-            ? workspaceRef.current
-            : (foldersRef.current[0] ?? workspaceRef.current);
+            foldersRef.current,
+          );
           useZCodeSessionStore
             .getState()
             .requestComposerTextInsert(
-              activeWorkspace,
+              target.workspacePath,
               payload.text,
-              undefined,
+              target.workspaceIdentity,
               payload.mention,
               payload.mode,
               payload.mentions,

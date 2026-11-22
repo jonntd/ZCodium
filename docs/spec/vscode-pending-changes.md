@@ -147,11 +147,15 @@ interface HistoryTurnEntry {
 与 `subscriptionId`；换代（`onAgentRuntimeRestarted`）/活跃会话切换（notifySessionCreated、
 restore 完成后）→ 重订。运行时不可用或订阅失败：降级为空状态 + 诊断日志，不静默、不崩。
 
-## 6. 多 folder 限制（v1）
+## 6. 绑定 folder 口径（2026-11-22 修订）
 
-仅跟踪主 folder（`workspace.workspaceFolders[0]`，与编辑器命令族 `editorWorkspacePath()`
-同口径）的活跃会话。多根工作区其他 folder 的会话改动继续走聊天内文件卡片。后续扩展点：
-Tracker 按会话分桶，Service 对每个有活跃会话的 folder 各建一条订阅。
+活跃会话绑定跟随「当前可见对话区」（Root tabStore active workspace，落点 key 同
+composer-insert-delivery）——面板页签切换后可见会话可能属于任意 folder，不再固定
+主 folder。v1 原「仅主 folder」口径的历史背景是 webview 只有一个固定 key；挂载 Root
+后该前提失效，旧口径会把别的 folder 创建的会话错绑到主 folder（per-folder 恢复键
+污染 + 订阅 folder 失真）。切换页签只重报归属（host `setActiveSession`/`setSession`
+幂等，随之重订），不触发删除上报；删除仍由 webview 的 `shouldReportSessionDeleted`
+判定面把守（同 key 内 activeTaskId→null 且会话确认不在已知任务集）。
 
 ## 7. 贡献点（package.json）
 

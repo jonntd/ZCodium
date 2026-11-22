@@ -17,12 +17,38 @@ declare global {
 const TabStoreContext = createContext<TabStore | null>(null);
 const fallbackTabStore = createTabStore(null);
 
+/**
+ * 当前窗口已挂载的 tab store（模块级只读镜像）。
+ *
+ * React 树外的 host 帧消费者无法进 Context：vscode webview 的 composer-insert /
+ * diagnostics 帧处理注册在 Provider 之外（webview-react/index.tsx），落点 key 需要
+ * 与可见对话区同源（spec: composer-insert-delivery 落点 key 规则），只能按窗口读
+ * 当前实例。Provider 挂载时登记、卸载时清除；与 window.__zcodeTabStoreE2E 同一
+ * 「Provider 是事实源、模块面只读」的口径。
+ */
+let currentWindowTabStore: TabStore | null = null;
+
+/** 当前窗口已挂载的 tab store；Provider 未挂载（React 未挂树）时为 null。 */
+export function getCurrentWindowTabStore(): TabStore | null {
+  return currentWindowTabStore;
+}
+
 export function TabStoreProvider({ children }: { children: ReactNode }) {
   // 只在首次渲染时创建 store，避免 HMR 重复创建
   const storeRef = useRef<TabStore | null>(null);
   if (!storeRef.current) {
     storeRef.current = createTabStore();
   }
+
+  useEffect(() => {
+    // 模块级当前窗口实例登记（见 getCurrentWindowTabStore 注释）：挂载即登记，卸载
+    // 时只在仍指向本实例的情况下清除（防旧 Provider 迟到的 cleanup 误清新实例）。
+    const store = storeRef.current;
+    currentWindowTabStore = store;
+    return () => {
+      if (currentWindowTabStore === store) currentWindowTabStore = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!shouldExposeE2EStoreBridge() || !storeRef.current) {

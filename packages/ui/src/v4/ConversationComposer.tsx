@@ -1148,6 +1148,22 @@ function ConversationComposerImpl({
   ]);
 
   // scope 切换：先落旧 scope 草稿，再恢复新 scope（editorStateJson 优先，退纯文本）。
+  // 回调经 ref 读取最新身份（依赖只留 scope/workspace，见 effect 尾注）；composerDraft
+  // 同样走 ref——effect 重跑（scope/workspace 切换）时取的必须是当次渲染的最新草稿。
+  const draftRestoreDepsRef = useRef({
+    composerDraft,
+    snapshotDraftOfEditor,
+    replaceComposerDraft,
+    updateText,
+    requestComposerFocus,
+  });
+  draftRestoreDepsRef.current = {
+    composerDraft,
+    snapshotDraftOfEditor,
+    replaceComposerDraft,
+    updateText,
+    requestComposerFocus,
+  };
   useEffect(() => {
     const previousTarget = draftTargetRef.current;
     const targetChanged =
@@ -1187,16 +1203,23 @@ function ConversationComposerImpl({
       scopeId: draftScopeId,
     };
 
-    const draft = transferredDraft ?? composerDraft;
+    const {
+      composerDraft: latestComposerDraft,
+      snapshotDraftOfEditor: snapshotLatest,
+      replaceComposerDraft: replaceLatest,
+      updateText: updateTextLatest,
+      requestComposerFocus: focusLatest,
+    } = draftRestoreDepsRef.current;
+    const draft = transferredDraft ?? latestComposerDraft;
     const restoreDraftInto = (api: LexicalChatInputHandle) => {
       if (!draft) {
         if (textRef.current) {
           api.clear();
-          updateText("");
+          updateTextLatest("");
         }
         return;
       }
-      updateText(
+      updateTextLatest(
         restorePersistedComposerDraftIntoInput({
           draft,
           inputApi: api,
@@ -1211,9 +1234,19 @@ function ConversationComposerImpl({
     const applyDraft = () => {
       const api = inputApiRef.current;
       if (!api) return;
+      // 修复（2026-11-22 隔离实例实测）：面板冷启动即外部预填（spec 验收场景 3「面板
+      // 从未打开 → 右键加入 → 面板打开 + pill 出现」）时，预填 apply 与本恢复 effect
+      // 在同一挂载窗口竞争——恢复重放若晚于预填，会把刚插入的 mention pill 当作
+      // 「未同步草稿」经 restoreDraftInto/api.clear() 清掉（applied=1 但 composer 空、
+      // 草稿零写入）。恢复让位于预填：store 里存在未清理的 composer-insert 请求时本轮
+      // 跳过，编辑器内容由预填 apply 链路负责（spec: composer-insert-delivery）。
+      const pendingInsert = useZCodeSessionStore
+        .getState()
+        .getWorkspaceState(workspacePath, workspaceIdentity).composerTextInsertRequest;
+      if (pendingInsert) return;
       restoreDraftInto(api);
       // 草稿恢复后把光标交还输入框（切会话/切草稿/挂载）；连接中会话待可编辑后兑现。
-      requestComposerFocus();
+      focusLatest();
     };
     // Lexical root 可能晚一帧就绪；draft 恢复排到下一帧（与旧 initialValue 回填同款时序）。
     if (typeof requestAnimationFrame === "function") {
@@ -1223,17 +1256,12 @@ function ConversationComposerImpl({
     applyDraft();
     return undefined;
     // 依赖收敛到 scope/workspace：draft 恢复只应发生在 scope 切换或 workspace 切换。
-  }, [
-    draftScopeId,
-    persistDraftNow,
-    requestComposerFocus,
-    snapshotDraftOfEditor,
-    updateText,
-    updateComposerContent,
-    workspaceIdentity,
-    workspacePath,
-    replaceComposerDraft,
-  ]);
+    // 2026-11-22 修复：此前回调们（persistDraftNow/updateComposerContent 等）直接进依赖，
+    // 而 isCurrentScope 依赖 draftFocusVersion（store 订阅值），挂载期 startDraft/聚焦
+    // 翻动会让它们逐渲染变身份 → 本 effect 被重放多次，与 composer-insert 预填竞争并把
+    // 刚插入的 pill 当「未同步草稿」清掉（隔离实例实测 applied=1 后 composer 空、草稿
+    // 零写入）。改为经 ref 读取最新回调，effect 只随 scope/workspace 重跑。
+  }, [draftScopeId, workspaceIdentity, workspacePath]);
 
   useEffect(() => {
     ownerDraftRef.current = {
@@ -1658,11 +1686,17 @@ function ConversationComposerImpl({
   const handleEditorChange = useCallback(
     (value: string) => {
       updateText(value);
-      // 正文先进入与 mode/model 相同的内存 Draft；防抖只负责补充最新 Lexical JSON。
-      updateComposerContent({ text: value });
+      // 正文与 Lexical JSON 必须同一拍进入 Draft：updateComposerContent 会无条件抹掉
+      // editorStateJson/mention，若这里只写 text 等防抖补 JSON，「插入 pill → wipe →
+      // 恢复重放」窗口内（draftFocusVersion 翻动即改 updateComposerContent 身份并重放
+      // 草稿恢复 effect），纯文本草稿经 setText 复原会把 mention pill 降级成 canonical
+      // markdown 纯文本；且 wipe 经 persistDraft 同步落盘，防抖快照拍到的已是降级后的
+      // 编辑器，降级永久化（2026-11-22 用户实测，spec: composer-insert-delivery
+      // 「pill 持久化保真」）。编辑器正文有界（聊天输入框），逐拍 toJSON 成本可接受。
+      updateComposerContent(snapshotDraftOfEditor());
       scheduleDraftPersist();
     },
-    [scheduleDraftPersist, updateComposerContent, updateText],
+    [scheduleDraftPersist, snapshotDraftOfEditor, updateComposerContent, updateText],
   );
 
   // 编辑器提交（Enter / 发送键 form submit 同路径）。返回 false：编辑器不自行 reset，

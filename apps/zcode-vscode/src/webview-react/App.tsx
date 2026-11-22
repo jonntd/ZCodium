@@ -21,7 +21,13 @@ import type { IPlatformService } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 // 模块级 zustand 单例（Root 内部消费同一实例）：观察 activeTaskId 变化承接 P1-1.5 上报。
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
+import { getCurrentWindowTabStore } from "@/store/TabStoreProvider.js";
 import { useWorkspaceHeaderHintStore } from "@/store/workspaceHeaderHintStore.js";
+import { resolveComposerInsertTarget } from "./composer/insertTarget";
+import {
+  resolveSessionReportAction,
+  type SessionReportAnchor,
+} from "./sessionReporting";
 import { RuntimeRestartBanner } from "./banners/RuntimeRestartBanner";
 import {
   SESSION_TAB_ACTIVE_STORAGE_KEY,
@@ -192,6 +198,9 @@ export function App({
   // 编辑器标签标题跟随（Claude Code 同款）：编辑器标签标题 = 活动会话的任务标题
   // （首条消息自动截取，agent 还会推送自动命名），Agent 运行中加忙态前缀；草稿态
   // 回默认标题。订阅模块级 session store，仅 title/busy 变化时上行（plat-evt 一次）。
+  // 落点 key 与 composer-insert 同口径（spec: composer-insert-delivery 落点 key 规则）：
+  // 标题反映**当前可见对话区**（Root tabStore active workspace）的会话；页签内切换
+  // 工作区时 App 层 key 冻结在 bootstrap folder，直接读它会让标题停在旧工作区的会话。
   useEffect(() => {
     if (!workspacePath) return;
     const reporting = platform as EditorTabUiReportingPort;
@@ -199,7 +208,14 @@ export function App({
     const store = useZCodeSessionStore;
     let prevKey: string | null = null;
     const send = (): void => {
-      const ws = store.getState().getWorkspaceState(workspacePath);
+      const target = resolveComposerInsertTarget(
+        getCurrentWindowTabStore()?.getState() ?? null,
+        workspacePath,
+        [],
+      );
+      const ws = store
+        .getState()
+        .getWorkspaceState(target.workspacePath, target.workspaceIdentity);
       const taskId = ws.activeTaskId ?? null;
       const runtime = taskId != null ? ws.taskRuntimeByTaskId[taskId] : undefined;
       const busy =
@@ -212,23 +228,40 @@ export function App({
           null)
         : null;
       const next = { title: meta?.title ?? null, busy };
-      const key = `${next.title ?? ""}|${String(next.busy)}`;
+      const key = `${target.workspacePath}|${next.title ?? ""}|${String(next.busy)}`;
       if (key === prevKey) return;
       prevKey = key;
       reporting.notifyEditorTabUi?.(next);
     };
     send();
-    return store.subscribe(send);
+    // 双订阅：会话态（标题/忙态）+ tabStore（可见工作区切换）任一变化都重算。
+    const unsubscribeSession = store.subscribe(send);
+    const tabStore = getCurrentWindowTabStore();
+    const unsubscribeTabs = tabStore ? tabStore.subscribe(send) : undefined;
+    return () => {
+      unsubscribeSession();
+      unsubscribeTabs?.();
+    };
   }, [platform, workspacePath]);
 
   // composer 聚焦（Claude Code 同款）：webview 激活/窗口重新聚焦（切回对话页签、
   // 点开面板）时把焦点交给输入框，打开即可直接输入。走 store 的 requestComposerFocus
   // （递增 draftFocusVersion，复用 ConversationComposer 既有聚焦链路；幂等无害）。
+  // 落点 key 与 composer-insert 同口径（spec: composer-insert-delivery 落点 key 规则）：
+  // 可见对话区的 workspace 归 Root tabStore 持有，App 层 workspacePath 只是 Provider
+  // 未挂载时的兜底——直接用 App 层 key 会把聚焦请求写进无可见 composer 消费的桶。
   useEffect(() => {
     if (!workspacePath) return;
     const focusComposer = (): void => {
       if (document.visibilityState !== "visible") return;
-      useZCodeSessionStore.getState().requestComposerFocus(workspacePath);
+      const target = resolveComposerInsertTarget(
+        getCurrentWindowTabStore()?.getState() ?? null,
+        workspacePath,
+        [],
+      );
+      useZCodeSessionStore
+        .getState()
+        .requestComposerFocus(target.workspacePath, target.workspaceIdentity);
     };
     window.addEventListener("focus", focusComposer);
     document.addEventListener("visibilitychange", focusComposer);
@@ -249,48 +282,74 @@ export function App({
 
   // 会话恢复闭环 webview 半（P1-1.5）：Root 不暴露会话回调，改为订阅模块级
   // zcodeSessionStore 的 activeTaskId（Root 内部会话切换都写它）→ 上报 host 写
-  // ExtensionStore。创建/删除以外的工作区切换（无 taskId 变化）不触发上报。
+  // ExtensionStore。
+  // 落点 key 与 composer-insert 同口径（spec: composer-insert-delivery 落点 key 规则）：
+  // 会话归属 = 当前可见对话区（Root tabStore active workspace）的 folder。面板页签
+  // 切换后 App 层 key 冻结在 bootstrap folder，旧口径会把别的 folder 里创建的会话
+  // 记到 bootstrap folder 名下（per-folder 恢复键污染 + pending-changes 错绑），且
+  // 可见工作区内的会话删除完全不可见（漏报，host 靠兜底发现层收敛）。
+  // 切页签本身不是删除：旧会话仍活着，其 folder 的恢复键保持不动；新页签有会话则
+  // 重报归属（host setActiveSession/setSession 幂等，pending-changes 跟随可见会话）。
   useEffect(() => {
     if (!workspacePath) return;
     const store = useZCodeSessionStore;
-    let prev = store.getState().getWorkspaceState(workspacePath).activeTaskId ?? null;
-    return store.subscribe((state) => {
-      const next = state.getWorkspaceState(workspacePath).activeTaskId ?? null;
-      if (next === prev) return;
-      const removed = prev;
-      prev = next;
-      setSessionId(next);
-      onActiveSessionChange?.(next);
+    let last: SessionReportAnchor | null = null;
+    const sync = (): void => {
+      const target = resolveComposerInsertTarget(
+        getCurrentWindowTabStore()?.getState() ?? null,
+        workspacePath,
+        [],
+      );
+      const snap = store
+        .getState()
+        .getWorkspaceState(target.workspacePath, target.workspaceIdentity);
+      const taskId = snap.activeTaskId ?? null;
+      const workspaceKey = target.workspaceIdentity?.trim() || target.workspacePath;
+      const previous = last;
+      const nextAnchor: SessionReportAnchor = {
+        workspaceKey,
+        folderPath: target.workspacePath,
+        taskId,
+      };
+      const action = resolveSessionReportAction(previous, nextAnchor, (sessionId) =>
+        shouldReportSessionDeleted(sessionId, {
+          optimisticTaskListByTaskId: snap.optimisticTaskListByTaskId,
+          taskListCache: snap.taskListCache,
+        }),
+      );
+      if (previous && action.kind === "none" && previous.taskId === taskId && previous.workspaceKey === workspaceKey) {
+        return;
+      }
+      last = nextAnchor;
+      setSessionId(taskId);
+      onActiveSessionChange?.(taskId);
       // Root 内部会话切换 / 草稿转正 → 回写当前标签绑定的 sessionId。
       setTabState((current) => {
         if (!current.activeId) return current;
-        const bound = bindActiveSession(current.tabs, current.activeId, next);
+        const bound = bindActiveSession(current.tabs, current.activeId, taskId);
         return bound === current.tabs ? current : { ...current, tabs: [...bound] };
       });
+      if (action.kind === "none") return; // 挂载基线或无迁移：不上报。
       const reporting = platform as IPlatformService & SessionReportingPort;
-      if (next) {
-        void reporting.notifySessionCreated?.(next, workspacePath).catch(() => {
+      if (action.kind === "created") {
+        void reporting.notifySessionCreated?.(action.sessionId, action.folder).catch(() => {
           // 上报失败不阻塞本地选择态；host 侧 restore 仍按 store 旧值兜底。
         });
-      } else if (removed) {
-        // 修复（审查 medium）：activeTaskId→null ≠ 会话删除——「新建会话/回草稿」
-        // 同样产生该迁移（startDraft 写 activeTaskId: null），此前一律上报
-        // notifySessionDeleted，host 误清 per-folder 最近会话恢复键并无条件拆掉
-        // pending-changes 会话绑定，与「保留恢复状态」的设计意图相反。
-        // 只在会话确认已不在已知任务集时才上报删除（判定面见 sessionListModel）。
-        const known = state.getWorkspaceState(workspacePath);
-        if (
-          shouldReportSessionDeleted(removed, {
-            optimisticTaskListByTaskId: known.optimisticTaskListByTaskId,
-            taskListCache: known.taskListCache,
-          })
-        ) {
-          void reporting.notifySessionDeleted?.(removed).catch(() => {
-            // 同上：host 键清理失败不阻塞本地回草稿。
-          });
-        }
+      } else {
+        void reporting.notifySessionDeleted?.(action.sessionId).catch(() => {
+          // 同上：host 键清理失败不阻塞本地回草稿。
+        });
       }
-    });
+    };
+    sync();
+    // 双订阅：会话态（activeTaskId）+ tabStore（可见工作区切换）任一变化都重算。
+    const unsubscribeSession = store.subscribe(sync);
+    const tabStore = getCurrentWindowTabStore();
+    const unsubscribeTabs = tabStore ? tabStore.subscribe(sync) : undefined;
+    return () => {
+      unsubscribeSession();
+      unsubscribeTabs?.();
+    };
   }, [platform, workspacePath, onActiveSessionChange]);
 
   // 标签顺序 / 锁定态持久化（不持久化会话内容；webview 重建后仍恢复标签骨架）。
