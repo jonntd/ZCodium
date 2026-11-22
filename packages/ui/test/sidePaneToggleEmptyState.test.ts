@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
+// 用 import.meta.url 锚定仓库根（不用 process.cwd()）：全量套件从仓库根跑、单包
+// `pnpm --filter @zcode/ui` 从包根跑，cwd 相对路径会让单包运行读不到文件。
+const REPO_ROOT = new URL("../../../", import.meta.url);
+
 function readSource(path: string): string {
-  return readFileSync(resolve(process.cwd(), path), "utf8");
+  return readFileSync(new URL(path, REPO_ROOT), "utf8");
 }
 
 describe("side pane toggle empty state", () => {
@@ -32,10 +35,14 @@ describe("side pane toggle empty state", () => {
     expect(source).toContain('id: "sidePane.openTab"');
     expect(source).toContain('id: "sidePane.openTabDescription"');
     expect(source).toContain("hasRenderedSidePane ? (");
-    expect(source).toContain("visibleTabs.length === 0 ? openTabLauncher : null");
+    // 2026-11-22 re-baseline：空态 launcher 与 hidden 兜底都带 !fullView 分支——
+    // 全屏 side-pane（fullView）模式下空态由独立分支承载，不再复用内嵌 launcher。
+    expect(source).toContain("visibleTabs.length === 0 && !fullView ? openTabLauncher : null");
     // 截图 surface prepare 期间，即使当前对话没有可见 tab，也要保留后台 browser-use
     // 的实际布局，不能回退为 display:none。
-    expect(source).toContain('visibleTabs.length === 0 && !screenshotSurfaceRequest && "hidden"');
+    expect(source).toContain(
+      'visibleTabs.length === 0 && !screenshotSurfaceRequest && !fullView && "hidden"',
+    );
     expect(source).toContain("保留 TabsContent 挂载");
     expect(source).toContain("openTabLauncher");
     expect(source).toContain("flex-1 items-center justify-center");

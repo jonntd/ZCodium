@@ -76,6 +76,9 @@ const ALLOWED_PATHS = [
   /^packages\/rpc\/src\/index\.ts$/,
   // 上游 payload 兼容 schema 字段（processResourceTelemetry），仅解析不产生上报。
   /^packages\/shared\/src\/server-remote\.ts$/,
+  // 同上：validation.ts 仅用 PROCESS_RESOURCE_CLI_LANES 定义 processResourceCliLaneSchema
+  // （zod enum 解析上游/共享 payload 的泳道字段），无任何上报面。
+  /^packages\/shared\/src\/validation\.ts$/,
 ];
 
 // 源码扫描目标：没有专属 no-telemetry 守卫的包的 src/ 与构建脚本、仓库级 scripts/。
@@ -103,7 +106,9 @@ function listPackageSubdirs(parent, subdirs, excluded) {
     return targets;
   }
   for (const entry of packages) {
-    if (excluded?.has(entry.name)) {
+    // 目录枚举只认真目录：macOS Finder 产物（.DS_Store）等文件混进 apps/packages
+    // 时会派生出不存在/不可读的目标（读 package.json 直接 ENOTDIR）。
+    if (excluded?.has(entry.name) || !entry.isDirectory() || entry.name.startsWith(".")) {
       continue;
     }
     for (const subdir of subdirs) {
@@ -122,6 +127,10 @@ function listPackageFiles(parent) {
     return manifests;
   }
   for (const entry of packages) {
+    // 同 listPackageSubdirs：依赖断言只看目录，混入的文件（.DS_Store 等）跳过。
+    if (!entry.isDirectory() || entry.name.startsWith(".")) {
+      continue;
+    }
     manifests.push(`${parent}/${entry.name}/package.json`);
   }
   return manifests;

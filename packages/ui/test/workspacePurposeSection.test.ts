@@ -57,13 +57,15 @@ describe("WorkspacePurposeSection", () => {
   it("keeps the action outside the collapse trigger and exposes accessible visibility fallbacks", () => {
     const html = renderSection(true);
     const triggerEndIndex = html.indexOf("</button>");
-    const dragHandleIndex = html.indexOf('data-purpose-section-drag-handle="projects"');
     const actionIndex = html.indexOf('data-testid="section-action"');
 
     expect(triggerEndIndex).toBeGreaterThan(-1);
-    expect(dragHandleIndex).toBeGreaterThan(triggerEndIndex);
     expect(actionIndex).toBeGreaterThan(triggerEndIndex);
-    expect(html).toContain('aria-label="Move Projects section"');
+    // 2026-11-22 re-baseline：拖拽把手与折叠触发器合一——整个标题按钮即把手
+    // （data-purpose-section-drag-trigger + dnd listeners），独立把手元素已删。
+    expect(html).toContain('data-purpose-section-drag-trigger="projects"');
+    // 无障碍文案从 aria-label 改为 aria-description（拖拽语义由 dnd-kit attributes 提供）。
+    expect(html).toContain('aria-description="Move Projects section"');
     expect(html).toContain("touch-none");
     expect(html).toContain("group-hover/purpose-section:opacity-100");
     expect(html).toContain("group-focus-within/purpose-section:opacity-100");

@@ -824,8 +824,11 @@ describe("Supervisor lifecycle", () => {
       5_000,
     );
     while (cores.length < 2) await new Promise<void>((resolve) => setImmediate(resolve));
+    // R2 §8.1：control `restart` 命令已删除（整棵进程树重启由发起命令的 CLI 协调），
+    // 冲突语义改用 `stop` 验证——apply-update 在飞行中（generation 2 的 Core 故意不
+    // reportReady）时，ack 型 stop 必须在回包前被 gate 拒绝为 operation-in-progress。
     await expect(
-      requestControl(layout.controlEndpoint, { command: "restart" }),
+      requestControl(layout.controlEndpoint, { command: "stop" }),
     ).rejects.toMatchObject({
       code: "operation-in-progress",
       retryable: true,

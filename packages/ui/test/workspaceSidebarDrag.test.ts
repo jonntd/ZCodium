@@ -1,5 +1,4 @@
 import { readSourceText } from "./readSourceText.js";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { WorkspaceTabState } from "@/store/tabStore.js";
 import {
@@ -52,26 +51,27 @@ describe("workspace sidebar drag", () => {
   });
 
   it("uses the requested workspace preview sizing", () => {
-    const workspaceSource = readSourceText(
-      resolve(process.cwd(), "packages/ui/src/WorkspaceSidebar.tsx"),
+    // 2026-11-22 re-baseline：拖拽预览随显示层对齐迁入 project-sidebar/WorkspaceDragOverlay。
+    const dragOverlaySource = readSourceText(
+      new URL("../src/project-sidebar/WorkspaceDragOverlay.tsx", import.meta.url),
       "utf8",
     );
     const workspacePreviewSizing =
       "h-8 px-2.5 gap-2 [&_svg]:pointer-events-none [&_svg]:size-3.5 [&_svg]:shrink-0";
 
-    expect(workspaceSource).toContain("border-border bg-background");
-    expect(workspaceSource).toContain("text-ui-base text-foreground shadow-lg");
-    expect(workspaceSource).toContain("cursor-grabbing");
-    expect(workspaceSource).toContain(workspacePreviewSizing);
+    expect(dragOverlaySource).toContain("border-border bg-background");
+    expect(dragOverlaySource).toContain("text-ui-base text-foreground shadow-lg");
+    expect(dragOverlaySource).toContain("cursor-grabbing");
+    expect(dragOverlaySource).toContain(workspacePreviewSizing);
   });
 
   it("keeps native workbench dragging enabled inside project rows", () => {
     const workspaceItemSource = readSourceText(
-      resolve(process.cwd(), "packages/ui/src/WorkspaceSidebarItem.tsx"),
+      new URL("../src/WorkspaceSidebarItem.tsx", import.meta.url),
       "utf8",
     );
     const taskListItemSource = readSourceText(
-      resolve(process.cwd(), "packages/ui/src/TaskListItem.tsx"),
+      new URL("../src/TaskListItem.tsx", import.meta.url),
       "utf8",
     );
 

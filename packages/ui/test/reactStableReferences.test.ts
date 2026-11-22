@@ -1,3 +1,5 @@
+import { relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Node, Project } from "ts-morph";
 import { describe, expect, it } from "vitest";
 
@@ -7,6 +9,12 @@ interface Finding {
   message: string;
 }
 
+// 扫描面与路径展示都不依赖 process.cwd()：全量套件从仓库根跑、`pnpm --filter @zcode/ui`
+// 单包跑时 cwd 不同——cwd 相对 glob 会让单包运行扫不到文件、守卫整体假绿（2026-11-22
+// 实测）。改从本测试文件位置锚定：../../ = packages/ui，../../../ = 仓库根。
+const UI_PACKAGE_ROOT = fileURLToPath(new URL("../../", import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL("../../../", import.meta.url));
+
 function createProject() {
   const project = new Project({
     compilerOptions: {
@@ -14,7 +22,7 @@ function createProject() {
       jsx: 4,
     },
   });
-  project.addSourceFilesAtPaths(["packages/ui/src/**/*.tsx"]);
+  project.addSourceFilesAtPaths([`${UI_PACKAGE_ROOT}src/**/*.tsx`]);
   return project;
 }
 
@@ -25,7 +33,7 @@ function formatFinding(finding: Finding) {
 function sourceLocation(sourceFile: ReturnType<Project["getSourceFiles"]>[number], node: Node) {
   const { line } = sourceFile.getLineAndColumnAtPos(node.getStart());
   return {
-    file: sourceFile.getFilePath().replace(`${process.cwd()}/`, ""),
+    file: relative(REPO_ROOT, sourceFile.getFilePath()).split("\\").join("/"),
     line,
   };
 }

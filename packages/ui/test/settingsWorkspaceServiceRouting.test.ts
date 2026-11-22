@@ -5,6 +5,14 @@ function readSource(path: string): Promise<string> {
   return readFile(new URL(`../${path}`, import.meta.url), "utf8");
 }
 
+// 2026-11-22 re-baseline（settings-scope 设备分组 01c6656b 起）：
+// - 各配置 section 的解析统一走 useConfigWorkspaceServicesResolution（别名
+//   useWorkspaceServicesResolution）——同一路由契约的配置面特化（追加第 5 参 options：
+//   unscopedServices/forceUnscoped，见 workspace-config-catalog/useConfigWorkspaceServices.ts），
+//   原 `useWorkspaceServicesResolution` 前四参语义不变；
+// - Subagent 设置从「固定本地服务」演进为「统一 Scope target 服务 + fail-closed」：
+//   Scope target 与 useServices() 上下文可属不同远程 host，投影必须 target-scoped，
+//   设备离线或 attachment 未就绪时暂停 RPC，不借用其他 Host 的服务。
 describe("Settings target workspace service routing", () => {
   it("keeps Model Provider settings on the Local Environment", async () => {
     const source = await readSource("src/SettingsPage.tsx");
@@ -33,9 +41,11 @@ describe("Settings target workspace service routing", () => {
   it("routes Plugin management through the selected workspace services", async () => {
     const source = await readSource("src/settings/PluginsSection.tsx");
 
-    expect(source).toContain("useWorkspaceServicesResolution");
+    expect(source).toContain(
+      "useConfigWorkspaceServicesResolution as useWorkspaceServicesResolution",
+    );
     expect(source).toMatch(
-      /useWorkspaceServicesResolution\(\s*target\?\.workspacePath,\s*target\?\.remoteSessionId,\s*target\?\.workspaceIdentity,\s*target\?\.remoteTarget,\s*\)/,
+      /useWorkspaceServicesResolution\(\s*target\?\.workspacePath,\s*target\?\.remoteSessionId,\s*target\?\.workspaceIdentity,\s*target\?\.remoteTarget,\s*\{/,
     );
     expect(source).toContain(
       "const { pluginManagementService } = targetServiceResolution.services;",
@@ -52,48 +62,61 @@ describe("Settings target workspace service routing", () => {
   it("routes Hooks through the selected workspace services", async () => {
     const source = await readSource("src/settings/HooksSection.tsx");
 
-    expect(source).toContain("useWorkspaceServicesResolution");
-    expect(source).toMatch(
-      /useWorkspaceServicesResolution\(\s*targetWorkspacePath,\s*selectedWorkspace\?\.remoteSessionId,\s*targetWorkspaceIdentity,\s*selectedWorkspace\?\.remoteTarget,\s*\)/,
-    );
     expect(source).toContain(
-      "const { hooksService, pluginManagementService } = targetServiceResolution.services;",
+      "useConfigWorkspaceServicesResolution as useWorkspaceServicesResolution",
     );
+    expect(source).toMatch(
+      /useWorkspaceServicesResolution\(\s*targetWorkspacePath,\s*selectedWorkspace\?\.remoteSessionId,\s*targetWorkspaceIdentity,\s*selectedWorkspace\?\.remoteTarget,\s*\{/,
+    );
+    // target 解析结果经 useMemo 包装出 hooksService（scope 选中远程 workspace 时 context
+    // 服务指向激活 host，连接未就绪或 fallback 时不允许把写路径发错 host）。
+    expect(source).toMatch(
+      /const \{ hooksService: targetHooksService, pluginManagementService \}\s*=\s*\n?\s*targetServiceResolution\.services;/,
+    );
+    expect(source).toContain("const hooksService = useMemo<IHooksService>");
     expect(source).toContain("if (!targetServiceResolution.rpcReady) return;");
     expect(source).toMatch(
       /!targetServiceResolution\.rpcReady\s*\?\s*\(\s*<PluginLoadingState[\s\S]*?id: "common\.connecting"/,
     );
   });
 
-  it("keeps Subagent settings on the Local Environment services and model view", async () => {
+  it("routes Subagent settings through the Scope target services (fail-closed)", async () => {
     const source = await readSource("src/settings/SubagentsSection.tsx");
 
-    expect(source).toContain("const localHostServices = useBaseWorkspaceServices();");
-    expect(source).toContain("localHostServices.modelSelectionService");
     expect(source).toContain(
-      "const { pluginManagementService, subagentsService } = localHostServices;",
+      "useConfigWorkspaceServicesResolution as useWorkspaceServicesResolution",
     );
+    expect(source).toMatch(
+      /useWorkspaceServicesResolution\(\s*targetWorkspacePath,\s*selectedWorkspace\?\.remoteSessionId,\s*targetWorkspaceIdentity,\s*selectedWorkspace\?\.remoteTarget,\s*\{/,
+    );
+    // Scope target 与 useServices() 上下文可属不同远程 host：子代理/插件投影统一
+    // target-scoped，设备离线或 attachment 未就绪时 fail-closed 暂停 RPC。
+    expect(source).toContain("const targetServiceResolution = scopeBlocked");
     expect(source).toContain(
-      ".filter((tab) => !tab.remoteTarget && !tab.remoteSessionId && !tab.workspaceIdentity)",
+      "const { pluginManagementService, subagentsService } = targetServiceResolution.services;",
     );
-    expect(source).not.toContain("useWorkspaceServicesResolution");
+    // Provider/Model 事实属于目标 Environment：模型视图读 Scope target 自己的
+    // Registry 视图，等待远端连接期间不能回退到 Base Host 的模型列表。
+    expect(source).toContain("targetServiceResolution.services.modelSelectionService");
+    expect(source).toContain("targetServiceResolution.rpcReady");
   });
 
   it("routes Skills through the target passed by PluginsSection", async () => {
     const source = await readSource("src/settings/SkillsSection.tsx");
 
-    expect(source).toContain("useWorkspaceServicesResolution");
-    expect(source).toMatch(
-      /useWorkspaceServicesResolution\(\s*activeWorkspacePath,\s*remoteSessionId,\s*activeWorkspaceIdentity,\s*remoteTarget,\s*\)/,
+    expect(source).toContain(
+      "useConfigWorkspaceServicesResolution as useWorkspaceServicesResolution",
     );
     expect(source).toMatch(
-      /const \{ pluginManagementService, skillSyncService, skillsService \}\s*=\s*targetServiceResolution\.services;/,
+      /useWorkspaceServicesResolution\(\s*activeWorkspacePath,\s*remoteSessionId,\s*activeWorkspaceIdentity,\s*remoteTarget,\s*\{/,
+    );
+    expect(source).toMatch(
+      /const \{ pluginManagementService, skillsService \}\s*=\s*targetServiceResolution\.services;/,
     );
     expect(source).toContain("if (!targetServiceResolution.rpcReady) return;");
     expect(source).toContain("open={importDialogOpen && targetServiceResolution.rpcReady}");
-    expect(source).toMatch(
-      /skillOpen=\{\s*remoteSkillSyncOpen && targetServiceResolution\.rpcReady\s*\}/,
-    );
+    // skill-sync 独立对话框已随 settings-scope 演进合并进 SkillsImportDialog
+    // （settingsSyncService 由 target 解析结果注入，见「target-scoped settings sync」用例）。
     expect(source).toMatch(
       /!targetServiceResolution\.rpcReady\s*\?\s*\(\s*<PluginLoadingState[\s\S]*?id: "common\.connecting"/,
     );
@@ -106,7 +129,7 @@ describe("Settings target workspace service routing", () => {
 
     expect(source).not.toContain('useServices.js"');
     expect(source).toMatch(
-      /useWorkspaceServicesResolution\(\s*currentWorkspaceTab\?\.workspacePath \?\? workspacePath,\s*currentWorkspaceTab\?\.remoteSessionId,\s*currentWorkspaceTab\?\.workspaceIdentity \?\? workspaceIdentity,\s*currentWorkspaceTab\?\.remoteTarget,\s*\)/,
+      /useWorkspaceServicesResolution\(\s*currentWorkspaceTab\?\.workspacePath \?\? workspacePath,\s*currentWorkspaceTab\?\.remoteSessionId,\s*currentWorkspaceTab\?\.workspaceIdentity \?\? workspaceIdentity,\s*currentWorkspaceTab\?\.remoteTarget,\s*\{/,
     );
     expect(source).toMatch(
       /const \{ commandsService, pluginManagementService, settingsSyncService \}\s*=\s*listServiceResolution\.services;/,
@@ -141,9 +164,10 @@ describe("Settings target workspace service routing", () => {
     const mcp = await readSource("src/settings/McpSettingsSection.tsx");
     expect(mcp).toContain("settingsSyncService={services.settingsSyncService}");
     expect(mcp).toContain("PluginLoadingState");
-    expect(mcp).toMatch(
-      /!mcpProjectionReady\s*\?\s*\(\s*<PluginLoadingState[\s\S]*?id: "common\.loading"/,
-    );
+    // 加载门已演进为二分支：配置加载失败先给显式失败态（替代无限 loading），未失败
+    // 才落 PluginLoadingState——门本身仍是 !mcpProjectionReady。
+    expect(mcp).toMatch(/!mcpProjectionReady\s*\?/);
+    expect(mcp).toMatch(/<PluginLoadingState label=\{intl\.formatMessage\(\{ id: "common\.loading" \}\)\s*\}/);
     expect(mcp).toContain("open={importDialogOpen && mcpStoreMatchesActiveWorkspace}");
   });
 

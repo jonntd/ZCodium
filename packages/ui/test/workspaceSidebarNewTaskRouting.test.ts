@@ -73,6 +73,10 @@ describe("workspace sidebar new-task routing", () => {
     const remoteDraftEnd = source.indexOf("});", remoteDraftStart);
     const remoteDraftSource = source.slice(remoteDraftStart, remoteDraftEnd);
 
-    expect(remoteDraftSource).toContain("startDraftInWorkspace(workspacePath, workspaceIdentity)");
+    // 2026-11-22 re-baseline：远程激活路径现在附带 remoteDraftIntent 第三参（草稿意图
+    // 随激活透传）；前两个位置参数（path, identity）仍是进入对应草稿桶的锚点。
+    expect(remoteDraftSource).toMatch(
+      /startDraftInWorkspace\(\s*workspacePath,\s*workspaceIdentity,/,
+    );
   });
 });
