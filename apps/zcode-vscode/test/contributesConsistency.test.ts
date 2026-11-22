@@ -349,7 +349,9 @@ describe("webview 内会话标签栏（已按用户反馈移除 UI）", () => {
     expect(app).toContain('frameBus.on<SessionTabsHostFramePayload>("session-tabs"');
     expect(app).toContain("lastSyncedTabsJsonRef");
     // composer 聚焦：webview 激活/窗口聚焦时把焦点交给输入框（store 聚焦链路）。
-    expect(app).toContain("requestComposerFocus(workspacePath)");
+    // 落点 key = 可见对话区 workspace（target.workspacePath + identity，spec:
+    // composer-insert-delivery 落点 key 规则；6690620f 起不再直用 App 层 key）。
+    expect(app).toContain("requestComposerFocus(target.workspacePath, target.workspaceIdentity)");
     expect(app).toContain('window.addEventListener("focus", focusComposer)');
     // 选中标签本地持久化（各编辑器页签独立选会话，不跨页中继）。
     expect(app).toContain("SESSION_TAB_ACTIVE_STORAGE_KEY");
