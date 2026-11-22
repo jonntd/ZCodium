@@ -289,7 +289,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # v3.15.7 release CI 实测：macos-15-intel runner 上 tsc -b 全仓 typecheck
+      # V8 OOM（exit 134）。显式抬高老堆上限；ubuntu/macos-14 同步受益。
       - name: Typecheck
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
         run: pnpm typecheck
 
       # CUA helper 随包（docs/spec/cua-runtime-builtin.md §B）：先跑 prepare 从官方 CDN

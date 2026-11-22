@@ -39,14 +39,29 @@ export function extractPrebuiltArchive({ archivePath, archiveExt, extractDir, cw
   mkdirSync(extractDir, { recursive: true });
   if (archiveExt === "zip") {
     if (process.platform === "win32") {
-      runCommand("powershell.exe", [
-        "-NoProfile",
-        "-NonInteractive",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-Command",
-        `Expand-Archive -LiteralPath '${archivePath.replaceAll("'", "''")}' -DestinationPath '${extractDir.replaceAll("'", "''")}' -Force`,
-      ]);
+      // Bugfix（v3.15.7 release CI 实测）：Windows 自带 tar（bsdtar）原生支持 zip，
+      // 优先用它解包；PowerShell Expand-Archive 在 runner 镜像更新后出现过
+      // 「exit 0 但 extractDir 为空」的静默失败（findPrebuiltBinary 随即找不到
+      // ugrep.exe，Bundle desktop app 挂在 prepare:native-search）。
+      // bsdtar 走仓库既有的 tar 参数基建（盘符冒号/反斜杠转换），失败时保留
+      // PowerShell 兜底，两条路都有非零退出检查。
+      try {
+        const tarCwd = cwd ?? process.cwd();
+        runCommand(
+          "tar",
+          ["-xf", resolveTarArchiveArg(archivePath, tarCwd), "-C", toTarPosixPath(extractDir)],
+          { cwd: tarCwd },
+        );
+      } catch {
+        runCommand("powershell.exe", [
+          "-NoProfile",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          `Expand-Archive -LiteralPath '${archivePath.replaceAll("'", "''")}' -DestinationPath '${extractDir.replaceAll("'", "''")}' -Force`,
+        ]);
+      }
       return;
     }
 

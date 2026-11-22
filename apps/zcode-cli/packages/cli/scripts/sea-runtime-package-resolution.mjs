@@ -35,7 +35,25 @@ export const resolveRuntimePackageDirectory = async ({
     const directory = workspacePackageDirectory;
     await assertPackageDirectory(packageName, directory);
     if (!(await exists(resolve(directory, "dist", "index.js")))) {
-      throw new Error(`Missing ${packageName} dist files. Run \`pnpm build\` before \`pnpm sea\`.`);
+      // dist/index.js 只对「声明了 dist 根入口」的包是硬要求。源码直出包
+      // （exports 全部指向 src、无 "." 根导出，如 @zcode/session-control）没有
+      // 也不可能有 dist/index.js——它们经 CLI esbuild 内联进 zcode.cjs，SEA 资产
+      // 里只按目录归档（node_modules 已被 staging 排除）。v3.15.7 release CI
+      // 实测：硬编码检查对这类包误报 Missing dist files，CLI 发行构建全挂。
+      const packageJson = JSON.parse(
+        await readFile(resolve(directory, "package.json"), "utf8"),
+      );
+      const rootEntry =
+        packageJson.main ??
+        (packageJson.exports && typeof packageJson.exports === "object"
+          ? packageJson.exports["."]
+          : undefined);
+      const entryReferencesDist = JSON.stringify(rootEntry ?? "").includes(
+        "dist",
+      );
+      if (entryReferencesDist) {
+        throw new Error(`Missing ${packageName} dist files. Run \`pnpm build\` before \`pnpm sea\`.`);
+      }
     }
     return directory;
   }
