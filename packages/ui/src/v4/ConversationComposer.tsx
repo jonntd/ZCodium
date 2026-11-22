@@ -1165,6 +1165,14 @@ function ConversationComposerImpl({
     requestComposerFocus,
   };
   useEffect(() => {
+    // 全部可变回调/草稿统一经 ref 现取（含 transfer 分支，保持单一读取口径）。
+    const {
+      composerDraft: latestComposerDraft,
+      snapshotDraftOfEditor: snapshotLatest,
+      replaceComposerDraft: replaceLatest,
+      updateText: updateTextLatest,
+      requestComposerFocus: focusLatest,
+    } = draftRestoreDepsRef.current;
     const previousTarget = draftTargetRef.current;
     const targetChanged =
       previousTarget.scopeId !== draftScopeId ||
@@ -1177,7 +1185,7 @@ function ConversationComposerImpl({
         window.clearTimeout(draftPersistTimerRef.current);
         draftPersistTimerRef.current = null;
       }
-      const previousDraft = snapshotDraftOfEditor();
+      const previousDraft = snapshotLatest();
       const shouldTransferDraft =
         previousTarget.scopeId.startsWith(V4_DRAFT_SCOPE_ROOT) &&
         draftScopeId.startsWith(V4_DRAFT_SCOPE_ROOT) &&
@@ -1189,7 +1197,7 @@ function ConversationComposerImpl({
         });
       if (shouldTransferDraft) {
         // 项目解绑只改变草稿的 cwd；输入正文、mention editor state 和组件内附件继续保留。
-        replaceComposerDraft({
+        replaceLatest({
           ...ownerDraftRef.current.draft,
           ...previousDraft,
         });
@@ -1202,14 +1210,6 @@ function ConversationComposerImpl({
       workspaceIdentity,
       scopeId: draftScopeId,
     };
-
-    const {
-      composerDraft: latestComposerDraft,
-      snapshotDraftOfEditor: snapshotLatest,
-      replaceComposerDraft: replaceLatest,
-      updateText: updateTextLatest,
-      requestComposerFocus: focusLatest,
-    } = draftRestoreDepsRef.current;
     const draft = transferredDraft ?? latestComposerDraft;
     const restoreDraftInto = (api: LexicalChatInputHandle) => {
       if (!draft) {

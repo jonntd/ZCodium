@@ -72,6 +72,15 @@ Root 页签内切换工作区不产生任何 host workspace 帧，App 层 key �
 workspace（面板刚打开、Root 未挂载）时回退 App 层 key——此刻 Root 首个页签就是
 bootstrap folder，两者将收敛为同一值。
 
+**tabStore 实例生命周期（2026-11-22 修订）**：Root 带 key 重挂载（session-switch /
+new-session 帧、restore 失败重挂）会**重建 TabStoreProvider → 新 store 实例**。
+`getCurrentWindowTabStore()` 模块镜像随登记即时切换，但已在旧实例上建立
+subscription 的 effect 不会自动重跑——跨实例订阅方（vscode App.tsx 的
+`notifyEditorTabUi` / 会话归属上报）必须把 `getTabStoreEpoch()` 纳入 effect deps
+（配 `subscribeTabStoreEpoch` + `useSyncExternalStore`），实例切换时清理旧订阅并重挂
+当前实例；帧驱动的消费者（index.tsx 的 composer-insert / diagnostics）在事件到来时
+现取实例，无需订阅。
+
 **pill 持久化保真（2026-11-22 修订）**：编辑器 onChange（含 composer-insert 程序化
 插入触发的变化、拖放/菜单插入）进入草稿 store 时必须**同一拍携带 editorStateJson
 快照**（`snapshotDraftOfEditor`），不得只写 `text` 等 350ms 防抖补 JSON。背景：

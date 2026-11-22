@@ -15,13 +15,17 @@
  *    帧经重挂载精确 active）。
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AppErrorBoundary, Root, ZCodeIntlProvider } from "@zcode/ui";
 import type { IPlatformService } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 // 模块级 zustand 单例（Root 内部消费同一实例）：观察 activeTaskId 变化承接 P1-1.5 上报。
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
-import { getCurrentWindowTabStore } from "@/store/TabStoreProvider.js";
+import {
+  getCurrentWindowTabStore,
+  getTabStoreEpoch,
+  subscribeTabStoreEpoch,
+} from "@/store/TabStoreProvider.js";
 import { useWorkspaceHeaderHintStore } from "@/store/workspaceHeaderHintStore.js";
 import { resolveComposerInsertTarget } from "./composer/insertTarget";
 import {
@@ -136,6 +140,11 @@ export function App({
     return { tabs, activeId };
   });
   const [sessionId, setSessionId] = useState<string | null>(initialSessionId);
+  // tabStore 实例版本：Root 带 key 重挂载（session-switch/new-session 帧）会重建
+  // TabStoreProvider → 新 store 实例；下面标题/会话上报两个 effect 在旧实例上的
+  // subscription 随之失效（deps 不含实例身份，不会自动重跑）。把 epoch 纳入 deps，
+  // 实例切换时重订阅当前实例（见 getTabStoreEpoch 注释）。
+  const tabStoreEpoch = useSyncExternalStore(subscribeTabStoreEpoch, getTabStoreEpoch);
   // session-switch / new-session 帧 → 变更 initialTaskId + 递增 key 重挂载 Root
   // （精确 active 指定会话/回草稿态）。Root 内部的正常会话创建/删除不改 key
   // （避免无谓重挂整个工作台）。
@@ -235,6 +244,7 @@ export function App({
     };
     send();
     // 双订阅：会话态（标题/忙态）+ tabStore（可见工作区切换）任一变化都重算。
+    // epoch 变化（Root 重挂载重建 store 实例）→ 本 effect 重跑并重订阅当前实例。
     const unsubscribeSession = store.subscribe(send);
     const tabStore = getCurrentWindowTabStore();
     const unsubscribeTabs = tabStore ? tabStore.subscribe(send) : undefined;
@@ -242,7 +252,7 @@ export function App({
       unsubscribeSession();
       unsubscribeTabs?.();
     };
-  }, [platform, workspacePath]);
+  }, [platform, tabStoreEpoch, workspacePath]);
 
   // composer 聚焦（Claude Code 同款）：webview 激活/窗口重新聚焦（切回对话页签、
   // 点开面板）时把焦点交给输入框，打开即可直接输入。走 store 的 requestComposerFocus
@@ -343,6 +353,8 @@ export function App({
     };
     sync();
     // 双订阅：会话态（activeTaskId）+ tabStore（可见工作区切换）任一变化都重算。
+    // epoch 变化（Root 重挂载重建 store 实例）→ 本 effect 重跑并重订阅当前实例
+    // （last 基线随之重建，重挂载当拍不产生迁移上报）。
     const unsubscribeSession = store.subscribe(sync);
     const tabStore = getCurrentWindowTabStore();
     const unsubscribeTabs = tabStore ? tabStore.subscribe(sync) : undefined;
@@ -350,7 +362,7 @@ export function App({
       unsubscribeSession();
       unsubscribeTabs?.();
     };
-  }, [platform, workspacePath, onActiveSessionChange]);
+  }, [platform, tabStoreEpoch, workspacePath, onActiveSessionChange]);
 
   // 标签顺序 / 锁定态持久化（不持久化会话内容；webview 重建后仍恢复标签骨架）。
   // 草稿标签（未绑定会话且未命名）不写入 localStorage——否则每开一个新标签就存

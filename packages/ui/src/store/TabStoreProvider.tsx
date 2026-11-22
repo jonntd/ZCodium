@@ -27,10 +27,42 @@ const fallbackTabStore = createTabStore(null);
  * 「Provider 是事实源、模块面只读」的口径。
  */
 let currentWindowTabStore: TabStore | null = null;
+let tabStoreEpoch = 0;
+const tabStoreEpochListeners = new Set<() => void>();
 
 /** 当前窗口已挂载的 tab store；Provider 未挂载（React 未挂树）时为 null。 */
 export function getCurrentWindowTabStore(): TabStore | null {
   return currentWindowTabStore;
+}
+
+/**
+ * 当前登记实例版本（Provider 挂载/卸载各递增一次）。
+ *
+ * Root 带 key 重挂载（session-switch / new-session 帧）会重建 TabStoreProvider →
+ * 新 store 实例。模块镜像本身会跟着指向新实例，但已在旧实例上建立 subscription 的
+ * effect（如 vscode App.tsx 的标题/会话上报）不会重跑——deps 不含实例身份。跨实例
+ * 订阅方必须把 epoch 纳入 effect deps（配合 useSyncExternalStore），实例切换时清理
+ * 旧订阅并重挂到当前实例（审查 2026-11-22 发现，spec: composer-insert-delivery
+ * 落点 key 规则）。
+ */
+export function getTabStoreEpoch(): number {
+  return tabStoreEpoch;
+}
+
+/** 订阅实例版本变化（useSyncExternalStore 的 subscribe 入参口径）。 */
+export function subscribeTabStoreEpoch(listener: () => void): () => void {
+  tabStoreEpochListeners.add(listener);
+  return () => {
+    tabStoreEpochListeners.delete(listener);
+  };
+}
+
+/** 登记当前实例并递增版本（同值幂等）；通知跨实例订阅方。 */
+function setWindowTabStore(next: TabStore | null): void {
+  if (currentWindowTabStore === next) return;
+  currentWindowTabStore = next;
+  tabStoreEpoch += 1;
+  for (const notify of tabStoreEpochListeners) notify();
 }
 
 export function TabStoreProvider({ children }: { children: ReactNode }) {
@@ -43,10 +75,11 @@ export function TabStoreProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // 模块级当前窗口实例登记（见 getCurrentWindowTabStore 注释）：挂载即登记，卸载
     // 时只在仍指向本实例的情况下清除（防旧 Provider 迟到的 cleanup 误清新实例）。
+    // 登记经 setWindowTabStore 递增 epoch，跨实例订阅方据此重订阅。
     const store = storeRef.current;
-    currentWindowTabStore = store;
+    setWindowTabStore(store);
     return () => {
-      if (currentWindowTabStore === store) currentWindowTabStore = null;
+      if (currentWindowTabStore === store) setWindowTabStore(null);
     };
   }, []);
 
