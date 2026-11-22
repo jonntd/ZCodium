@@ -255,7 +255,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          # macos-14（M1）标签已被 GitHub 退役：连续两次 release 在该 leg 零步骤即被
+          # cancel（v3.15.7 run 45049971391/45052412508 实测）。macos-15 同为 arm64。
+          - runner: macos-15
             target: mac
             arch: arm64
             glob: "*.dmg"
