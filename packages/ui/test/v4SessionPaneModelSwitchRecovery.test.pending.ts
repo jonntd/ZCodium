@@ -961,9 +961,7 @@ describe("SessionPane draft prewarm admission lifecycle", () => {
       const root = await renderPane({ sessionId: entry === "existing" ? targetSessionId : null });
       try {
         await act(async () => {
-          await captured.composerProps?.onSendText("继续分享上下文", {
-            sharedContextRefs: [{ kind: "shared_context_import", context_id: "shared-1" }],
-          });
+          await captured.composerProps?.onSendText("继续对话");
           await flushMicrotasks();
         });
         const sends = mocks.sendCommand.mock.calls.filter(

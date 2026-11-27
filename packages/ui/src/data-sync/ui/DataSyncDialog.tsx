@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -24,7 +24,6 @@ import {
 } from "@/components/ui/dialog.js";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { logger } from "@/logger.js";
 import { DialogFooterBar } from "@/data-sync/ui/DataSyncDialogFooter.js";
 import {
@@ -41,7 +40,6 @@ import type {
 } from "@/data-sync/contract.js";
 import {
   DATA_SYNC_STOPPED_ERROR,
-  createPluginSyncResultReporter,
 } from "@/data-sync/app/marketplacePluginSync.js";
 import {
   findMissingDataSyncDependencies,
@@ -178,15 +176,6 @@ export function DataSyncDialog(props: DataSyncDialogProps) {
   const [activeTab, setActiveTab] = useState<ActiveTab>(
     props.initialCategory ?? "overview",
   );
-  const platform = useOptionalPlatform();
-  const remoteKind = props.device.remoteKind;
-  const reportPluginSyncResult = useMemo(
-    () =>
-      platform
-        ? createPluginSyncResultReporter(platform, remoteKind)
-        : undefined,
-    [platform, remoteKind],
-  );
   const state = useDataSyncDialog({
     categories: DATA_SYNC_CATEGORIES,
     sourceServerId: props.device.sourceServerId,
@@ -197,7 +186,6 @@ export function DataSyncDialog(props: DataSyncDialogProps) {
     workspaceTabs: props.workspaceTabs,
     workspace: props.workspace,
     onPushFinished: props.onPushFinished,
-    reportPluginSyncResult,
   });
   const providers = useDataSyncProviders({
     sourceServices: props.sourceServices,

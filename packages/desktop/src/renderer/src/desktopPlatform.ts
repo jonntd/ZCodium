@@ -90,7 +90,6 @@ export function createDesktopPlatform(options: {
     registerOAuthState: (payload) => window.zcode.registerOAuthState(payload),
     onOAuthCallback: (callback) => window.zcode.onOAuthCallback(callback),
     onPaymentCallback: (callback) => window.zcode.onPaymentCallback(callback),
-    onShareImport: (callback) => window.zcode.onShareImport?.(callback) ?? (() => {}),
     notifyRendererReady: () => window.zcode.notifyRendererReady(),
     showTaskNotification: (payload) => window.zcode.showTaskNotification(payload),
     syncWindowTabs: (paths) => window.zcode.syncWindowTabs(paths),

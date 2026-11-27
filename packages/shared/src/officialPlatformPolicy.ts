@@ -112,15 +112,6 @@ export function assertOfficialServiceAvailable(key: OfficialServiceKey): void {
   }
 }
 
-/** 对话分享已下线：不提供开关，任何组合都不能恢复。 */
-export function isConversationShareAvailable(): boolean {
-  return false;
-}
-
-export function assertConversationShareRemoved(): void {
-  throw new Error(`对话分享已在 ZCodium 下线。反馈请访问 ${ZCODIUM_ISSUES_URL}`);
-}
-
 export const ZCODIUM_ISSUES_URL = "https://github.com/ZCodium-project/ZCodium/issues";
 
 /** ZCodium 项目站点：审计结论、发布说明与文档入口。 */

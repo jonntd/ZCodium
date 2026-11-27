@@ -26,9 +26,6 @@ import {
   resolveRelayBundleFreshnessNotice,
   type RelayBundleFreshnessNotice,
 } from "./relayBundleFreshness.js";
-import { WebCallbackPage } from "./auth/WebCallbackPage.js";
-import { createWebAuthService } from "./auth/webAuthService.js";
-import { parseOAuthState, resolveSafeAppReturnTo } from "./auth/oauthStateCodec.js";
 import { resolveWebCommunityUrl, resolveWebHelpConfig } from "./communityUrl.js";
 import type {
   IPlatformService,
@@ -76,7 +73,6 @@ async function resolveFeedbackUrl(): Promise<string | undefined> {
 }
 
 const root = createRoot(document.getElementById("root")!);
-const webAuthService = createWebAuthService();
 
 // 初始化 Web 端流式 clientId，确保所有 hook 在首次渲染前就使用稳定 ID
 {
@@ -98,33 +94,6 @@ interface WebBootstrapResult {
   hostBuildCommitId?: string;
 }
 
-function isWebOAuthCallback(params: URLSearchParams): boolean {
-  return (
-    ["/cn/share/callback", "/share/callback"].includes(window.location.pathname) &&
-    params.has("state") &&
-    (params.has("code") || params.has("error"))
-  );
-}
-
-function renderWebAuthCallbackPage(): void {
-  document.title = "ZCodium - Sign In";
-  const callbackState = parseOAuthState(
-    new URLSearchParams(window.location.search).get("state") ?? "",
-  );
-  const safeRetryTarget = resolveSafeAppReturnTo(callbackState?.app_return_to);
-  root.render(
-    <WebCallbackPage
-      authService={webAuthService}
-      onSuccess={({ appReturnTo }) => {
-        window.location.replace(appReturnTo ?? "/");
-      }}
-      onRetry={() => {
-        window.location.replace(safeRetryTarget ?? "/");
-      }}
-    />,
-  );
-}
-
 function createWebPlatform(
   services: Awaited<ReturnType<typeof connectViaWebSocket>>,
 ): IPlatformService {
@@ -136,9 +105,6 @@ function createWebPlatform(
     services.providerSettingsService,
   );
   return {
-    // Web 端遥测桥为空实现：IPlatformService 契约要求，宿主侧不采集（上游 v3.18.2）。
-    reportTelemetryEvent: () => Promise.resolve(),
-    reportArmsCustomEvent: () => Promise.resolve(),
     canSelectFilePath: false,
     // Web 端无法打开系统目录选择框
     openDataRootImport: () => {},
@@ -230,7 +196,6 @@ function createWebPlatform(
     registerOAuthState: (_payload) => {},
     onOAuthCallback: () => () => {},
     onPaymentCallback: () => () => {},
-    onShareImport: () => () => {},
     notifyRendererReady: () => {},
     showTaskNotification: (payload) => {
       if (document.hasFocus()) {
@@ -704,11 +669,6 @@ function reportBundleFreshness(bootstrap: WebBootstrapResult): void {
 
 async function bootstrapWebApp() {
   const params = new URLSearchParams(window.location.search);
-  if (isWebOAuthCallback(params)) {
-    renderWebAuthCallbackPage();
-    return;
-  }
-
   let bootstrap: WebBootstrapResult;
   try {
     bootstrap = await resolveWebBootstrap();

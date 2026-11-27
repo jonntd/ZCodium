@@ -18,7 +18,6 @@ function makeServices(id: string): IServiceAccessor {
     zcodeAgentService: { id, service: "zcode-agent" },
     zcodeTaskService: { id, service: "zcode-task" },
     zcodeSessionService: { id, service: "zcode-session" },
-    conversationShareService: { id, service: "conversation-share" },
     fileWatcherService: { id, service: "fileWatcher" },
     skillsService: { id, service: "skills" },
     skillSyncService: { id, service: "skill-sync" },
@@ -55,7 +54,6 @@ describe("buildRemoteWorkspaceSessionServices", () => {
     expect(merged.zcodeAgentService).toBe(remoteServices.zcodeAgentService);
     expect(merged.zcodeTaskService).toBe(remoteServices.zcodeTaskService);
     expect(merged.zcodeSessionService).toBe(remoteServices.zcodeSessionService);
-    expect(merged.conversationShareService).toBe(remoteServices.conversationShareService);
     expect(merged.fileWatcherService).toBe(remoteServices.fileWatcherService);
     // Provider/Model View 属于目标 Remote Environment；不能随 ...baseServices 回落到本地。
     expect(merged.modelSelectionService).toBe(remoteServices.modelSelectionService);

@@ -53,10 +53,9 @@ export const DEFAULT_EXPOSED_CHANNELS: readonly string[] = [
   "skill-sync",
   "mcp-sync",
   "plugin-sync",
-  // 登录 / 凭据 / 分享 / 订阅 / 反馈（Root UI 装配面）
+  // 登录 / 凭据 / 订阅 / 反馈（Root UI 装配面）
   "oauth",
   "credential",
-  "conversation-share",
   "coding-plan-subscription",
   "feedback",
   "bots",

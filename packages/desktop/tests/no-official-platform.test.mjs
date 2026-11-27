@@ -38,7 +38,6 @@ test("runtime official URL literals are restricted to identity and user-opened l
   const allowed = new Set([
     "packages/shared/src/zcodeEndpoint.ts",
     "packages/ui/src/lib/productDocs.ts",
-    "packages/web/src/share/ConversationShareLandingPage.tsx",
     // 官方插件市场来源：只在 officialServices.marketplace 开关开启（Desktop env 投影或 CLI env）时
     // 才进入默认市场集合，网络出口仍受 assertOfficialPlatformAccessible 与开关裁决。
     "packages/shared/src/plugin-marketplaces.ts",
@@ -47,8 +46,7 @@ test("runtime official URL literals are restricted to identity and user-opened l
     // 官方插件 icon 资源 CDN（与已白名单的 marketplace.json 同根），仅 marketplace 开关开时渲染。
     "packages/ui/src/v4/officeSuggestedPrompts.ts",
     "apps/zcode-cli/packages/adapters/src/plugins/marketplace.ts",
-    // 领取/分享文案里的官方下载链：conversation-share 特性保留（ConversationShareLandingPage
-    // 为同源已白名单项），属用户主动分享的 user-opened 链接。
+    // 领取文案里的官方下载链：属用户主动打开的 user-opened 链接。
     "packages/ui/src/i18n/locales/zh-CN.ts",
     "packages/ui/src/i18n/locales/en-US.ts",
     "packages/ui/src/i18n/locales/ja-JP.ts",
@@ -192,9 +190,6 @@ test("all platform service boundaries guard before touching credentials, state o
       ["restoreCachedSessionState"],
       { status: "signed-out" },
     ],
-    // conversationShareService 的 preflight/publish/importShare 不在此列：fork 的会话分享
-    // 走用户配置的 origin（buildRuntimeZCodeApiUrl），从开源初始提交起就不是官方平台边界，
-    // 不适用“先守卫后副作用”的不变量，强行 eval 只会因缺 this 而抛 TypeError。
     ["packages/services/src/feedback/feedbackHttpClient.ts", ["request"], "reject"],
     // readCodingPlanApiJson（bigmodelCodingPlanSubscriptionProvider）与 teamPlanApiKey 的
     // ensure…WithStatus / copy…Secret 不再列入本“方法体内守卫先于副作用”不变量：去智谱化重构
@@ -239,12 +234,10 @@ test("all platform service boundaries guard before touching credentials, state o
       ts.forEachChild(node, visit);
     }
     visit(ast);
-    // 方法体可能引用模块内私有 helper（如 conversationShareService 的 catch 分支调用
-    // normalizeConversationShareConnectionError 包装守卫抛出的错误）。eval 只替换方法体，
+    // 方法体可能引用模块内私有 helper。eval 只替换方法体，
     // 看不到模块作用域，这里从同一源文件把被引用的模块级声明提取进求值作用域。
     const helperNames = [
       "CONNECTION_UNAVAILABLE_ERRORS",
-      "normalizeConversationShareConnectionError",
       // 上游把「不可渲染的错误信息」收敛进 readCodingPlanApiJson 的 catch 分支后，
       // 方法体引用了这两个模块级 helper；eval 只替换方法体，必须把声明一起注入。
       "readRemoteErrorMessage",
@@ -282,7 +275,6 @@ test("all platform service boundaries guard before touching credentials, state o
         "isOfficialServiceEnabled",
         "isOfficialServiceRemoved",
         "assertOfficialServiceRemoved",
-        "assertConversationShareRemoved",
         "fail",
         `${body}; return boundary;`,
       )(
@@ -295,7 +287,6 @@ test("all platform service boundaries guard before touching credentials, state o
         policy.isOfficialServiceEnabled,
         policy.isOfficialServiceRemoved,
         policy.assertOfficialServiceRemoved,
-        policy.assertConversationShareRemoved,
         () => ({
           ok: false,
         }),

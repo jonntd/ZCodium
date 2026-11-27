@@ -51,13 +51,6 @@ export class VscodePlatformService implements IPlatformService {
   /** 终端/帮助由 IDE 原生提供，隐藏应用内嵌的终端面板、帮助菜单与链路提示。 */
   readonly nativeTerminalHost = true;
 
-  // Webview 端遥测桥为空实现：IPlatformService 契约要求（上游 v3.18.2），IDE 侧不采集。
-  reportTelemetryEvent(): Promise<void> {
-    return Promise.resolve();
-  }
-  reportArmsCustomEvent(): Promise<void> {
-    return Promise.resolve();
-  }
   readonly canOpenLocalFiles = true;
   readonly canSelectFilePath = true;
   readonly isLocalDevelopmentRuntime = false;

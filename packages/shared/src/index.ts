@@ -139,7 +139,7 @@ export {
   USER_INSTRUCTIONS_MAX_BYTES,
   USER_INSTRUCTIONS_TOO_LARGE_ERROR_CODE,
 } from "./userInstructions.js";
-export * from "./rendererActionTrace.js";
+export * from "./request-security-edition/verification-policy.js";
 export * from "./validation.js";
 export * from "./api.js";
 export * from "./zcode-protocol/index.js";
@@ -155,8 +155,6 @@ export * from "./zcode-session-visible-content.js";
 export * from "./official-mcp-auth.js";
 export * from "./official-mcp-tool-error.js";
 export * from "./conversation-message-projection-policy.js";
-export * from "./conversation-share.js";
-export * from "./conversation-share-content.js";
 export * from "./conversation-preview-artifacts.js";
 export * from "./zcode-session-task-status.js";
 export * from "./zcode-session-content-profile.js";
@@ -286,9 +284,6 @@ export type {
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,
-  MicrophoneAccessResetResult,
-  MicrophoneAccessResult,
-  MicrophoneSettingsTarget,
   CaptureBrowserGuestPageClip,
   CaptureBrowserGuestPageRequest,
   CaptureBrowserGuestPageResult,
@@ -466,8 +461,6 @@ export {
   isRequestSecurityFailure,
 } from "./request-security-edition/policy.js";
 export * from "./request-security-edition/verification-policy.js";
-
-export * from "./conversation-share-tool-presentation.js";
 
 // ZCodium 审计版保留的本仓库自有导出 / Fork-only exports retained by the audit build
 export * from "./test-ids.js";

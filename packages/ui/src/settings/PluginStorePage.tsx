@@ -1,5 +1,4 @@
 import type { DraftPluginUiOpenRequest } from "@/plugin-ui/contract.js";
-import { withPluginTelemetry } from "@zcode/services";
 /* eslint-disable max-lines -- 插件商店容器统一编排列表/详情、市场源对话框、卸载确认、试用跳转与技能刷新收尾，集中维护保证交互一致。 */
 import { PluginAddMenu } from "@/conversation-workspace-target/PluginAddMenu.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -174,19 +173,7 @@ export function PluginStorePage({
   const [view, setView] = useState<PluginStoreView>(() =>
     onManageInstalled ? "manage" : "store",
   );
-  const operationService = useMemo(() => {
-    const telemetry = {
-      entry: embedded
-        ? ("side_pane_market" as const)
-        : view === "detail"
-          ? ("store_detail" as const)
-          : ("store_list" as const),
-      client_kind: isWebRemoteControl
-        ? ("mobile" as const)
-        : ("desktop" as const),
-    };
-    return withPluginTelemetry(pluginManagementService, telemetry);
-  }, [pluginManagementService, embedded, isWebRemoteControl, view]);
+  const operationService = pluginManagementService;
 
   const [detailPluginId, setDetailPluginId] = useState<string | null>(null);
   const [segment, setSegment] = useState<PluginStoreSegment>("public");
@@ -239,10 +226,7 @@ export function PluginStorePage({
     ) {
       void updateMarketplace(
         ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
-        withPluginTelemetry(pluginManagementService, {
-          trigger: "automatic",
-          client_kind: isWebRemoteControl ? "mobile" : "desktop",
-        }),
+        pluginManagementService,
       );
     }
   }, [

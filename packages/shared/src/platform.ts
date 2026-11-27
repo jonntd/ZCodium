@@ -41,15 +41,6 @@ import type {
   ExtensionNotificationPayload,
   NotificationsShowResult,
 } from "#src/extension-host/notifications.js";
-import type {
-  ArmsCustomEventPayload,
-  RendererTelemetryEventPayload,
-  TelemetryRendererContext,
-} from "./telemetry.js";
-import type {
-  RendererActionTraceBatchV1,
-  RendererActionTraceConfigV1,
-} from "./rendererActionTrace.js";
 import type { RendererHeapSample } from "./validation.js";
 import type {
   CuaAccessibilitySettingsResult,
@@ -425,26 +416,6 @@ export interface PrintPageToPdfResult {
   /** "print_in_progress" | "print_failed" */
   error?: string;
 }
-
-/**
- * 系统麦克风权限检查结果（docs/chat/composer-voice-input.md「麦克风权限」）。
- * - granted：可以调用 getUserMedia
- * - denied：系统拒绝，需要用户到系统设置开启
- * - unsupported：系统没有权限接口（Linux），由 getUserMedia 的错误决定
- */
-export type MicrophoneAccessResult = "granted" | "denied" | "unsupported";
-
-/**
- * macOS「重新授权」结果（docs/chat/composer-voice-input.md「权限引导浮层」）。
- * - granted：已获得权限
- * - denied：重置后系统弹框中用户仍选择拒绝
- * - restart-required：重置后当前进程仍读到 denied，重启 ZCode 后才会弹框
- * - failed：不能重置（非 macOS、MDM 限制、tccutil 失败），改由系统设置页开启
- */
-export type MicrophoneAccessResetResult = "granted" | "denied" | "restart-required" | "failed";
-
-/** privacy：系统麦克风隐私页；sound：系统声音输入设备页 */
-export type MicrophoneSettingsTarget = "privacy" | "sound";
 
 /** guest 视口内的裁剪区域，全部是 guest CSS px；视口宽高用于换算实际帧的像素比例。 */
 export interface CaptureBrowserGuestPageClip {
@@ -926,17 +897,6 @@ export interface IPlatformService {
   printPageToPdf?(): Promise<PrintPageToPdfResult>;
 
   /**
-   * 麦克风系统权限（仅 Desktop 实现）。macOS 未询问过时弹出系统授权；
-   * openSettings 只打开固定的系统设置地址，返回 false 表示当前系统没有可跳转的页面。
-   */
-  microphone?: {
-    ensureAccess(): Promise<MicrophoneAccessResult>;
-    /** macOS：重置 ZCode 自己的麦克风授权记录并重新请求；其他系统返回 failed */
-    resetAccess(): Promise<MicrophoneAccessResetResult>;
-    openSettings(target: MicrophoneSettingsTarget): Promise<boolean>;
-  };
-
-  /**
    * 在 main 进程截取内置浏览器 guest 当前可见视口为 PNG。renderer 侧 `<webview>.capturePage()`
    * 会让 renderer 原生崩溃（V8 FATAL），与 Agent 截图一样只能由 main 取帧；仅 Desktop 实现。
    */
@@ -1175,9 +1135,6 @@ export interface IPlatformService {
    */
   onPaymentCallback(callback: (url: string) => void): () => void;
 
-  /** 注册 `zcode://share/import?code=...` 导入意图。 */
-  onShareImport?(callback: (payload: { shareCode: string }) => void): () => void;
-
   /** 通知 main process renderer 已就绪，触发缓存的冷启动 deep link 转发 */
   notifyRendererReady(): void;
 
@@ -1205,23 +1162,6 @@ export interface IPlatformService {
   /** 用户点了扩展通知：Main 恢复并聚焦窗口后回调，带要打开的视图。返回 disposer。 */
   onExtensionNotificationClick?(handler: (click: ExtensionNotificationClick) => void): () => void;
 
-  /** 同步当前 UI 上下文，供宿主启动/日活事件使用；Web 可不实现。 */
-  syncTelemetryContext?(context: TelemetryRendererContext): void;
-
-  /** 通过宿主环境统一上报 UI 侧 telemetry 事件 */
-  reportTelemetryEvent(payload: RendererTelemetryEventPayload): Promise<void>;
-
-  /** 通过宿主环境上报 ARMS 自定义事件；Web 端当前为空实现 */
-  reportArmsCustomEvent(payload: ArmsCustomEventPayload): Promise<void>;
-
-  /** 读取 Desktop Renderer 用户操作 Trace 的当前灰度配置；Web/手机不实现。 */
-  getRendererActionTraceConfig?(): Promise<RendererActionTraceConfigV1>;
-  /** 订阅 Main 推送的 Renderer 用户操作 Trace 配置；Web/手机不实现。 */
-  onRendererActionTraceConfigChanged?(
-    callback: (config: RendererActionTraceConfigV1) => void,
-  ): () => void;
-  /** Renderer → Main：发送已结束的 ui_action batch；严格旁路、fire-and-forget。 */
-  reportRendererActionTraceBatch?(batch: RendererActionTraceBatchV1): void;
   reportLocalTtftBatch?(batch: import("./local-ttft/contract.js").LocalTtftBatch): void;
 
   /**

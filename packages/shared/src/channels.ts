@@ -31,18 +31,6 @@ import type {
 import type { AppSettings, Locale } from "./protocol.js";
 import type { StorageCleanRequest, StorageCleanResult, StorageUsageSnapshot } from "./storage.js";
 import type {
-  ArmsCustomEventPayload,
-  ConfigureFinalArmsCustomEventE2ERequest,
-  FinalArmsCustomEventE2EEntry,
-  RendererTelemetryEventPayload,
-  TelemetryRendererContext,
-} from "./telemetry.js";
-import type {
-  RendererActionTraceBatchV1,
-  RendererActionTraceConfigV1,
-} from "./rendererActionTrace.js";
-import type { RendererHeapSample } from "./validation.js";
-import type {
   ExtensionNotificationClick,
   ExtensionNotificationPayload,
   NotificationsShowResult,
@@ -85,9 +73,6 @@ import type {
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,
-  MicrophoneAccessResetResult,
-  MicrophoneAccessResult,
-  MicrophoneSettingsTarget,
   CaptureBrowserGuestPageRequest,
   CaptureBrowserGuestPageResult,
   OpenInEditorOptions,
@@ -152,8 +137,6 @@ export const ServiceChannels = {
   WindowProject: "window-project",
   WindowRemoteProjects: "window-remote-projects",
   WindowProjectChanges: "window-project-changes",
-  /** 会话分享发布、预览与 continuation API 编排 */
-  ConversationShare: "conversation-share",
   /** 文件系统监视服务 */
   FileWatcher: "file-watcher",
   /** OAuth 认证服务 */
@@ -189,8 +172,6 @@ export const ServiceChannels = {
   ClientScenes: "client-scenes",
   CloudContent: "cloud-content",
   MarketingTouch: "marketing-touch",
-  /** 桌面 Host 的语音输入：连接 zcode-server ASR（docs/chat/composer-voice-input.md，仅本机 base 连接） */
-  VoiceInput: "voice-input",
   /** Skills 管理服务 */
   Skills: "skills",
   /** SSH 远程 skills 同步服务 */
@@ -274,12 +255,6 @@ export const PlatformChannels = {
   SaveFile: "zcode:save-file",
   /** Renderer → Main：用 Chromium 打印引擎把当前页面 print 媒体版面导出为 PDF */
   PrintToPdf: "zcode:print-to-pdf",
-  /** Renderer → Main：检查并按需请求系统麦克风权限 */
-  MicrophoneAccess: "zcode:microphone-access",
-  /** Renderer → Main：macOS 重置本 App 的麦克风授权记录并重新请求 */
-  ResetMicrophoneAccess: "zcode:reset-microphone-access",
-  /** Renderer → Main：打开系统麦克风权限 / 声音输入设置页 */
-  OpenMicrophoneSettings: "zcode:open-microphone-settings",
   /** Renderer → Main：在 main 截取内置浏览器 guest 当前视口为 PNG（renderer 侧 capturePage 会崩溃） */
   CaptureBrowserGuestPage: "zcode:capture-browser-guest-page",
   /** Main → Renderer：转发远程连接过程日志 */
@@ -456,8 +431,6 @@ export const PlatformChannels = {
   OAuthCallback: "zcode:oauth-callback",
   /** Main → Renderer：转发支付 deep link URL */
   PaymentCallback: "zcode:payment-callback",
-  /** Main → Renderer：外部分享页请求导入 share code。 */
-  ShareImport: "zcode:share-import",
   /** Renderer → Main：OAuth 回调已处理完成，可继续后置启动流程 */
   OAuthCallbackHandled: "zcode:oauth-callback-handled",
   /** Renderer → Main：renderer 已就绪，可接收缓存的 deep link */
@@ -866,8 +839,6 @@ export const HostResponseTypes = {
   LocalMediaPreviewPathAuthorizeRequest: "local-media-preview-path-authorize-request",
   /** host → main：登记已校验的插件 UI HTML 与 CSP，换取 sandbox 句柄（PluginSandboxRegisterRequestPayload） */
   PluginSandboxRegisterRequest: "plugin-sandbox-register-request",
-  /** host → main：RPC 网络遥测批次（channel.command 成功率/耗时） */
-  NetworkTelemetryBatch: "network-telemetry-batch",
   /** host → main：本地 Provisioning Source 成功持久化。 */
   ProviderProvisioningSourceChanged: "provider-provisioning-source-changed",
   /** host → main：一次 Remote Environment 同步执行完毕。 */
@@ -924,18 +895,6 @@ export interface PlatformChannelMap {
   [PlatformChannels.PrintToPdf]: {
     request: void;
     response: PrintPageToPdfResult;
-  };
-  [PlatformChannels.MicrophoneAccess]: {
-    request: void;
-    response: MicrophoneAccessResult;
-  };
-  [PlatformChannels.ResetMicrophoneAccess]: {
-    request: void;
-    response: MicrophoneAccessResetResult;
-  };
-  [PlatformChannels.OpenMicrophoneSettings]: {
-    request: MicrophoneSettingsTarget;
-    response: boolean;
   };
   [PlatformChannels.CaptureBrowserGuestPage]: {
     request: CaptureBrowserGuestPageRequest;
@@ -1219,10 +1178,6 @@ export interface PlatformChannelMap {
   };
   [PlatformChannels.PaymentCallback]: {
     request: string;
-    response: void;
-  };
-  [PlatformChannels.ShareImport]: {
-    request: { shareCode: string };
     response: void;
   };
   [PlatformChannels.OAuthCallbackHandled]: {

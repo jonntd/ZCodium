@@ -6,12 +6,9 @@ import {
   type DataSyncListResult,
   type PluginDataSyncPayload,
   type PluginOptionSyncValue,
-  type IPlatformService,
-  type RemoteTarget,
   type ZCodePluginsInstallResult,
 } from "@zcode/shared";
 import {
-  withPluginTelemetry,
   type IDataSyncCategoryService,
   type IPluginManagementService,
   type IServiceAccessor,
@@ -35,33 +32,17 @@ import {
  * 方向只取决于调用方把哪一端当 source、哪一端当 target。
  */
 
-/** 一个插件在目标端导入结束后的终态，用于逐插件 sync 埋点。 */
-export interface PluginSyncOutcome {
-  pluginId: string;
-  marketplace: string;
-  result: DataSyncImportResultItem;
-  durationMs: number;
-}
-
-/** 推送中由弹窗注入：某项进入 / 离开可「停止」的阶段（远端 add / install），以及逐插件结果上报。 */
+/** 推送中由弹窗注入：某项进入 / 离开可「停止」的阶段（远端 add / install）。 */
 export interface DataSyncPushControl {
   setStoppable(key: string, stop: (() => void) | null): void;
-  reportPluginSyncResult?(outcome: PluginSyncOutcome): void;
 }
 
 /** 按行停止后该项的错误标记，弹窗显示为「已停止」。 */
 export const DATA_SYNC_STOPPED_ERROR = "stopped";
 
 /**
- * 遥测已按 fork 决策移除（见 packages/ui/specs/telemetry-removal-report.md）；
- * 保留导出与签名，弹窗的逐插件结果接线不变，reporter 退化为直通回调。
+ * 遥测已按 fork 决策移除（见 packages/ui/specs/telemetry-removal-report.md）。
  */
-export function createPluginSyncResultReporter(
-  _platform: Pick<IPlatformService, "reportTelemetryEvent">,
-  _remoteKind: RemoteTarget["kind"] | undefined,
-): (outcome: PluginSyncOutcome) => void {
-  return () => {};
-}
 
 type MarketplaceSourcePayload =
   | { kind: "official" }
@@ -282,10 +263,7 @@ export function createMarketplacePluginDataSyncService(
     },
 
     async importSyncItems({ payload, items }): Promise<DataSyncImportResult> {
-      const management: IPluginManagementService = withPluginTelemetry(
-        services.pluginManagementService,
-        { trigger: "sync", client_kind: "desktop" },
-      );
+      const management: IPluginManagementService = services.pluginManagementService;
       const { homedir } = await services.systemService.info();
       const workspace = { workspacePath: homedir };
       const overview = await management.getPluginsOverview({
@@ -463,7 +441,6 @@ export function createMarketplacePluginDataSyncService(
       const results: DataSyncImportResultItem[] = [];
       // 逐项串行，每项单独成功或失败。
       for (const item of items) {
-        const startedAt = Date.now();
         let result: DataSyncImportResultItem;
         try {
           result = await importItem(item);
@@ -478,15 +455,6 @@ export function createMarketplacePluginDataSyncService(
           };
         }
         results.push(result);
-        const exported = payloadByKey.get(item.key);
-        control?.reportPluginSyncResult?.({
-          pluginId: exported?.pluginId ?? item.key,
-          marketplace:
-            exported?.marketplace ??
-            item.key.slice(item.key.lastIndexOf("@") + 1),
-          result,
-          durationMs: Date.now() - startedAt,
-        });
       }
       return { results };
     },
@@ -541,32 +509,13 @@ export function createPluginCategoryDataSyncService(
       const inlineItems = items.filter((item) => isInlineKey(item.key));
       const marketplaceItems = items.filter((item) => !isInlineKey(item.key));
       if (payload.inline && inlineItems.length > 0) {
-        // inline 插件按批导入，耗时为该批的耗时；整批失败时逐项上报失败后照常抛出。
-        const pluginIdByKey = new Map(
-          payload.inline.items.map((item) => [item.key, item.pluginId]),
-        );
-        const startedAt = Date.now();
-        const report = (result: DataSyncImportResultItem) =>
-          control?.reportPluginSyncResult?.({
-            pluginId: pluginIdByKey.get(result.key) ?? result.key,
-            marketplace: "inline",
-            result,
-            durationMs: Date.now() - startedAt,
-          });
-        let inlineResults: DataSyncImportResultItem[];
-        try {
-          inlineResults = (
-            await inline.importSyncItems({
-              payload: payload.inline,
-              items: inlineItems,
-            })
-          ).results;
-        } catch (error) {
-          for (const item of inlineItems)
-            report({ key: item.key, status: "failed" });
-          throw error;
-        }
-        for (const result of inlineResults) report(result);
+        // inline 插件按批导入，耗时为该批的耗时。
+        const inlineResults = (
+          await inline.importSyncItems({
+            payload: payload.inline,
+            items: inlineItems,
+          })
+        ).results;
         results.push(...inlineResults);
       }
       if (payload.marketplace && marketplaceItems.length > 0) {

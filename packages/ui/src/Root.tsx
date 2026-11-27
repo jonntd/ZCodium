@@ -855,7 +855,6 @@ function RootInner({
     remoteWorkspaceErrorByWorkspaceKey,
     hasCompletedFullTabRestore: hasCompletedFullRestore,
     intl,
-    isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
   });
 
   useEffect(() => {

@@ -1,4 +1,3 @@
-import { withPluginTelemetry } from "@zcode/services";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useServices } from "@/hooks/useServices.js";
 import { useScopedPluginManagementStore } from "@/store/pluginManagementStore.js";
@@ -95,10 +94,7 @@ export function useRecommendedUiPlugins(target: {
     setFailure(undefined);
     try {
       const management = store.getState();
-      const operationService = withPluginTelemetry(service, {
-        entry: "recommended_ui",
-        client_kind: "desktop",
-      });
+      const operationService = service;
       const succeeded = !item.installed
         ? item.restorable
           ? await management.restoreBuiltin(item.id, operationService)

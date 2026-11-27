@@ -57,7 +57,6 @@ test("upstream UI parity never restores the removed purchase WebView or official
   );
   const policy = await readFile(root + "packages/shared/src/officialPlatformPolicy.ts", "utf8");
   assert.match(policy, /export type OfficialServiceKey = "marketplace" \| "clientConfig"/);
-  assert.match(policy, /function isConversationShareAvailable\(\): boolean\s*\{\s*return false/u);
   for (const file of await sources(root + "packages/ui/src")) {
     assert.doesNotMatch(
       await readFile(file, "utf8"),
