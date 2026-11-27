@@ -175,6 +175,17 @@ async function resolveNativeToolsDir(repoRoot: string, target: ServerTarget): Pr
     ],
     repoRoot,
   );
+  if (platform === "win32") {
+    await runCommand(
+      process.execPath,
+      [
+        join(repoRoot, "scripts/build-windows-runtime-host.mjs"),
+        `--arch=${arch}`,
+        `--output-dir=${join(cacheDir, "runtime-host")}`,
+      ],
+      repoRoot,
+    );
+  }
   if (!(await pathExists(cacheDir)))
     throw new Error(`Native search tools preparation produced no directory for ${target}`);
   return cacheDir;
@@ -237,13 +248,9 @@ async function main(): Promise<void> {
     );
   }
 
-  const packageVersion = (
+  const appVersion = (
     JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as { version: string }
   ).version;
-  // 与 stageRemoteAssetsCli 相同：CI 预发布的完整版本通过 ZCODE_APP_VERSION 注入。
-  // 只读 package.json 会让 runtime manifest 的 appVersion 与安装包版本不一致，
-  // 客户端远端版本检查会拒绝这次发布。
-  const appVersion = process.env.ZCODE_APP_VERSION?.trim() || packageVersion;
   const [agentBundlePath, nodeBinaryPath] = await Promise.all([
     ensureAgentBundle(repoRoot, argv.includes("--skip-agent-build")),
     ensureNodeBinary(repoRoot, target),

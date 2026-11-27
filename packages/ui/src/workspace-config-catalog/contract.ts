@@ -5,26 +5,10 @@ export {
   buildRemoteWorkspaceIdentity,
   remoteTargetSchema,
   parseRemoteWorkspaceIdentity,
-  resolveWorkspaceKey,
 } from "@zcode/shared";
 export type { IServiceAccessor } from "@zcode/services";
 export type { VirtualProject, RemoteProjectDirectory };
-export interface WorkflowRunProjectTask {
-  taskId: string;
-  workspacePath: string;
-  workspaceIdentity?: string;
-  projectId: string | null;
-  hostId: string;
-}
-export interface WorkflowRunProjectOrigin {
-  workspacePath: string;
-  workspaceIdentity?: string;
-  sessionId?: string;
-  projectId?: string | null;
-  hostId?: string;
-}
-
-/** 配置目录地址不是 tab/session；连接信息只能复用已有 attachment。 */
+/** 配置目录地址不是 tab/session；连接信息只能复用已存在的 attachment。 */
 export type ConfigWorkspaceTarget = Pick<
   WorkspaceTabState,
   | "workspacePath"

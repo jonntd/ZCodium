@@ -111,11 +111,7 @@ interface McpStoreState {
   addOpenCodeMcpServer: (name: string, config: McpServerConfig, projectPath?: string) => void;
   updateOpenCodeMcpServer: (name: string, config: McpServerConfig, projectPath?: string) => void;
   deleteOpenCodeMcpServer: (name: string, projectPath?: string) => void;
-  /**
-   * 翻转 server 开关。返回值表示开关是否成功落盘：source 为 "mcp" 的 server 无需落盘，
-   * 恒为 true；其余在目录写入失败时为 false（本地展示态已翻转，磁盘以加载为准）。
-   */
-  toggleServer: (id: string, enabled: boolean) => Promise<boolean>;
+  toggleServer: (id: string, enabled: boolean) => Promise<void>;
   updateServerStatus: (
     id: string,
     status: McpServerStatus,
@@ -493,7 +489,6 @@ export const useMcpStore = create<McpStoreState>((set, get) => {
     toggleServer: async (id, enabled) => {
       invalidateStatusListRequests();
       const targetServer = get().servers.find((server) => server.id === id);
-      let persisted = true;
       if (targetServer && targetServer.source !== "mcp") {
         // 开关变化会触发 agent 侧 mcp/list 读取磁盘配置做真实连接。
         // 必须先等 enable 状态落盘，再更新本地列表驱动刷新，否则 agent 会读到旧开关。
@@ -511,10 +506,7 @@ export const useMcpStore = create<McpStoreState>((set, get) => {
             resolveTargetDirectoryService(),
           );
         } catch (error) {
-          // 落盘失败只影响磁盘开关，本地展示态照常翻转（下次加载以磁盘为准）。
-          // 结果经返回值交给调用方提示用户，不能只留 warn 让 UI 假装成功。
           logger.warn("[mcpStore] persist MCP enabled override failed", String(error));
-          persisted = false;
         }
       }
 
@@ -525,7 +517,6 @@ export const useMcpStore = create<McpStoreState>((set, get) => {
           servers: state.servers.map((s) => (s.id === id ? { ...s, enabled } : s)),
         };
       });
-      return persisted;
     },
 
     updateServerStatus: (id, status, error, options) => {

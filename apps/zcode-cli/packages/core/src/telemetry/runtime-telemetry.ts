@@ -218,7 +218,6 @@ const NOOP_CALL: ModelCallSpanWriter = {
   startAttempt: () => NOOP_ATTEMPT,
 };
 
-// 审计版保留核心执行端口的兼容默认值；不采集、不缓存、不发送遥测网络请求。
 const NOOP_AGENT_EXECUTION_TELEMETRY: AgentExecutionTelemetryPort = {
   abandonSession() {},
   captureCausation() {

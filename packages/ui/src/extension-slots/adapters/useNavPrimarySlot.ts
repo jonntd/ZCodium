@@ -24,29 +24,20 @@ import type {
  * 右侧面板只在对话主视图显示，所以先回到对话；这不是新的主视图，条目也没有选中态。
  * 扩展进程已停止时 view 条目点击改为重新加载；surface 条目不经扩展进程，照常打开。
  */
-export function useNavPrimarySlot(
-  props: NavPrimarySlotProps,
-): NavPrimarySlotModel | null {
+export function useNavPrimarySlot(props: NavPrimarySlotProps): NavPrimarySlotModel | null {
   const service = useExtensionsService();
   const { locale } = useZCodeIntl();
-  const { table, snapshot, status } = useExtensionSlotsState(
-    service,
-    (state) => ({
-      table: state.table,
-      snapshot: state.snapshot,
-      status: state.status,
-    }),
-  );
+  const { table, snapshot, status } = useExtensionSlotsState(service, (state) => ({
+    table: state.table,
+    snapshot: state.snapshot,
+    status: state.status,
+  }));
   const openView = useOpenExtensionView();
   const reload = useReloadExtensions();
   const openSurface = useOpenSlotSurface(props);
   const { onShowChat } = props;
   const items = useMemo(
-    () =>
-      sortNavPrimaryItems(
-        selectNavPrimaryItems({ table, snapshot, status }),
-        locale,
-      ),
+    () => sortNavPrimaryItems(selectNavPrimaryItems({ table, snapshot, status }), locale),
     [locale, snapshot, status, table],
   );
   const open = useCallback(
@@ -64,26 +55,16 @@ export function useNavPrimarySlot(
       onShowChat?.();
       if (item.target.kind === "view") {
         if (!openView?.(item.target.id)) {
-          logger.lifecycle.warn(
-            "[extension-slots] nav.primary view unavailable",
-            {
-              itemId: item.itemId,
-              viewId: item.target.id,
-            },
-          );
+          logger.lifecycle.warn("[extension-slots] nav.primary view unavailable", {
+            itemId: item.itemId,
+            viewId: item.target.id,
+          });
         }
         return;
       }
-      openSurface({
-        itemId: item.itemId,
-        pluginId: item.pluginId,
-        surfaceId: item.target.id,
-      });
+      openSurface({ itemId: item.itemId, pluginId: item.pluginId, surfaceId: item.target.id });
     },
     [onShowChat, openSurface, openView, reload],
   );
-  return useMemo(
-    () => (service ? { items, open } : null),
-    [items, open, service],
-  );
+  return useMemo(() => (service ? { items, open } : null), [items, open, service]);
 }

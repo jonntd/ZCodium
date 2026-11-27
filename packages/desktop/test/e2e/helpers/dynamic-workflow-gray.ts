@@ -7,6 +7,7 @@ import {
 import {
   TID_AUTOMATIONS_OPEN,
   TID_CHAT_ATTACHMENT_BUTTON,
+  TID_SETTINGS_BACK_BUTTON,
   TID_SETTINGS_PAGE,
   TID_SETTINGS_SECTION_NAV,
   TID_TASK_SETTINGS_BUTTON,
@@ -20,6 +21,11 @@ import {
 } from "./desktop-app.js";
 import { sel } from "./selectors.js";
 import { getV4SlashOptionIds, hasV4SlashPanel } from "./v4-conversation.js";
+import {
+  getUpstreamRequestToolContract,
+  getUpstreamRequestToolNames,
+  waitForUpstreamRequest,
+} from "./conversation-session-network.js";
 import {
   DYNAMIC_WORKFLOW_CONFIG_MOCK_STATUS_PATH,
   type DynamicWorkflowConfigMockStatus,
@@ -109,7 +115,14 @@ export async function readPlusMenuAddOptionIds(): Promise<string[]> {
 
 /** 从侧栏进入自动化页，并等页面内容容器渲染。 */
 export async function openAutomationsPage(): Promise<void> {
-  await clickTestIdByDom(TID_AUTOMATIONS_OPEN, {
+  // 原因：设置页背后仍挂载侧栏 DOM；直接 DOM click 会命中用户不可见的入口，设置遮罩仍在。
+  // 先从设置返回工作区，再按真实指针路径进入自动化页。
+  const settings = $(sel(TID_SETTINGS_PAGE));
+  if (await settings.isDisplayed()) {
+    await clickTestIdByWebDriver(TID_SETTINGS_BACK_BUTTON);
+    await settings.waitForDisplayed({ reverse: true });
+  }
+  await clickTestIdByWebDriver(TID_AUTOMATIONS_OPEN, {
     timeoutMsg: "侧栏没有出现自动化入口",
   });
   await $(AUTOMATIONS_CONTENT_SELECTOR).waitForDisplayed({
@@ -146,16 +159,16 @@ export async function expectTestIdAbsentThroughout(
   }
 }
 
-/** 打开设置 › 常规（动态工作流模式行所在的分区，launch.md「The user's choice」）。 */
-export async function openGeneralSettings(): Promise<void> {
+/** 打开设置 › Agent 能力 › 行为与工具（动态工作流模式行所在的分区，launch.md「The user's choice」）。 */
+export async function openAgentBehaviorSettings(): Promise<void> {
   await clickTestIdByDom(TID_TASK_SETTINGS_BUTTON, {
     timeout: 15000,
     timeoutMsg: "没有找到设置入口按钮",
   });
   await $(sel(TID_SETTINGS_PAGE)).waitForDisplayed({ timeout: 15000 });
-  await clickTestIdByDom(testId(TID_SETTINGS_SECTION_NAV, "general"), {
+  await clickTestIdByDom(testId(TID_SETTINGS_SECTION_NAV, "agentBehavior"), {
     timeout: 15000,
-    timeoutMsg: "设置页没有出现常规分区入口",
+    timeoutMsg: "设置页没有出现行为与工具分区入口",
   });
 }
 
@@ -181,4 +194,65 @@ export async function selectDynamicWorkflowMode(mode: DynamicWorkflowMode): Prom
 
 export function readDynamicWorkflowModeTriggerText(): Promise<string> {
   return $(sel(TID_SETTINGS_DYNAMIC_WORKFLOW_MODE_TRIGGER)).getText();
+}
+
+// onDemand 工具面观测：DWO（服务端下发 onDemand）与 DWG-24（请求失败按 onDemand 提供）共用，
+// 读的是真实发出的模型请求，见 launch.md「On demand: activation」。
+
+/**
+ * 受灰度门管的十个工具。修复原因：`ListModels` 自 fc7ade7f4e（2026-11-04）起移出灰度门，
+ * 会话控制在场时未激活的会话也会带着它（launch.md「The ten tools」）；仍按它算工作流工具，
+ * 激活前的那一轮会误判失败。
+ */
+export const DYNAMIC_WORKFLOW_TOOL_NAMES = [
+  "CreateWorkflow",
+  "AmendWorkflow",
+  "SaveWorkflow",
+  "ListSavedWorkflows",
+  "EvalWorkflowSnippet",
+  "ListWorkflowRuns",
+  "GetWorkflowRun",
+  "ResumeWorkflowRun",
+  "ResolveWorkflowQuestion",
+  "FillWorkflowHole",
+];
+/** 两个文档点名的子代理工具；描述里那行 CreateWorkflow 随激活回来。 */
+const DELEGATION_TOOL_NAMES = ["Agent", "Task"];
+const CREATE_WORKFLOW_TOKEN = "CreateWorkflow";
+
+/** 最后一条用户消息含 `askMarker` 的第一条主模型请求实际带的工具面。 */
+async function readWorkflowToolSurface(askMarker: string) {
+  const query = { lastUserMessageIncludes: [askMarker] };
+  await waitForUpstreamRequest(query, `${askMarker}: 没有捕获到模型请求`);
+  const names = await getUpstreamRequestToolNames(query);
+  const descriptions = new Map<string, string>();
+  for (const name of DELEGATION_TOOL_NAMES) {
+    const contract = await getUpstreamRequestToolContract(query, name);
+    if (contract) descriptions.set(name, JSON.stringify(contract));
+  }
+  return { names, descriptions };
+}
+
+/** 未激活：请求带着工具面（有 Agent），但没有任何工作流工具，Agent/Task 描述没有 CreateWorkflow 行。 */
+export async function expectDeferredWorkflowToolSurface(askMarker: string): Promise<void> {
+  const { names, descriptions } = await readWorkflowToolSurface(askMarker);
+  expect(names).toContain("Agent");
+  expect(names.filter((name) => DYNAMIC_WORKFLOW_TOOL_NAMES.includes(name))).toEqual([]);
+  for (const [name, description] of descriptions) {
+    expect(`${askMarker}/${name}:${description.includes(CREATE_WORKFLOW_TOKEN)}`).toBe(
+      `${askMarker}/${name}:false`,
+    );
+  }
+}
+
+/** 已激活：十个工作流工具都在，Agent/Task 描述带 CreateWorkflow 行。 */
+export async function expectActivatedWorkflowToolSurface(askMarker: string): Promise<void> {
+  const { names, descriptions } = await readWorkflowToolSurface(askMarker);
+  expect(DYNAMIC_WORKFLOW_TOOL_NAMES.filter((name) => !names.includes(name))).toEqual([]);
+  expect(descriptions.has("Agent")).toBe(true);
+  for (const [name, description] of descriptions) {
+    expect(`${askMarker}/${name}:${description.includes(CREATE_WORKFLOW_TOKEN)}`).toBe(
+      `${askMarker}/${name}:true`,
+    );
+  }
 }

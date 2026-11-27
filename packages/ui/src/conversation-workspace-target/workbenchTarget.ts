@@ -4,10 +4,7 @@ import {
   type PaneLayoutSnapshot,
   type PaneWorkspaceScope,
 } from "@/v4/paneLayoutStore.js";
-import {
-  selectWorkbenchGroupPaneBinding,
-  type WorkbenchGroup,
-} from "@/v4/workbenchGroupStore.js";
+import { selectWorkbenchGroupPaneBinding, type WorkbenchGroup } from "@/v4/workbenchGroupStore.js";
 
 export interface WorkbenchNewTaskTarget {
   workspacePath: string;
@@ -17,9 +14,7 @@ export interface WorkbenchNewTaskTarget {
 function targetFromScope(scope: PaneWorkspaceScope): WorkbenchNewTaskTarget {
   return {
     workspacePath: scope.workspacePath,
-    ...(scope.workspaceIdentity?.trim()
-      ? { workspaceIdentity: scope.workspaceIdentity }
-      : {}),
+    ...(scope.workspaceIdentity?.trim() ? { workspaceIdentity: scope.workspaceIdentity } : {}),
   };
 }
 
@@ -35,10 +30,7 @@ export function resolveWorkbenchNewTaskTarget({
   paneLayout: PaneLayoutSnapshot;
 }): WorkbenchNewTaskTarget | null {
   if (activeGroup) {
-    const binding = selectWorkbenchGroupPaneBinding(
-      activeGroup,
-      activeGroup.focusedPaneId,
-    );
+    const binding = selectWorkbenchGroupPaneBinding(activeGroup, activeGroup.focusedPaneId);
     if (binding) {
       return targetFromScope(binding.workspaceScope);
     }
@@ -55,9 +47,7 @@ export function resolveWorkbenchNewTaskTarget({
   return activeWorkspacePath
     ? {
         workspacePath: activeWorkspacePath,
-        ...(activeWorkspaceIdentity?.trim()
-          ? { workspaceIdentity: activeWorkspaceIdentity }
-          : {}),
+        ...(activeWorkspaceIdentity?.trim() ? { workspaceIdentity: activeWorkspaceIdentity } : {}),
       }
     : null;
 }

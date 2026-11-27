@@ -4,13 +4,13 @@ import { release as readPlatformRelease } from "node:os";
 import { app, BrowserWindow, Menu, MessageChannelMain, nativeImage } from "electron";
 import type { UtilityProcess as ElectronUtilityProcess } from "electron";
 import { HostMessageTypes, InternalChannels, PlatformChannels, type Locale } from "@zcode/shared";
+import { scheduleArmsBrowserPerfLoadNudge } from "./armsBrowserPerfLoadNudge.js";
 import { createBrowserWindow } from "./desktopWindowChrome.js";
 import type { HostInitMessage, WindowBootstrapOptions } from "./desktopHostProcess.js";
 import type { StartupWorkspaceWarmupTarget } from "./startupWorkspace.js";
 import type { RemoteAssetDirs } from "./desktopRuntimeEnv.js";
 import { handleDarwinWindowCloseRequest } from "./desktopDarwinCloseBehavior.js";
 import { supportsNativeWindowsRoundedCorners } from "./desktopWindowChromeState.js";
-import { applyDesktopTrayUnreadBadge } from "./desktopTray.js";
 import {
   createWindowsTaskbarOverlayApplier,
   maxWindowUnreadCounts,
@@ -59,6 +59,8 @@ export function createWindow(options: {
   initialDesktopZoomLevel?: number;
   initialWindowSize?: DesktopWindowSize;
   currentApplicationLocale?: () => Locale;
+  /** Main 持有的 Agent 回复语言（null 为未设置）；spawn 时随 InitLocal 下发。必填：漏接会让冷恢复误发清除公告。 */
+  currentReplyLanguage: () => string | null;
   persistWindowSize?: (state: DesktopWindowSize) => Promise<void>;
   /** Main 模块初始化期已开始的异步环境采集；通常在 renderer dom-ready 前完成。 */
   runtimeProcessEnvPatchPromise?: Promise<Record<string, string>>;
@@ -124,15 +126,13 @@ export function createWindow(options: {
     });
   }
 
-  // #51：上游 v3.16.x 丢失了 browserWindowId 定义，只在 closed 回调里引用这个变量，
-  // 导致每次关闭窗口（含退出）都抛 ReferenceError 并弹出 main process 错误框。
-  // BrowserWindow.id 与 webContents.id 不是同一个值，disposeWindow 需要前者。
-  const browserWindowId = win.id;
   const wcId = win.webContents.id;
-  // 本地资源管理器据此区分主窗口与辅助窗口。
+  const browserWindowId = win.id;
+  // 资源遥测据此把主窗口 renderer 归 renderer_main；辅助窗口与 DevTools 归 chromium_other。
   registerMainApplicationWindow(wcId);
   let domReadyGeneration = 0;
   let cancelRuntimeProcessEnvWait: (() => void) | null = null;
+  scheduleArmsBrowserPerfLoadNudge(win.webContents);
   win.webContents.on("dom-ready", async () => {
     cancelRuntimeProcessEnvWait?.();
     cancelRuntimeProcessEnvWait = null;
@@ -216,6 +216,8 @@ export function createWindow(options: {
         remoteAssets: options.remoteAssets,
         // Host 的 X-Client-Language 以 Main 的实时界面语言为准；与后续变更消息同端口按序到达。
         ...(options.currentApplicationLocale ? { locale: options.currentApplicationLocale() } : {}),
+        // 回复语言同理：InitLocal 先于 Host 创建服务与 spawn CLI，CLI 不会读到"尚未加载"。
+        replyLanguage: options.currentReplyLanguage(),
       });
       options.windowHostProcessMap.set(wcId, child);
       options.onHostProcessReady?.(wcId);
@@ -371,8 +373,6 @@ export function syncApplicationUnreadBadge(windowUnreadCountMap: Map<number, num
     },
     applyOverlay: applyWindowsTaskbarOverlay,
   });
-  // 托盘角标：Windows/Linux 托盘右上角小徽章（macOS 无托盘，由 Dock 角标承担）。
-  applyDesktopTrayUnreadBadge(totalUnreadCount);
 }
 
 export function handleWindowUnreadCountSync(
@@ -431,6 +431,11 @@ export function handleDesktopWindowCloseRequest(options: {
   logger: { info: (...args: unknown[]) => void };
   shouldConfirmQuit?: boolean;
   confirmQuit: () => boolean;
+  /**
+   * 只关窗口（不退出应用）时的确认：该窗口的 Host 有关闭后无法恢复的事项时返回用户的选择，
+   * 没有这类事项时直接返回 true（docs/git/worktree.md §3.9）。缺省视为无需确认。
+   */
+  confirmWindowClose?: () => boolean;
   requestQuit: () => void;
   hideWindow?: () => void;
 }) {
@@ -451,7 +456,13 @@ export function handleDesktopWindowCloseRequest(options: {
     return true;
   }
 
-  if (options.platform === "darwin" || options.forceQuit || !options.isLastWindow) {
+  if (options.forceQuit) return false;
+  if (options.platform === "darwin" || !options.isLastWindow) {
+    // 关闭窗口会结束该窗口的 Host；Host 内正在进行、无法恢复的事项需要用户确认。
+    if (options.confirmWindowClose && !options.confirmWindowClose()) {
+      options.logger.info(`[createWindow] window close canceled by user (${options.label})`);
+      return true;
+    }
     return false;
   }
 

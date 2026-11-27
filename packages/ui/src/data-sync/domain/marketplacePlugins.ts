@@ -39,10 +39,8 @@ export function resolveMarketplaceSourcePlan(
   const refSuffix = ref ? `#${ref}` : "";
   const repo = readTrimmed(source.repo);
   const url = readTrimmed(source.url);
-  if (kind === "github" && repo)
-    return { kind: "network", input: `${repo}${refSuffix}` };
-  if (kind === "git" && url)
-    return { kind: "network", input: `${url}${refSuffix}` };
+  if (kind === "github" && repo) return { kind: "network", input: `${repo}${refSuffix}` };
+  if (kind === "git" && url) return { kind: "network", input: `${url}${refSuffix}` };
   if (kind === "url" && url) return { kind: "network", input: url };
   if (MIRROR_SOURCE_KINDS.has(kind)) return { kind: "mirror", source };
   return { kind: "unsupported" };
@@ -68,21 +66,13 @@ export function selectUserMarketplacePlugins(
   plugins: readonly ZCodePluginInfo[],
 ): UserMarketplacePlugin[] {
   const infoById = new Map(plugins.map((plugin) => [plugin.id, plugin]));
-  const marketplaceById = new Map(
-    overview.marketplaces.map((item) => [item.id, item]),
-  );
+  const marketplaceById = new Map(overview.marketplaces.map((item) => [item.id, item]));
   return overview.installedPlugins.flatMap((installed) => {
     if (installed.scope !== "user") return [];
     const info = infoById.get(installed.id);
     if (info?.source === "official") return [];
     const marketplace = marketplaceById.get(installed.marketplace);
-    return [
-      {
-        installed,
-        ...(info ? { info } : {}),
-        ...(marketplace ? { marketplace } : {}),
-      },
-    ];
+    return [{ installed, ...(info ? { info } : {}), ...(marketplace ? { marketplace } : {}) }];
   });
 }
 
@@ -93,8 +83,7 @@ function resolveExportBlockedReason(
   if (!plugin.marketplace) return "source-removed";
   const plan = resolveMarketplaceSourcePlan(plugin.marketplace);
   if (plan.kind === "unsupported") return "unsupported-source";
-  if (mirrorBlocked.has(plugin.installed.id))
-    return "cross-marketplace-dependency";
+  if (mirrorBlocked.has(plugin.installed.id)) return "cross-marketplace-dependency";
   return undefined;
 }
 
@@ -109,24 +98,15 @@ export function buildMarketplacePluginSyncItems(params: {
   mirrorBlocked: ReadonlySet<string>;
 }): DataSyncListItem[] {
   const catalogVersionById = new Map(
-    params.overview.availablePlugins.map((plugin) => [
-      plugin.id,
-      plugin.version,
-    ]),
+    params.overview.availablePlugins.map((plugin) => [plugin.id, plugin.version]),
   );
   return params.plugins.map((plugin) => {
     const { installed } = plugin;
-    const description = [
-      installed.marketplace,
-      installed.description ?? plugin.info?.description,
-    ]
+    const description = [installed.marketplace, installed.description ?? plugin.info?.description]
       .filter(Boolean)
       .join(" · ");
     const latestVersion = catalogVersionById.get(installed.id);
-    const exportBlockedReason = resolveExportBlockedReason(
-      plugin,
-      params.mirrorBlocked,
-    );
+    const exportBlockedReason = resolveExportBlockedReason(plugin, params.mirrorBlocked);
     return {
       key: marketplacePluginKey(installed.id),
       name: installed.name,
@@ -144,10 +124,7 @@ export function buildMarketplacePluginSyncItems(params: {
 /** 本地目录类来源的插件按 marketplace 分组，供镜像预检与镜像导出使用。 */
 export function groupMirrorMarketplacePlugins(
   plugins: readonly UserMarketplacePlugin[],
-): Map<
-  string,
-  { source: Record<string, unknown>; plugins: UserMarketplacePlugin[] }
-> {
+): Map<string, { source: Record<string, unknown>; plugins: UserMarketplacePlugin[] }> {
   const groups = new Map<
     string,
     { source: Record<string, unknown>; plugins: UserMarketplacePlugin[] }
@@ -156,10 +133,7 @@ export function groupMirrorMarketplacePlugins(
     if (!plugin.marketplace) continue;
     const plan = resolveMarketplaceSourcePlan(plugin.marketplace);
     if (plan.kind !== "mirror") continue;
-    const group = groups.get(plugin.marketplace.id) ?? {
-      source: plan.source,
-      plugins: [],
-    };
+    const group = groups.get(plugin.marketplace.id) ?? { source: plan.source, plugins: [] };
     group.plugins.push(plugin);
     groups.set(plugin.marketplace.id, group);
   }

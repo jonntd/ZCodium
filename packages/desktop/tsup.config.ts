@@ -4,7 +4,6 @@ import { pathToFileURL } from "node:url";
 import { defineConfig } from "tsup";
 import { getBuildMetadata } from "./scripts/build-metadata.mjs";
 import { resolveDesktopProductFlavor } from "./scripts/desktop-product-identity.mjs";
-import { resolveUpdateFeedTarget } from "./scripts/update-feed-target.mjs";
 const { copyGenUiRuntimeAssets } = await import(
   pathToFileURL(resolve(import.meta.dirname, "scripts/gen-ui-runtime-assets.mjs")).href
 );
@@ -12,14 +11,6 @@ const { copyGenUiRuntimeAssets } = await import(
 const { loadBuiltinProviderConfig } = await import(
   pathToFileURL(resolve(import.meta.dirname, "../../scripts/builtin-provider-config.mjs")).href
 );
-// CUA runtime alias 插件同样含 import.meta 消费面（读 runtime 包 exports 表），
-// 与 builtin-provider-config 同理走动态加载（docs/spec/cua-runtime-builtin.md §A）。
-const { createZcodeCuaRuntimeAliasPlugin } = await import(
-  pathToFileURL(resolve(import.meta.dirname, "../../scripts/zcode-cua-runtime-alias.mjs")).href
-);
-const zcodeCuaRuntimeAliasPlugin = createZcodeCuaRuntimeAliasPlugin({
-  runtimeRoot: resolve(import.meta.dirname, "../../runtimes/zcode-cua"),
-});
 const { resolveBuildTimeConfig, createBuildTimeConfigDefines } = await import(
   pathToFileURL(resolve(import.meta.dirname, "../../scripts/build-time-config.mjs")).href
 );
@@ -29,8 +20,10 @@ const buildTimeConfigDefines = createBuildTimeConfigDefines(
 );
 
 const buildMetadata = getBuildMetadata();
-// 更新源仓库坐标与 electron-builder publish 配置同源（update-feed-target.mjs），见 spec github-updates.md。
-const updateFeedTarget = resolveUpdateFeedTarget();
+
+function resolveZCodeEnv(value: string | undefined): "test" | "production" {
+  return value?.trim().toLowerCase() === "production" ? "production" : "test";
+}
 
 // 手动加载 .env 文件，tsup 不像 Vite 会自动读取 .env.*；这些文件只提供链接常量。
 function loadEnvFiles(): Record<string, string> {
@@ -104,6 +97,68 @@ export function resolveBuildRemoteCdnReleaseRoots(runtimeEnv: Record<string, str
   });
 }
 
+export function resolveBuildPackagedAgentTelemetryEnv(
+  runtimeEnv: Record<string, string | undefined>,
+): Record<string, string> {
+  const endpoint = runtimeEnv.ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT?.trim();
+  const headers = runtimeEnv.ZCODE_PACKAGED_AGENT_OTEL_HEADERS?.trim();
+  const serviceName =
+    runtimeEnv.ZCODE_PACKAGED_AGENT_OTEL_SERVICE_NAME?.trim() || "zcode-cli-agent";
+
+  if (!endpoint && !headers) {
+    if (
+      runtimeEnv.CI &&
+      (runtimeEnv.CI_COMMIT_TAG || runtimeEnv.CI_COMMIT_BRANCH === "release/current")
+    ) {
+      throw new Error("Packaged Agent OTLP configuration is required for release builds");
+    }
+    return {};
+  }
+  if (!endpoint || !headers) {
+    throw new Error(
+      "ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT and ZCODE_PACKAGED_AGENT_OTEL_HEADERS must be configured together",
+    );
+  }
+  if (endpoint.length > 2_048) {
+    throw new Error("ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT exceeds 2048 characters");
+  }
+  if (headers.length > 8_192 || /[\r\n]/u.test(headers)) {
+    throw new Error("ZCODE_PACKAGED_AGENT_OTEL_HEADERS is invalid");
+  }
+  if (!/^[A-Za-z0-9._:-]{1,128}$/u.test(serviceName)) {
+    throw new Error("ZCODE_PACKAGED_AGENT_OTEL_SERVICE_NAME is invalid");
+  }
+
+  let parsedEndpoint: URL;
+  try {
+    parsedEndpoint = new URL(endpoint);
+  } catch {
+    throw new Error("ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT must be a valid HTTP(S) URL");
+  }
+  if (
+    !["http:", "https:"].includes(parsedEndpoint.protocol) ||
+    parsedEndpoint.username ||
+    parsedEndpoint.password
+  ) {
+    throw new Error("ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT must be a valid HTTP(S) URL");
+  }
+  if (
+    resolveZCodeEnv(runtimeEnv.ZCODE_ENV) === "production" &&
+    parsedEndpoint.protocol !== "https:"
+  ) {
+    throw new Error("ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT must use HTTPS in production");
+  }
+
+  return {
+    OTEL_EXPORTER_OTLP_ENDPOINT: parsedEndpoint.toString(),
+    OTEL_EXPORTER_OTLP_HEADERS: headers,
+    OTEL_SERVICE_NAME: serviceName,
+    // 只有打进正式 Desktop 安装包的 Agent 才能由构建链可信判定为 packaged；
+    // source/development_bundle 不在运行时猜测，未显式注入时保持 unknown。
+    ZCODE_TELEMETRY_RUNTIME_DISTRIBUTION: "packaged",
+  };
+}
+
 export function resolveDesktopTsupBundleSecurityOptions(
   runtimeEnv: Record<string, string | undefined> = process.env,
 ) {
@@ -134,42 +189,21 @@ export function applyDesktopTsupEsbuildSecurityOptions(options: DesktopTsupEsbui
 
 const desktopTsupBundleSecurityOptions = resolveDesktopTsupBundleSecurityOptions();
 
-export function resolveBuildRemoteRuntimeReleaseBase(
-  runtimeEnv: Record<string, string | undefined>,
-) {
-  return (
-    runtimeEnv.ZCODIUM_REMOTE_ASSET_CDN_BASE_URL?.trim() ||
-    runtimeEnv.ZCODE_REMOTE_ASSET_CDN_BASE_URL?.trim() ||
-    ""
-  );
+export function resolvePreinstalledToolsTestBuild(
+  env: Record<string, string | undefined>,
+): boolean {
+  return env.VITE_ZCODE_E2E_STORE_BRIDGE === "1";
 }
 
 function createSharedDefines() {
   return {
+    __ZCODE_PREINSTALL_TEST_BUILD__: JSON.stringify(resolvePreinstalledToolsTestBuild(process.env)),
     __ZCODE_VERSION__: JSON.stringify(buildMetadata.appVersion),
     __ZCODE_MIN_COMPATIBLE_VERSION__: JSON.stringify(buildMetadata.minCompatibleVersion),
     __ZCODE_COMMIT__: JSON.stringify(buildMetadata.buildCommitId),
     __ZCODE_BUILD_TIME__: JSON.stringify(buildMetadata.buildTime),
     __ZCODE_ENV__: JSON.stringify(zcodeEnv),
     __ZCODE_PRODUCT_FLAVOR__: JSON.stringify(zcodeProductFlavor),
-    // CUA 本地开发运行时开关：vendor runtime 的信任门（unsigned Helper 逃生口）只在
-    // true + ZCODE_RUNTIME_ENV!=production 时放开。必须构建期折叠——
-    // vendor 兜底读运行时 process.env.NODE_ENV，而桌面 host 的 NODE_ENV 被有意清空，
-    // 不定义的话 dev:desktop 会被误判成生产运行时、helper 装不上。
-    __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__: JSON.stringify(process.env.NODE_ENV !== "production"),
-    // Helper buildId 不在此折叠（2026-09-30 退役，docs/spec/cua-runtime-builtin.md §C）：
-    // vendor 产物在自身构建期已把 buildId 折叠成上游字面量，这里 define 无处替换；
-    // 配对由 desktopRuntimeEnv 主进程运行时实测 Info.plist 后经 env 注入。
-    // 客户端只有一个 CDN 配置，与发布端 OSS 目标列表分离。
-    __ZCODE_CDN_BASE_URL__: JSON.stringify(env.ZCODE_CDN_BASE_URL?.trim() || ""),
-    // 桌面更新源仓库坐标（GitHub provider），与 electron-builder publish 配置同源注入。
-    __ZCODE_UPDATE_GITHUB_OWNER__: JSON.stringify(updateFeedTarget.owner),
-    __ZCODE_UPDATE_GITHUB_REPO__: JSON.stringify(updateFeedTarget.repo),
-    // 发布构建内置的自有 remote 资源源（本仓库该 tag 的 GitHub Release 资产）。
-    // 注入后安装版开箱即可连接 WSL/SSH；dev/本地构建为空，仍走 mock-cdn / 显式配置。
-    __ZCODIUM_REMOTE_ASSET_CDN_BASE_URL__: JSON.stringify(
-      process.env.ZCODIUM_REMOTE_ASSET_CDN_BASE_URL?.trim() || "",
-    ),
     ...buildTimeConfigDefines,
     // Computer Use Helper build identity — helperInstaller 读它决定下载哪个 Helper bundle。
     // 缺失时 installer 抛 "Packaged ZCode is missing its embedded Computer Use Helper build identity"。
@@ -180,21 +214,24 @@ function createSharedDefines() {
     // Bugfix: remote runtime CDN 根之前硬编码在 main bundle 里，OSS/CDN 切换必须改代码。
     // 这里改成构建期从 CI 的 CDN_DOMAIN/OSS_PATH_PREFIX 注入；没有配置时保留旧默认。
     __ZCODE_REMOTE_CDN_RELEASE_ROOTS__: JSON.stringify(resolveBuildRemoteCdnReleaseRoots(env)),
-    __ZCODIUM_REMOTE_ASSET_RELEASE_BASE__: JSON.stringify(
-      resolveBuildRemoteRuntimeReleaseBase({ ...env, ...process.env }),
-    ),
   };
 }
 
 function createMainDefines() {
   return {
     ...createSharedDefines(),
+    // 正式安装包无法继承 GitLab Runner 或开发终端环境。这里只把 CI 提供的低权限写入配置
+    // 编译进 Desktop Main，再由既有 Main -> Host -> Agent 安全边界定向传递。
+    __ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__: JSON.stringify(
+      resolveBuildPackagedAgentTelemetryEnv(process.env),
+    ),
   };
 }
 
 const desktopNodeRuntimeExternals = [
   "electron",
   "node-pty",
+  "@napi-rs/keyring",
   "ssh2",
   "undici",
   "@larksuiteoapi/node-sdk",
@@ -206,7 +243,9 @@ const desktopNodeRuntimeExternals = [
   "yauzl",
 ];
 
-function createDevReadyMarkerHook(target: "main" | "host" | "preload"): string {
+function createDevReadyMarkerHook(
+  target: "main" | "host" | "preload" | "scheduler" | "extension-host",
+): string {
   // CLI 级 --onSuccess 在多 config watch 模式下会被每个子构建分别触发。
   // 之前 preload 先成功时就提前写入 ready 标记，Electron 仍会在 main/host 未完成时启动。
   // 这里改成每个 config 自己在成功后写独立 marker，让 dev 启动脚本能精确等待全部构建完成。
@@ -218,6 +257,7 @@ export default defineConfig([
     name: "main",
     entry: {
       "main/index": "src/main/index.ts",
+      "preinstalled-tools/process": "src/preinstalled-tools/process.ts",
       "main/browserWebmRecorder": "src/main/browserView/electronBrowserWebmRecorder.ts",
       "main/zcodeDataSizeWorker": "src/main/zcodeDataSizeWorker.ts",
       // 资源管理器「存储」tab 的扫描 Worker：main 持有 StorageService，遍历放独立线程，供 new Worker(new URL()) 解析。
@@ -248,10 +288,8 @@ export default defineConfig([
       // producer 的 JS broker 必须跟随 services 一起内联，原生 addon 仍只存在于独立 Helper。
       "@zcode/zcode-cua",
     ],
-    esbuildPlugins: [zcodeCuaRuntimeAliasPlugin],
-    // OTLP 端点与鉴权只在运行时读取；构建环境中的凭据不能写进公开安装包。
     define: createMainDefines(),
-    // main/host 同时 watch 且共享 out 根目录时，默认 chunk 命名会互相覆盖，
+    // 修复原因：main/host 同时 watch 且共享 out 根目录时，默认 chunk 命名会互相覆盖，
     // 可能让 main 的 import 指向被 host 刚重写的 chunk，触发“缺少命名导出”的偶发启动报错。
     // 这里按目标分目录输出 chunk，确保并发构建下产物隔离。
     esbuildOptions(options) {
@@ -271,7 +309,6 @@ export default defineConfig([
       "preload/index": "src/preload/index.ts",
       "preload/resourceManager": "src/preload/resourceManager.ts",
       "preload/cuaPermissionPanel": "src/preload/cuaPermissionPanel.ts",
-      "preload/dataRootDecision": "src/preload/dataRootDecision.ts",
       "preload/pluginSandbox": "src/preload/pluginSandbox/index.ts",
     },
     outDir: "out",
@@ -339,7 +376,6 @@ export default defineConfig([
       "@zcode/provider-node",
       "@zcode/zcode-cua",
     ],
-    esbuildPlugins: [zcodeCuaRuntimeAliasPlugin],
     define: createSharedDefines(),
     // 与 main 保持一致的 chunk 隔离策略，避免 host/main 产物相互覆盖。
     esbuildOptions(options) {
@@ -371,13 +407,33 @@ export default defineConfig([
       "@zcode/provider-node",
       "@zcode/zcode-cua",
     ],
-    esbuildPlugins: [zcodeCuaRuntimeAliasPlugin],
     define: createSharedDefines(),
     esbuildOptions(options) {
       applyDesktopTsupEsbuildSecurityOptions(options);
       options.chunkNames = "scheduler/chunk-[hash]";
     },
     onSuccess: createDevReadyMarkerHook("scheduler"),
+    ...desktopTsupBundleSecurityOptions,
+  },
+  {
+    // 全 App 唯一的扩展进程（docs/plugins/extension-host.md §12.1）。扩展代码在运行时按插件路径
+    // 动态 import，不进入本 bundle；这里只打包宿主本身（rpc、shared）与扩展视图用的 MCP SDK
+    // （§8：进程内 MCP Client 与写法一的低层 Server）。SDK 内联进产物，安装包不依赖 node_modules 布局。
+    name: "extension-host",
+    entry: { "extension-host/index": "src/extension-host/index.ts" },
+    outDir: "out",
+    format: "esm",
+    platform: "node",
+    removeNodeProtocol: false,
+    target: "node22",
+    external: desktopNodeRuntimeExternals,
+    noExternal: ["@zcode/shared", "@zcode/rpc", /^@modelcontextprotocol\//],
+    define: createSharedDefines(),
+    esbuildOptions(options) {
+      applyDesktopTsupEsbuildSecurityOptions(options);
+      options.chunkNames = "extension-host/chunk-[hash]";
+    },
+    onSuccess: createDevReadyMarkerHook("extension-host"),
     ...desktopTsupBundleSecurityOptions,
   },
 ]);

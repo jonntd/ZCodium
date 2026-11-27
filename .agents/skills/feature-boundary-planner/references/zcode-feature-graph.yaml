@@ -165,6 +165,20 @@ nodes:
         symbol: "V4InteractionDialogs"
       - file: "packages/ui/src/PermissionDialog.tsx"
         symbol: "PermissionDialog"
+  - id: "capability.agent-plugin-discovery"
+    kind: "capability"
+    label: "Agent discovers official plugins and requests explicit installation"
+    aliases: ["Agent 插件推荐", "SearchPlugins", "SuggestPluginInstall"]
+    docs: ["docs/plugins/agent-plugin-discovery.md"]
+    codeSeeds:
+      - file: "apps/zcode-cli/packages/bootstrap/src/zcode-protocol/plugin-discovery-port.ts"
+        symbol: "createProtocolPluginDiscoveryPort"
+      - file: "packages/ui/src/v4/PluginInstallCard.tsx"
+        symbol: "PluginInstallCard"
+    invariants:
+      - "Only visible zcode-plugins-official entries are discoverable; model input never supplies download locations."
+      - "CLI owns confirmation and installation; no automatic approval, even in yolo mode."
+      - "Installation does not refresh session capabilities; the activation port is a separate boundary."
   - id: "capability.plugin-market-ui"
     kind: "capability"
     label: "Plugin market publisher classification and UI entry points"
@@ -480,8 +494,8 @@ nodes:
       - "弹窗标签恢复"
     docs:
       - "docs/browser-use/2026-07-31-browser-generic-target-popup-recovery-guidance-spec.md"
-      - "docs/browser-use/2026-07-10-browser-use-codex-parity-spec.md"
-      - "docs/testing/browser-use-codex-parity-coverage-matrix.md"
+      - "docs/browser-use/2026-07-10-browser-use-spec.md"
+      - "docs/testing/browser-use-coverage-matrix.md"
     codeSeeds:
       - symbol: "loadBrowserDocumentation"
         file: "apps/zcode-cli/packages/core/src/browser-client/documentation.ts"
@@ -618,6 +632,8 @@ nodes:
       - "docs/working-memory/provider-refactor/steps/todo-97-subagent-markdown-in-place-migration-and-legacy-read-audit.md"
       - "docs/working-memory/provider-refactor/steps/todo-99-worker-account-selection-repair.md"
     codeSeeds:
+      - symbol: "startManualCompact"
+        file: "apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/commands/handlers/goal-compact.ts"
       - symbol: "ModelSelectionFacade"
         file: "packages/provider/src/facades.ts"
       - symbol: "ApiProviderModelRuntime"
@@ -1179,6 +1195,11 @@ nodes:
       - "message image thumbnails"
       - "消息图片缩略图"
       - "共享图片预览"
+      - "图片标注编辑"
+      - "图片编辑保存到对话"
+    invariants:
+      - "Preview annotations are local drafts; saving appends a new PNG through focused Composer attachment admission without sending or replacing the original."
+      - "Capture the Composer receiver before export and reject late results after preview or Composer scope changes."
     docs:
       - "docs/ui/shared-image-preview-dialog.md"
     codeSeeds:
@@ -1244,7 +1265,7 @@ nodes:
       - "内置浏览器代理"
     docs:
       - "apps/zcode-cli/docs/design/v2/model/http-proxy.md"
-      - "docs/testing/browser-use-codex-parity-coverage-matrix.md"
+      - "docs/testing/browser-use-coverage-matrix.md"
     codeSeeds:
       - symbol: "applyDesktopChromiumNetworkPolicies"
         file: "packages/desktop/src/main/desktopNetworkPolicy.ts"
@@ -1291,7 +1312,7 @@ nodes:
       - "恢复上次浏览器尺寸"
     docs:
       - "docs/browser-use/2026-07-15-responsive-browser-viewport-spec.md"
-      - "docs/testing/browser-use-codex-parity-coverage-matrix.md"
+      - "docs/testing/browser-use-coverage-matrix.md"
     codeSeeds:
       - symbol: "ResponsiveBrowserViewport"
         file: "packages/ui/src/browser-use/ResponsiveBrowserViewport.tsx"
@@ -1506,6 +1527,31 @@ nodes:
         file: "packages/services/src/usage-stats/providers/zcodeMcpQuotaProvider.ts"
       - symbol: "useV4SessionQuotaBanner"
         file: "packages/ui/src/v4/useV4SessionQuotaBanner.ts"
+
+  - id: "capability.session-owned-shutdown"
+    kind: "capability"
+    label: "Session-owned work shutdown"
+    aliases: ["重启任务", "关闭所属子代理", "workflow cleanup", "session restart"]
+    docs:
+      - "docs/session-task-restart.md"
+      - "apps/zcode-cli/docs/design/v2/session-runtime-lifecycle.md"
+    codeSeeds:
+      - symbol: "createSessionFacade"
+        file: "apps/zcode-cli/packages/bootstrap/src/app/session-facade.ts"
+      - symbol: "AgentRuntime"
+        file: "apps/zcode-cli/packages/core/src/runtime/agent-runtime.ts"
+      - symbol: "createExploreSubagentPort"
+        file: "apps/zcode-cli/packages/core/src/subagent/runner.ts"
+      - symbol: "ScriptWorkflowRuntime"
+        file: "apps/zcode-cli/packages/bootstrap/src/app/script-workflow-runtime.ts"
+      - symbol: "createRunServiceLifecycle"
+        file: "apps/zcode-cli/packages/bootstrap/src/app/dynamic-workflow-run-lifecycle.ts"
+      - symbol: "releaseActorSessions"
+        file: "apps/zcode-cli/packages/bootstrap/src/app/workflow-driver-quiescence.ts"
+    invariants:
+      - "Background work detaches from a turn, not its session owner. Shutdown closes admission, cancels owned work and drains actual execution and cleanup before releasing shared resources."
+      - "Task terminal status and workflow settlement do not prove cleanup completion. Failed cleanup keeps the existing lifecycle faulted; restart must not create a second instance."
+      - "Ownership comes from runtime handles, not historical parentSessionId traversal. Independent tasks and forks remain isolated, including sessions sharing a CLI process."
 
   - id: "capability.subagents"
     kind: "capability"
@@ -1805,10 +1851,6 @@ nodes:
     kind: "ui-surface"
     label: "Workspace file tree panel"
     codeSeeds:
-      - symbol: "WorkspaceSidebar"
-        file: "packages/ui/src/WorkspaceSidebar.tsx"
-      - symbol: "DesktopTopOverlay"
-        file: "packages/ui/src/DesktopTopOverlay.tsx"
       - symbol: "WorkspaceFileTree"
         file: "packages/ui/src/workspace-file-tree/WorkspaceFileTree.tsx"
       - symbol: "WorkspaceFileTreeRowView"
@@ -1975,11 +2017,7 @@ nodes:
   - id: "evidence.desktop-startup-critical-path-tests"
     kind: "evidence"
     label: "Desktop runtime env, Host deadline, and tab restore tests"
-    codeSeeds:
-      - file: "packages/services/test/runtimeCommandEnv.test.ts"
-      - file: "packages/desktop/test/desktopWindowLifecycle.test.ts"
-      - file: "packages/ui/test/useTabPersistence.test.ts"
-      - file: "packages/ui/test/remoteWorkspaceSessionPersistence.test.ts"
+    codeSeeds: [] # App 单测已退役，当前没有该层自动化证据。
 
   - id: "surface.app-usage-dashboard"
     kind: "ui-surface"
@@ -2082,10 +2120,8 @@ nodes:
       - "docs/testing/marketing-touch-e2e-audit.md"
       - "docs/testing/marketing-touch-e2e-implementation.md"
     codeSeeds:
-      - file: "packages/ui/test/marketingTouchProvider.test.ts"
       - file: "packages/desktop/test/e2e/ui-shell/manual-review/pending/marketing-touch-delivery.test.ts"
       - file: "packages/desktop/test/e2e/ui-shell/manual-review/pending/marketing-touch-entitlement.test.ts"
-      - file: "packages/ui/test/aliyunCaptchaRuntime.test.ts"
 
   - id: "surface.office-document-workbench"
     kind: "ui-surface"
@@ -2517,8 +2553,8 @@ nodes:
         file: "packages/ui/src/v4/toolCallRowAdapter.ts"
       - symbol: "ProductProjection"
         file: "apps/zcode-cli/packages/bootstrap/src/zcode-protocol-v4/product-projection.ts"
-      - symbol: "prepareCuaGroupFlowItems"
-        file: "packages/ui/src/v4/conversationCuaGroups.ts"
+      - symbol: "groupConsecutiveAssistantSummaries"
+        file: "packages/ui/src/v4/conversationAssistantWorkItems.ts"
 
   - id: "surface.ask-user-question-auto-resolution-setting"
     kind: "ui-surface"
@@ -2759,9 +2795,7 @@ nodes:
     label: "Plugin scope projection and search tests"
     docs:
       - "docs/plugin-capabilities-settings.md"
-    codeSeeds:
-      - file: "packages/ui/test/pluginSettingsSection.test.ts"
-      - file: "packages/ui/test/pluginCapabilityProjection.test.ts"
+    codeSeeds: [] # App 单测已退役，当前没有该层自动化证据。
 
   - id: "capability.skill-catalog-discovery"
     kind: "capability"
@@ -2822,8 +2856,6 @@ nodes:
       - "docs/external-agent-skills-import.md"
     codeSeeds:
       - file: "apps/zcode-cli/packages/adapters/tests/skills.test.ts"
-      - file: "packages/services/test/skillsService.test.ts"
-      - file: "packages/ui/test/skillSourceFilter.test.ts"
 
   - id: "capability.command-workspace-scope"
     kind: "capability"
@@ -2886,8 +2918,7 @@ nodes:
     label: "Command Workspace scope selection tests"
     docs:
       - "docs/settings-command-list.md"
-    codeSeeds:
-      - file: "packages/ui/test/settingsCommandWorkspaceScope.test.ts"
+    codeSeeds: [] # App 单测已退役，当前没有该层自动化证据。
 
   - id: "surface.project-memory-settings"
     kind: "ui-surface"
@@ -3956,7 +3987,7 @@ nodes:
 
   - id: "capability.workspace-project-plugin-scope"
     kind: "capability"
-    label: "Claude-shaped User and Workspace Plugin scope with open ZCode config"
+    label: "User and Workspace Plugin scope with open ZCode config"
     aliases:
       - "Workspace-level Plugin"
       - "project Plugin scope"
@@ -4133,7 +4164,6 @@ nodes:
     codeSeeds:
       - file: "apps/zcode-cli/packages/bootstrap/tests/plugins.test.ts"
       - file: "apps/zcode-cli/packages/adapters/tests/plugins.test.ts"
-      - file: "packages/ui/test/pluginStoreListing.test.ts"
 
   - id: "capability.plugin-reference"
     kind: "capability"
@@ -4358,10 +4388,6 @@ nodes:
     kind: "evidence"
     label: "ModelIO full retention schema, UI, protocol, and writer tests"
     codeSeeds:
-      - file: "packages/shared/test/appSettings.test.ts"
-      - file: "packages/ui/test/settingsDataBaseDirControl.test.ts"
-      - file: "packages/ui/test/useSettingServiceAutoResolution.test.ts"
-      - file: "packages/services/test/zcodeAgentService.test.ts"
       - file: "apps/zcode-cli/packages/bootstrap/tests/zcode-protocol.test.ts"
       - file: "apps/zcode-cli/packages/adapters/tests/runner.test.ts"
 
@@ -4383,7 +4409,7 @@ nodes:
       - file: "apps/zcode-cli/packages/adapters/tests/mcp-process-lifecycle.test.ts"
       - file: "apps/zcode-cli/packages/adapters/tests/mcp-version-negotiation.test.ts"
       - file: "packages/desktop/test/upstreamReplayServer.test.ts"
-      - file: "packages/desktop/test/e2e/settings/mcp-dual-era-version-negotiation.test.ts"
+      - file: "packages/desktop/test/e2e/settings/mcp/mcp-dual-era-version-negotiation.test.ts"
       - file: "packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-browser-use-iab-multisession.test.ts"
 
   - id: "capability.window-single-host-controller-r1"
@@ -4455,8 +4481,8 @@ nodes:
       - "docs/conversation-session-case-catalog.md"
       - "docs/testing/conversation-session-e2e-coverage-matrix.md"
     codeSeeds:
-      - file: "packages/desktop/test/e2e/conversation-session/conversation-session-ssh-remote-p0.test.ts"
-      - file: "packages/desktop/test/e2e/conversation-session/manual-review/pending/conversation-session-ssh-remote-cancel-retry.test.ts"
+      - file: "packages/desktop/test/e2e/conversation-session/remote/connection/conversation-session-ssh-remote-p0.test.ts"
+      - file: "packages/desktop/test/e2e/conversation-session/remote/connection/manual-review/pending/conversation-session-ssh-remote-cancel-retry.test.ts"
 
   - id: "capability.unified-zcode-lite-server"
     kind: "capability"
@@ -4742,30 +4768,20 @@ nodes:
     kind: "evidence"
     label: "Browser screenshot surface and bounded activity coverage"
     codeSeeds:
-      - file: "packages/desktop/test/browserScreenshotSurfaceCoordinator.test.ts"
-      - file: "packages/desktop/test/browserScreenshotSurfaceCoordinatorWiring.test.ts"
-      - file: "packages/desktop/test/browserScreenshotActivityController.test.ts"
-      - file: "packages/desktop/test/browserGuestManager.test.ts"
       - file: "packages/desktop/scripts/browser-background-activity-smoke.mjs"
 
   - id: "evidence.browser-webview-video-recording-tests"
     kind: "evidence"
     label: "Browser WebView recording schema, SDK, main, artifact and runtime coverage"
     codeSeeds:
-      - file: "packages/shared/test/browserControlProtocol.test.ts"
       - file: "apps/zcode-cli/packages/core/tests/browser-client.test.ts"
-      - file: "packages/desktop/test/browserGuestManager.test.ts"
-      - file: "packages/desktop/test/browserControlMainBridge.test.ts"
-      - file: "packages/desktop/test/browserRecordingArtifactMaterializer.test.ts"
-      - file: "packages/desktop/test/browserVideoRecorder.test.ts"
 
   - id: "evidence.embedded-browser-network-policy-tests"
     kind: "evidence"
     label: "Desktop Chromium Session network policy target and certificate tests"
     docs:
-      - "docs/testing/browser-use-codex-parity-coverage-matrix.md"
-    codeSeeds:
-      - file: "packages/desktop/test/desktopNetworkPolicy.test.ts"
+      - "docs/testing/browser-use-coverage-matrix.md"
+    codeSeeds: [] # App 单测已退役，当前没有该层自动化证据。
 
   - id: "evidence.host-api-network-policy-tests"
     kind: "evidence"
@@ -4773,17 +4789,13 @@ nodes:
     docs:
       - "docs/superpowers/specs/2026-08-25-host-api-proxy-design.md"
     codeSeeds:
-      - file: "packages/services/test/nodeApiClient.test.ts"
-      - file: "packages/services/test/nodeApiClientEndpoint.test.ts"
       - file: "packages/desktop/src/host/remoteWorkspaceServiceCollection.ts"
 
   - id: "evidence.embedded-browser-responsive-viewport-tests"
     kind: "evidence"
     label: "Responsive browser viewport interaction coverage"
     codeSeeds:
-      - file: "packages/ui/test/UnifiedBrowserView.test.ts"
-      - file: "packages/shared/test/appSettings.test.ts"
-      - file: "packages/desktop/test/e2e/browser-human-viewport-preference.test.ts"
+      - file: "packages/desktop/test/e2e/browser/design/browser-human-viewport-preference.test.ts"
 
   - id: "evidence.browser-use-agent-guidance-tests"
     kind: "evidence"
@@ -4800,7 +4812,6 @@ nodes:
       - file: "apps/zcode-cli/packages/cli/tests/build-sea.test.mjs"
       - file: "apps/zcode-cli/packages/adapters/tests/plugins.test.ts"
       - file: "apps/zcode-cli/packages/node-repl-host/test/mcp-server.test.ts"
-      - file: "packages/server/test/remoteDeploy.test.ts"
       - file: "packages/desktop/test/runtime-asset-scripts.test.ts"
   - id: "capability.side-pane-tab-strip"
     kind: "capability"
@@ -4863,10 +4874,8 @@ nodes:
     docs:
       - "docs/conversation-session-case-catalog.md"
       - "docs/testing/conversation-session-e2e-coverage-matrix.md"
-      - "docs/testing/browser-use-codex-parity-coverage-matrix.md"
-    codeSeeds:
-      - file: "packages/desktop/test/browserGuestManager.test.ts"
-      - file: "packages/ui/test/UnifiedBrowserView.test.ts"
+      - "docs/testing/browser-use-coverage-matrix.md"
+    codeSeeds: [] # App 单测已退役，当前没有该层自动化证据。
 
   - id: "capability.project-creation-folder-confirmation"
     kind: "capability"
@@ -5032,9 +5041,6 @@ nodes:
     kind: "evidence"
     label: "Workspace Hook Settings, controller, identity, and Trust store coverage"
     codeSeeds:
-      - file: "packages/ui/test/hooksSection.test.ts"
-      - file: "packages/ui/test/workspaceHookInlineTrust.test.ts"
-      - file: "packages/ui/test/workspaceHookReviewStore.test.ts"
       - file: "apps/zcode-cli/packages/bootstrap/tests/workspace-hook-review-controller.test.ts"
       - file: "apps/zcode-cli/packages/adapters/tests/workspace-hook-trust-store.test.ts"
   - id: "capability.workflow-run-confirmation"
@@ -5416,6 +5422,22 @@ edges:
     to: "boundary.plugin-agent-host"
     type: "resolves-skill-from-target"
     rank: "must-inspect"
+  - from: "capability.agent-plugin-discovery"
+    to: "service.plugin-catalog-detail"
+    type: "options-from"
+    rank: "must-inspect"
+  - from: "capability.agent-plugin-discovery"
+    to: "persistence.plugin-marketplace-installed-cache"
+    type: "persists-to"
+    rank: "must-inspect"
+  - from: "capability.agent-plugin-discovery"
+    to: "boundary.web-remote-replayable"
+    type: "recovers-via"
+    rank: "must-inspect"
+  - from: "capability.agent-plugin-discovery"
+    to: "state.plugin-reference-session-catalog"
+    type: "must-not-mutate"
+    rank: "invariant-only"
   - from: "capability.plugin-store-mode-order"
     to: "state.interface-mode"
     type: "selects-order-from"
@@ -7417,6 +7439,11 @@ edges:
     rank: "must-inspect"
     condition: "Each foreground/background child creates its own Model with the idle selection and request auth. Running child rounds keep their model; after user takeover, subsequent resumes and wakeups use the accepted user selection."
   - from: "capability.off-peak-model-execution"
+    to: "state.off-peak-turn-attribution"
+    type: "attributes-actual-model-through"
+    rank: "must-inspect"
+    condition: "Usage, trace, and errors retain the actual idle providerId/modelId while offPeakTaskId and ticket remain execution dimensions."
+  - from: "capability.off-peak-model-execution"
     to: "boundary.desktop-continuous"
     type: "must-not-change-delivery-semantics"
     rank: "invariant-only"
@@ -8744,6 +8771,19 @@ edges:
     to: "boundary.web-remote-replayable"
     type: "must-not-authorize-share-through"
     rank: "must-inspect"
+  - from: "capability.conversation-sharing"
+    to: "capability.workspace-identity"
+    type: "isolated-by"
+    rank: "must-inspect"
+    condition: "Remote publication carries workspaceIdentity and remoteSessionId while workspacePath remains execution-only."
+  - from: "capability.conversation-sharing"
+    to: "boundary.desktop-continuous"
+    type: "allowed-through"
+    rank: "must-inspect"
+  - from: "capability.conversation-sharing"
+    to: "boundary.web-remote-replayable"
+    type: "must-remain-isolated-from"
+    rank: "must-inspect"
   - from: "capability.official-server-mcp"
     to: "boundary.web-remote-replayable"
     type: "projects-banner-without-changing"
@@ -8824,7 +8864,16 @@ edges:
     type: "must-remain-isolated-from"
     rank: "invariant-only"
     condition: "Bot output stays bot-channel-continuous; mobile input and recovery retain replayable semantics."
-  - from: "capability.sidebar-footer-profile-locale"
-    to: "surface.sidebar-footer-profile-locale"
-    type: "renders-in"
+
+  - from: "capability.session-owned-shutdown"
+    to: "capability.subagents"
+    type: "depends-on"
+    rank: "must-inspect"
+  - from: "capability.session-owned-shutdown"
+    to: "capability.shared-task-cli"
+    type: "must-remain-isolated-from"
+    rank: "invariant-only"
+  - from: "capability.session-owned-shutdown"
+    to: "capability.conversation-runtime"
+    type: "depends-on"
     rank: "must-inspect"

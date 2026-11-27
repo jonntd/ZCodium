@@ -13,8 +13,8 @@ import { useTabStore } from "@/store/TabStoreProvider.js";
 import { MemoTaskItem, TaskListItemContextMenuContent } from "@/TaskListItem.js";
 import { TaskListLoadingHint } from "@/TaskListLoadingHint.js";
 import { TaskRenameDialog } from "@/TaskRenameDialog.js";
-import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
 import { buildTaskWorkspaceKey } from "@/lib/taskQueryCache.js";
+import { compareZCodeTaskListItems } from "@/lib/taskListOrdering.js";
 import { logger } from "@/logger.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 
@@ -53,6 +53,7 @@ export const TaskList = memo(function TaskList({
   readOnlyReason,
   onOpenFileTree,
   organizationActions,
+  renameOnDoubleClick = true,
 }: {
   organizationActions?: React.ReactNode;
   workspacePath: string;
@@ -80,6 +81,7 @@ export const TaskList = memo(function TaskList({
   mobileActiveTaskKey?: string | null;
   readOnlyReason?: string;
   onOpenFileTree?: () => void | Promise<void>;
+  renameOnDoubleClick?: boolean;
 }) {
   const { intl } = useZCodeIntl();
   const pinnedTaskIdSet = useMemo(
@@ -393,6 +395,7 @@ export const TaskList = memo(function TaskList({
         onOpenFileTree={onOpenFileTree}
         actionsDisabled={Boolean(readOnlyReason)}
         actionsDisabledReason={readOnlyReason}
+        renameOnDoubleClick={renameOnDoubleClick}
         intl={intl}
       />
     );

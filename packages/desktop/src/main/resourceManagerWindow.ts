@@ -17,6 +17,7 @@ import {
 import { logger } from "./logger.js";
 import { configureNetworkCaptureHost, observeNetworkWindow } from "./resourceManagerNetwork.js";
 import { normalizeElectronCpuToMachinePercent } from "./electronCpuNormalization.js";
+import type { ChromiumProcessRolePids } from "./processResourceRoleClassifier.js";
 import { buildAuxiliaryRendererName } from "./resourceManagerProcessNames.js";
 import {
   forgetHostResourceUsage,
@@ -156,6 +157,53 @@ export function registerSchedulerProcess(child: ElectronUtilityProcess): void {
 
 export function unregisterSchedulerProcess(child: ElectronUtilityProcess): void {
   schedulerProcesses.delete(child);
+}
+
+function collectUtilityProcessPids(children: Iterable<ElectronUtilityProcess>): Set<number> {
+  const pids = new Set<number>();
+  for (const child of children) {
+    if (child.pid != null && child.pid > 0) {
+      pids.add(child.pid);
+    }
+  }
+  return pids;
+}
+
+/**
+ * 当前各进程角色的 pid 快照，供资源遥测按 process_role 拆分使用
+ *
+ * getAppMetrics 不直接给 renderer / host / scheduler 的角色，需结合
+ * BrowserWindow / webContents / utilityProcess 注册表才能可靠归类。
+ */
+export function collectChromiumProcessRolePids(): ChromiumProcessRolePids {
+  const mainWindowRendererPids = new Set<number>();
+  const guestRendererPids = new Set<number>();
+
+  for (const contents of electronWebContents.getAllWebContents()) {
+    if (contents.isDestroyed()) {
+      continue;
+    }
+    const rendererPid = contents.getOSProcessId();
+    if (rendererPid <= 0) {
+      continue;
+    }
+    if (mainApplicationWindowWebContentsIds.has(contents.id)) {
+      mainWindowRendererPids.add(rendererPid);
+      continue;
+    }
+    // 内置浏览器 tab 是真实 `<webview>` guest；辅助窗口与 DevTools 落到 chromium_other。
+    if (contents.getType() === "webview") {
+      guestRendererPids.add(rendererPid);
+    }
+  }
+
+  return {
+    mainPid: process.pid,
+    mainWindowRendererPids,
+    guestRendererPids,
+    hostPids: collectUtilityProcessPids(hostProcesses.values()),
+    schedulerPids: collectUtilityProcessPids(schedulerProcesses),
+  };
 }
 
 export function registerHostProcess(label: string, child: ElectronUtilityProcess): void {

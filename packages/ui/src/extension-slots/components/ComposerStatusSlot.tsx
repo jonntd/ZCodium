@@ -6,10 +6,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { resolveLocalizedText } from "@/extension-slots/domain/slotSelectors.js";
 import { useComposerStatusSlot } from "@/extension-slots/adapters/useExtensionSlots.js";
 import { resolveExtensionIcon } from "@/extension-slots/components/extensionIcons.js";
-import type {
-  ComposerStatusSlotProps,
-  ExtensionSlotEntry,
-} from "@/extension-slots/contract.js";
+import type { ComposerStatusSlotProps, ExtensionSlotEntry } from "@/extension-slots/contract.js";
 
 /**
  * composer.status 插槽：输入框工具栏、上下文用量圆环左边。
@@ -21,11 +18,7 @@ function ComposerStatusSlotImpl(props: ComposerStatusSlotProps) {
   return (
     <>
       {model.items.map((entry) => (
-        <ComposerStatusItem
-          key={entry.item.id}
-          entry={entry}
-          runCommand={model.runCommand}
-        />
+        <ComposerStatusItem key={entry.item.id} entry={entry} runCommand={model.runCommand} />
       ))}
     </>
   );
@@ -55,11 +48,7 @@ function ComposerStatusItem({
         data-composer-collapse-priority="extension"
         aria-label={tooltip}
         // composer.status 只接受 command target（EXTENSION_SLOTS）。
-        onClick={
-          item.target.kind === "command"
-            ? () => runCommand(item.target.id)
-            : undefined
-        }
+        onClick={item.target.kind === "command" ? () => runCommand(item.target.id) : undefined}
         className="group/ext h-7 w-fit max-w-40 shrink-0 justify-center gap-1 rounded-lg px-1.5 text-ui-sm text-foreground-subtle data-[composer-compact=true]:size-7 data-[composer-compact=true]:gap-0 data-[composer-compact=true]:p-0"
       >
         <Icon className="size-3.5 shrink-0" aria-hidden />

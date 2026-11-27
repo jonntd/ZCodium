@@ -12,9 +12,7 @@ import {
 import { DEFAULT_MARKETPLACE_ID } from "@/settings/recommendedPlugins.js";
 
 // 官方市场不可移除：移除后启动时会被重新补种，只会造成「删了又回来」的困惑。
-function isRemovableMarketplace(
-  marketplace: ZCodePluginMarketplaceSummary,
-): boolean {
+function isRemovableMarketplace(marketplace: ZCodePluginMarketplaceSummary): boolean {
   if (isPublicStoreMarketplaceId(marketplace.id)) return false;
   if (marketplace.id === DEFAULT_MARKETPLACE_ID) return false;
   return true;
@@ -76,19 +74,15 @@ export function PluginStoreSourcesDialog({
         <div className="max-h-[min(420px,60vh)] space-y-1 overflow-y-auto">
           {sortedMarketplaces.length === 0 ? (
             <p className="px-1 py-2 text-ui-base text-foreground-subtle">
-              {intl.formatMessage({
-                id: "settings.plugins.store.sources.empty",
-              })}
+              {intl.formatMessage({ id: "settings.plugins.store.sources.empty" })}
             </p>
           ) : (
             sortedMarketplaces.map((marketplace) => {
               const updating = activeOperations.some(
-                (operation) =>
-                  operation.id === `marketplace:update:${marketplace.id}`,
+                (operation) => operation.id === `marketplace:update:${marketplace.id}`,
               );
               const removing = activeOperations.some(
-                (operation) =>
-                  operation.id === `marketplace:remove:${marketplace.id}`,
+                (operation) => operation.id === `marketplace:remove:${marketplace.id}`,
               );
               return (
                 <div
@@ -114,24 +108,15 @@ export function PluginStoreSourcesDialog({
                       )}
                       {marketplace.lastUpdated
                         ? ` · ${intl.formatMessage(
-                            {
-                              id: "settings.plugins.store.sources.lastUpdated",
-                            },
-                            {
-                              time: formatSourceTime(
-                                marketplace.lastUpdated,
-                                locale,
-                              ),
-                            },
+                            { id: "settings.plugins.store.sources.lastUpdated" },
+                            { time: formatSourceTime(marketplace.lastUpdated, locale) },
                           )}`
                         : ""}
                     </div>
                     {marketplace.refreshFailure &&
                     // claude-plugins-official 的刷新失败不提示（同 pluginManagementStore.updateMarketplace）。
                     marketplace.id !== CLAUDE_OFFICIAL_PLUGIN_MARKETPLACE_ID ? (
-                      <PluginStoreSourceRefreshFailure
-                        failure={marketplace.refreshFailure}
-                      />
+                      <PluginStoreSourceRefreshFailure failure={marketplace.refreshFailure} />
                     ) : null}
                   </div>
                   <Button
@@ -147,9 +132,7 @@ export function PluginStoreSourcesDialog({
                     onClick={() => onUpdateMarketplace(marketplace.id)}
                   >
                     <RefreshCw
-                      className={
-                        updating ? "size-3.5 animate-spin" : "size-3.5"
-                      }
+                      className={updating ? "size-3.5 animate-spin" : "size-3.5"}
                       aria-hidden="true"
                     />
                   </Button>
@@ -168,10 +151,7 @@ export function PluginStoreSourcesDialog({
                       onClick={() => onRemoveMarketplace(marketplace.id)}
                     >
                       {removing ? (
-                        <LoaderCircle
-                          className="size-3.5 animate-spin"
-                          aria-hidden="true"
-                        />
+                        <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
                       ) : (
                         <Trash2 className="size-3.5" aria-hidden="true" />
                       )}

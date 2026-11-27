@@ -15,20 +15,10 @@ export function shouldShowRemoteSyncActions(params: {
   remoteSessionId?: string | null;
   remoteTarget?: RemoteTarget | null;
   isWebRemoteControl?: boolean;
-  /** 旧链收编（fork）：手机远控（web-remote-replayable）不显示；等价于 isWebRemoteControl。 */
-  clientMode?: "desktop-continuous" | "web-remote-replayable";
-  /** 旧链收编（fork）：本机缺数据同步来源服务时不显示同步入口。 */
-  hasLocalSourceService?: boolean;
 }): boolean {
-  if (
-    params.isWebRemoteControl ||
-    params.clientMode === "web-remote-replayable"
-  )
-    return false;
-  if (params.hasLocalSourceService === false) return false;
+  if (params.isWebRemoteControl) return false;
   return Boolean(
-    params.remoteSessionId?.trim() &&
-    isDataSyncEntryRemoteTarget(params.remoteTarget),
+    params.remoteSessionId?.trim() && isDataSyncEntryRemoteTarget(params.remoteTarget),
   );
 }
 
@@ -41,9 +31,7 @@ export function formatRemoteSyncTargetLabel(
     remoteTarget.kind === "ssh"
       ? `${remoteTarget.username}@${remoteTarget.host}${remoteTarget.port ? `:${remoteTarget.port}` : ""}`
       : remoteTarget.kind === "wsl"
-        ? ["WSL", remoteTarget.distro, remoteTarget.user?.trim()]
-            .filter(Boolean)
-            .join(" · ")
+        ? ["WSL", remoteTarget.distro, remoteTarget.user?.trim()].filter(Boolean).join(" · ")
         : remoteTarget.kind === "docker"
           ? `Docker · ${remoteTarget.container}`
           : remoteTarget.kind;
@@ -62,19 +50,12 @@ export function useSettingsDataSyncEntry(params: {
   onPushFinished?(): void | Promise<void>;
 }): { visible: boolean; disabled: boolean; open(): void; dialog: ReactNode } {
   const entry = useDataSyncEntry({ onPushFinished: params.onPushFinished });
-  const sourceServerId = entry.available
-    ? (params.sourceServerId ?? null)
-    : null;
+  const sourceServerId = entry.available ? (params.sourceServerId ?? null) : null;
   const online = useDataSyncDeviceOnline(sourceServerId);
   const { category } = params;
   const { open: openEntry } = entry;
   const open = useCallback(() => {
     if (sourceServerId) openEntry({ sourceServerId, category });
   }, [category, openEntry, sourceServerId]);
-  return {
-    visible: Boolean(sourceServerId),
-    disabled: !online,
-    open,
-    dialog: entry.dialog,
-  };
+  return { visible: Boolean(sourceServerId), disabled: !online, open, dialog: entry.dialog };
 }

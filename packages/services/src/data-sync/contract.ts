@@ -46,9 +46,7 @@ export interface IDataSyncCategoryService<TPayload> {
  * IDataSyncCategoryService 相同，只多一个 category 参数。两端注册同一实现；未知 category 直接报错。
  */
 export interface IUserConfigSyncService {
-  listSyncItems(params: {
-    category: UserConfigSyncCategory;
-  }): Promise<DataSyncListResult>;
+  listSyncItems(params: { category: UserConfigSyncCategory }): Promise<DataSyncListResult>;
   getSyncContentHashes(params: {
     category: UserConfigSyncCategory;
     keys: string[];
@@ -67,10 +65,9 @@ export interface IUserConfigSyncService {
   }): Promise<DataSyncImportResult>;
 }
 
-export const IUserConfigSyncService =
-  createServiceDescriptor<IUserConfigSyncService>(
-    ServiceChannels.UserConfigSync,
-  );
+export const IUserConfigSyncService = createServiceDescriptor<IUserConfigSyncService>(
+  ServiceChannels.UserConfigSync,
+);
 
 /** 本机 Host 的设备同步状态；设备列表只从这里读取上次同步结果。 */
 export interface IDeviceSyncStateService {
@@ -81,7 +78,6 @@ export interface IDeviceSyncStateService {
   }): Promise<DeviceSyncState>;
 }
 
-export const IDeviceSyncStateService =
-  createServiceDescriptor<IDeviceSyncStateService>(
-    ServiceChannels.DeviceSyncState,
-  );
+export const IDeviceSyncStateService = createServiceDescriptor<IDeviceSyncStateService>(
+  ServiceChannels.DeviceSyncState,
+);

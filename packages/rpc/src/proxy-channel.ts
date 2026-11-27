@@ -45,7 +45,7 @@ export namespace ProxyChannel {
    */
   export function fromService<TContext>(
     service: unknown,
-    _disposables?: DisposableStore,
+    disposables?: DisposableStore,
   ): IServerChannel<TContext> {
     const handler = service as { [key: string]: unknown };
 
@@ -53,11 +53,8 @@ export namespace ProxyChannel {
     const eventMap = new Map<string, Event<unknown>>();
     for (const key in handler) {
       if (isEvent(key) && !isDynamicEvent(key) && typeof handler[key] === "function") {
-        // 把事件 buffer 化：即使没人订阅，事件也不会丢失。
-        // 必须 bind(this)：服务的事件若是类原型方法（依赖 this 取内部 Emitter），
-        // 裸调用会丢 this 抛 TypeError——而 EventListen 订阅失败是静默语义，
-        // 故障只会表现为事件永远到不了客户端。
-        eventMap.set(key, bufferEvent((handler[key] as Event<unknown>).bind(handler)));
+        // 把事件 buffer 化：即使没人订阅，事件也不会丢失
+        eventMap.set(key, bufferEvent(handler[key] as Event<unknown>));
       }
     }
 
@@ -77,8 +74,7 @@ export namespace ProxyChannel {
           }
           // 延迟发现的事件（Proxy 服务可能不会在 for-in 中出现）
           if (isEvent(event)) {
-            // 同预缓存：bind(this) 防止类原型方法在 bufferEvent 内裸调用时丢 this。
-            eventMap.set(event, bufferEvent((handler[event] as Event<unknown>).bind(handler)));
+            eventMap.set(event, bufferEvent(handler[event] as Event<unknown>));
             return eventMap.get(event) as Event<T>;
           }
         }
@@ -95,7 +91,7 @@ export namespace ProxyChannel {
           }
           return result;
         }
-        throw new Error(`Method not found: ${command}`);
+        throw new Error(proxyMethodNotFoundMessage(command));
       },
     };
   }
@@ -214,4 +210,17 @@ function bufferEvent<T>(event: Event<T>): Event<T> {
     }
     return disposable;
   };
+}
+
+/** ProxyChannel 对未知方法抛出的错误消息；错误跨 IPC 只保留 message。 */
+export function proxyMethodNotFoundMessage(command: string): string {
+  return `Method not found: ${command}`;
+}
+
+/**
+ * 判断对端是否不认识某个方法（旧版本 Host / Source 没有新增方法时）。
+ * 旧对端只会抛这条固定消息，没有结构化错误码，只能按消息精确匹配。
+ */
+export function isProxyMethodNotFoundError(error: unknown, command: string): boolean {
+  return error instanceof Error && error.message === proxyMethodNotFoundMessage(command);
 }

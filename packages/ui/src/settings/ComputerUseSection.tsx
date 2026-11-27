@@ -93,14 +93,8 @@ export function ComputerUseSection({
     remoteTarget,
     workspaceIdentity,
   });
-  // 权限状态查询需要 Helper workspace 路径：macOS 是 TCC 权限主体，Windows 是托管 host
-  // 的 fork 触发者（lazy-startup spec §9.2-D3——win32 设置页也必须能经 getStatus 拉起
-  // helper，否则入口隐藏时懒启动链整个不通，2026-10-27 实机确认）。远端 workspace 不查。
-  const path = supportsLocalMacWorkspace
-    ? (localWorkspacePath ?? workspacePath)
-    : supportsLocalWindowsWorkspace
-      ? (localWorkspacePath ?? workspacePath)
-      : null;
+  // CUA 权限是 macOS 本机属性：仅完整 macOS 设置需要 Helper workspace 路径。
+  const path = supportsLocalMacWorkspace ? (localWorkspacePath ?? workspacePath) : null;
   // 展示只跟 settled：fresh 每次查询开始都会落回 false，跟着它渲染会让授权按钮的文案
   // 在「验证中…」与终态之间切换、宽度随之跳变。
   const { status, settled, refresh } = useCuaPermissionStatus(path ?? null, workspaceIdentity);
@@ -343,11 +337,9 @@ export function ComputerUseSection({
           pluginToggleGenerationRef.current === operationGeneration &&
           pluginToggleContextKeyRef.current === operationContextKey,
         onSuccess: () => {
-          if (supportsLocalMacWorkspace || supportsLocalWindowsWorkspace) {
+          if (supportsLocalMacWorkspace) {
             // 权限状态和手动授权入口只在 macOS Computer Use 设置页展示。启用插件不得自动打开
             // macOS Permissions modal；刷新状态即可，避免打断用户当前工作流。
-            // win32 同样刷新：getStatus 是托管 host fork helper 的触发者（spec §9.2-D3），
-            // 插件打开后第一次刷新即拉起 helper，让「输入框入口隐藏」的用户也有启动路径。
             refresh();
           }
           if (!next) {
@@ -369,7 +361,6 @@ export function ComputerUseSection({
       refresh,
       setPluginEnabled,
       supportsLocalMacWorkspace,
-      supportsLocalWindowsWorkspace,
       intl,
     ],
   );
@@ -715,6 +706,7 @@ export function ComputerUseSection({
       {/* 总开关：开/关 zcode-cua 插件（同步其 MCP + skill） */}
       <SettingsGroupCard>
         <SettingsRow
+          searchId="settings.computerUse.toggleLabel"
           label={intl.formatMessage({ id: "settings.computerUse.toggleLabel" })}
           description={intl.formatMessage({
             id: "settings.computerUse.toggleDescription",
@@ -735,6 +727,7 @@ export function ComputerUseSection({
             电脑控制关闭时按钮无论如何都不渲染（cuaComposerEntryState 的插件门），
             此时把开关置灰并改文案说明前置条件——留一个可点却看不到效果的开关会被当成坏了。 */}
         <SettingsRow
+          searchId="settings.computerUse.composerEntry.label"
           label={intl.formatMessage({ id: "settings.computerUse.composerEntry.label" })}
           description={intl.formatMessage({
             id: cuaEnabled

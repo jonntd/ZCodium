@@ -1,6 +1,5 @@
 /* oxlint-disable eslint(max-lines) -- AppSettings schema 聚合历史迁移、默认值和 patch 校验，拆分会削弱设置迁移的单一入口。 */
 import { z } from "zod";
-import { remoteRuntimeAssetSettingsSchema } from "./source-server/release.js";
 import {
   appToolSearchModeSchema,
   DEFAULT_APP_TOOL_SEARCH_MODE,
@@ -18,7 +17,6 @@ import {
   embeddedBrowserViewportPreferenceSchema,
 } from "./browser-use/command-metadata.js";
 import { providerFamilyConnectionSelectionSettingsSchema } from "./provider-family-connection-selection.js";
-import { customSystemSegmentsSchema } from "./system-prompt-segments.js";
 import {
   connectionProfileSchema,
   sourceServerRecordSchema,
@@ -48,21 +46,10 @@ const nonEmptyStringSchema = z.string().trim().min(1);
 
 export const localeSchema = z.enum(SUPPORTED_LOCALES);
 export const localePreferenceSchema = z.enum(["system", ...SUPPORTED_LOCALES]);
+/** Agent 回复语言：用户自由输入的语言名，见 docs/i18n/agent-reply-language.md。 */
+export const REPLY_LANGUAGE_MAX_LENGTH = 256;
+export const replyLanguageSchema = z.string().trim().min(1).max(REPLY_LANGUAGE_MAX_LENGTH);
 const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
-/** 批量删除审批阈值；与 zcode-protocol 的 deleteProtectionPreferencesSchema 保持同一量程。 */
-const batchDeleteApprovalThresholdSchema = z.number().int().min(1).max(10000);
-/**
- * 自定义系统提示词（docs/spec/custom-system-prompt.md）：非空即整段替换内置身份段并跳过
- * 动态 system 段；空串/缺席 = 内置默认（还原就是清空，不存在第二份默认值快照）。
- * 空串必须合法：RPC 会丢弃 undefined，"恢复默认"只能以空串穿越边界。
- */
-const customSystemPromptSchema = z.string().max(200_000);
-/**
- * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落各自独立
- * 继承/覆盖/追加/清空。空对象/缺席 = 全部继承；继承态不落盘（条目缺席）。
- * 必须进存储 schema，否则写盘被 strip、开关回弹。schema 本体在 system-prompt-segments.ts。
- */
-const customSystemSegmentsSettingSchema = customSystemSegmentsSchema;
 // launch.md「The user's choice」：读文件时未知取值（降级后读到新版本写的值）按「跟随」处理，
 // 不能让一个偏好字段把整份设置读坏。
 const dynamicWorkflowModeSettingSchema = z.enum(DYNAMIC_WORKFLOW_MODES).optional().catch(undefined);
@@ -564,6 +551,8 @@ const appSettingsObjectSchema = z.object({
   httpProxy: nonEmptyStringSchema.optional(),
   httpProxyNoProxy: nonEmptyStringSchema.optional(),
   httpProxyCaCertPath: nonEmptyStringSchema.optional(),
+  preinstalledToolsAutoInstall: z.boolean().optional(),
+  preinstalledToolsAgentDisabled: z.array(z.string().min(1)).optional(),
   embeddedBrowserAllowInsecureCertificates: z.boolean().default(false),
   fileTreeHtmlClickOpensBrowser: z.boolean().default(false),
   embeddedBrowserViewportPreference: embeddedBrowserViewportPreferenceSchema.default(
@@ -589,19 +578,8 @@ const appSettingsObjectSchema = z.object({
   messageStreamShowReasoning: z.boolean().default(true),
   messageStreamShowReasoningMigrationInitialized: z.boolean().default(true),
   messageStreamShowTodos: z.boolean().default(false),
-  // 工具分组聚合开关（fork）：Explore/Terminal 默认开、Changes 默认关（docs/spec/changes-group.md）。
-  toolGroupingExploreEnabled: z.boolean().default(true),
-  toolGroupingTerminalEnabled: z.boolean().default(true),
-  toolGroupingChangesEnabled: z.boolean().default(false),
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.default("queue"),
   askUserQuestionAutoResolutionEnabled: z.boolean().default(true),
-  // 删除保护默认开启：Agent 删除文件优先移入系统废纸篓/回收站，行为可恢复。
-  deleteProtectionEnabled: z.boolean().default(true),
-  batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.default(50),
-  customSystemPrompt: customSystemPromptSchema.optional(),
-  customSystemSegments: customSystemSegmentsSettingSchema.optional(),
-  // 回复语言（docs/spec/response-language.md）：空串/缺席 = 跟随用户消息。
-  language: z.string().max(64).optional(),
   pluginAutoRecommendationEnabled: z.boolean().default(false),
   modelIoFullRetentionEnabled: z.boolean().default(false),
   dynamicWorkflowMode: dynamicWorkflowModeSettingSchema,
@@ -613,14 +591,15 @@ const appSettingsObjectSchema = z.object({
   providerFamilyDomain: providerFamilyDomainSchema.optional(),
   providerFamilyDomainUpdatedAt: z.number().int().nonnegative().optional(),
   providerFamilyDomainMigrated: z.boolean().default(false),
-  // 去智谱化后 providerFamilyDomain 只剩 zai/bigmodel 两个已下线取值，存量值没有合法语义。
-  // 独立于 providerFamilyDomainMigrated：老用户恰恰已经迁移过，靠那个守卫会跳过清理。
-  retiredProviderFamilySettingsPurged: z.boolean().default(false),
   nativeSearchEnhancementsEnabled: z.boolean().default(true),
   toolSearchMode: appToolSearchModeSchema.default(DEFAULT_APP_TOOL_SEARCH_MODE),
+  totalTokensReminderEnabled: z.boolean().default(false),
+  agentAlwaysBackgroundEnabled: z.boolean().default(true),
   onboardingOccupation: appSettingsOccupationSchema.nullish(),
   proactiveSuggestionsEnabled: z.boolean().optional(),
   memoryEnabled: z.boolean().default(false),
+  // 手改出的非法值（空串、超长）按未设置处理，不能让这一项把整份设置读坏。
+  replyLanguage: replyLanguageSchema.optional().catch(undefined),
   lastWorkspaceSession: z.array(appWorkspaceSessionEntrySchema).default([]),
   lastActiveWorkspace: appWorkspaceSessionEntrySchema.nullable().optional(),
   remoteConversationWorkspaceBySourceServerId: z
@@ -632,7 +611,6 @@ const appSettingsObjectSchema = z.object({
   // Bug 原因：该开关过去只声明在 patch schema，SettingService 合并后再走完整 schema 时会把
   // 显式 false 剥离，导致重启后恢复为默认开启。完整 schema 必须拥有这项持久化事实。
   remoteStartupAutoReconnectEnabled: z.boolean().optional(),
-  remoteRuntimeAssets: remoteRuntimeAssetSettingsSchema.optional(),
   sourceServerDirectoryMigrationVersion: z.literal(1).optional(),
   remoteBoundaryOnboardingVersion: z.literal(2).optional(),
   remoteBoundaryIntroAcknowledgedVersion: z.literal(1).optional(),
@@ -678,7 +656,6 @@ export const appSettingsSchema = z.preprocess(
 );
 
 export const appSettingsPatchSchema = z.object({
-  officialServices: officialServiceSwitchesSchema.optional(),
   recentProjects: z.array(z.string()).optional(),
   locale: localeSchema.optional(),
   shortcutBindings: z.record(z.string(), z.array(z.string())).optional(),
@@ -689,6 +666,8 @@ export const appSettingsPatchSchema = z.object({
   httpProxy: nonEmptyStringSchema.optional(),
   httpProxyNoProxy: nonEmptyStringSchema.optional(),
   httpProxyCaCertPath: nonEmptyStringSchema.optional(),
+  preinstalledToolsAutoInstall: z.boolean().optional(),
+  preinstalledToolsAgentDisabled: z.array(z.string().min(1)).optional(),
   embeddedBrowserAllowInsecureCertificates: z.boolean().optional(),
   fileTreeHtmlClickOpensBrowser: z.boolean().optional(),
   embeddedBrowserViewportPreference: embeddedBrowserViewportPreferenceSchema.optional(),
@@ -706,16 +685,8 @@ export const appSettingsPatchSchema = z.object({
   messageStreamShowReasoning: z.boolean().optional(),
   messageStreamShowReasoningMigrationInitialized: z.boolean().optional(),
   messageStreamShowTodos: z.boolean().optional(),
-  toolGroupingExploreEnabled: z.boolean().optional(),
-  toolGroupingTerminalEnabled: z.boolean().optional(),
-  toolGroupingChangesEnabled: z.boolean().optional(),
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.optional(),
   askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
-  deleteProtectionEnabled: z.boolean().optional(),
-  batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.optional(),
-  customSystemPrompt: customSystemPromptSchema.optional(),
-  customSystemSegments: customSystemSegmentsSettingSchema.optional(),
-  language: z.string().max(64).optional(),
   pluginAutoRecommendationEnabled: z.boolean().optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
   // 空串是「删除选择、回到跟随」的哨兵：RPC 会吞掉 undefined，normalizeSettingsPatch 把它归一成删除。
@@ -726,9 +697,10 @@ export const appSettingsPatchSchema = z.object({
   providerFamilyDomain: z.union([providerFamilyDomainSchema, z.literal("")]).optional(),
   providerFamilyDomainUpdatedAt: z.number().int().nonnegative().optional(),
   providerFamilyDomainMigrated: z.boolean().optional(),
-  retiredProviderFamilySettingsPurged: z.boolean().optional(),
   nativeSearchEnhancementsEnabled: z.boolean().optional(),
   toolSearchMode: appToolSearchModeSchema.optional(),
+  totalTokensReminderEnabled: z.boolean().optional(),
+  agentAlwaysBackgroundEnabled: z.boolean().optional(),
   onboardingOccupation: z
     .enum([
       "office",
@@ -749,6 +721,7 @@ export const appSettingsPatchSchema = z.object({
     .nullish(),
   proactiveSuggestionsEnabled: z.boolean().optional(),
   memoryEnabled: z.boolean().optional(),
+  replyLanguage: replyLanguageSchema.optional(),
   lastWorkspaceSession: z.array(appWorkspaceSessionEntrySchema).optional(),
   lastActiveWorkspace: appWorkspaceSessionEntrySchema.nullable().optional(),
   remoteConversationWorkspaceBySourceServerId: z
@@ -758,7 +731,6 @@ export const appSettingsPatchSchema = z.object({
   connectionProfiles: z.array(connectionProfileSchema).optional(),
   sourceServerWorkspaceHistory: z.array(sourceServerWorkspaceHistoryEntrySchema).optional(),
   remoteStartupAutoReconnectEnabled: z.boolean().optional(),
-  remoteRuntimeAssets: remoteRuntimeAssetSettingsSchema.optional(),
   sourceServerDirectoryMigrationVersion: z.literal(1).optional(),
   remoteBoundaryOnboardingVersion: z.literal(2).optional(),
   remoteBoundaryIntroAcknowledgedVersion: z.literal(1).optional(),
@@ -776,4 +748,5 @@ export const appSettingsPatchSchema = z.object({
   webRemoteControlExternalRelayDevice: webRemoteControlExternalRelayDeviceSchema.optional(),
   webRemoteControlLastEnabledContext: webRemoteControlLastEnabledContextSchema.optional(),
   zcodeEndpointOrigin: zcodeEndpointOriginSchema.optional(),
+  officialServices: officialServiceSwitchesSchema.optional(),
 });

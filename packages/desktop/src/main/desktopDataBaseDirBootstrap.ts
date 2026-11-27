@@ -57,63 +57,12 @@ function readBootstrapDataBaseDirFromDisk(
   }
 }
 
-function isAutomatedTestRun(): boolean {
-  return process.env["ZCODE_ENV"]?.trim().toLowerCase() === "test";
-}
-
-/**
- * E2E/dev 无人值守：pending 时不做决策窗口，直接备份让路 + 全新初始化。
- * 隔离 base 正常情况下不会有旧根；此处兜底避免测试卡在决策窗口。
- */
-function settlePendingForAutomatedTest(
-  baseDir: string,
-): Extract<DesktopDataRootStartupResult, { state: "initialized" }> {
-  const { forfeitedRoot } = initializeFreshDataRoot({
-    createdBy: "desktop",
-    appVersion: ZCODE_VERSION,
-    baseDir,
-  });
-  releasePendingDiagnosticMode();
-  return {
-    state: "initialized",
-    baseDir,
-    ...(forfeitedRoot ? { forfeitedRoot } : {}),
-  };
-}
-
-/**
- * 启动早期数据根判定（模块加载期同步执行，先于 logger / 窗口 / Host）：
- *
- * 1. 对默认 base（HOME，尊重 ZCODE_DATA_BASE_DIR）完成合法性判定或初始化；
- * 2. normal 且设置里有自定义 dataBaseDir 时，切换到该 base 再判定一次；
- * 3. 任一环节 pending → 进入诊断模式，由 index.ts 打开决策窗口并推迟主窗口/Host。
- *
- * 归属文件落盘前正式根零写入：pending 时 initializeDataRootInteractive 已把数据根
- * 解析重定向到进程诊断根，logger 等早期模块即使执行也写不到正式根。
- */
-export function applyEarlyDataBaseDirBootstrap(): DesktopDataRootStartupResult {
-  const homeResult = initializeDataRootInteractive({
-    createdBy: "desktop",
-    appVersion: ZCODE_VERSION,
-  });
-  if (homeResult.state === "pending") {
-    return isAutomatedTestRun()
-      ? settlePendingForAutomatedTest(homeResult.baseDir)
-      : {
-          state: "pending",
-          baseDir: homeResult.baseDir,
-          status: homeResult.status,
-        };
-  }
-
-  // ZCODE_DATA_BASE_DIR 显式注入时是隔离硬边界：真实 HOME 的 setting.json 里若带
-  // dataBaseDir 会把隔离实例拉回真实数据目录（曾把 dev 实例写进开发者真实凭据），直接跳过。
-  if (isDataBaseDirEnvOverrideActive()) {
-    return homeResult.state === "ready"
-      ? { state: "ready", baseDir: homeResult.baseDir }
-      : { state: "initialized", baseDir: homeResult.baseDir };
-  }
-
+export function applyEarlyDataBaseDirBootstrap(): string | null {
+  // Bug 原因（评审 CR-01）：ZCODE_CREDENTIALS_FILE 是 Source Server Core 的进程装配，凭据路径解析
+  // 会优先采用它。Desktop 从设置了该变量的 shell / launchctl 环境启动时，Main cipher、Host 凭据服务
+  // 与 Agent 会整体改用外部指定的凭据库（例如 Server 自有库）。Desktop 不是该变量的合法来源，
+  // 在任何凭据读写方创建、Host fork 之前删除一次，Main、Host 与 Agent 都只用 Desktop 数据根。
+  delete process.env[ZCODE_CREDENTIALS_FILE_ENV];
   const dataBaseDir = readBootstrapDataBaseDirFromDisk();
   if (!dataBaseDir) {
     return homeResult.state === "ready"

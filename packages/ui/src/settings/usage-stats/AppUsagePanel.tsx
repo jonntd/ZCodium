@@ -135,7 +135,9 @@ export function AppUsageLifetimeSummaryStrip({ snapshot }: { snapshot: AppUsageS
   const items = [
     {
       label: intl.formatMessage({ id: "settings.usage.lifetimeTotalTokens" }),
-      value: snapshot ? formatSummaryCompactTokenUsage(locale, snapshot.summary.totalTokens) : "--",
+      value: snapshot
+        ? formatSummaryCompactTokenUsage(locale, snapshot.summary.totalTokens)
+        : "--",
     },
     {
       label: intl.formatMessage({ id: "settings.usage.lifetimePeakTokens" }),

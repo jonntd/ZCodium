@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type SVGProps,
@@ -12,6 +13,12 @@ import { CircleCheck, RotateCcw, TriangleAlert } from "lucide-react";
 import {
   AUTOMATION_CREATE_LIMIT,
   BUILTIN_MODEL_PROVIDER_IDS,
+  isAutomationCreateLimitError,
+  resolveWorkspaceKey,
+  type ZCodeAutomation,
+  type ZCodeOffPeakTask,
+} from "@zcode/shared";
+import {
   TID_AUTOMATION_ACTION_DELETE,
   TID_AUTOMATION_ACTION_TOGGLE,
   TID_AUTOMATION_CARD,
@@ -20,11 +27,7 @@ import {
   TID_AUTOMATIONS_STATUS_FILTER,
   TID_OFFPEAK_CREATE_BUTTON,
   TID_OFFPEAK_TAB,
-  isAutomationCreateLimitError,
-  resolveWorkspaceKey,
-  type ZCodeAutomation,
-  type ZCodeOffPeakTask,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import {
   DropdownMenu,
@@ -39,7 +42,7 @@ import { cn } from "@/components/lib/utils.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { AutomationScheduledTemplateIcon } from "@/settings/AutomationScheduledTemplateIcon.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
+import { useServices } from "@/hooks/useServices.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import {
@@ -53,6 +56,10 @@ import { useOffPeakEligibility } from "@/hooks/useOffPeakEligibility.js";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { logger } from "@/logger.js";
 import {
+  createIdleTimeCodingPlanFunnelContext,
+  resolveCodingPlanEntryPlanStateFromProviderSettings,
+} from "@/lib/codingPlanFunnelTelemetry.js";
+import {
   useAutomationManagementStore,
   type AutomationRunNowResult,
 } from "@/store/automationManagementStore.js";
@@ -62,6 +69,11 @@ import {
   useOffPeakTaskStore,
   type OffPeakCreateDraft,
 } from "@/store/offPeakTaskStore.js";
+import {
+  createAndReportOffPeakTask,
+  freezeOffPeakCreateTelemetrySnapshot,
+  reportOffPeakCreateResult,
+} from "@/lib/offPeakTelemetry.js";
 import { OffPeakTaskList } from "@/settings/OffPeakTaskList.js";
 import { OffPeakTemplateIcon } from "@/settings/OffPeakTemplateIcon.js";
 import { OffPeakEditView, type OffPeakEditSubmit } from "@/settings/OffPeakEditView.js";
@@ -101,6 +113,11 @@ import {
   type AutomationTabState,
 } from "@/settings/automationStatusFilter.js";
 import { isRemoteAutomationWorkspace } from "@/hooks/useAutomationProjectOptions.js";
+import {
+  reportAutomationActionClick,
+  reportAutomationCreateResult,
+  resolveAutomationSelectionTelemetry,
+} from "@/lib/automationTelemetry.js";
 import {
   materializeOffPeakTemplateDraft,
   materializeScheduledTemplateDraft,
@@ -308,9 +325,14 @@ export function canToggleAutomation(automation: Pick<ZCodeAutomation, "lifecycle
 
 export function getAutomationRunNowToastId(
   result: AutomationRunNowResult,
-): "automations.runNowQueued" | "automations.runNowAlreadyRunning" | "automations.runNowFailed" {
+):
+  | "automations.runNowQueued"
+  | "automations.runNowAlreadyRunning"
+  | "automations.runNowHostMismatch"
+  | "automations.runNowFailed" {
   if (result === "queued") return "automations.runNowQueued";
   if (result === "duplicate") return "automations.runNowAlreadyRunning";
+  if (result === "hostMismatch") return "automations.runNowHostMismatch";
   return "automations.runNowFailed";
 }
 
@@ -514,7 +536,7 @@ export function AutomationsSection({
 }: AutomationsSectionProps) {
   const { intl, locale } = useZCodeIntl();
   const platform = usePlatform();
-  const { clientScenesService, offPeakTaskService, zcodeAgentService } = useBaseWorkspaceServices();
+  const { clientScenesService, offPeakTaskService, zcodeAgentService } = useServices();
   const confirmDialog = useConfirmDialog();
   const { openCodingPlanUpgrade } = useCodingPlanUpgradeDialog();
   const providerSettingsRead = useProviderSettingsView();
@@ -832,9 +854,19 @@ export function AutomationsSection({
       sharedSettings?.providerFamilyDomain === "bigmodel"
         ? BUILTIN_MODEL_PROVIDER_IDS.bigmodelIndividualCodingPlan
         : BUILTIN_MODEL_PROVIDER_IDS.zaiIndividualCodingPlan;
+    const eventText = intl.formatMessage({
+      id: "settings.modelProvider.codingPlan.upgrade",
+    });
+    // 埋点缺失原因：Automations 的闲时入口此前绕过了购买漏斗 context，只打开弹窗。
+    // 这里在用户点击时冻结入口套餐状态，后续 OAuth 只刷新鉴权，不重建 funnel。
     openCodingPlanUpgrade({
       providerId,
       initialAudience: "personal",
+      funnelContext: createIdleTimeCodingPlanFunnelContext({
+        providerId,
+        eventText,
+        entryPlanState: resolveCodingPlanEntryPlanStateFromProviderSettings(providerSettingsView),
+      }),
     });
   }, [intl, openCodingPlanUpgrade, providerSettingsView, sharedSettings?.providerFamilyDomain]);
 
@@ -1018,6 +1050,16 @@ export function AutomationsSection({
         },
         zcodeAgentService,
       );
+      void reportAutomationCreateResult(platform, {
+        automationId: created?.automationId,
+        cronExpr: input.cronExpr ?? "",
+        templateId: view.mode === "create" ? view.draft?.templateId : undefined,
+        error: useAutomationManagementStore.getState().error,
+        modelFields: resolveAutomationSelectionTelemetry(
+          input.modelSelection,
+          providerSettingsView,
+        ),
+      });
       if (!created) {
         const createError = useAutomationManagementStore.getState().error;
         toast(
@@ -1091,6 +1133,12 @@ export function AutomationsSection({
         automationId: automation.automationId,
         source,
       });
+      void reportAutomationActionClick(platform, {
+        action: "run_now",
+        source,
+        automation,
+        providerSettingsView,
+      });
       const result = await runAutomationNow(automation.automationId, zcodeAgentService);
       logger.debug("[automations] 立即运行交互结束", {
         automationId: automation.automationId,
@@ -1128,11 +1176,10 @@ export function AutomationsSection({
           },
         );
         setNow(Date.now());
-      } else if (result === "duplicate") {
-        // 连续点击或上一条 manual run 仍在执行时，store/host 会返回 duplicate。
+      } else {
+        // duplicate：连续点击或上一条 manual run 仍在执行时，store/host 会返回 duplicate，
         // 这里必须给出可见反馈，否则用户会以为按钮没响应。
-        toast(intl.formatMessage({ id: getAutomationRunNowToastId(result) }));
-      } else if (result === "failed") {
+        // hostMismatch / failed：失败原因不同，提示文案由 getAutomationRunNowToastId 区分。
         toast(intl.formatMessage({ id: getAutomationRunNowToastId(result) }));
       }
     },
@@ -1148,7 +1195,7 @@ export function AutomationsSection({
   );
 
   const handleDelete = useCallback(
-    async (automation: ZCodeAutomation) => {
+    async (automation: ZCodeAutomation, source: "list" | "editor" = "list") => {
       const confirmed = await confirmDialog({
         presentation: "automation-confirmation",
         title: intl.formatMessage({ id: "automations.delete.title" }),
@@ -1163,6 +1210,12 @@ export function AutomationsSection({
         showKeyboardHints: false,
       });
       if (!confirmed) return;
+      void reportAutomationActionClick(platform, {
+        action: "delete",
+        source,
+        automation,
+        providerSettingsView,
+      });
       await deleteAutomation(automation.automationId, zcodeAgentService);
       const message = useAutomationManagementStore.getState().error;
       if (message) toast(intl.formatMessage({ id: getAutomationActionErrorToastId("delete") }));
@@ -1215,6 +1268,7 @@ export function AutomationsSection({
   const handleOffPeakDelete = useCallback(
     async (task: ZCodeOffPeakTask) => {
       const confirmed = await confirmDialog({
+        confirmVariant: "destructive",
         title: intl.formatMessage({ id: "offPeak.delete.title" }),
         description: intl.formatMessage({ id: "offPeak.delete.description" }),
         confirmLabel: intl.formatMessage({ id: "offPeak.delete.confirm" }),
@@ -1244,6 +1298,14 @@ export function AutomationsSection({
   const handleOffPeakSubmit = useCallback(
     async (input: OffPeakEditSubmit) => {
       const current = view;
+      const telemetrySnapshot =
+        current.mode === "offpeak-create"
+          ? freezeOffPeakCreateTelemetrySnapshot({
+              source: current.draft?.telemetrySource,
+              model: input.modelSelection.modelId,
+              providerId: input.modelSelection.providerId,
+            })
+          : null;
       if (current.mode !== "offpeak-edit" && offPeakCreateGrey.reason !== null) {
         if (offPeakCreateGrey.reason === "plan") {
           showCodingPlanRequiredToast();
@@ -1251,6 +1313,15 @@ export function AutomationsSection({
           toast(intl.formatMessage({ id: "offPeak.error.unavailable" }));
         } else {
           toast(offPeakCreateGrey.tooltip ?? intl.formatMessage({ id: "offPeak.error.quota" }));
+        }
+        if (telemetrySnapshot) {
+          void reportOffPeakCreateResult(platform, telemetrySnapshot, {
+            ok: false,
+            failureStage: "client_validation",
+            errorCategory: "client_validation",
+            errorCode: "",
+            providerName: "",
+          });
         }
         return false;
       }
@@ -1271,7 +1342,12 @@ export function AutomationsSection({
         return updated;
       }
 
-      const result = await offPeakCreate(input, offPeakTaskService);
+      const result =
+        telemetrySnapshot !== null
+          ? await createAndReportOffPeakTask(platform, telemetrySnapshot, () =>
+              offPeakCreate(input, offPeakTaskService),
+            )
+          : await offPeakCreate(input, offPeakTaskService);
       if (!result.ok) {
         toast(
           intl.formatMessage({
@@ -1355,7 +1431,7 @@ export function AutomationsSection({
           onSubmit={handleEditSubmit}
           onRunNow={(automation) => handleRunNow(automation, "editor")}
           onToggle={handleToggle}
-          onDelete={(automation) => handleDelete(automation)}
+          onDelete={(automation) => handleDelete(automation, "editor")}
           runsEntry={view.mode === "edit" ? runsCache[view.automation.automationId] : undefined}
           onLoadRuns={() => {
             if (view.mode === "edit")
@@ -1637,13 +1713,13 @@ export function AutomationsSection({
                             }}
                             className={cn(
                               // 任务卡与模板卡曾分别使用 surface/border，跨主题下描边深浅不一致。
-                              "group relative flex h-full min-h-0 cursor-pointer gap-3 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-start transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused",
+                              "group relative flex h-full min-h-0 cursor-pointer gap-3 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused",
                               // 已完成任务保持静态弱化，不在 hover 时恢复透明度或改变背景。
                               status === "completed" ? "opacity-60" : "hover:bg-hover",
                             )}
                           >
                             <div className="flex h-full min-w-0 flex-1 flex-col gap-3">
-                              <span className="block truncate pe-12 text-ui-base font-medium leading-5 text-foreground">
+                              <span className="block truncate pr-12 text-ui-base font-medium leading-5 text-foreground">
                                 {automation.title}
                               </span>
                               <p className="text-wrap-phrase line-clamp-2 h-10 text-ui-base font-normal leading-5 text-foreground-subtle">
@@ -1653,7 +1729,7 @@ export function AutomationsSection({
                                 <div className="flex min-w-0 flex-1 items-center gap-2">
                                   {hasFailure ? (
                                     <>
-                                      <span className="inline-flex shrink-0 items-center py-0.5 ps-1 pe-2 font-normal text-destructive">
+                                      <span className="inline-flex shrink-0 items-center py-0.5 pl-1 pr-2 font-normal text-destructive">
                                         <span className="flex size-5 shrink-0 items-center justify-center">
                                           <TriangleAlert
                                             className="size-4"
@@ -1661,21 +1737,21 @@ export function AutomationsSection({
                                             aria-hidden="true"
                                           />
                                         </span>
-                                        <span className="ps-1">
+                                        <span className="pl-1">
                                           {intl.formatMessage({
                                             id: "automations.lifecycle.failed",
                                           })}
                                         </span>
                                       </span>
                                       {/* 失败态也只展示 cron 摘要，禁止把已过期 nextRunAt 误写成“下次运行”。 */}
-                                      <span className="inline-flex min-w-0 items-center rounded-md bg-success/10 py-0.5 ps-1 pe-2 font-normal text-success opacity-40">
+                                      <span className="inline-flex min-w-0 items-center rounded-md bg-success/10 py-0.5 pl-1 pr-2 font-normal text-success opacity-40">
                                         <span className="flex size-5 shrink-0 items-center justify-center">
                                           <AutomationClockIcon
                                             className="size-4"
                                             aria-hidden="true"
                                           />
                                         </span>
-                                        <span className="truncate ps-1">{scheduleCardText}</span>
+                                        <span className="truncate pl-1">{scheduleCardText}</span>
                                       </span>
                                     </>
                                   ) : status === "active" ? (
@@ -1735,7 +1811,7 @@ export function AutomationsSection({
                               </div>
                             </div>
 
-                            <div className="absolute end-3 top-3 flex items-center gap-1">
+                            <div className="absolute right-3 top-3 flex items-center gap-1">
                               {busy ? <Spinner className="size-3.5" /> : null}
                               <AutomationActionsMenu
                                 automation={automation}
@@ -1850,15 +1926,24 @@ export function AutomationsSection({
                           setView({
                             mode: "offpeak-create",
                             draft: template.customize
-                              ? {}
+                              ? {
+                                  telemetrySource: {
+                                    eventRegion: "app.automations",
+                                    templateId: template.id,
+                                  },
+                                }
                               : {
                                   title: materializedDraft.title,
                                   prompt: materializedDraft.prompt,
+                                  telemetrySource: {
+                                    eventRegion: "app.automations",
+                                    templateId: template.id,
+                                  },
                                 },
                           });
                         }}
                         // Grid wrapper 虽已拉伸到行高，卡片本体仍需 h-full 才能继承同一行的最大高度；只设 min-height 时短文案卡会矮一截。
-                        className="flex h-full min-h-[114px] w-full flex-col gap-2 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-start transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+                        className="flex h-full min-h-[114px] w-full flex-col gap-2 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
                       >
                         <div className="flex items-center gap-0.5 text-foreground">
                           <OffPeakTemplateIcon
@@ -1930,7 +2015,7 @@ export function AutomationsSection({
                         key={template.id}
                         type="button"
                         onClick={() => handleUseTemplate(template)}
-                        className="group flex min-h-[114px] flex-col gap-2 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-start transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+                        className="group flex min-h-[114px] flex-col gap-2 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
                       >
                         <div className="flex min-w-0 items-center gap-1 text-foreground">
                           <span className="flex size-5 shrink-0 items-center justify-center">

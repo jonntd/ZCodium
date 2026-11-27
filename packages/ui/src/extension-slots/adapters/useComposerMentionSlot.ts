@@ -14,10 +14,7 @@ import {
   useExtensionSlotsState,
   useExtensionsService,
 } from "@/extension-slots/adapters/useExtensionSlots.js";
-import type {
-  ComposerMentionGroup,
-  ComposerMentionSlotProps,
-} from "@/extension-slots/contract.js";
+import type { ComposerMentionGroup, ComposerMentionSlotProps } from "@/extension-slots/contract.js";
 
 /** 每个条目最近一次发出的查询。键 = 作用域 + query。 */
 interface IssuedQuery {
@@ -45,49 +42,29 @@ export function useComposerMentionSlot({
   enabled,
 }: ComposerMentionSlotProps): ComposerMentionGroup[] {
   const service = useExtensionsService();
-  const { table, snapshot, status } = useExtensionSlotsState(
-    service,
-    (state) => ({
-      table: state.table,
-      snapshot: state.snapshot,
-      status: state.status,
-    }),
-  );
+  const { table, snapshot, status } = useExtensionSlotsState(service, (state) => ({
+    table: state.table,
+    snapshot: state.snapshot,
+    status: state.status,
+  }));
   const workspace = useMemo(
-    () => ({
-      workspacePath,
-      ...(workspaceIdentity ? { workspaceIdentity } : {}),
-    }),
+    () => ({ workspacePath, ...(workspaceIdentity ? { workspaceIdentity } : {}) }),
     [workspacePath, workspaceIdentity],
   );
   const entries = useMemo(
-    () =>
-      selectComposerMentionEntries(
-        { table, snapshot, status },
-        { workspace, sessionId },
-      ),
+    () => selectComposerMentionEntries({ table, snapshot, status }, { workspace, sessionId }),
     [table, snapshot, status, workspace, sessionId],
   );
   // tool 条目在会话的 MCP 连接上调用：要有会话（草稿为预热会话），且只在本机工作区
   // （扩展门面在本机 Host，远程工作区的会话不在本机 CLI 里）。
-  const toolAvailable =
-    Boolean(sessionId) && !isRemoteWorkspaceIdentity(workspaceIdentity ?? "");
-  const scope = useMemo(
-    () => composerCommandScope(workspace, sessionId),
-    [workspace, sessionId],
-  );
+  const toolAvailable = Boolean(sessionId) && !isRemoteWorkspaceIdentity(workspaceIdentity ?? "");
+  const scope = useMemo(() => composerCommandScope(workspace, sessionId), [workspace, sessionId]);
   // entries 随每次快照（动态值增量）换新数组；查询只看稳定的条目 id 列表，避免流式期间反复重查。
   const queryableIds = entries
-    .filter(
-      (entry) =>
-        !entry.hostStopped &&
-        (entry.target.kind === "command" || toolAvailable),
-    )
+    .filter((entry) => !entry.hostStopped && (entry.target.kind === "command" || toolAvailable))
     .map((entry) => entry.itemId)
     .join("\n");
-  const [results, setResults] = useState<
-    ReadonlyMap<string, MentionItemsResult>
-  >(() => new Map());
+  const [results, setResults] = useState<ReadonlyMap<string, MentionItemsResult>>(() => new Map());
   const issuedRef = useRef(new Map<string, IssuedQuery>());
   const seqRef = useRef(0);
 
@@ -106,18 +83,11 @@ export function useComposerMentionSlot({
             entry,
             message: error instanceof Error ? error.message : String(error),
           });
-          return {
-            seq,
-            status: "error",
-            code: MENTION_ITEMS_ERROR_CODES.internal,
-          };
+          return { seq, status: "error", code: MENTION_ITEMS_ERROR_CODES.internal };
         })
         .then((result) => {
           if (issuedRef.current.get(entry)?.seq !== seq) {
-            logger.debug("[extension-slots] stale mention result dropped", {
-              entry,
-              seq,
-            });
+            logger.debug("[extension-slots] stale mention result dropped", { entry, seq });
             return;
           }
           setResults((current) => new Map(current).set(entry, result));
@@ -142,9 +112,7 @@ export function useComposerMentionSlot({
       if (result.status === "error") {
         return [{ ...base, state: "error", items: [], errorCode: result.code }];
       }
-      return result.items.length > 0
-        ? [{ ...base, state: "ready", items: result.items }]
-        : [];
+      return result.items.length > 0 ? [{ ...base, state: "ready", items: result.items }] : [];
     });
   }, [enabled, entries, results, toolAvailable]);
 }

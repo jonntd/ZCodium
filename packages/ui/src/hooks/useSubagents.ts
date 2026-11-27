@@ -5,15 +5,8 @@ import { useServices } from "./useServices.js";
 import { useResolvedRemoteWorkspaceSessionId } from "@/hooks/useResolvedRemoteWorkspaceSessionId.js";
 import { shouldEnableWorkspaceRpc } from "@/lib/workspaceRpcAvailability.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
-import {
-  isWorkspaceTab,
-  type WindowTabState,
-  type WorkspaceTabState,
-} from "@/store/tabStore.js";
-import {
-  getSubagentsContextKey,
-  useSubagentsContextStore,
-} from "@/store/subagentsContextStore.js";
+import { isWorkspaceTab, type WindowTabState, type WorkspaceTabState } from "@/store/tabStore.js";
+import { getSubagentsContextKey, useSubagentsContextStore } from "@/store/subagentsContextStore.js";
 import { useSubagentsStore } from "@/store/subagentsStore.js";
 
 export function useSubagents(
@@ -36,13 +29,10 @@ export function useSubagents(
       const activeWorkspaceTab = state.activeTabId
         ? state.tabs.find((tab) => tab.id === state.activeTabId)
         : undefined;
-      const matchesRequestedScope = (
-        tab: WindowTabState,
-      ): tab is WorkspaceTabState =>
+      const matchesRequestedScope = (tab: WindowTabState): tab is WorkspaceTabState =>
         isWorkspaceTab(tab) &&
         tab.workspacePath === workspacePath &&
-        (!explicitIdentity ||
-          tab.workspaceIdentity?.trim() === explicitIdentity);
+        (!explicitIdentity || tab.workspaceIdentity?.trim() === explicitIdentity);
       const matchedWorkspaceTab =
         activeWorkspaceTab && matchesRequestedScope(activeWorkspaceTab)
           ? activeWorkspaceTab
@@ -55,8 +45,7 @@ export function useSubagents(
       };
     }),
   );
-  const workspaceIdentity =
-    explicitIdentity || workspaceRpcTarget.workspaceIdentity;
+  const workspaceIdentity = explicitIdentity || workspaceRpcTarget.workspaceIdentity;
   const remoteSessionId = useResolvedRemoteWorkspaceSessionId(
     workspacePath,
     workspaceRpcTarget.preferredRemoteSessionId,
@@ -69,12 +58,7 @@ export function useSubagents(
     remoteTarget: workspaceRpcTarget.remoteTarget,
   });
   const contextKey = workspacePath
-    ? getSubagentsContextKey(
-        workspacePath,
-        provider,
-        workspaceIdentity,
-        subagentsService,
-      )
+    ? getSubagentsContextKey(workspacePath, provider, workspaceIdentity, subagentsService)
     : null;
   const context = useSubagentsContextStore((state) =>
     contextKey ? state.contexts[contextKey] : undefined,
@@ -106,12 +90,7 @@ export function useSubagents(
       return;
     }
     if (context) return;
-    void initialize(
-      workspacePath,
-      provider,
-      subagentsService,
-      workspaceIdentity,
-    );
+    void initialize(workspacePath, provider, subagentsService, workspaceIdentity);
   }, [
     context,
     initialize,
@@ -127,12 +106,7 @@ export function useSubagents(
       return;
     }
     if (!workspacePath) return;
-    await refreshStore(
-      workspacePath,
-      provider,
-      subagentsService,
-      workspaceIdentity,
-    );
+    await refreshStore(workspacePath, provider, subagentsService, workspaceIdentity);
   }, [
     provider,
     refreshStore,

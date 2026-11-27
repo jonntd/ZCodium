@@ -1,14 +1,6 @@
 export type { ConfigWorkspaceTarget, ConfigCatalogPort } from "./contract.js";
-export {
-  readConfigCatalog,
-  projectConfigTargets,
-  resolveWorkflowRunProjectOwnership,
-} from "./catalog.js";
-export {
-  useConfigWorkspaceTargets,
-  useConfigWorkspaceCatalog,
-  useConfigWorkspaceCatalogReadiness,
-} from "./useConfigWorkspaceTargets.js";
+export { readConfigCatalog, projectConfigTargets } from "./catalog.js";
+export { useConfigWorkspaceTargets } from "./useConfigWorkspaceTargets.js";
 export {
   useConfigWorkspaceServices,
   useConfigWorkspaceServicesResolution,

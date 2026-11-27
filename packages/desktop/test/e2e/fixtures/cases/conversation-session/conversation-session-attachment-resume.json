@@ -1,13 +1,20 @@
 {
   "version": 1,
   "caseName": "conversation-session-attachment-resume",
-  "spec": "./test/e2e/conversation-session/conversation-session-attachment-resume.test.ts",
+  "spec": "./test/e2e/conversation-session/attachments/conversation-session-attachment-resume.test.ts",
   "providerFixtures": [
     "./test/e2e/fixtures/upstream/common.json",
     "./test/e2e/fixtures/upstream/conversation-session/conversation-session-attachment-resume.json"
   ],
   "fileFixtures": [],
   "requests": [
+    {
+      "id": "conversation-session-attachment-resume-title-sidecar",
+      "kind": "common",
+      "source": "synthetic",
+      "timingPolicy": "fast-text",
+      "syntheticReason": "运行时证据显示标题旁路缺少响应；在本例显式登记固定标题，避免依赖 legacy fixture 或触发后台网络重试。"
+    },
     {
       "id": "attachment-resume-first",
       "description": "AR01 first: 附件冷恢复请求",

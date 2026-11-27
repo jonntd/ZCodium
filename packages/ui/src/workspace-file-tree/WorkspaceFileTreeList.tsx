@@ -15,10 +15,8 @@ import { WorkspaceFileTreeRowView } from "@/workspace-file-tree/WorkspaceFileTre
 import { WORKSPACE_FILE_TREE_VIRTUAL_ROW_HEIGHT_PX } from "@/workspace-file-tree/constants.js";
 import type {
   WorkspaceFileGitStatusLabels,
-  WorkspaceFileTreeCompareBaseline,
   WorkspaceFileTreeContextMenuLabels,
   WorkspaceFileTreeEditorState,
-  WorkspaceFileTreeOpenPreviewOptions,
 } from "@/workspace-file-tree/types.js";
 
 export const WORKSPACE_FILE_TREE_MASK_OFFSET_PROPERTY = "--workspace-file-tree-mask-offset";
@@ -70,9 +68,6 @@ export function WorkspaceFileTreeList({
   onSelect,
   onToggleDirectory,
   onOpenPreview,
-  compareBaseline,
-  onCompareWithBaseline,
-  workspaceRemoteSessionId,
   onOpenBrowserUrl,
   onKeyDown,
 }: {
@@ -95,10 +90,7 @@ export function WorkspaceFileTreeList({
   editorState: WorkspaceFileTreeEditorState;
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
-  onOpenPreview: (row: WorkspaceFileTreeRow, options?: WorkspaceFileTreeOpenPreviewOptions) => void;
-  compareBaseline?: WorkspaceFileTreeCompareBaseline | null;
-  onCompareWithBaseline?: (row: WorkspaceFileTreeRow) => void;
-  workspaceRemoteSessionId?: string;
+  onOpenPreview: (row: WorkspaceFileTreeRow) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
 }) {
@@ -141,15 +133,14 @@ export function WorkspaceFileTreeList({
       installedEditors={editorState.installedEditors}
       isRemoteWorkspaceFileTree={editorState.isRemoteWorkspaceFileTree}
       remoteTarget={editorState.remoteTarget}
+      htmlClickOpensBrowser={editorState.htmlClickOpensBrowser === true}
+      workspaceRemoteSessionId={editorState.workspaceRemoteSessionId}
       workspacePath={workspacePath}
       workspaceIdentity={workspaceIdentity}
       style={style}
       onSelect={onSelect}
       onToggleDirectory={onToggleDirectory}
       onOpenPreview={onOpenPreview}
-      compareBaseline={compareBaseline}
-      onCompareWithBaseline={onCompareWithBaseline}
-      workspaceRemoteSessionId={workspaceRemoteSessionId}
       onOpenBrowserUrl={onOpenBrowserUrl}
       onKeyDown={onKeyDown}
     />

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { discoverNodePlugins } from "@zcode/adapters";
 import {
   loadPluginAgentTemplates,
   resolvePluginAgentProfiles,
@@ -18,7 +19,14 @@ function pluginMetadata(input: {
 }) {
   return {
     commandRootCount: 0,
-    components: [{ kind: "agent" as const, items: [{ name: "code-architect" }] }],
+    components: [
+      {
+        kind: "agent" as const,
+        items: [
+          { name: "code-architect", path: join(input.rootPath, "agents", "code-architect.md") },
+        ],
+      },
+    ],
     dataPath: join(input.rootPath, ".data"),
     declaredMcpServerNames: [],
     enabled: input.enabled ?? true,
@@ -315,7 +323,70 @@ description: 用户级运行 agent
 });
 
 describe("loadPluginAgentProfiles", () => {
-  it("SA97-09：用户迁移和重新加载不改项目/插件文件或其显式旧身份", async () => {
+  it.each([
+    ["agents", "profile.md"],
+    ["custom-agents", "profile.md"],
+    ["agents", "code-architect.md"],
+  ])("loads the discovered source from %s/%s by frontmatter name", async (directory, fileName) => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-plugin-agent-source-"));
+    try {
+      await mkdir(join(root, ".zcode-plugin"));
+      await writeFile(
+        join(root, ".zcode-plugin", "plugin.json"),
+        JSON.stringify({ name: "fixture", agents: directory }),
+      );
+      await mkdir(join(root, directory));
+      const path = join(root, directory, fileName);
+      await writeFile(
+        path,
+        "---\nname: code-architect\ndescription: Source profile\n---\nSource prompt",
+      );
+      const { plugins } = await discoverNodePlugins({
+        config: { enabled: true, dirs: [root], enabledPlugins: {}, options: {} },
+        env: {},
+        storageRoot: join(root, "storage"),
+        workingDirectory: root,
+      });
+      const result = loadPluginAgentProfiles({ plugins });
+      expect(result.diagnostics).toEqual([]);
+      expect(
+        result.profiles.map((profile) => [profile.name, profile.path, profile.systemPrompt]),
+      ).toEqual([
+        ["fixture:code-architect", path, "Source prompt"],
+        ["code-architect", path, "Source prompt"],
+      ]);
+      expect(result.profiles.find((profile) => profile.name === "fixture:missing")).toBeUndefined();
+      await rm(path);
+      const missing = loadPluginAgentProfiles({ plugins });
+      expect(missing.profiles).toEqual([]);
+      expect(missing.diagnostics).toMatchObject([{ code: "agent_read_failed", path }]);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("does not guess a source path for description-only components", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-plugin-agent-no-source-"));
+    try {
+      await mkdir(join(root, "agents"));
+      await writeFile(
+        join(root, "agents", "code-architect.md"),
+        "---\nname: code-architect\ndescription: Undiscovered\n---\nDo not load",
+      );
+      const plugin = {
+        ...pluginMetadata({ id: "fixture@inline", name: "fixture", rootPath: root }),
+        components: [{ kind: "agent" as const, items: [{ name: "code-architect" }] }],
+      };
+      expect(loadPluginAgentProfiles({ plugins: [plugin] })).toMatchObject({
+        profiles: [],
+        diagnostics: [],
+      });
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("SA97-09：首次和再次加载只迁移用户根文件，保留子目录及项目/插件文件", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-subagent-scope-migration-"));
     const storageRoot = join(root, "storage");
     const workingDirectory = join(root, "workspace");
@@ -324,6 +395,8 @@ describe("loadPluginAgentProfiles", () => {
       join(storageRoot, "agents", "code-architect.md"),
       join(workingDirectory, ".zcode", "agents", "code-architect.md"),
       join(pluginRoot, "agents", "code-architect.md"),
+      join(storageRoot, "agents", "legacy-cli", "code-architect.md"),
+      join(storageRoot, "agents", "legacy-cli", "vendor", "code-architect.markdown"),
     ];
     const markdown =
       "---\r\nname: code-architect\r\ndescription: review\r\n# 保留备注\r\nmodel: builtin:zai-coding-plan/GLM\r\nthoughtLevel: high\r\n---\r\n正文 builtin:zai-coding-plan/GLM\r\n";
@@ -332,6 +405,7 @@ describe("loadPluginAgentProfiles", () => {
         join(storageRoot, "agents"),
         join(workingDirectory, ".zcode", "agents"),
         join(pluginRoot, "agents"),
+        join(storageRoot, "agents", "legacy-cli", "vendor"),
       ]) {
         await mkdir(directory, { recursive: true });
       }
@@ -343,6 +417,7 @@ describe("loadPluginAgentProfiles", () => {
         });
         expect(local.diagnostics).toEqual([]);
         expect(plugins.diagnostics).toEqual([]);
+        expect(local.profiles.map((profile) => profile.source)).toEqual(["user", "project"]);
         expect(
           local.profiles.find((profile) => profile.source === "user")?.modelSelection?.providerId,
         ).toBe("account:zai-individual-coding-plan");

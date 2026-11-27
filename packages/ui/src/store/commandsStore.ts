@@ -69,11 +69,7 @@ function listKey(
 // 的 filePath 在当前 target 的 host 上执行。
 function currentListKey(get: StoreGet): string {
   const { workspacePath, workspaceIdentity, authorityKey } = get();
-  return listKey(
-    workspacePath ?? undefined,
-    workspaceIdentity ?? undefined,
-    authorityKey,
-  );
+  return listKey(workspacePath ?? undefined, workspaceIdentity ?? undefined, authorityKey);
 }
 
 export const useCommandsStore = create<CommandsStoreState>((set, get) => ({
@@ -91,12 +87,7 @@ export const useCommandsStore = create<CommandsStoreState>((set, get) => ({
   error: null,
   operatingCommandId: null,
 
-  initialize: async (
-    workspacePath,
-    commandsService,
-    workspaceIdentity,
-    authorityKey,
-  ) => {
+  initialize: async (workspacePath, commandsService, workspaceIdentity, authorityKey) => {
     const normalizedWorkspaceIdentity = workspaceIdentity?.trim() || null;
     const normalizedAuthorityKey = authorityKey?.trim() || null;
     set({
@@ -206,12 +197,8 @@ export const useCommandsStore = create<CommandsStoreState>((set, get) => ({
       }
       const { commands, userCommands } = get();
       set({
-        commands: commands.map((c) =>
-          c.id === params.commandId ? command : c,
-        ),
-        userCommands: userCommands.map((c) =>
-          c.id === params.commandId ? command : c,
-        ),
+        commands: commands.map((c) => (c.id === params.commandId ? command : c)),
+        userCommands: userCommands.map((c) => (c.id === params.commandId ? command : c)),
         operatingCommandId: null,
       });
       return command;
@@ -265,14 +252,10 @@ export const useCommandsStore = create<CommandsStoreState>((set, get) => ({
       const { commands, userCommands } = get();
       set({
         commands: commands.map((command) =>
-          command.id === params.commandId
-            ? { ...command, enabled: params.enabled }
-            : command,
+          command.id === params.commandId ? { ...command, enabled: params.enabled } : command,
         ),
         userCommands: userCommands.map((command) =>
-          command.id === params.commandId
-            ? { ...command, enabled: params.enabled }
-            : command,
+          command.id === params.commandId ? { ...command, enabled: params.enabled } : command,
         ),
         operatingCommandId: null,
       });

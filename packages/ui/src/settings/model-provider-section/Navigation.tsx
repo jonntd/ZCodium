@@ -17,15 +17,14 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Loader2Icon } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { ProviderStatusIndicator } from "./ProviderStatusIndicator.js";
 
 import {
   resolveModelProviderFamilySpecByProviderId,
   isStartPlanModelProviderId,
-  TID_MODEL_PROVIDER_NAV_ITEM,
-  testId,
 } from "@zcode/shared";
+import { TID_MODEL_PROVIDER_NAV_ITEM, testId } from "@zcode/shared/test-ids";
 import { useCallback, useMemo, type KeyboardEvent } from "react";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import type { ModelProviderNavGroup, ModelProviderNavItem } from "./constants.js";
@@ -113,14 +112,14 @@ function ModelProviderNavigationButton({
           }
           onSelectNavItem(item);
         }}
-        className={`relative box-border flex h-8 w-full items-center gap-2 rounded-lg border px-2 py-1 text-start text-ui-base font-medium transition-colors max-md:size-8 max-md:justify-center max-md:gap-0 max-md:px-0 ${
+        className={`relative box-border flex h-8 w-full items-center gap-2 rounded-lg border px-2 py-1 text-left text-ui-base font-medium transition-colors max-md:size-8 max-md:justify-center max-md:gap-0 max-md:px-0 ${
           isSelected
             ? "border-border-hover bg-card-selected text-foreground"
             : inactiveItemClassName
         } disabled:cursor-not-allowed disabled:opacity-60`}
       >
         {isLoadingItem ? (
-          <Loader2Icon className="size-4 shrink-0 animate-spin text-foreground-subtlest" />
+          <LoaderCircle className="size-4 shrink-0 animate-spin text-foreground-subtlest" />
         ) : showIcon ? (
           <span className="shrink-0 text-current">{renderModelProviderNavIcon(item)}</span>
         ) : null}
@@ -195,7 +194,7 @@ function SortableModelProviderNavigationButton({
         {...attributes}
         {...listeners}
         onKeyDown={handleKeyDown}
-        className={`relative box-border flex h-8 w-full cursor-grab touch-pan-y select-none items-center gap-2 rounded-lg border px-2 py-1 text-start text-ui-base font-medium transition-colors active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 max-md:size-8 max-md:justify-center max-md:gap-0 max-md:px-0 ${
+        className={`relative box-border flex h-8 w-full cursor-grab touch-pan-y select-none items-center gap-2 rounded-lg border px-2 py-1 text-left text-ui-base font-medium transition-colors active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 max-md:size-8 max-md:justify-center max-md:gap-0 max-md:px-0 ${
           isSelected
             ? "border-border-hover bg-card-selected text-foreground"
             : inactiveItemClassName
@@ -397,7 +396,7 @@ export function ModelProviderSectionNavigation({
                   presetLoading,
                   customLoading,
                 }) ? (
-                  <Loader2Icon className="size-3 animate-spin text-foreground-subtlest" />
+                  <LoaderCircle className="size-3 animate-spin text-foreground-subtlest" />
                 ) : null}
               </div>
 

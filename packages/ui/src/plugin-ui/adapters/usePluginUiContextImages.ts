@@ -38,9 +38,7 @@ export function useContextImageAttachments<T extends { id: string }>(
 ): ReadonlySet<string> {
   const materialized = useRef(new Map<string, MaterializedContext<T>>());
   /** 这里管着的附件 id：调用方可以据此只在条目上展示（如网页元素引用不在附件行重复出缩略图） */
-  const [managedIds, setManagedIds] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
+  const [managedIds, setManagedIds] = useState<ReadonlySet<string>>(() => new Set());
   const portRef = useRef(port);
   portRef.current = port;
   const optionsRef = useRef(options);
@@ -49,9 +47,7 @@ export function useContextImageAttachments<T extends { id: string }>(
     const { toFiles, removeStrategy } = optionsRef.current;
     const release = (entry: MaterializedContext<T>) => {
       const remove =
-        removeStrategy === "attached"
-          ? entry.remove
-          : portRef.current.removeAttachment;
+        removeStrategy === "attached" ? entry.remove : portRef.current.removeAttachment;
       for (const id of entry.ids) {
         remove(id);
       }
@@ -78,13 +74,9 @@ export function useContextImageAttachments<T extends { id: string }>(
       release(entry);
       materialized.current.delete(id);
     }
-    const ids = new Set(
-      [...materialized.current.values()].flatMap((entry) => entry.ids),
-    );
+    const ids = new Set([...materialized.current.values()].flatMap((entry) => entry.ids));
     setManagedIds((current) =>
-      current.size === ids.size && [...ids].every((id) => current.has(id))
-        ? current
-        : ids,
+      current.size === ids.size && [...ids].every((id) => current.has(id)) ? current : ids,
     );
   }, [contexts]);
   // Bugfix（!3450 CR-01）：映射只活在这个 ref 里。composer 卸载（关分屏等）再挂回同一会话时映射是空的，
@@ -108,8 +100,7 @@ function decodeBase64(dataBase64: string): ArrayBuffer {
   const binary = atob(dataBase64);
   const buffer = new ArrayBuffer(binary.length);
   const bytes = new Uint8Array(buffer);
-  for (let index = 0; index < binary.length; index += 1)
-    bytes[index] = binary.charCodeAt(index);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
   return buffer;
 }
 
@@ -124,12 +115,11 @@ function pluginUiContextImageFiles(context: PluginUiModelContext): File[] {
   );
 }
 
-const PLUGIN_UI_CONTEXT_IMAGE_OPTIONS: ContextImageAttachmentsOptions<PluginUiModelContext> =
-  {
-    toFiles: pluginUiContextImageFiles,
-    // 第三方插件上下文保持抽共用实现前的语义：用当下的撤销函数。
-    removeStrategy: "current",
-  };
+const PLUGIN_UI_CONTEXT_IMAGE_OPTIONS: ContextImageAttachmentsOptions<PluginUiModelContext> = {
+  toFiles: pluginUiContextImageFiles,
+  // 第三方插件上下文保持抽共用实现前的语义：用当下的撤销函数。
+  removeStrategy: "current",
+};
 
 /** 插件上下文里的 image 块 → 本条上下文名下的图片附件，随下一回合发送。 */
 export function usePluginUiContextImages(

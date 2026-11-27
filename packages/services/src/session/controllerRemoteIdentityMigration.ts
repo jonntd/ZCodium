@@ -1,14 +1,15 @@
 import { runTasksDatabaseMigrations } from "#src/session/tasksDatabase/migrations.js";
 import { cancelConflictingOffPeakBindings } from "#src/session/offPeakWorkspaceIdentityMigration.js";
 import { randomUUID } from "node:crypto";
-import { createNodeRequire } from "#src/nodeRequire.js";
+import { createRequire } from "node:module";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
-const require = createNodeRequire();
+const require = createRequire(import.meta.url);
 const { DatabaseSync } = require("node:sqlite") as typeof import("node:sqlite");
 
 const INVENTORIED_TABLES = [
   "tasks",
+  "session_creation_commands",
   "task_group_members",
   "task_group_admissions",
   "task_group_workspace_bootstraps",
@@ -55,6 +56,7 @@ function hasColumn(db: Database, table: string, column: string): boolean {
 function emptyCounts(): MigrationCounts {
   return {
     tasks: 0,
+    session_creation_commands: 0,
     task_group_members: 0,
     task_group_admissions: 0,
     task_group_workspace_bootstraps: 0,
@@ -155,6 +157,21 @@ function migrateTaskRows(db: Database, oldKey: string, newKey: string): void {
       }
     }
   }
+}
+
+function migrateCreationCommands(db: Database, oldKey: string, newKey: string): void {
+  if (!hasTable(db, "session_creation_commands")) return;
+  // Bug 原因：只迁移 task 会使旧客户端重试失去分配回执，再次分配会话。
+  // 同一命令、同一 ID 可合并；不同 ID 必须由唯一键冲突回滚整个迁移，不能覆盖归属。
+  db.prepare(`DELETE FROM session_creation_commands
+    WHERE workspace_key = ? AND EXISTS (
+      SELECT 1 FROM session_creation_commands target
+      WHERE target.workspace_key = ?
+        AND target.client_id = session_creation_commands.client_id
+        AND target.command_id = session_creation_commands.command_id
+        AND target.session_id = session_creation_commands.session_id
+    )`).run(oldKey, newKey);
+  updateIdentityColumn(db, "session_creation_commands", oldKey, newKey);
 }
 
 function migrateGroupMembers(db: Database, oldKey: string, newKey: string): void {
@@ -273,6 +290,7 @@ export async function migrateControllerRemoteWorkspaceIdentity(
       now(),
     );
     migrateTaskRows(db, options.oldWorkspaceKey, options.newWorkspaceKey);
+    migrateCreationCommands(db, options.oldWorkspaceKey, options.newWorkspaceKey);
     migrateGroupMembers(db, options.oldWorkspaceKey, options.newWorkspaceKey);
     migrateGroupAdmissions(db, options.oldWorkspaceKey, options.newWorkspaceKey);
     migrateBootstrap(db, options.oldWorkspaceKey, options.newWorkspaceKey);

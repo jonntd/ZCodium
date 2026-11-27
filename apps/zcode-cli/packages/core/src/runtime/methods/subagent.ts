@@ -2,6 +2,7 @@
 import {
   RESPOND_TO_COORDINATOR_TOOL_NAME,
   SESSION_ENTRY_MODEL_SELECTION,
+  SkillNotFoundError,
   parseModelSelectionValue,
 } from "@zcode/contracts";
 import type { CollaborationMode, SubagentRunOptions, WorkspaceId } from "@zcode/contracts";
@@ -17,7 +18,6 @@ import {
 import type {
   ExploreSubagentRuntimeRequest,
   McpConnectionSnapshot,
-  McpPort,
   Model,
   ModelSelection,
   SkillContent,
@@ -33,11 +33,12 @@ import { cloneModelSelection } from "../model-selection.js";
 import { resolveSubagentSelection } from "../helpers/subagent-selection.js";
 import type { AgentRuntimeDeps } from "../types.js";
 import { toMcpToolName } from "../../mcp/index.js";
-import { createBorrowedSubagentMcpAccess } from "../../subagent/borrowed-mcp-port.js";
 import { createSubagentMessageSink } from "../../subagent/message-steering.js";
+import { latestAnnouncedEnvironment } from "./context-refresh.js";
 import {
   extractRequiredMcpServerNames,
   matchesRequiredMcpServer,
+  resolveReferencedMcpServerNames,
 } from "../../subagent/mcp-config.js";
 import { mirrorSubagentToolEvent } from "../../subagent/tool-event-mirror.js";
 import { isBuiltInExploreAgentProfile } from "../../subagent/profile.js";
@@ -62,6 +63,7 @@ import { computeOfficialCuaServerNames } from "./mcp.js";
 import { persistRuntimeModelSelection, sameModelSelection } from "./turn-model.js";
 import { getOffPeakExecution, markTemporaryRuntimeSelection } from "../off-peak/runtime.js";
 import { getOffPeakModelBinding } from "../off-peak/model-binding.js";
+import { noteSubagentActivity } from "../../subagent/background-stall.js";
 
 export function createDefaultSubagentPort(
   this: AgentRuntimeInternal,
@@ -71,11 +73,28 @@ export function createDefaultSubagentPort(
     return undefined;
   }
 
+  const ownedRuntimes = new Set<AgentRuntime>();
   return createExploreSubagentPort({
+    closeOwnedRuntimes: async () => {
+      const results = await Promise.allSettled(
+        [...ownedRuntimes].map(async (runtime) => {
+          await runtime.close();
+          ownedRuntimes.delete(runtime);
+        }),
+      );
+      const errors = results.flatMap((result) =>
+        result.status === "rejected" ? [result.reason] : [],
+      );
+      if (errors.length) throw new AggregateError(errors, "Subagent runtimes cleanup failed");
+      ownedRuntimes.clear();
+    },
     logger: this.logger,
     inactivityTimeoutMs: this.config.subagents?.inactivityTimeoutMs,
     autoBackgroundMs: this.config.subagents?.autoBackgroundMs,
     outputRootDir: this.config.subagents?.outputRootDir,
+    readChildSessionUpdatedAt: async (childSessionId) =>
+      (await this.sessionStore?.getSession(childSessionId))?.time.updated,
+    findTranscriptAgentOutputFile: (agentId) => this.transcriptAgentOutputFiles.get(agentId),
     getAgentDefinitions: this.getAgentDefinitions,
     builtInModelSelectionOverrides: this.config.subagents?.builtInModelSelectionOverrides,
     runtimeTaskRegistry: this.runtimeTaskRegistry,
@@ -165,14 +184,27 @@ export function createDefaultSubagentPort(
         const agentPrompt = [baseAgentPrompt, persistentMemory?.prompt]
           .filter((part): part is string => typeof part === "string" && part.length > 0)
           .join("\n\n");
+        const announcedEnvironment = latestAnnouncedEnvironment(
+          this.messageHistory.borrowReadOnlyRuntimeEntries(),
+        );
         const childRuntimeEnvInfo = {
           ...childEnvInfo,
-
+          // 父会话切目录后，起始快照的仓库属性已过期；只继承同一 cwd 的最近已接受环境。
+          // 附加目录属于父运行配置，child 不继承，不能随快照混入 envInfo。
+          ...(announcedEnvironment?.cwd === request.workingDirectory
+            ? {
+                platform: announcedEnvironment.platform,
+                shell: announcedEnvironment.shell,
+                osVersion: announcedEnvironment.osVersion,
+                isGitRepository: announcedEnvironment.isGitRepository,
+              }
+            : {}),
           cwd: request.workingDirectory,
         };
+        const mcpConfiguration = this.mcpSession?.read().configuration;
         const officialCuaServerNames = computeOfficialCuaServerNames(
-          this.config.mcp?.servers ?? {},
-          new Set(this.config.mcp?.trustedOfficialCuaServerNames ?? []),
+          mcpConfiguration?.servers ?? {},
+          new Set(mcpConfiguration?.trustedOfficialCuaServerNames ?? []),
         );
         const preflightCuaPolicy = createOfficialCuaPolicy(
           officialCuaServerNames,
@@ -290,6 +322,7 @@ export function createDefaultSubagentPort(
             workspaceIdentity:
               this.config.workspaceIdentity ??
               (this.config.memory?.workspaceIdentity?.trim() as WorkspaceId | undefined),
+            workspaceKey: this.config.workspaceKey,
             // 执行模型只由 child Active Model 投影进 Context；envInfo 不保存第二份模型事实。
             envInfo: childRuntimeEnvInfo,
             // Explore 子运行时之前没有继承主会话的流式配置，Protocol 桌面端虽已默认
@@ -300,6 +333,7 @@ export function createDefaultSubagentPort(
             bashTimeoutPolicy: this.config.bashTimeoutPolicy,
             midConversationSystem: this.config.midConversationSystem,
             toolSearch: this.config.toolSearch,
+            totalTokensReminder: this.config.totalTokensReminder,
             bashShellSelection,
             // child 只复用父 runtime 已解析的 instructions snapshot；Project Context 仍不继承。
             currentDate: this.contextSourceSnapshot?.currentDate ?? this.config.currentDate,
@@ -329,12 +363,14 @@ export function createDefaultSubagentPort(
             toolDisallowlist: this.config.toolDisallowlist,
             embeddedSearchBackend: this.config.embeddedSearchBackend,
             nativeSearchEnhancementsEnabled: this.config.nativeSearchEnhancementsEnabled,
-            // fork（docs/spec/delete-protection.md）：删除保护结构性继承——子代理绕过它
-            // 等于绕过移废纸篓/批量审批。上游此位置已无该字段，合并时按 fork 语义补回。
-            deleteProtection: this.config.deleteProtection,
             subagents: {
               backgroundBashMaxMs: this.config.subagents?.backgroundBashMaxMs,
               enabled: false,
+              // 构造时读一次 runner 的实时状态：前台启动的子代理之后转后台，仍按同步语义说明后台 Bash。
+              // 前提：前台转后台的入口（立即发送的认领、自动转后台计时器）都在 child session 就绪后才打开，
+              // 晚于这里的构造，所以前台启动时读到的一定是 false。以后若允许启动阶段转后台
+              // （例如 runner 的 backgroundTask() 接入 UI），要改为由 runner 传入启动时的静态值。
+              startedInForeground: request.background !== true,
             },
             mcp: childMcpAccess.config,
           },
@@ -345,10 +381,17 @@ export function createDefaultSubagentPort(
             // 可能晚于父 Tool/Turn 结束，只能作为独立 Trace 用 Link 保留因果关系。
             agentTelemetryCausationMode: request.background ? "linked_root" : "child",
             eventStore: this.eventStore,
+            // 日期公告取运行时时钟；child 继承父时钟，父子只有一个日期来源。
+            now: this.now,
             sessionStore: deps.sessionStore,
-            // 子 runtime 继承父的模型请求准入端口：subagent 的请求 provider 同样看得见，
-            // 它们该与父一样喂治理器信号（父是 observer 则子也是 observer）。
-            modelRequestAdmission: this.modelRequestAdmission,
+            // 共享宿主环境读取端口，只用于 child 内 cd 之后的环境探测；初始快照和指令都取父级传下的配置。
+            contextSourcePort: this.contextSourcePort,
+            // 子 runtime 的模型请求准入：装配方给了 subagent 工厂就用它（受闸门约束，同一父会话的
+            // subagent 共用一条队列）；没给则沿用父的端口。
+            // 修复原因：subagent 曾直接继承父的 observer（不排队、不看 Retry-After），一轮并行多个
+            // Agent 调用会放大成 1302 风暴（docs/dynamic-workflow/concurrency.md「Where the port is bound」）。
+            modelRequestAdmission:
+              deps.subagentModelRequestAdmission?.(this.sessionId) ?? this.modelRequestAdmission,
             modelFactory: childModelFactory,
             resolveEffectiveModelSelection: deps.resolveEffectiveModelSelection,
             // 子 runtime 自己仍使用 request.sessionId 做事件持久化和 trace 归档；对外阻塞交互
@@ -378,13 +421,21 @@ export function createDefaultSubagentPort(
             imageProcessorPort: deps.imageProcessorPort,
             pdfDocumentPort: deps.pdfDocumentPort,
             memoryRoot: persistentMemory?.rootDir,
-            mcpPort: childMcpAccess.port,
+            ...childMcpAccess.deps,
             skillPort: childSkillPort,
             artifactStore: deps.artifactStore,
             appVersion: this.appVersion,
             eventSink: {
               onSessionEvent: async (event) => {
                 request.reportActivity?.();
+                request.onEvent?.(event);
+                noteSubagentActivity(
+                  this.runtimeTaskRegistry,
+                  request.agentId,
+                  event,
+                  Date.now(),
+                  request.executionId,
+                );
                 // child runtime 的事件已经按 childSessionId 落库，但旧链路只把
                 // 少量工具事件镜像给 parent sink，导致 UI 订阅 child topic 后只能拿到打开时
                 // 的 hydration，后续流式内容不会更新。raw child event 只通知父 runtime 的
@@ -420,74 +471,76 @@ export function createDefaultSubagentPort(
           },
         );
 
-        const resumesExistingChild = request.resumeFromStore === true;
-        if (childBinding)
-          markTemporaryRuntimeSelection(
-            childRuntime as unknown as AgentRuntimeInternal,
-            offPeak?.ordinarySelection,
-          );
-        let previousSelection: ModelSelection | undefined;
-        if (resumesExistingChild) {
-          const persistedMessages = await this.sessionStore?.messages({
-            sessionID: request.sessionId,
-          });
-          // terminal resume 只恢复已有历史；模型初始化前失败不能变成一次空 session 创建。
-          if (!persistedMessages?.length) {
-            throw createCoreError(
-              CoreErrorType.SessionNotFound,
-              `No transcript found for agent ${request.agentId}`,
-              { recoverable: true },
-            );
-          }
-          const entries = await this.sessionStore?.sessionEntries?.({
-            sessionID: request.sessionId,
-            type: SESSION_ENTRY_MODEL_SELECTION,
-          });
-          previousSelection = parseModelSelectionValue(entries?.at(-1)?.data);
-          await childRuntime.resumeFromStore({
-            // 修复原因：恢复曾沿用子会话落盘时的模式，父会话改模式或升级后（Explore 曾固定 yolo）
-            // 恢复的子会话仍按旧模式运行；这里用本次按父会话当前状态算出的模式覆盖。
-            executionStateOverride: childExecutionState,
-            persistedMessages,
-            traceContext: request.traceContext,
-          });
-          // 恢复只导入历史；本轮 profile 选出的模型仍是执行权威，并更新冷恢复所用的选择记录。
-          await persistRuntimeModelSelection(
-            childRuntime as unknown as AgentRuntimeInternal,
-            childSelection,
-          );
-        } else {
-          // 父会话过去先发布 SubagentSpawned，child 的首轮 executeTurn 才落库。
-          // 并发派生时目录查询会在两者之间读到少一个 child。这里把持久化提升为发布前闸门。
-          await childRuntime.ensureSessionPersistedForExternalActivity(request.prompt, {
-            traceContext: request.traceContext,
-          });
-        }
-        await notifySessionReady();
-        if (
-          !resumesExistingChild ||
-          (previousSelection && !sameModelSelection(previousSelection, childSelection))
-        ) {
-          // 同模型恢复不重复插入分隔线；配置变化复用现有事件和 transcript 记录。
-          childRuntime.recordPendingModelChange({
-            ...(previousSelection
-              ? {
-                  fromModel: previousSelection,
-                  fromModelLabel: `${previousSelection.providerId}/${previousSelection.modelId}`,
-                }
-              : {}),
-            toModel: childSelection,
-            toModelLabel: `${childSelection.providerId}/${childSelection.modelId}`,
-          });
-          await childRuntime.emitModelSelected({
-            modelSelection: childSelection,
-            effectiveReasoningLevel: childModel.options.reasoningLevel,
-            previousModelSelection: previousSelection ?? null,
-            traceContext: request.traceContext,
-          });
-        }
-        request.registerMessageSink?.(createSubagentMessageSink(childRuntime, request));
+        // 已完成的 child 仍可能拥有后台 Bash、title/MCP 等工作；父 session 关闭时仍需找到它。
+        ownedRuntimes.add(childRuntime);
         try {
+          const resumesExistingChild = request.resumeFromStore === true;
+          if (childBinding)
+            markTemporaryRuntimeSelection(
+              childRuntime as unknown as AgentRuntimeInternal,
+              offPeak?.ordinarySelection,
+            );
+          let previousSelection: ModelSelection | undefined;
+          if (resumesExistingChild) {
+            const persistedMessages = await this.sessionStore?.messages({
+              sessionID: request.sessionId,
+            });
+            // terminal resume 只恢复已有历史；模型初始化前失败不能变成一次空 session 创建。
+            if (!persistedMessages?.length) {
+              throw createCoreError(
+                CoreErrorType.SessionNotFound,
+                `No transcript found for agent ${request.agentId}`,
+                { recoverable: true },
+              );
+            }
+            const entries = await this.sessionStore?.sessionEntries?.({
+              sessionID: request.sessionId,
+              type: SESSION_ENTRY_MODEL_SELECTION,
+            });
+            previousSelection = parseModelSelectionValue(entries?.at(-1)?.data);
+            await childRuntime.resumeFromStore({
+              // 修复原因：恢复曾沿用子会话落盘时的模式，父会话改模式或升级后（Explore 曾固定 yolo）
+              // 恢复的子会话仍按旧模式运行；这里用本次按父会话当前状态算出的模式覆盖。
+              executionStateOverride: childExecutionState,
+              persistedMessages,
+              traceContext: request.traceContext,
+            });
+            // 恢复只导入历史；本轮 profile 选出的模型仍是执行权威，并更新冷恢复所用的选择记录。
+            await persistRuntimeModelSelection(
+              childRuntime as unknown as AgentRuntimeInternal,
+              childSelection,
+            );
+          } else {
+            // 父会话过去先发布 SubagentSpawned，child 的首轮 executeTurn 才落库。
+            // 并发派生时目录查询会在两者之间读到少一个 child。这里把持久化提升为发布前闸门。
+            await childRuntime.ensureSessionPersistedForExternalActivity(request.prompt, {
+              traceContext: request.traceContext,
+            });
+          }
+          await notifySessionReady();
+          if (
+            !resumesExistingChild ||
+            (previousSelection && !sameModelSelection(previousSelection, childSelection))
+          ) {
+            // 同模型恢复不重复插入分隔线；配置变化复用现有事件和 transcript 记录。
+            childRuntime.recordPendingModelChange({
+              ...(previousSelection
+                ? {
+                    fromModel: previousSelection,
+                    fromModelLabel: `${previousSelection.providerId}/${previousSelection.modelId}`,
+                  }
+                : {}),
+              toModel: childSelection,
+              toModelLabel: `${childSelection.providerId}/${childSelection.modelId}`,
+            });
+            await childRuntime.emitModelSelected({
+              modelSelection: childSelection,
+              effectiveReasoningLevel: childModel.options.reasoningLevel,
+              previousModelSelection: previousSelection ?? null,
+              traceContext: request.traceContext,
+            });
+          }
+          request.registerMessageSink?.(createSubagentMessageSink(childRuntime, request));
           return await childRuntime.executeTurn(request.prompt, undefined, {
             ...(childBinding
               ? {
@@ -511,20 +564,20 @@ export function createDefaultSubagentPort(
             reason: cancelled ? "subagent_cancelled" : "subagent_terminal",
             traceContext: request.traceContext,
           });
-          if (cancelled) {
-            await childRuntime.cancelRunningRuntimeBackgroundTasks({
-              reason: "subagent_cancelled",
-              traceContext: request.traceContext,
-            });
-          }
-          await childBrowserControlPort
-            ?.closeSession?.({ sessionId: request.sessionId, traceContext: request.traceContext })
-            .catch((error: unknown) => {
-              this.logger?.warn("Subagent browser session cleanup failed", {
+          // 执行结果与资源释放分开；失败保留句柄，最终 owner close 依据当时释放结果判断。
+          const released = cancelled ? childRuntime.close() : childRuntime.retire();
+          const release = released.then(
+            () => {
+              ownedRuntimes.delete(childRuntime);
+            },
+            (error: unknown) =>
+              this.logger?.warn("Subagent resource cleanup pending", {
+                event: "subagent.cleanup.pending",
+                childSessionId: request.sessionId,
                 error: error instanceof Error ? error.message : String(error),
-                event: "browser.session_cleanup.failed",
-              });
-            });
+              }),
+          );
+          if (cancelled || !childRuntime.hasResidencyBlockingWork()) await release;
         }
       } finally {
         childBinding?.release();
@@ -676,7 +729,7 @@ function appendCoordinatorResponseTool(toolNames: readonly string[]): readonly s
 
 interface ResolvedSubagentMcpAccess {
   config: { enabled?: boolean } | undefined;
-  port: McpPort | undefined;
+  deps: Pick<AgentRuntimeDeps, "mcpPort">;
   parentSnapshot: McpConnectionSnapshot | undefined;
   snapshot: McpConnectionSnapshot | undefined;
 }
@@ -687,35 +740,59 @@ async function resolveSubagentMcpAccess(
   officialCuaServerNames: ReadonlySet<string>,
 ): Promise<ResolvedSubagentMcpAccess> {
   if (!shouldBorrowParentMcp(request)) {
-    return { config: undefined, parentSnapshot: undefined, port: undefined, snapshot: undefined };
+    return {
+      config: undefined,
+      parentSnapshot: undefined,
+      deps: { mcpPort: undefined },
+      snapshot: undefined,
+    };
   }
 
   const scopedServerNames = request.profile.mcpServers?.length
     ? request.profile.mcpServers
     : undefined;
-  if (!this.mcpPort || this.config.mcp?.enabled === false) {
+  if (!this.mcpPort || this.mcpSession?.read().configuration.enabled === false) {
     if (scopedServerNames) {
       throw createSubagentMcpUnavailableError(request);
     }
     return {
-      config: this.config.mcp?.enabled === false ? { enabled: false } : undefined,
+      config:
+        this.mcpSession?.read().configuration.enabled === false ? { enabled: false } : undefined,
       parentSnapshot: undefined,
-      port: undefined,
+      deps: { mcpPort: undefined },
       snapshot: undefined,
     };
   }
 
-  // child 不拥有连接生命周期，只能复用 parent constructor 已创建的启动快照。
-  const parentStartupSnapshot = await this.mcpStartupPromise;
-  if (!parentStartupSnapshot) {
+  // 启动任务只负责等待；新 child 的范围必须来自当前目录，否则 list_changed 永久不可继承。
+  // 等待集合 = mcpServers ∪ tools 引用的 server：修复前只等 mcpServers，只在 tools 里写
+  // MCP 工具的子 agent 在启动窗口内会被下面的校验判为工具缺失。继承全部工具时不校验，也不等。
+  const inheritsAvailableTools =
+    request.allowedTools.length === 0 || request.allowedTools.includes("*");
+  const referencedServerNames = inheritsAvailableTools
+    ? []
+    : resolveReferencedMcpServerNames(
+        request.allowedTools,
+        Object.keys(this.mcpPort.getToolSnapshot()),
+      );
+  const access = await this.createChildMcpAccess(scopedServerNames, officialCuaServerNames, {
+    waitFor: [...new Set([...(scopedServerNames ?? []), ...referencedServerNames])],
+  });
+  const parentSnapshot = access.parentSnapshot;
+  if (!parentSnapshot) {
     if (scopedServerNames) {
       throw createSubagentMcpUnavailableError(request);
     }
-    return { config: undefined, parentSnapshot: undefined, port: undefined, snapshot: undefined };
+    return {
+      config: undefined,
+      parentSnapshot: undefined,
+      deps: { mcpPort: undefined },
+      snapshot: undefined,
+    };
   }
 
   const unavailableScopedServerNames = (scopedServerNames ?? []).filter(
-    (serverName) => parentStartupSnapshot.statuses[serverName]?.status !== "connected",
+    (serverName) => parentSnapshot.statuses[serverName]?.status !== "connected",
   );
   if (unavailableScopedServerNames.length > 0) {
     throw createCoreError(
@@ -731,18 +808,7 @@ async function resolveSubagentMcpAccess(
     );
   }
 
-  const borrowed = createBorrowedSubagentMcpAccess(
-    this.mcpPort,
-    parentStartupSnapshot,
-    scopedServerNames,
-    officialCuaServerNames,
-  );
-  return {
-    config: { enabled: true },
-    parentSnapshot: parentStartupSnapshot,
-    port: borrowed.port,
-    snapshot: borrowed.snapshot,
-  };
+  return access;
 }
 
 function shouldBorrowParentMcp(request: ExploreSubagentRuntimeRequest): boolean {
@@ -769,7 +835,7 @@ function validateSubagentMcpRequirements(
     normalizedAllowedTools.filter(isMcpServerSelector),
   );
   if (requiredToolNames.length === 0 && requiredServerNames.length === 0) return;
-  if (!access.port || !access.snapshot) {
+  if (!access.deps.mcpPort || !access.snapshot) {
     throw createSubagentMcpUnavailableError(request, requiredToolNames);
   }
   const snapshot = access.snapshot;
@@ -797,7 +863,7 @@ function validateSubagentMcpRequirements(
 
   throw createCoreError(
     CoreErrorType.ConfigurationError,
-    `Required MCP tool is not available in the parent startup snapshot: ${missingToolNames.join(", ")}`,
+    `Required MCP tool is not available in the parent MCP snapshot: ${missingToolNames.join(", ")}`,
     {
       context: {
         agentType: request.agentType,
@@ -822,7 +888,7 @@ function createSubagentMcpUnavailableError(
 ) {
   return createCoreError(
     CoreErrorType.ConfigurationError,
-    "Subagent MCP is unavailable because the parent startup snapshot is unavailable",
+    "Subagent MCP is unavailable because the parent MCP snapshot is unavailable",
     {
       context: {
         agentType: request.agentType,
@@ -879,20 +945,10 @@ class FilteredSkillPort implements SkillPort {
       throw createSubagentComputerUseUnavailableError(request.name);
     }
     const resolvedName = await this.resolveAllowedSkillRequestName(request, options);
-    if (!resolvedName) {
-      throw createCoreError(
-        CoreErrorType.ToolExecutionFailed,
-        "Skill is not allowed for subagent",
-        {
-          context: {
-            allowedSkills: this.allowedSkills ? [...this.allowedSkills] : [],
-            skill: request.name,
-            toolName: "Skill",
-          },
-          recoverable: true,
-        },
-      );
-    }
+    // 修复原因：名称不在子代理能看到的目录里时原来抛不带 <tool_use_error> 的 `Skill is not allowed for subagent`，
+    // 与主会话的 `Unknown skill` 不一致。子代理看到的只有过滤后的目录，白名单之外与不存在对它是一回事；
+    // 抛 SkillNotFoundError 后由 Skill handler 统一报错，Did you mean 也只从过滤后的目录里选。
+    if (!resolvedName) throw new SkillNotFoundError(request.name);
     return this.parent.loadSkill({ ...request, name: resolvedName }, options);
   }
 

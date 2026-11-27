@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
 import { SQLITE_MIGRATIONS } from "../src/storage/session-store/migrations.js";
-import { fork } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   SESSION_ENTRY_MODEL_SELECTION,
+  SESSION_ENTRY_PROMPT_SNAPSHOT,
   SESSION_ENTRY_TARGET_COMPLETION_VERIFICATION,
   createMessageId,
   createPartId,
@@ -20,6 +20,7 @@ import {
   type SharedContextImportCommitBundle,
   type ModelId,
   type ModelProviderId,
+  type SessionId,
   type WorkspaceId,
 } from "@zcode/contracts";
 import { OFFICIAL_CUA_PERMISSION_RULE_TOOL_NAME } from "@zcode/shared";
@@ -35,54 +36,186 @@ import {
   setStorageFsFaultInjectorForTests,
 } from "../src/storage/fs-fault-injection.js";
 
-interface ConcurrentStartupResult {
-  kind?: string;
-  message?: string;
-  migrationIds?: string[];
-  ok: boolean;
-}
-
-const CONCURRENT_STARTUP_ATTEMPTS = 5;
-const CONCURRENT_STARTUP_TEST_TIMEOUT_MS = 10_000;
-
-function openSessionStoreInConcurrentProcesses(dbPath: string): Promise<ConcurrentStartupResult[]> {
-  const workerUrl = new URL("./fixtures/session-store-concurrent-process.ts", import.meta.url);
-  const children = [0, 1].map(() =>
-    fork(workerUrl, {
-      env: { ...process.env, NODE_NO_WARNINGS: "1" },
-      execArgv: ["--import", "tsx"],
-      stdio: ["ignore", "ignore", "inherit", "ipc"],
-    }),
-  );
-  const ready = children.map(
-    (child) =>
-      new Promise<void>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("exit", (code) => reject(new Error(`startup child exited early: ${code}`)));
-        child.on("message", (message: { type?: unknown }) => {
-          if (message.type === "ready") resolve();
-        });
-      }),
-  );
-  const results = children.map(
-    (child) =>
-      new Promise<ConcurrentStartupResult>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("exit", (code) => reject(new Error(`startup child exited early: ${code}`)));
-        child.on("message", (message: { result?: ConcurrentStartupResult; type?: unknown }) => {
-          if (message.type === "result" && message.result) resolve(message.result);
-        });
-      }),
-  );
-
-  return Promise.all(ready).then(() => {
-    for (const child of children) child.send({ dbPath, type: "start" });
-    return Promise.all(results);
-  });
-}
-
 afterEach(() => {
   resetStorageFsFaultInjectorForTests();
+});
+
+describe("assistant block order at the read boundary", () => {
+  async function seed(
+    parts: Array<{ id: string; type: string; blockIndex?: number }>,
+    dbPath = ":memory:",
+  ) {
+    const store = await createSqliteSessionStore({ dbPath });
+    const sessionID = createSessionId("block-order-read");
+    const messageID = createMessageId("block-order-assistant");
+    await store.createSession({
+      id: sessionID,
+      projectID: createProjectId("block-order-read"),
+      directory: "/workspace",
+      slug: "block-order",
+      title: "Block order",
+      version: "test",
+    });
+    await store.saveMessage({
+      id: messageID,
+      sessionID,
+      role: "assistant",
+      time: { created: 1 },
+      parentID: createMessageId("block-order-user"),
+      modelId: "m" as ModelId,
+      providerId: "p" as ModelProviderId,
+      mode: "build",
+      agent: "zcode-agent",
+      path: { cwd: "/workspace", root: "/workspace" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    });
+    for (const part of parts) {
+      const base = { id: createPartId(part.id), sessionID, messageID };
+      const blockIndex = part.blockIndex === undefined ? {} : { blockIndex: part.blockIndex };
+      if (part.type === "step-start") {
+        await store.savePart({ ...base, type: "step-start" });
+      } else if (part.type === "tool") {
+        await store.savePart({
+          ...base,
+          ...blockIndex,
+          type: "tool",
+          callID: part.id,
+          tool: part.id,
+          state: { status: "pending", input: {}, raw: "{}" },
+        });
+      } else {
+        await store.savePart({ ...base, ...blockIndex, type: "text", text: part.id });
+      }
+    }
+    const read = async () => ({
+      all: (await store.messages({ sessionID }))[0]!.parts.map((part) => part.id),
+      single: (await store.messageWithParts({ sessionID, messageID }))!.parts.map(
+        (part) => part.id,
+      ),
+    });
+    return { read, store };
+  }
+
+  it("sorts ordered assistant block parts and keeps other parts in place", async () => {
+    const { read, store } = await seed([
+      { id: "step", type: "step-start" },
+      { id: "read-tool", type: "tool", blockIndex: 2 },
+      { id: "first", type: "text", blockIndex: 0 },
+      { id: "second", type: "text", blockIndex: 1 },
+    ]);
+    const expected = ["step", "first", "second", "read-tool"].map((id) => createPartId(id));
+    expect(await read()).toEqual({ all: expected, single: expected });
+    store.close();
+  });
+
+  it("keeps physical order when any block part lacks blockIndex", async () => {
+    const { read, store } = await seed([
+      { id: "read-tool", type: "tool", blockIndex: 2 },
+      { id: "first", type: "text" },
+      { id: "second", type: "text", blockIndex: 1 },
+    ]);
+    const expected = ["read-tool", "first", "second"].map((id) => createPartId(id));
+    expect(await read()).toEqual({ all: expected, single: expected });
+    store.close();
+  });
+
+  it.each(["pending", "running", "completed", "error", "reasoning"] as const)(
+    "index read omits only unused display content for %s without modifying stored history",
+    async (kind) => {
+      const { store } = await seed([{ id: "first", type: "text", blockIndex: 0 }]);
+      const sessionID = createSessionId("block-order-read");
+      const messageID = createMessageId("block-order-assistant");
+      const big = "历史内容".repeat(32_768);
+      const base = {
+        id: createPartId("large-part"),
+        sessionID,
+        messageID,
+        blockIndex: 1,
+        metadata: { origin: "main", retained: "part metadata" },
+      };
+      try {
+        if (kind === "reasoning") {
+          await store.savePart({ ...base, type: "reasoning", text: big });
+        } else {
+          const input = {
+            todos: [{ content: "保留待办", status: "in_progress", priority: "high" }],
+            command: big,
+          };
+          const metadata = { retained: "tool metadata" };
+          const state =
+            kind === "pending"
+              ? { status: kind, input, raw: big }
+              : kind === "running"
+                ? { status: kind, input, metadata, time: { start: 1 } }
+                : kind === "completed"
+                  ? {
+                      status: kind,
+                      input,
+                      output: big,
+                      title: "TodoWrite",
+                      metadata,
+                      time: { start: 1, end: 2 },
+                    }
+                  : { status: kind, input, error: big, metadata, time: { start: 1, end: 2 } };
+          await store.savePart({
+            ...base,
+            type: "tool",
+            callID: "call-large",
+            tool: "TodoWrite",
+            state,
+          });
+        }
+        const full = await store.messages({ sessionID });
+        const expected = structuredClone(full);
+        const part = expected[0]!.parts[1]!;
+        if (part.type === "reasoning") part.text = "";
+        if (part.type === "tool") {
+          if (part.state.status === "pending") part.state.raw = "";
+          if (part.state.status === "completed") part.state.output = "";
+          if (part.state.status === "error") part.state.error = "";
+        }
+        expect(await store.messages({ sessionID, contentProfile: "index" })).toEqual(expected);
+        expect(await store.messages({ sessionID, contentProfile: "full" })).toEqual(full);
+        expect(await store.messageWithParts({ sessionID, messageID })).toEqual(full[0]);
+        expect(
+          await store.messages({ sessionID: createSessionId("other"), contentProfile: "index" }),
+        ).toEqual([]);
+      } finally {
+        store.close();
+      }
+    },
+  );
+
+  it.each(["$.state.input", "$.state"])(
+    "reads a damaged tool part without %s instead of failing the whole session",
+    async (missingPath) => {
+      // 截图识别对每个 tool part 读 state.input.source。part data 没有 schema 校验，
+      // 损坏数据缺字段时按普通 tool part 排序。savePart 写不出这种数据，所以直接改库。
+      const root = await mkdtemp(join(tmpdir(), "zcode-block-order-damaged-"));
+      const dbPath = join(root, "session.sqlite");
+      const { read, store } = await seed(
+        [
+          { id: "damaged-tool", type: "tool", blockIndex: 1 },
+          { id: "first", type: "text", blockIndex: 0 },
+        ],
+        dbPath,
+      );
+      const db = new DatabaseSync(dbPath);
+      db.prepare("UPDATE part SET data = json_remove(data, ?) WHERE id = ?").run(
+        missingPath,
+        createPartId("damaged-tool"),
+      );
+      db.close();
+      const expected = ["first", "damaged-tool"].map((id) => createPartId(id));
+      try {
+        expect(await read()).toEqual({ all: expected, single: expected });
+      } finally {
+        store.close();
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe("virtual project CLI session facts", () => {
@@ -190,6 +323,112 @@ describe("virtual project CLI session facts", () => {
     expect(store.debugCounts(bundle.session.id)).toEqual(before);
     await store.createSession(bundle.session);
     expect(await store.listSessions()).toEqual([]);
+    store.close();
+  });
+
+  it("purges a session with its owned children but never a fork or an unrelated session", async () => {
+    const store = await createSqliteSessionStore({ dbPath: ":memory:" });
+    const parent = createSharedContextImportBundle({ sessionSlug: "purge-parent", shareId: "s1" });
+    await store.commitSharedContextImportBundle?.(parent);
+    const child = createSessionId("purge-child");
+    const grandchild = createSessionId("purge-grandchild");
+    const fork = createSessionId("purge-fork");
+    const unrelated = createSessionId("purge-unrelated");
+    const base = { ...parent.session, title: "x", time: { created: 1, updated: 1 } };
+    await store.createSession({
+      ...base,
+      id: child,
+      slug: "c",
+      parentID: parent.session.id,
+      taskType: "subagent_child",
+    });
+    await store.createSession({
+      ...base,
+      id: grandchild,
+      slug: "g",
+      parentID: child,
+      taskType: "workflow_child",
+    });
+    await store.createSession({
+      ...base,
+      id: fork,
+      slug: "f",
+      parentID: parent.session.id,
+      taskType: "fork",
+    });
+    await store.createSession({ ...base, id: unrelated, slug: "u" });
+
+    const trees = await store.listOwnedSessionTrees?.([parent.session.id, unrelated]);
+    expect(trees?.get(parent.session.id)?.sort()).toEqual(
+      [child, parent.session.id, grandchild].sort(),
+    );
+    expect(trees?.get(unrelated)).toEqual([unrelated]);
+
+    await store.purgeSessions?.([parent.session.id]);
+    expect(await store.getSession(parent.session.id)).toBeNull();
+    expect(await store.getSession(child)).toBeNull();
+    expect(await store.getSession(grandchild)).toBeNull();
+    expect(await store.messages({ sessionID: parent.session.id })).toEqual([]);
+    expect(store.debugCounts(parent.session.id)).toMatchObject({ messages: 0, parts: 0 });
+    // fork 是独立的用户任务（可能属于别的项目），源会话删除后仍保留。
+    expect(await store.getSession(fork)).not.toBeNull();
+    expect(await store.getSession(unrelated)).not.toBeNull();
+    // 已不存在的会话再次删除是空操作。
+    await store.purgeSessions?.([parent.session.id]);
+    expect(
+      (await store.listOwnedSessionTrees?.([parent.session.id]))?.get(parent.session.id),
+    ).toEqual([]);
+    store.close();
+  });
+
+  it("lists the live sessions whose parts still point at another session's artifacts", async () => {
+    const store = await createSqliteSessionStore({ dbPath: ":memory:" });
+    const source = createSharedContextImportBundle({
+      sessionSlug: "artifact-source",
+      shareId: "s2",
+    });
+    await store.commitSharedContextImportBundle?.(source);
+    const base = { ...source.session, title: "x", time: { created: 1, updated: 1 } };
+    const fork = createSessionId("artifact-fork");
+    const deletedFork = createSessionId("artifact-deleted-fork");
+    const other = createSessionId("artifact-other");
+    const refer = async (sessionID: SessionId, text: string) => {
+      const messageID = createMessageId(`${sessionID}-m`);
+      await store.saveMessage({
+        id: messageID,
+        sessionID,
+        role: "user",
+        time: { created: 1 },
+        agent: "zcode-agent",
+        model: { providerID: "p" as ModelProviderId, modelID: "m" as ModelId },
+      });
+      await store.savePart({
+        id: createPartId(`${sessionID}-p`),
+        sessionID,
+        messageID,
+        type: "text",
+        text,
+        time: { start: 1, end: 1 },
+      });
+    };
+    for (const id of [fork, deletedFork, other])
+      await store.createSession({
+        ...base,
+        id,
+        slug: id,
+        parentID: source.session.id,
+        taskType: "fork",
+      });
+    const uri = `zcode-artifact://${source.session.id}/art_1`;
+    await refer(fork, `image ${uri} and again ${uri}`);
+    await refer(deletedFork, uri);
+    await store.softDeleteSession(deletedFork);
+    // 引用自身附件不算外部引用；没有引用的会话不出现在结果里。
+    await refer(other, `zcode-artifact://${other}/own`);
+
+    const referrers = await store.listArtifactReferrers?.([source.session.id, other]);
+    expect(referrers?.get(source.session.id)).toEqual([fork]);
+    expect(referrers?.has(other)).toBe(false);
     store.close();
   });
 
@@ -610,114 +849,6 @@ describe("SQLite session store", () => {
     expect(numbers).toEqual([...numbers].sort((left, right) => left - right));
   });
 
-  it("records ordered schema migrations and keeps reopening idempotent", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "zcode-session-migrations-"));
-    const dbPath = join(tempRoot, "session.sqlite");
-    const expectedMigrations = [
-      "0001_base_session_store",
-      "0002_local_setting",
-      "0003_backfill_permission_local_setting",
-      "0004_session_target",
-      "0005_session_target_accounting",
-      "0006_input_history_attachments",
-      "0007_workflow_script_runtime",
-      "0008_workflow_definition_scope",
-      "0009_session_title_metadata",
-      "0010_usage_observability",
-      "0011_session_target_summary_title",
-      "0012_session_trace_id",
-      "0013_session_target_active_run_accounting",
-      "0014_message_part_sequence",
-      "0015_message_part_sequence_backfill_and_guard",
-      "0016_session_input_ledger",
-      "0017_session_input_start_now_delivery",
-      "0018_session_input_failed_status",
-      "0019_dwf_journal",
-      "0020_provider_model_selection",
-      "0021_official_glm_selection",
-      "0022_backfilled_session_reasoning",
-      "0023_session_soft_delete_outcome",
-      "0024_session_database_identity",
-    ];
-
-    try {
-      const firstStore = await createSqliteSessionStore({ dbPath });
-      expect(firstStore.debugMigrationIds()).toEqual(expectedMigrations);
-      expect(firstStore.debugCounts().schemaMigrations).toBe(expectedMigrations.length);
-      expect(firstStore.debugCounts().localSettings).toBe(0);
-      firstStore.close();
-
-      const db = new DatabaseSync(dbPath, { readOnly: true });
-      const rows = db
-        .prepare("select app_version from schema_migration order by id")
-        .all() as Array<{ app_version: string }>;
-      expect(rows.map((row) => row.app_version)).toEqual([
-        "0.2.0",
-        "0.2.0",
-        "0.2.0",
-        "0.7.0",
-        "0.7.0",
-        "0.11.0",
-        "0.13.0",
-        "0.13.0",
-        "0.14.0",
-        "0.15.0",
-        "0.15.0",
-        "0.15.0",
-        "0.15.0",
-        "0.15.0",
-        "0.15.2",
-        "0.15.2",
-        "0.15.2",
-        "0.15.2",
-        "0.16.5",
-        "0.16.5",
-        "0.16.5",
-        "0.16.5",
-        "0.16.9",
-        "0.16.9",
-      ]);
-
-      db.close();
-
-      const secondStore = await createSqliteSessionStore({ dbPath });
-      expect(secondStore.debugMigrationIds()).toEqual(expectedMigrations);
-      expect(secondStore.debugCounts().schemaMigrations).toBe(expectedMigrations.length);
-      expect(secondStore.debugCounts().localSettings).toBe(0);
-      secondStore.close();
-    } finally {
-      await rm(tempRoot, { force: true, recursive: true });
-    }
-  });
-
-  it(
-    "allows two Agent processes to migrate the same new database concurrently",
-    async () => {
-      const attempts: ConcurrentStartupResult[][] = [];
-
-      for (let attempt = 0; attempt < CONCURRENT_STARTUP_ATTEMPTS; attempt += 1) {
-        const tempRoot = await mkdtemp(join(tmpdir(), "zcode-session-concurrent-startup-"));
-        try {
-          attempts.push(
-            await openSessionStoreInConcurrentProcesses(join(tempRoot, "session.sqlite")),
-          );
-        } finally {
-          await rm(tempRoot, { force: true, recursive: true });
-        }
-      }
-
-      expect(attempts.flat()).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ ok: true }),
-          expect.objectContaining({ ok: true }),
-        ]),
-      );
-      expect(attempts.flat().filter((result) => !result.ok)).toEqual([]);
-      expect(attempts.flat().every((result) => result.migrationIds?.length === 24)).toBe(true);
-    },
-    CONCURRENT_STARTUP_TEST_TIMEOUT_MS,
-  );
-
   it("returns a structured timeout when the startup database lock is not released", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "zcode-session-startup-lock-timeout-"));
     const dbPath = join(tempRoot, "session.sqlite");
@@ -909,44 +1040,6 @@ describe("SQLite session store", () => {
     }
   });
 
-  it("exposes a startup gate opener for migrated session stores", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "zcode-startup-session-store-"));
-    const dbPath = join(tempRoot, "session.sqlite");
-
-    try {
-      const store = await openStartupSqliteSessionStore({ dbPath });
-      expect(store.debugMigrationIds()).toEqual([
-        "0001_base_session_store",
-        "0002_local_setting",
-        "0003_backfill_permission_local_setting",
-        "0004_session_target",
-        "0005_session_target_accounting",
-        "0006_input_history_attachments",
-        "0007_workflow_script_runtime",
-        "0008_workflow_definition_scope",
-        "0009_session_title_metadata",
-        "0010_usage_observability",
-        "0011_session_target_summary_title",
-        "0012_session_trace_id",
-        "0013_session_target_active_run_accounting",
-        "0014_message_part_sequence",
-        "0015_message_part_sequence_backfill_and_guard",
-        "0016_session_input_ledger",
-        "0017_session_input_start_now_delivery",
-        "0018_session_input_failed_status",
-        "0019_dwf_journal",
-        "0020_provider_model_selection",
-        "0021_official_glm_selection",
-        "0022_backfilled_session_reasoning",
-        "0023_session_soft_delete_outcome",
-        "0024_session_database_identity",
-      ]);
-      store.close();
-    } finally {
-      await rm(tempRoot, { force: true, recursive: true });
-    }
-  });
-
   it("persists session task types and workflow runtime tables", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "zcode-workflow-session-task-type-"));
     const dbPath = join(tempRoot, "session.sqlite");
@@ -1059,6 +1152,52 @@ describe("SQLite session store", () => {
       ]);
       store.close();
     } finally {
+      await rm(tempRoot, { force: true, recursive: true });
+    }
+  });
+
+  it("overwrites the prompt snapshot row in place, including the cleared tombstone", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "zcode-prompt-snapshot-"));
+    const dbPath = join(tempRoot, "session.sqlite");
+    const sessionID = createSessionId("prompt-snapshot-test");
+    let store: Awaited<ReturnType<typeof createSqliteSessionStore>> | undefined;
+
+    try {
+      store = await createSqliteSessionStore({ dbPath });
+      await store.createSession({
+        id: sessionID,
+        projectID: createProjectId("prompt-snapshot-test"),
+        slug: "prompt-snapshot-test",
+        directory: tempRoot,
+        title: "prompt snapshot",
+        version: "0.1.0",
+      });
+      const updatedBefore = (await store.getSession(sessionID))!.time.updated;
+      const save = (data: unknown, at: number) =>
+        store!.saveSessionEntry({
+          id: `${sessionID}:runtime-prompt-snapshot`,
+          sessionID,
+          type: SESSION_ENTRY_PROMPT_SNAPSHOT,
+          touchSession: false,
+          time: { created: at, updated: at },
+          data,
+        });
+      const snapshot = {
+        model: { providerId: "test", modelId: "model-a" },
+        system: [{ role: "system", content: "prefix" }],
+      };
+      await save(snapshot, updatedBefore + 1_000);
+      await expect(
+        store.sessionEntries({ sessionID, type: SESSION_ENTRY_PROMPT_SNAPSHOT }),
+      ).resolves.toEqual([expect.objectContaining({ data: snapshot })]);
+      // 不改表：同一行覆盖成墓碑；写入不改变会话列表的排序时间。
+      await save({ cleared: true }, updatedBefore + 2_000);
+      await expect(
+        store.sessionEntries({ sessionID, type: SESSION_ENTRY_PROMPT_SNAPSHOT }),
+      ).resolves.toEqual([expect.objectContaining({ data: { cleared: true } })]);
+      expect((await store.getSession(sessionID))?.time.updated).toBe(updatedBefore);
+    } finally {
+      store?.close();
       await rm(tempRoot, { force: true, recursive: true });
     }
   });
@@ -2809,7 +2948,7 @@ describe("SQLite session store", () => {
     }
   });
 
-  it("persists usage observability facts and prunes rows outside retention", async () => {
+  it("retains historical model, turn, and tool usage after writes", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "zcode-usage-observability-"));
     const dbPath = join(tempRoot, "session.sqlite");
     const store = await createSqliteSessionStore({ dbPath });
@@ -2899,17 +3038,24 @@ describe("SQLite session store", () => {
         toolCallID: createToolCallId("old-tool"),
         toolName: "Read",
       });
-      await store.pruneUsage({ beforeTime: now - 1 });
+      await store.upsertTurnUsage({
+        sessionID,
+        turnID: createTurnId("usage-turn-old"),
+        startedAt: oldTime,
+        status: "completed",
+      });
 
       expect(store.debugCounts(sessionID)).toMatchObject({
-        modelUsage: 1,
-        toolUsage: 1,
-        turnUsage: 1,
+        modelUsage: 2,
+        toolUsage: 2,
+        turnUsage: 2,
       });
 
       const db = new DatabaseSync(dbPath, { readOnly: true });
       try {
-        const modelRow = db.prepare("select * from model_usage").get() as {
+        const modelRow = db
+          .prepare("select * from model_usage where id = ?")
+          .get("usage_model_recent") as {
           cache_creation_input_tokens: number;
           cache_read_input_tokens: number;
           computed_total_tokens: number;

@@ -6,10 +6,7 @@ import type {
   PluginUiScopeRef,
 } from "@zcode/shared/mcp-apps";
 import { buildPluginSandboxScopeId } from "@zcode/shared/mcp-apps";
-import type {
-  AttachmentRef,
-  ConversationInputSource,
-} from "@zcode/shared/zcode-protocol-v4";
+import type { AttachmentRef, ConversationInputSource } from "@zcode/shared/zcode-protocol-v4";
 import type { ReactNode } from "react";
 import type { PluginUiImageBlock } from "./domain/pluginUiImageBlocks.js";
 
@@ -113,10 +110,7 @@ export const PLUGIN_UI_SIDE_PANE_TITLE_BAR = {
 
 /** 请求 / tab 的作用域：surfaceId 优先，否则 toolCallId；两者都缺视为非法请求。 */
 export function readPluginUiScopeRef(
-  input: Pick<
-    OpenPluginUiSideTabRequest,
-    "toolCallId" | "surfaceId" | "instanceId"
-  >,
+  input: Pick<OpenPluginUiSideTabRequest, "toolCallId" | "surfaceId" | "instanceId">,
 ): PluginUiScopeRef | null {
   if (input.surfaceId)
     return {
@@ -125,8 +119,7 @@ export function readPluginUiScopeRef(
         ? `${input.surfaceId}:instance:${input.instanceId}`
         : input.surfaceId,
     };
-  if (input.toolCallId)
-    return { kind: "toolCall", toolCallId: input.toolCallId };
+  if (input.toolCallId) return { kind: "toolCall", toolCallId: input.toolCallId };
   return null;
 }
 
@@ -184,11 +177,7 @@ export function buildPluginUiSessionKey(target: PluginUiSessionScope): string {
 }
 
 export function buildPluginUiSurfaceKey(
-  target: PluginUiSessionScope & {
-    pluginId: string;
-    serverName?: string;
-    resourceUri?: string;
-  },
+  target: PluginUiSessionScope & { pluginId: string; serverName?: string; resourceUri?: string },
   scope: PluginUiScopeRef,
 ): string {
   // 修复：surfaceId 由插件自行命名，必须同时隔离工作区、会话和插件。
@@ -201,12 +190,9 @@ export function buildPluginUiSurfaceKey(
   ]);
 }
 
-export function buildPluginUiSidePaneTabId(
-  request: OpenPluginUiSideTabRequest,
-): string {
+export function buildPluginUiSidePaneTabId(request: OpenPluginUiSideTabRequest): string {
   const scope = readPluginUiScopeRef(request);
-  if (!scope)
-    throw new Error("plugin-ui side tab needs toolCallId or surfaceId");
+  if (!scope) throw new Error("plugin-ui side tab needs toolCallId or surfaceId");
   return [
     "plugin-ui",
     request.workspaceIdentity?.trim() || request.workspacePath,
@@ -214,9 +200,7 @@ export function buildPluginUiSidePaneTabId(
     request.pluginId,
     request.serverName ?? "",
     request.resourceUri,
-    ...(scope.kind === "toolCall"
-      ? [scope.toolCallId]
-      : ["surface", scope.surfaceId]),
+    ...(scope.kind === "toolCall" ? [scope.toolCallId] : ["surface", scope.surfaceId]),
   ]
     .map(encodeURIComponent)
     .join(":");
@@ -283,12 +267,8 @@ export interface PluginUiResourceNotificationTarget {
 }
 
 /** 文档查看器手动入口创建独立窗口；工具调用继续使用原有的显式 surface 路由。 */
-export function documentViewerInstance(resourceUri: string): {
-  instanceId?: string;
-} {
-  return /^ui:\/\/(documents|pdf|presentations|spreadsheets)\/panel\.html$/.test(
-    resourceUri,
-  )
+export function documentViewerInstance(resourceUri: string): { instanceId?: string } {
+  return /^ui:\/\/(documents|pdf|presentations|spreadsheets)\/panel\.html$/.test(resourceUri)
     ? { instanceId: crypto.randomUUID() }
     : {};
 }

@@ -54,11 +54,15 @@ describe("AgentRuntime prompt admission", () => {
 
     const admission = await runtime.admitPrompt("future turn", undefined, {
       ...admissionOptions("require-queue"),
+      automationId: "automation-queued",
       requireQueue: true,
     });
 
     expect(admission.kind).toBe("queued");
     expect(modelCalls).toBe(0);
+    expect((await runtime.getProjection()).pendingSteerInputs).toEqual([
+      expect.objectContaining({ automationId: "automation-queued" }),
+    ]);
   });
 
   it("reserves before the first turn reaches TurnStarted, so the second prompt is queued", async () => {
@@ -184,6 +188,19 @@ describe("AgentRuntime prompt admission", () => {
     expect(requests.at(-1)).toMatchObject({ providerId: "provider-b", reasoningLevel: "low" });
     expect(requests.at(-1)?.context).toContain("provider-b/model-b");
     expect(requests.at(-1)?.context).not.toContain("provider-c/model-c");
+    // 配置改变只影响后续输入，旧队列执行不能倒写会话选择。
+    expect(requests[0]?.providerId).toBe("provider-a");
+    expect(runtime.getSessionModelSelection()?.providerId).toBe("provider-c");
+    await runtime.executeTurn("third", undefined, {
+      intent: {
+        kind: "sendText",
+        sourceCommandId: "after-switch",
+        admissionSeq: 3,
+        modelSelection: runtime.getSessionModelSelection(),
+        requestedDelivery: "startNow",
+      },
+    });
+    expect(requests.at(-1)?.providerId).toBe("provider-c");
   });
 
   it("treats a runtime command drain as busy even without an active turn", async () => {

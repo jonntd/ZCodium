@@ -5,8 +5,12 @@ import type { TaskListE2EActions } from "@/lib/taskListE2EActions.js";
 import { useEffect } from "react";
 import type { Locale } from "@zcode/shared";
 
-// Vite 注入的 import.meta.env 类型由 vite/client 提供（ui tsconfig types 已含），
-// 这里不再重复声明——与 vite/client 的 ImportMetaEnv 定义冲突（TS2687/2717）。
+// Vite 注入的 import.meta.env 类型声明
+declare global {
+  interface ImportMeta {
+    env: { PROD: boolean; DEV: boolean; [key: string]: unknown };
+  }
+}
 
 /**
  * E2E 测试可通过 window.__testActions 调用的操作集合。

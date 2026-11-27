@@ -219,6 +219,12 @@ export const TID_SSH_PORT_INPUT = "ssh-port-input";
 export const TID_SSH_USERNAME_INPUT = "ssh-username-input";
 /** SSH config alias 选择框 */
 export const TID_SSH_CONFIG_ALIAS_SELECT = "ssh-config-alias-select";
+/** 设置入口「从 SSH config 导入」按钮。 */
+export const TID_SSH_CONFIG_IMPORT = "remote-ssh-config-import";
+/** 已关联 SSH config Host 的标签。 */
+export const TID_SSH_CONFIG_ALIAS_CHIP = "remote-ssh-config-alias-chip";
+/** 新建连接表单头部的实时目标预览。 */
+export const TID_REMOTE_NEW_CONNECTION_PREVIEW = "remote-new-connection-preview";
 /** SSH 密码输入框 */
 export const TID_SSH_PASSWORD_INPUT = "ssh-password-input";
 /** SSH 私钥路径输入框 */
@@ -251,22 +257,36 @@ export const TID_SSH_CANCEL_BUTTON = "ssh-cancel-button";
 // Sidebar
 /** 侧边栏容器 */
 export const TID_SIDEBAR = "sidebar";
-/** 侧边栏打开工作区按钮 */
-export const TID_WORKSPACE_OPEN_BUTTON = "workspace-open-button";
-/** 侧边栏工作区列表 */
-export const TID_WORKSPACE_LIST = "workspace-list";
-/** 侧边栏工作区条目（动态后缀为 workspacePath） */
-export const TID_WORKSPACE_ITEM = "workspace-item";
-/** 侧边栏关闭工作区按钮（动态后缀为 workspacePath） */
-export const TID_WORKSPACE_CLOSE = "workspace-close";
 /** 项目视图里的对话二级分区 */
 export const TID_CONVERSATION_SECTION = "conversation-section";
 /** 项目视图里的项目二级分区 */
 export const TID_PROJECT_SECTION = "project-section";
-/** 对话分区新建任务按钮 */
-export const TID_CONVERSATION_NEW_TASK = "conversation-new-task";
-/** 项目分区添加菜单按钮 */
-export const TID_PROJECT_ADD = "project-add";
+/** 项目分区新建项目按钮 */
+export const TID_VIRTUAL_PROJECT_ADD = "virtual-project-add";
+/** 任务分区新建任务按钮（全局新建，cwd 为默认执行目录） */
+export const TID_VIRTUAL_PROJECT_NEW_TASK = "virtual-project-new-task";
+/** 项目行（父级 section 带 data-project-id / data-project-name） */
+export const TID_VIRTUAL_PROJECT_ROW = "virtual-project-row";
+/** 项目行展开/收起触发器（aria-expanded 表示任务列表是否展开） */
+export const TID_VIRTUAL_PROJECT_TOGGLE = "virtual-project-toggle";
+/** 项目行折叠态未读指示 */
+export const TID_VIRTUAL_PROJECT_UNREAD = "virtual-project-unread";
+/** 项目行任务列表容器 */
+export const TID_VIRTUAL_PROJECT_TASKS = "virtual-project-tasks";
+/** 项目行 hover 操作区 */
+export const TID_VIRTUAL_PROJECT_ACTIONS = "virtual-project-actions";
+/** 项目行更多菜单触发器 */
+export const TID_VIRTUAL_PROJECT_MENU = "virtual-project-menu";
+/** 项目行打开文件树按钮（多 root 时为下拉触发器） */
+export const TID_VIRTUAL_PROJECT_FILES = "virtual-project-files";
+/** 项目行新建任务按钮（cwd = 项目主要目录） */
+export const TID_VIRTUAL_PROJECT_CREATE_TASK = "virtual-project-create-task";
+/** 项目行菜单 / 右键动作前缀，见 virtualProjectActionTestId */
+export const TID_VIRTUAL_PROJECT_ACTION_PREFIX = "virtual-project";
+/** 全局置顶任务区 */
+export const TID_PROJECT_PINNED_TASKS = "project-pinned-tasks";
+/** 远端 host 分组（data-host-id 为 host id） */
+export const TID_REMOTE_PROJECT_HOST = "remote-project-host";
 /** Composer workspace 选择触发器 */
 export const TID_COMPOSER_WORKSPACE_TRIGGER = "composer-workspace-trigger";
 /** Composer workspace 菜单的远程连接入口 */
@@ -300,8 +320,6 @@ export const TID_CHAT_SEND_BUTTON = "chat-send-button";
 export const TID_CHAT_STOP_BUTTON = "chat-stop-button";
 /** 聊天加载指示器 */
 export const TID_CHAT_LOADING = "chat-loading";
-/** 聊天右上角状态摘要面板 */
-export const TID_CHAT_SUMMARY_PANEL = "chat-summary-panel";
 /** 聊天上下文压缩 timeline 横条（动态后缀为 inputId 或 operationId） */
 export const TID_CHAT_COMPACT_MARKER = "chat-compact-marker";
 /** 聊天上下文压缩失败/中断后的重试按钮（动态后缀为 inputId 或 operationId） */
@@ -392,7 +410,16 @@ export const TID_SETTINGS_PERSONALIZATION_CANCEL = "settings-personalization-can
 /** 个性化内容超限提示 */
 export const TID_SETTINGS_PERSONALIZATION_SIZE_HINT = "settings-personalization-size-hint";
 /** 常规设置中的增强 Find/Grep 开关 */
+export const TID_SETTINGS_TOOL_SEARCH_SELECT = "settings-tool-search-select";
+export const TID_SETTINGS_TOOL_SEARCH_OPTION = "settings-tool-search-option";
 export const TID_SETTINGS_NATIVE_SEARCH_SWITCH = "settings-native-search-switch";
+/** 行为与工具中的 token 预算提醒开关 */
+export const TID_SETTINGS_TOTAL_TOKENS_REMINDER_SWITCH = "settings-total-tokens-reminder-switch";
+/** 行为与工具中的 Agent 总在后台运行开关 */
+export const TID_SETTINGS_AGENT_ALWAYS_BACKGROUND_SWITCH =
+  "settings-agent-always-background-switch";
+/** 行为与工具中的 Agent 回复语言输入框 */
+export const TID_SETTINGS_REPLY_LANGUAGE_INPUT = "settings-reply-language-input";
 /** 常规设置中的数据存储路径只读输入框 */
 export const TID_SETTINGS_DATA_BASE_DIR_INPUT = "settings-data-base-dir-input";
 /** 常规设置中的数据存储路径目录选择按钮 */
@@ -489,8 +516,6 @@ export const TID_SUBAGENT_ROW = "subagent-row";
 export const TID_SUBAGENT_BUILT_IN_MODEL_TRIGGER = "subagent-built-in-model-trigger";
 /** 设置页使用统计顶层 tab（动态后缀为 usage tab id） */
 export const TID_SETTINGS_USAGE_TAB = "settings-usage-tab";
-/** 侧边栏头像菜单剩余额度子菜单入口 */
-export const TID_SIDEBAR_USAGE_REMAINING_TRIGGER = "sidebar-usage-remaining-trigger";
 /** 侧边栏头像菜单使用统计入口 */
 export const TID_SIDEBAR_CODING_PLAN_USAGE_BUTTON = "sidebar-coding-plan-usage-button";
 
@@ -567,6 +592,10 @@ export const TID_MODEL_PROVIDER_ADD_MODEL_BUTTON = "model-provider-add-model-but
 // Chat Toolbar
 /** 聊天工具栏模型选择按钮 */
 export const TID_CHAT_MODEL_SELECT_TRIGGER = "chat-model-select-trigger";
+/** 模型选择按钮上的引导气泡（如服务端规则切换草稿模型后的提示） */
+export const TID_CHAT_MODEL_GUIDE = "chat-model-guide";
+/** 模型引导气泡的关闭按钮 */
+export const TID_CHAT_MODEL_GUIDE_DISMISS = "chat-model-guide-dismiss";
 /** 聊天工具栏模型供应商分组（动态后缀为 provider group key） */
 export const TID_CHAT_MODEL_SELECT_GROUP = "chat-model-select-group";
 /** 聊天工具栏模型选择条目（动态后缀为模型 value） */
@@ -601,10 +630,6 @@ export const TID_WORKSPACE_MORE_BUTTON = "workspace-more-button";
 export const TID_WORKSPACE_HELP_MENU_TRIGGER = "workspace-help-menu-trigger";
 /** 问号帮助菜单里的「资源管理器」项（仅桌面端） */
 export const TID_WORKSPACE_HELP_MENU_RESOURCE_MANAGER = "workspace-help-menu-resource-manager";
-/** 侧边栏打开工作区文件树按钮（动态后缀为 workspacePath） */
-export const TID_WORKSPACE_FILE_TREE_BUTTON = "workspace-file-tree-button";
-/** 侧边栏打开右侧面板文件树按钮（动态后缀为 workspacePath） */
-export const TID_WORKSPACE_SIDE_PANE_FILES_BUTTON = "workspace-side-pane-files-button";
 /** 工作区文件树面板 */
 export const TID_WORKSPACE_FILE_TREE_PANEL = "workspace-file-tree-panel";
 /** 工作区文件树刷新按钮 */
@@ -622,8 +647,6 @@ export const TID_SSH_SUCCESS = "ssh-success";
 export const TID_V4_SESSION_PANE = "v4-session-pane";
 /** v4 消息时间线容器 */
 export const TID_V4_TIMELINE = "v4-timeline";
-/** v4 时间线空态占位 */
-export const TID_V4_TIMELINE_EMPTY = "v4-timeline-empty";
 /** v4 投影行（动态后缀为 rowId） */
 export const TID_V4_ROW = "v4-row";
 /** v4 composer 工作区 Hook 待审核入口与未读点 */
@@ -645,8 +668,6 @@ export const TID_V4_WORKSPACE_MCP_PENDING_DISMISS = "v4-workspace-mcp-pending-di
 export const TID_V4_COMPOSER = "v4-composer";
 /** v4 composer 文本输入 */
 export const TID_V4_COMPOSER_INPUT = "v4-composer-input";
-/** v4 composer 当前会话后台任务入口 */
-export const TID_V4_COMPOSER_BACKGROUND_WORK_TRIGGER = "v4-composer-background-work-trigger";
 /** v4 composer 电脑操作（CUA）常驻入口按钮 */
 export const TID_V4_COMPOSER_CUA_ENTRY = "v4-composer-cua-entry";
 /** v4 composer 发送按钮 */
@@ -883,6 +904,15 @@ export function testId(base: string, suffix: string): string {
   return `${base}-${suffix}`;
 }
 
+/**
+ * 项目行菜单 / 右键动作的 test id（动作 id 如 edit / pin / delete / remove-entry / create-task /
+ * files-<index>）。右键菜单里 create-task 与 files-* 带 `context-` 前缀，和更多菜单区分。
+ */
+export function virtualProjectActionTestId(actionId: string, context = false): string {
+  const scoped = context && (actionId.startsWith("files-") || actionId === "create-task");
+  return `${TID_VIRTUAL_PROJECT_ACTION_PREFIX}-${scoped ? "context-" : ""}${actionId}`;
+}
+
 /** 左侧栏头像上方的可手动领取 Start Plan banner。 */
 export const TID_MANUAL_CLAIM_PLAN_BANNER = "manual-claim-plan-banner";
 
@@ -895,68 +925,6 @@ export const TID_START_PLAN_RECOMMENDATION_DIALOG = "start-plan-recommendation-d
 /** 用户反馈的诊断日志授权开关 */
 export const TID_FEEDBACK_LOGS_OPT_IN = "feedback-logs-opt-in";
 
-// 上游 v3.16.1 新增 test id / Test ids added by upstream v3.16.1
-/** 用户菜单中的登录操作 */
-export const TID_LOGIN_MENU_ITEM = "login-menu-item";
-
-/** 全局置顶任务区 */
-export const TID_PROJECT_PINNED_TASKS = "project-pinned-tasks";
-
-/** 新建连接表单头部的实时目标预览。 */
-export const TID_REMOTE_NEW_CONNECTION_PREVIEW = "remote-new-connection-preview";
-
-/** 远端 host 分组（data-host-id 为 host id） */
-export const TID_REMOTE_PROJECT_HOST = "remote-project-host";
-
-export const TID_SETTINGS_TOOL_SEARCH_OPTION = "settings-tool-search-option";
-
-/** 常规设置中的增强 Find/Grep 开关 */
-export const TID_SETTINGS_TOOL_SEARCH_SELECT = "settings-tool-search-select";
-
-/** 已关联 SSH config Host 的标签。 */
-export const TID_SSH_CONFIG_ALIAS_CHIP = "remote-ssh-config-alias-chip";
-
-/** 设置入口「从 SSH config 导入」按钮。 */
-export const TID_SSH_CONFIG_IMPORT = "remote-ssh-config-import";
-
-/** 项目行 hover 操作区 */
-export const TID_VIRTUAL_PROJECT_ACTIONS = "virtual-project-actions";
-
-/** 项目行菜单 / 右键动作前缀，见 virtualProjectActionTestId */
-export const TID_VIRTUAL_PROJECT_ACTION_PREFIX = "virtual-project";
-
-/** 项目分区新建项目按钮 */
-export const TID_VIRTUAL_PROJECT_ADD = "virtual-project-add";
-
-/** 项目行新建任务按钮（cwd = 项目主要目录） */
-export const TID_VIRTUAL_PROJECT_CREATE_TASK = "virtual-project-create-task";
-
-/** 项目行打开文件树按钮（多 root 时为下拉触发器） */
-export const TID_VIRTUAL_PROJECT_FILES = "virtual-project-files";
-
-/** 项目行更多菜单触发器 */
-export const TID_VIRTUAL_PROJECT_MENU = "virtual-project-menu";
-
-/** 任务分区新建任务按钮（全局新建，cwd 为默认执行目录） */
-export const TID_VIRTUAL_PROJECT_NEW_TASK = "virtual-project-new-task";
-
-/** 项目行（父级 section 带 data-project-id / data-project-name） */
-export const TID_VIRTUAL_PROJECT_ROW = "virtual-project-row";
-
-/** 项目行任务列表容器 */
-export const TID_VIRTUAL_PROJECT_TASKS = "virtual-project-tasks";
-
-/** 项目行展开/收起触发器（aria-expanded 表示任务列表是否展开） */
-export const TID_VIRTUAL_PROJECT_TOGGLE = "virtual-project-toggle";
-
-/** 项目行折叠态未读指示 */
-export const TID_VIRTUAL_PROJECT_UNREAD = "virtual-project-unread";
-
-/** 项目行动作 test id。 */
-export function virtualProjectActionTestId(actionId: string, context = false): string {
-  const scoped = context && (actionId.startsWith("files-") || actionId === "create-task");
-  return `${TID_VIRTUAL_PROJECT_ACTION_PREFIX}-${scoped ? "context-" : ""}${actionId}`;
-}
 /** 扩展插槽（docs/plugins/extension-host.md §6）：输入框 composer.status 条目与启动页「扩展」分区。 */
 export const TID_EXTENSION_COMPOSER_STATUS = "extension-composer-status";
 export const TID_SIDE_PANE_EXTENSIONS = "side-pane-extensions";

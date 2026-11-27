@@ -54,11 +54,7 @@ export function InstalledPluginDetailDialog({
   activeOperations: ReadonlyArray<{ id: string }>;
   plugin: ZCodePluginInfo | null;
   renderPluginSource: (plugin: ZCodePluginInfo) => string;
-  setPluginOptionDraft: (
-    pluginId: string,
-    key: string,
-    value: string | number | boolean,
-  ) => void;
+  setPluginOptionDraft: (pluginId: string, key: string, value: string | number | boolean) => void;
   uninstallable?: boolean;
   updateStatus?: "none" | "update-available" | "version-changed";
 }) {
@@ -119,11 +115,7 @@ export function InstalledPluginDetailPanel({
   activeOperations: ReadonlyArray<{ id: string }>;
   plugin: ZCodePluginInfo | null;
   renderPluginSource: (plugin: ZCodePluginInfo) => string;
-  setPluginOptionDraft: (
-    pluginId: string,
-    key: string,
-    value: string | number | boolean,
-  ) => void;
+  setPluginOptionDraft: (pluginId: string, key: string, value: string | number | boolean) => void;
   uninstallable?: boolean;
   updateStatus?: "none" | "update-available" | "version-changed";
 }) {
@@ -142,11 +134,9 @@ export function InstalledPluginDetailPanel({
   // 渲染位置，用户看到「安装成功、启用生效、技能数 0」却无从排查。这里在详情面板
   // 直接列出该插件自身的 warning；正文直出 CLI 下发的 message（含具体路径）。
   const pluginWarnings = diagnostics.filter(
-    (diagnostic) =>
-      diagnostic.pluginId === plugin.id && diagnostic.severity === "warning",
+    (diagnostic) => diagnostic.pluginId === plugin.id && diagnostic.severity === "warning",
   );
-  const hasAdvanced =
-    hookDetails.length > 0 || Object.keys(plugin.userConfig ?? {}).length > 0;
+  const hasAdvanced = hookDetails.length > 0 || Object.keys(plugin.userConfig ?? {}).length > 0;
   const sourceLabel = renderPluginSource(plugin);
 
   return (
@@ -169,10 +159,7 @@ export function InstalledPluginDetailPanel({
               ) : null}
             </h2>
             <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1.5">
-              <Badge
-                variant={plugin.enabled ? "secondary" : "outline"}
-                className="rounded-md"
-              >
+              <Badge variant={plugin.enabled ? "secondary" : "outline"} className="rounded-md">
                 {plugin.enabled
                   ? intl.formatMessage({
                       id: "settings.plugins.detail.enabled",
@@ -188,16 +175,12 @@ export function InstalledPluginDetailPanel({
           </div>
         </div>
         {plugin.description ? (
-          <p className="mt-3 leading-relaxed text-foreground-subtle">
-            {plugin.description}
-          </p>
+          <p className="mt-3 leading-relaxed text-foreground-subtle">{plugin.description}</p>
         ) : null}
       </div>
 
       <div className="space-y-5 px-5 py-4">
-        <DetailSection
-          title={intl.formatMessage({ id: "settings.plugins.detail.details" })}
-        >
+        <DetailSection title={intl.formatMessage({ id: "settings.plugins.detail.details" })}>
           {componentGroups.length > 0 ? (
             <PluginComponentGroups groups={componentGroups} />
           ) : (
@@ -212,11 +195,7 @@ export function InstalledPluginDetailPanel({
         </DetailSection>
 
         {pluginWarnings.length > 0 ? (
-          <DetailSection
-            title={intl.formatMessage({
-              id: "settings.plugins.detail.warnings",
-            })}
-          >
+          <DetailSection title={intl.formatMessage({ id: "settings.plugins.detail.warnings" })}>
             <PluginWarningList warnings={pluginWarnings} />
           </DetailSection>
         ) : null}
@@ -228,9 +207,7 @@ export function InstalledPluginDetailPanel({
                 id: "settings.plugins.detail.installedAt",
               })}
             </div>
-            <div className="mt-1 break-all text-ui-base text-foreground">
-              {installedAt}
-            </div>
+            <div className="mt-1 break-all text-ui-base text-foreground">{installedAt}</div>
           </div>
         ) : null}
 
@@ -319,18 +296,10 @@ export function InstalledPluginDetailPanel({
   );
 }
 
-function DetailSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
+function DetailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h3 className="mb-1.5 text-ui-base font-semibold text-foreground">
-        {title}
-      </h3>
+      <h3 className="mb-1.5 text-ui-base font-semibold text-foreground">{title}</h3>
       {children}
     </section>
   );
@@ -341,11 +310,7 @@ function DetailSection({
  * 只写 diagnostics 的话 UI 无渲染位置，用户无从排查。message 由 CLI 下发并包含
  * 具体路径（协议 wire 不携带 path 字段），因此正文直出 message 即可。
  */
-export function PluginWarningList({
-  warnings,
-}: {
-  warnings: ZCodePluginDiagnostic[];
-}) {
+export function PluginWarningList({ warnings }: { warnings: ZCodePluginDiagnostic[] }) {
   return (
     <ul className="space-y-2">
       {warnings.map((diagnostic, index) => (
@@ -353,13 +318,8 @@ export function PluginWarningList({
           key={`${diagnostic.code}-${index}`}
           className="flex min-w-0 items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2"
         >
-          <AlertTriangle
-            className="mt-0.5 size-3.5 shrink-0 text-warning"
-            aria-hidden="true"
-          />
-          <span className="min-w-0 break-all text-ui-sm text-foreground">
-            {diagnostic.message}
-          </span>
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" aria-hidden="true" />
+          <span className="min-w-0 break-all text-ui-sm text-foreground">{diagnostic.message}</span>
         </li>
       ))}
     </ul>
@@ -398,10 +358,7 @@ export function PluginHookDetails({
                       id: "settings.plugins.detail.hook.defaultMatcher",
                     })}
                 </Badge>
-                <Badge
-                  variant={hook.runnable ? "secondary" : "outline"}
-                  className="rounded-md"
-                >
+                <Badge variant={hook.runnable ? "secondary" : "outline"} className="rounded-md">
                   {hook.runnable
                     ? intl.formatMessage({
                         id: "settings.plugins.detail.hook.runnable",
@@ -473,43 +430,25 @@ export function PluginHookDetails({
   );
 }
 
-function PluginDetailInlineValue({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function PluginDetailInlineValue({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
       <div className="text-ui-xs text-foreground-subtle">{label}</div>
-      <div className="mt-0.5 break-all font-mono text-ui-xs text-foreground">
-        {value}
-      </div>
+      <div className="mt-0.5 break-all font-mono text-ui-xs text-foreground">{value}</div>
     </div>
   );
 }
 
-function formatHookCommand(
-  hook: NonNullable<ZCodePluginInfo["hookDetails"]>[number],
-): string {
+function formatHookCommand(hook: NonNullable<ZCodePluginInfo["hookDetails"]>[number]): string {
   if (!hook.args || hook.args.length === 0) return hook.command;
   return `${hook.command} ${hook.args.join(" ")}`;
 }
 
-export function PluginDetailRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+export function PluginDetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-border bg-surface px-3 py-2">
       <div className="text-ui-xs text-foreground-subtle">{label}</div>
-      <div className="mt-1 break-all font-mono text-ui-xs text-foreground">
-        {value}
-      </div>
+      <div className="mt-1 break-all font-mono text-ui-xs text-foreground">{value}</div>
     </div>
   );
 }

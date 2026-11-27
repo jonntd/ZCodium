@@ -16,11 +16,7 @@ export function useUiPluginRecommendations(enabled: boolean) {
     if (enabled && service) {
       void service.getSnapshot().then(
         ({ uiPluginRecommendations }) => {
-          if (active)
-            setSnapshot({
-              service,
-              recommendations: uiPluginRecommendations ?? [],
-            });
+          if (active) setSnapshot({ service, recommendations: uiPluginRecommendations ?? [] });
         },
         () => {
           if (active) {
@@ -35,8 +31,7 @@ export function useUiPluginRecommendations(enabled: boolean) {
       active = false;
     };
   }, [enabled, service]);
-  const current =
-    enabled && snapshot?.service === service ? snapshot : undefined;
+  const current = enabled && snapshot?.service === service ? snapshot : undefined;
   // 空数组不能区分尚未返回与确认无推荐，避免冷启动先闪空态。
   return {
     recommendations: current?.recommendations ?? [],

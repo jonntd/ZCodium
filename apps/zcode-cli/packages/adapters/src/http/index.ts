@@ -1,4 +1,3 @@
-import { assertOfficialPlatformAccessible } from "@zcode/shared";
 // ============================================================
 // Node HTTP Client Adapter
 // ============================================================
@@ -54,9 +53,6 @@ export class NodeHttpClientAdapter implements HttpClientPort {
     request: HttpClientRequest,
     options: HttpClientRunOptions = {},
   ): Promise<HttpClientResponse> {
-    // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-    assertOfficialPlatformAccessible(request.url);
-
     const startedAt = Date.now();
     const url = normalizeUrl(request.url);
     const timeoutMs = request.timeoutMs ?? this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -181,7 +177,7 @@ function fetchHttpResponse(
 
   const headers = buildHeaders(request);
   const transport = url.protocol === "https:" ? https : http;
-  const agent = createRequestAgent(url, proxyUrl, tlsCaCertificates);
+  const agent = createRequestAgent(url, proxyUrl, tlsCaCertificates, signal);
   const lookup = publicDnsLookup
     ? createPublicEgressLookup(url.toString(), publicDnsLookup, { signal })
     : undefined;
@@ -247,10 +243,13 @@ function createRequestAgent(
   url: URL,
   proxyUrl: string | undefined,
   tlsCaCertificates: Buffer | undefined,
+  signal: AbortSignal,
 ): http.Agent | undefined {
   if (proxyUrl) {
     return new ProxyAgent({
       ca: tlsCaCertificates,
+      // CONNECT 返回前 ClientRequest.destroy 不持有 socket；让取消同时关闭代理连接。
+      signal,
       getProxyForUrl: () => proxyUrl,
       httpsAgent: tlsCaCertificates ? new https.Agent({ ca: tlsCaCertificates }) : undefined,
     }) as unknown as http.Agent;

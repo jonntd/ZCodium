@@ -78,5 +78,8 @@ declare module "istanbul-reports" {
     execute(context: Context): void;
   }
 
-  export function create(name: string, options?: Record<string, unknown>): IstanbulReport;
+  export function create(
+    name: string,
+    options?: Record<string, unknown>,
+  ): IstanbulReport;
 }

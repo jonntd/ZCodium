@@ -16,10 +16,11 @@ import {
 } from "@zcode/shared";
 import { submissionModeSchema, type SubmissionMode } from "@zcode/shared/zcode-protocol-v4";
 import type { ComposerMentionPrefill } from "@/store/zcodeSessionStoreTypes.js";
+import { isComposerEditScopeId } from "@/composer-edit-mode/contract.js";
 
 export interface V4ComposerDraft {
   text: string;
-  /** 未提交组织意图；正式任务归属只由 Host 管理。 */
+  /** 未提交草稿的组织意图；真实任务归属始终由 Host 管理。 */
   projectId?: string | null;
   taskGroupId?: string | null;
   editorStateJson?: string;
@@ -27,12 +28,7 @@ export interface V4ComposerDraft {
   /** 有合法 mode 表示已经初始化；没有模型仍是明确空态，不能按旧文本草稿补默认。 */
   mode?: SubmissionMode;
   planEnabled?: boolean;
-  /** 已处理的工具变更，防止重连快照再次覆盖用户选择。 */
-  lastPlanTransitionId?: string;
-  lastPermissionGrantId?: string;
   modelSelection?: ModelSelection;
-  /** 首次分享导入等待公共新任务初始化；不能由空 Session snapshot 抢先填充。 */
-  initializeFromNewTask?: true;
   updatedAt: number;
 }
 
@@ -81,7 +77,7 @@ export function readPendingTaskDraft(scope: ComposerScope): PendingTaskDraft | n
 }
 function writePendingTaskDraft(scope: ComposerScope, value: PendingTaskDraft | null): void {
   const storage = getStorage();
-  // 未保存身份时不得先分配目录，否则刷新会失去草稿入口。
+  // 未保存身份时不得先分配目录，否则刷新又会失去草稿入口。
   if (!storage) throw new Error("composer.draft-storage-unavailable");
   if (value) storage.setItem(pendingTaskKey(scope), JSON.stringify(value));
   else storage.removeItem(pendingTaskKey(scope));
@@ -126,6 +122,7 @@ export function releasePendingTaskDraftCommand(
   if (current?.draftId !== draftId || current.commandId !== commandId) return;
   writePendingTaskDraft(scope, { draftId, workspacePath: current.workspacePath });
 }
+
 export function resolveComposerScope(
   projectId: string | null | undefined,
   workspaceIdentity?: string,
@@ -139,6 +136,7 @@ export function resolveComposerScope(
     projectId: projectId ?? null,
   };
 }
+
 function workspaceScopeKey(
   path: string,
   identity: string | undefined,
@@ -179,6 +177,7 @@ export function readComposerWorkspaceScope(
   }
   return undefined;
 }
+
 function draftStorageKey(
   path: string,
   identity: string | undefined,
@@ -236,11 +235,13 @@ function readDraftFile(key: string): V4DraftFile {
         return draft ? [[scopeId, draft]] : [];
       }),
     );
-    return {
+    const file: V4DraftFile = {
       version: 1,
       scopes,
       ...(parsed.legacyClaimed === true ? { legacyClaimed: true } : {}),
     };
+    // 读取可发生在 React render；旧空记录只过滤，物理清理由明确写入负责。
+    return file;
   } catch (error) {
     warnStorageFailure(key, error);
     return { version: 1, scopes: {} };
@@ -320,6 +321,14 @@ function writeDraftFile(key: string, file: V4DraftFile) {
   }
 }
 
+// composer 编辑态的 edit scope 只留在 renderer 内存（docs/ui/composer-edit-mode.md）：
+// 编辑内容不写 localStorage，刷新后原 scope 的草稿原样恢复，edit scope 自然消失。
+const editScopeDrafts = new Map<string, V4ComposerDraft>();
+
+function editScopeDraftKey(storageKey: string, scopeId: string): string {
+  return `${storageKey}\0${scopeId}`;
+}
+
 export function readV4ComposerDraft(
   workspacePath: string,
   workspaceIdentity: string | undefined,
@@ -327,9 +336,13 @@ export function readV4ComposerDraft(
   scope?: ComposerScope,
 ): V4ComposerDraft | null {
   const key = draftStorageKey(workspacePath, workspaceIdentity, scopeId, scope);
+  if (isComposerEditScopeId(scopeId)) {
+    return editScopeDrafts.get(editScopeDraftKey(key, scopeId)) ?? null;
+  }
   const file = readDraftFile(key);
   const draft = file.scopes[scopeId];
   if (!draft || typeof draft.text !== "string") {
+    // 旧记录只有显式项目归属才能认领；未归类历史不能靠最近目录猜测。
     if (!file.legacyClaimed && scopeId === V4_DRAFT_SCOPE_ROOT && scope?.projectId) {
       const legacy = readDraftFile(getV4ComposerDraftStorageKey(workspacePath, workspaceIdentity))
         .scopes[scopeId];
@@ -348,28 +361,37 @@ export function persistV4ComposerDraft(
   scope?: ComposerScope,
 ) {
   const key = draftStorageKey(workspacePath, workspaceIdentity, scopeId, scope);
+  if (isComposerEditScopeId(scopeId)) {
+    const { projectId: _projectId, taskGroupId: _taskGroupId, ...content } = draft;
+    editScopeDrafts.set(editScopeDraftKey(key, scopeId), { ...content, updatedAt: Date.now() });
+    return true;
+  }
   const file = readDraftFile(key);
   const hadDraft = Boolean(file.scopes[scopeId]);
-  const saved = file.scopes[scopeId];
+  // 正文/模型各自更新草稿时不能抹掉项目意图；显式新建传 null 才清除项目归属。
+  const savedGroupId = file.scopes[scopeId]?.taskGroupId;
+  const savedProjectId = file.scopes[scopeId]?.projectId;
   const next = {
     ...draft,
-    ...(draft.taskGroupId === undefined && saved?.taskGroupId !== undefined
-      ? { taskGroupId: saved.taskGroupId }
+    ...(draft.taskGroupId === undefined && savedGroupId !== undefined
+      ? { taskGroupId: savedGroupId }
       : {}),
-    ...(draft.projectId === undefined && saved?.projectId !== undefined
-      ? { projectId: saved.projectId }
+    ...(draft.projectId === undefined && savedProjectId !== undefined
+      ? { projectId: savedProjectId }
       : {}),
   };
+  // promotion 以后任务归属由 Host 查询；浏览器 Session 草稿不保留组织态副本。
   if (scopeId !== V4_DRAFT_SCOPE_ROOT) {
     delete next.projectId;
     delete next.taskGroupId;
   }
+  // 空白页配置只留在 Composer 内存；不存在记录时也不执行无意义写盘。
   if (!next.text.trim()) {
     delete file.scopes[scopeId];
   } else {
     file.scopes[scopeId] = { ...next, updatedAt: Date.now() };
   }
-  // 认领标记留在新 key，不删除旧数据；换目录或删空之后不能复活旧正文。
+  // 新 key 首次写入即结束旧目录认领；保留旧数据，避免删除失败或换目录后复活正文。
   if (
     scopeId === V4_DRAFT_SCOPE_ROOT &&
     scope?.projectId &&
@@ -382,6 +404,7 @@ export function persistV4ComposerDraft(
   return writeDraftFile(key, file);
 }
 
+/** 旧版关闭分组草稿只撤销 placement；不能连带清空正在编辑的正文和项目。 */
 export function clearV4ComposerDraftTaskGroup(
   workspacePath: string,
   workspaceIdentity?: string,
@@ -391,6 +414,7 @@ export function clearV4ComposerDraftTaskGroup(
   const file = readDraftFile(key);
   const draft = readV4ComposerDraft(workspacePath, workspaceIdentity, V4_DRAFT_SCOPE_ROOT, scope);
   if (!draft || draft.taskGroupId === undefined) return true;
+  // 分组只是草稿的组织意图；关闭时必须沿用项目 key，不能修改同目录的其他项目。
   delete draft.taskGroupId;
   file.scopes[V4_DRAFT_SCOPE_ROOT] = draft;
   if (scope?.projectId) file.legacyClaimed = true;
@@ -404,13 +428,19 @@ export function clearV4ComposerDraft(
   scope?: ComposerScope,
 ) {
   const key = draftStorageKey(workspacePath, workspaceIdentity, scopeId, scope);
+  if (isComposerEditScopeId(scopeId)) {
+    editScopeDrafts.delete(editScopeDraftKey(key, scopeId));
+    return true;
+  }
   const file = readDraftFile(key);
   const hadDraft = Boolean(file.scopes[scopeId]);
   delete file.scopes[scopeId];
+  // 新 key 首次写入即结束旧目录认领；保留旧数据，避免删除失败或换目录后复活正文。
   if (
     scopeId === V4_DRAFT_SCOPE_ROOT &&
     scope?.projectId &&
     (hadDraft ||
+      Boolean(file.scopes[scopeId]) ||
       readDraftFile(getV4ComposerDraftStorageKey(workspacePath, workspaceIdentity)).scopes[scopeId]
         ?.projectId === scope.projectId)
   )

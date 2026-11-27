@@ -14,7 +14,6 @@ export {
   PlatformProvider,
   usePlatform,
   useSelectDirectory,
-  useOpenDataRootImport,
   useConnectRemote,
 } from "./usePlatform.js";
 

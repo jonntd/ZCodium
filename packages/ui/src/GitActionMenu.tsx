@@ -48,6 +48,7 @@ import {
 import { useServices } from "@/hooks/useServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { getErrorMessage } from "@/lib/errorMessage.js";
+import { runUserAction } from "@/lib/userActionTelemetry.js";
 import { formatCommandShortcutLabel, matchesPrimaryShortcut } from "@/lib/keyboardShortcuts.js";
 import { logger } from "@/logger.js";
 import {
@@ -57,7 +58,7 @@ import {
   CloudUploadIcon,
   GitBranchIcon,
   GitCommitIcon,
-  LoaderIcon,
+  LoaderCircle,
   SparklesIcon,
 } from "lucide-react";
 
@@ -177,7 +178,7 @@ function CommitCommandActionItem({
       )}
     >
       <span className="flex size-5 shrink-0 items-center justify-center">
-        {loading ? <LoaderIcon className="size-4 animate-spin" /> : icon}
+        {loading ? <LoaderCircle className="size-4 animate-spin" /> : icon}
       </span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {shortcutLabel ? <CommandShortcut>{shortcutLabel}</CommandShortcut> : null}
@@ -389,7 +390,7 @@ function GitCommitDialog({
       >
         {loading ? (
           <div className="flex h-56 items-center justify-center px-5 py-5 text-foreground-subtle">
-            <LoaderIcon className="size-5 animate-spin" />
+            <LoaderCircle className="size-5 animate-spin" />
           </div>
         ) : state ? (
           <form
@@ -435,7 +436,7 @@ function GitCommitDialog({
                   placeholder={intl.formatMessage({
                     id: "git.actionMenu.commitDialog.messagePlaceholder",
                   })}
-                  className="field-sizing-fixed min-h-28 rounded-none border-0 bg-transparent px-0 py-2 pe-8 text-ui-base font-medium text-foreground shadow-none placeholder:text-foreground-subtle focus-visible:border-transparent focus-visible:bg-transparent focus-visible:ring-0 md:text-ui-base"
+                  className="field-sizing-fixed min-h-28 rounded-none border-0 bg-transparent px-0 py-2 pr-8 text-ui-base font-medium text-foreground shadow-none placeholder:text-foreground-subtle focus-visible:border-transparent focus-visible:bg-transparent focus-visible:ring-0 md:text-ui-base"
                   onChange={(event) => {
                     onMessageChange(event.target.value);
                   }}
@@ -458,10 +459,10 @@ function GitCommitDialog({
                           ? "git.actionMenu.commitDialog.regenerate"
                           : "git.actionMenu.commitDialog.generate",
                       })}
-                      className="absolute end-0 top-1.5 text-foreground-subtle hover:text-foreground"
+                      className="absolute right-0 top-1.5 text-foreground-subtle hover:text-foreground"
                     >
                       {generationPending ? (
-                        <LoaderIcon className="size-4 animate-spin" />
+                        <LoaderCircle className="size-4 animate-spin" />
                       ) : (
                         <SparklesIcon className="size-4" />
                       )}
@@ -487,7 +488,7 @@ function GitCommitDialog({
                 disabled={actionPending || !hasUnstagedChanges}
                 onClick={() => onIncludeUnstagedChange(!includeUnstaged)}
                 className={cn(
-                  "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-start text-ui-base font-medium transition-colors",
+                  "flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left text-ui-base font-medium transition-colors",
                   actionPending || !hasUnstagedChanges
                     ? "cursor-default text-foreground-subtle"
                     : "cursor-pointer text-foreground hover:bg-menu-hover",
@@ -804,7 +805,7 @@ function GitPushDialog({
                   disabled={mutationPending || !pushEnabled}
                   className="h-10 min-w-0 px-5"
                 >
-                  {mutationPending ? <LoaderIcon className="size-4 animate-spin" /> : null}
+                  {mutationPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
                   {intl.formatMessage({
                     id: "git.actionMenu.pushDialog.confirm",
                   })}
@@ -1283,13 +1284,18 @@ export function GitActionMenu({
       return;
     }
 
-    (() => {
-      if (primaryActionId === "push") {
-        openPushDialog();
-        return;
-      }
-      void openCommitDialog();
-    })();
+    runUserAction({
+      input: { featureId: "workbench.git", action: "open", trigger: "button" },
+      operation: () => {
+        if (primaryActionId === "push") {
+          openPushDialog();
+          return;
+        }
+        void openCommitDialog();
+      },
+      completed: { resultSource: "local_commit" },
+      failureStage: "git_action_open",
+    });
   }, [openCommitDialog, openPushDialog, primaryActionId, primaryActionDisabled]);
 
   const handleStatusRowContainerClick = useCallback(() => {
@@ -1325,13 +1331,13 @@ export function GitActionMenu({
             "h-7 rounded-lg border-0 gap-1 px-1.5 @max-[560px]/workspace-header:w-7 @max-[560px]/workspace-header:px-0 @max-[560px]/workspace-header:[&>span]:hidden",
             triggerIconOnly && "w-7 px-0 [&>span]:hidden",
             isStatusRowTrigger &&
-              "h-8 min-w-0 w-full justify-start gap-2 px-2 text-start text-ui-base hover:bg-transparent hover:text-foreground @max-[560px]/workspace-header:w-auto @max-[560px]/workspace-header:[&>span]:inline",
+              "h-8 min-w-0 w-full justify-start gap-2 px-2 text-left text-ui-base hover:bg-transparent hover:text-foreground @max-[560px]/workspace-header:w-auto @max-[560px]/workspace-header:[&>span]:inline",
           )}
           onClick={isStatusRowTrigger && !triggerIconOnly ? undefined : handlePrimaryAction}
         >
           {/* 主按钮进入 pending 时直接替换左侧动作图标，避免在紧凑头部里额外追加 loading 图标把按钮挤宽。*/}
           {triggerPending ? (
-            <LoaderIcon className="size-4 animate-spin text-foreground-subtle" />
+            <LoaderCircle className="size-4 animate-spin text-foreground-subtle" />
           ) : primaryActionId === "push" ? (
             <ArrowUpFromLine className="size-4 text-foreground" />
           ) : (

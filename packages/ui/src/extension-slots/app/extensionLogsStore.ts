@@ -1,8 +1,5 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type {
-  ExtensionLogEntry,
-  ExtensionLogsSnapshot,
-} from "@zcode/shared/extension-host";
+import type { ExtensionLogEntry, ExtensionLogsSnapshot } from "@zcode/shared/extension-host";
 import type { IExtensionsService } from "@zcode/services";
 import { logger } from "@/logger.js";
 import { appendExtensionLogs } from "@/extension-slots/domain/logSelectors.js";
@@ -34,9 +31,7 @@ const EMPTY_STATE: ExtensionLogsState = { entries: [], loaded: false };
 
 const stores = new WeakMap<IExtensionsService, ExtensionLogsStore>();
 
-export function getExtensionLogsStore(
-  service: IExtensionsService,
-): ExtensionLogsStore {
+export function getExtensionLogsStore(service: IExtensionsService): ExtensionLogsStore {
   const existing = stores.get(service);
   if (existing) return existing;
   const store = createStore<ExtensionLogsState>(() => EMPTY_STATE);
@@ -75,16 +70,11 @@ export function getExtensionLogsStore(
     lastSeq = fresh[fresh.length - 1]!.seq;
     const visible = keepVisible(fresh);
     if (visible.length > 0) {
-      store.setState((state) => ({
-        entries: appendExtensionLogs(state.entries, visible),
-      }));
+      store.setState((state) => ({ entries: appendExtensionLogs(state.entries, visible) }));
     }
   };
 
-  const applySnapshot = (
-    since: number | null,
-    snapshot: ExtensionLogsSnapshot,
-  ) => {
+  const applySnapshot = (since: number | null, snapshot: ExtensionLogsSnapshot) => {
     if (since === null) {
       store.setState({
         entries: appendExtensionLogs([], keepVisible(snapshot.entries)),
@@ -96,13 +86,9 @@ export function getExtensionLogsStore(
         lastSeq: snapshot.lastSeq,
       });
     } else {
-      const visible = keepVisible(
-        snapshot.entries.filter((entry) => entry.seq > since),
-      );
+      const visible = keepVisible(snapshot.entries.filter((entry) => entry.seq > since));
       if (visible.length > 0) {
-        store.setState((state) => ({
-          entries: appendExtensionLogs(state.entries, visible),
-        }));
+        store.setState((state) => ({ entries: appendExtensionLogs(state.entries, visible) }));
       }
       logger.lifecycle.info("[extension-slots] logs filled", {
         sinceSeq: since,

@@ -49,10 +49,7 @@ export function ExtensionLauncherSection(props: ExtensionLauncherSectionProps) {
   const model = useExtensionLauncher(props);
   // 需要授权的插件（owner：Window Host 的授权记录）。未授权时扩展照常激活，会话能力报 not-granted。
   const grantRequests = useExtensionGrantsState(
-    (state) =>
-      state.snapshot?.plugins.filter(
-        (plugin) => plugin.status === "needs-consent",
-      ) ?? [],
+    (state) => state.snapshot?.plugins.filter((plugin) => plugin.status === "needs-consent") ?? [],
   );
   const requestGrant = useRequestExtensionGrant();
   const decideActivation = useDecideExtensionActivation();
@@ -69,9 +66,7 @@ export function ExtensionLauncherSection(props: ExtensionLauncherSectionProps) {
     return null;
   const openView = model.openView;
   const reload = model.reload;
-  const stoppedLabel = intl.formatMessage({
-    id: "extensions.launcher.stopped",
-  });
+  const stoppedLabel = intl.formatMessage({ id: "extensions.launcher.stopped" });
   const reloadLabel = intl.formatMessage({ id: "extensions.launcher.reload" });
   const describeProblem = (entry: ExtensionProblem) =>
     entry.path
@@ -82,10 +77,7 @@ export function ExtensionLauncherSection(props: ExtensionLauncherSectionProps) {
       : (entry.reason ?? "");
   return (
     <>
-      <div
-        aria-hidden="true"
-        className="my-4 h-px w-24 self-center bg-border"
-      />
+      <div aria-hidden="true" className="my-4 h-px w-24 self-center bg-border" />
       <section className="min-w-0" data-testid={TID_SIDE_PANE_EXTENSIONS}>
         <h2 className="pb-2 pl-2 text-ui-lg font-semibold text-foreground">
           {intl.formatMessage({ id: "extensions.launcher.title" })}
@@ -97,9 +89,7 @@ export function ExtensionLauncherSection(props: ExtensionLauncherSectionProps) {
               testId={TID_SIDE_PANE_EXTENSIONS_STOPPED}
               icon={OctagonXIcon}
               label={stoppedLabel}
-              description={intl.formatMessage({
-                id: "extensions.launcher.stoppedDescription",
-              })}
+              description={intl.formatMessage({ id: "extensions.launcher.stoppedDescription" })}
               actionLabel={reloadLabel}
               {...(reload ? { onOpen: reload } : {})}
             />
@@ -111,18 +101,10 @@ export function ExtensionLauncherSection(props: ExtensionLauncherSectionProps) {
               testId={TID_SIDE_PANE_EXTENSION_ACTIVATION}
               icon={ShieldQuestionIcon}
               label={plugin.name}
-              descriptionTag={intl.formatMessage({
-                id: "extensions.activation.needsConfirmation",
-              })}
-              description={intl.formatMessage({
-                id: "extensions.activation.description",
-              })}
-              actionLabel={intl.formatMessage({
-                id: "extensions.activation.review",
-              })}
-              {...(decideActivation
-                ? { onOpen: () => void decideActivation(plugin) }
-                : {})}
+              descriptionTag={intl.formatMessage({ id: "extensions.activation.needsConfirmation" })}
+              description={intl.formatMessage({ id: "extensions.activation.description" })}
+              actionLabel={intl.formatMessage({ id: "extensions.activation.review" })}
+              {...(decideActivation ? { onOpen: () => void decideActivation(plugin) } : {})}
             />
           ))}
           {grantRequests.map((state) => (
@@ -132,16 +114,10 @@ export function ExtensionLauncherSection(props: ExtensionLauncherSectionProps) {
               testId={TID_SIDE_PANE_EXTENSION_GRANT}
               icon={KeyRoundIcon}
               label={state.name}
-              descriptionTag={intl.formatMessage({
-                id: "extensions.grants.needsConsent",
-              })}
+              descriptionTag={intl.formatMessage({ id: "extensions.grants.needsConsent" })}
               description={formatGrants(state.declared)}
-              actionLabel={intl.formatMessage({
-                id: "extensions.grants.grant",
-              })}
-              {...(requestGrant
-                ? { onOpen: () => void requestGrant(state) }
-                : {})}
+              actionLabel={intl.formatMessage({ id: "extensions.grants.grant" })}
+              {...(requestGrant ? { onOpen: () => void requestGrant(state) } : {})}
             />
           ))}
           {model.views.map((view) =>
@@ -177,9 +153,7 @@ export function ExtensionLauncherSection(props: ExtensionLauncherSectionProps) {
               testId={TID_SIDE_PANE_EXTENSION_LOGS_ITEM}
               icon={ScrollTextIcon}
               label={intl.formatMessage({ id: "extensions.logs.title" })}
-              description={intl.formatMessage({
-                id: "extensions.logs.launcherDescription",
-              })}
+              description={intl.formatMessage({ id: "extensions.logs.launcherDescription" })}
               onOpen={model.openLogs}
             />
           ) : null}

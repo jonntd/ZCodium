@@ -1,10 +1,11 @@
 import { useCallback, useMemo } from "react";
-import { TID_V4_ROW, TID_V4_SUBAGENT_OPEN_SIDE_PANE, testId } from "@zcode/shared";
+import { TID_V4_ROW, TID_V4_SUBAGENT_OPEN_SIDE_PANE, testId } from "@zcode/shared/test-ids";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { getAgentPrimaryText } from "@/ToolCallBlocks/renderers/agentHelpers.js";
 import type { ConversationAssistantWorkRenderItem } from "@/v4/conversationAssistantWorkItems.js";
 import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
+import { runUserAction } from "@/lib/userActionTelemetry.js";
 
 export function openSubagentSessionFromSummary({
   backgrounded: _backgrounded = false,
@@ -51,7 +52,13 @@ export function ConversationAgentToolCallRow({
     childSessionId && context.sessionId && context.onOpenSubagentSession,
   );
   const handleOpenChildSession = useCallback(() => {
-    openSubagentSessionFromSummary({ childSessionId, context, subagentType, title });
+    runUserAction({
+      input: { featureId: "conversation.subagent", action: "open_side_pane", trigger: "button" },
+      operation: () =>
+        openSubagentSessionFromSummary({ childSessionId, context, subagentType, title }),
+      completed: { resultSource: "local_commit" },
+      failureStage: "subagent_open",
+    });
   }, [childSessionId, context, subagentType, title]);
   const agentSummaryAction = useMemo(
     () =>

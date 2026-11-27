@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -79,8 +79,8 @@ describe("desktop e2e reporting lifecycle", () => {
     };
 
     await reporter.prepare([
-      "./test/e2e/container-boot.test.ts",
-      "./test/e2e/conversation-session/conversation-session-first-send.test.ts",
+      "./test/e2e/infrastructure/smoke/container-boot.test.ts",
+      "./test/e2e/conversation-session/composer/conversation-session-first-send.test.ts",
     ]);
 
     expect(reporter.recordLifecycleEvent).toBeTypeOf("function");
@@ -89,7 +89,7 @@ describe("desktop e2e reporting lifecycle", () => {
       completedAt: "2026-07-10T00:00:01.000Z",
       durationMs: 10,
       phase: "prepare",
-      specs: ["./test/e2e/container-boot.test.ts"],
+      specs: ["./test/e2e/infrastructure/smoke/container-boot.test.ts"],
       startedAt: "2026-07-10T00:00:00.990Z",
     });
     reporter.recordLifecycleEvent?.({
@@ -97,7 +97,7 @@ describe("desktop e2e reporting lifecycle", () => {
       completedAt: "2026-07-10T00:00:03.000Z",
       durationMs: 20,
       phase: "before-session",
-      specs: ["./test/e2e/container-boot.test.ts"],
+      specs: ["./test/e2e/infrastructure/smoke/container-boot.test.ts"],
       startedAt: "2026-07-10T00:00:02.980Z",
     });
     reporter.recordLifecycleEvent?.({
@@ -105,7 +105,7 @@ describe("desktop e2e reporting lifecycle", () => {
       completedAt: "2026-07-10T00:00:04.000Z",
       durationMs: 30,
       phase: "before-session",
-      specs: ["./test/e2e/container-boot.test.ts"],
+      specs: ["./test/e2e/infrastructure/smoke/container-boot.test.ts"],
       startedAt: "2026-07-10T00:00:03.970Z",
     });
     reporter.recordLifecycleEvent?.({
@@ -113,7 +113,7 @@ describe("desktop e2e reporting lifecycle", () => {
       completedAt: "2026-07-10T00:00:05.000Z",
       durationMs: 40,
       phase: "worker",
-      specs: ["./test/e2e/container-boot.test.ts"],
+      specs: ["./test/e2e/infrastructure/smoke/container-boot.test.ts"],
       startedAt: "2026-07-10T00:00:04.960Z",
     });
 
@@ -168,7 +168,7 @@ describe("desktop e2e reporting lifecycle", () => {
       }) => void;
     };
 
-    await reporter.prepare(["./test/e2e/container-boot.test.ts"]);
+    await reporter.prepare(["./test/e2e/infrastructure/smoke/container-boot.test.ts"]);
 
     expect(reporter.recordLifecycleEvent).toBeTypeOf("function");
 
@@ -176,7 +176,7 @@ describe("desktop e2e reporting lifecycle", () => {
       completedAt: "2026-07-10T00:00:05.000Z",
       durationMs: 40,
       phase: "after",
-      specs: ["./test/e2e/container-boot.test.ts"],
+      specs: ["./test/e2e/infrastructure/smoke/container-boot.test.ts"],
       startedAt: "2026-07-10T00:00:04.960Z",
     });
 
@@ -197,7 +197,7 @@ describe("desktop e2e reporting lifecycle", () => {
       repoRoot: process.cwd(),
       requestedSpecs: [],
     });
-    await reporter.prepare(["./test/e2e/container-boot.test.ts"]);
+    await reporter.prepare(["./test/e2e/infrastructure/smoke/container-boot.test.ts"]);
 
     reporter.recordTestResult(
       { title: "keeps the original assertion" },
@@ -223,5 +223,38 @@ describe("desktop e2e reporting lifecycle", () => {
       error: "original assertion failed",
       passed: false,
     });
+  });
+
+  // 回归（2026-11-18 mac E2E triage-rebased1）：App 重启/退出瞬间 electron.execute 返回 undefined 而不抛错，
+  // 采样写出只有 specs/workerId 的半条记录，汇总对它 .reduce 崩溃，整次运行的 summary.json 没有写出。
+  it("records a sampling error instead of a sample without metrics", async () => {
+    const artifactsDir = await createArtifactsDir();
+    const previous = process.env.ZCODE_E2E_ARTIFACT_DIR;
+    process.env.ZCODE_E2E_ARTIFACT_DIR = artifactsDir;
+    try {
+      const reporter = createE2EReporter({
+        containerE2E: false,
+        desktopDir: artifactsDir,
+        repoRoot: process.cwd(),
+        requestedSpecs: [],
+      });
+      const sessionBrowser = {
+        electron: { execute: async () => undefined },
+      } as unknown as WebdriverIO.Browser;
+      await reporter.startProcessSampling(sessionBrowser, ["a.test.ts"]);
+      await reporter.stopProcessSampling(sessionBrowser, ["a.test.ts"]);
+
+      const perfDir = path.join(artifactsDir, "perf");
+      const sampleFiles = (await readdir(perfDir)).filter((name) =>
+        name.startsWith("process-samples-"),
+      );
+      expect(sampleFiles).toEqual([]);
+      const errors = await readFile(path.join(perfDir, "process-sampling-errors.ndjson"), "utf8");
+      expect(errors).toContain("no metrics");
+      expect(() => reporter.writeSummary(0)).not.toThrow();
+    } finally {
+      if (previous === undefined) delete process.env.ZCODE_E2E_ARTIFACT_DIR;
+      else process.env.ZCODE_E2E_ARTIFACT_DIR = previous;
+    }
   });
 });

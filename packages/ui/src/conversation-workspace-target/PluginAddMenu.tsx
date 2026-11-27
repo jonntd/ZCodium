@@ -31,17 +31,9 @@ export function PluginAddMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant={variant}
-          size={size}
-          data-testid={testId}
-        >
+        <Button type="button" variant={variant} size={size} data-testid={testId}>
           {creator.busy ? (
-            <LoaderCircle
-              className="size-3.5 animate-spin"
-              aria-hidden="true"
-            />
+            <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
           ) : null}
           {intl.formatMessage({ id: "pluginCreator.add" })}
           <ChevronDown className="size-3.5" aria-hidden="true" />

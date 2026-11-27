@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { SourceServerManagementSnapshot } from "@zcode/shared";
-import type { ISourceServerManagementService } from "@/project-presentation/contract.js";
+import type { ISourceServerManagementService } from "@zcode/services";
 
 export function useSourceServerManagementSnapshot(
   management: ISourceServerManagementService | undefined,
@@ -18,7 +18,8 @@ export function useSourceServerManagementSnapshot(
   const onErrorRef = useRef(options.onError);
   onErrorRef.current = options.onError;
   const observedGenerationRef = useRef(-1);
-  const [snapshot, setSnapshot] = useState<SourceServerManagementSnapshot | null>(null);
+  const [snapshot, setSnapshot] =
+    useState<SourceServerManagementSnapshot | null>(null);
   const [ready, setReady] = useState(false);
   const refreshRef = useRef<() => void>(() => undefined);
 
@@ -71,7 +72,9 @@ export function useSourceServerManagementSnapshot(
     refreshRef.current = () => refresh(true);
     refresh(true);
     const stateSubscription = management.onDidChangeState(() => refresh());
-    const directorySubscription = management.onDidChangeDirectory?.(() => refresh());
+    const directorySubscription = management.onDidChangeDirectory?.(() =>
+      refresh(),
+    );
     return () => {
       disposed = true;
       refreshRef.current = () => undefined;

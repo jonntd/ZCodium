@@ -11,10 +11,7 @@ import type { ISubagentsService } from "@zcode/services";
 import { shouldExposeE2EStoreBridge } from "@/lib/e2eStoreBridge.js";
 import { logger } from "@/logger.js";
 import { getRemoteWorkspaceServicesForIdentity } from "@/store/remoteWorkspaceSessionStore.js";
-import {
-  getSubagentsContextKey,
-  useSubagentsContextStore,
-} from "@/store/subagentsContextStore.js";
+import { getSubagentsContextKey, useSubagentsContextStore } from "@/store/subagentsContextStore.js";
 import { getServiceAuthorityId } from "@/store/serviceAuthorityKey.js";
 import {
   isLatestAgentLoadRequest,
@@ -41,10 +38,7 @@ interface SubagentsStoreState {
     maybeSubagentsService?: ISubagentsService,
     workspaceIdentity?: string,
   ) => Promise<void>;
-  refresh: (
-    subagentsService: ISubagentsService,
-    workspaceIdentity?: string,
-  ) => Promise<void>;
+  refresh: (subagentsService: ISubagentsService, workspaceIdentity?: string) => Promise<void>;
   setEnabled: (
     agentId: string,
     enabled: boolean,
@@ -98,9 +92,7 @@ export const useSubagentsStore = create<SubagentsStoreState>((set, get) => ({
     const provider = normalizeAgentProviderToZCodeAgent(
       hasProvider ? providerOrSubagentsService : ZCODE_AGENT_PROVIDER,
     );
-    const subagentsService = hasProvider
-      ? maybeSubagentsService
-      : providerOrSubagentsService;
+    const subagentsService = hasProvider ? maybeSubagentsService : providerOrSubagentsService;
     const normalizedWorkspaceIdentity = workspaceIdentity?.trim() || null;
     if (!subagentsService) {
       set({
@@ -169,10 +161,7 @@ export const useSubagentsStore = create<SubagentsStoreState>((set, get) => ({
       });
     }
   },
-  async refresh(
-    subagentsService: ISubagentsService,
-    workspaceIdentity?: string,
-  ) {
+  async refresh(subagentsService: ISubagentsService, workspaceIdentity?: string) {
     const workspacePath = get().workspacePath;
     if (!workspacePath) {
       return;
@@ -182,8 +171,7 @@ export const useSubagentsStore = create<SubagentsStoreState>((set, get) => ({
     const provider = normalizeAgentProviderToZCodeAgent(get().provider);
     const serviceAuthorityId = getServiceAuthorityId(subagentsService);
     const hasCachedAgents =
-      get().agents.length > 0 &&
-      loadedSubagentsServiceAuthorityId === serviceAuthorityId;
+      get().agents.length > 0 && loadedSubagentsServiceAuthorityId === serviceAuthorityId;
     set({
       agents: hasCachedAgents ? get().agents : [],
       capability: hasCachedAgents ? get().capability : null,
@@ -380,23 +368,15 @@ export async function refreshLoadedSubagentsStoreForWorkspace(params: {
   const refreshLegacy = userScope
     ? state.workspacePath === state.loadedWorkspacePath &&
       state.workspaceIdentity === state.loadedWorkspaceIdentity &&
-      loadedSubagentsServiceAuthorityId ===
-        getServiceAuthorityId(params.subagentsService)
-    : state.workspacePath === workspacePath &&
-      state.workspaceIdentity === workspaceIdentity;
+      loadedSubagentsServiceAuthorityId === getServiceAuthorityId(params.subagentsService)
+    : state.workspacePath === workspacePath && state.workspaceIdentity === workspaceIdentity;
   if (state.workspacePath && refreshLegacy) {
-    refreshes.push(
-      state.refresh(
-        params.subagentsService,
-        state.workspaceIdentity ?? undefined,
-      ),
-    );
+    refreshes.push(state.refresh(params.subagentsService, state.workspaceIdentity ?? undefined));
   }
   for (const [key, context] of Object.entries(contextStore.contexts)) {
     if (
       !userScope &&
-      (context.workspacePath !== workspacePath ||
-        context.workspaceIdentity !== workspaceIdentity)
+      (context.workspacePath !== workspacePath || context.workspaceIdentity !== workspaceIdentity)
     )
       continue;
     if (
@@ -430,17 +410,12 @@ export async function refreshLoadedSubagentsStoreForWorkspace(params: {
  * 修法：按每个项目的 identity 取已注册的项目服务，逐个复用上面的刷新；取不到服务就跳过，不回退到本机。
  */
 export async function refreshSubagentsStoreForRemoteWorkspaces(
-  workspaces: readonly {
-    workspacePath: string;
-    workspaceIdentity?: string | null;
-  }[],
+  workspaces: readonly { workspacePath: string; workspaceIdentity?: string | null }[],
 ): Promise<void> {
   await Promise.all(
     workspaces.map(async ({ workspacePath, workspaceIdentity }) => {
       const identity = workspaceIdentity?.trim();
-      const services = identity
-        ? getRemoteWorkspaceServicesForIdentity(identity)
-        : null;
+      const services = identity ? getRemoteWorkspaceServicesForIdentity(identity) : null;
       if (!services) return;
       await refreshLoadedSubagentsStoreForWorkspace({
         scope: "workspace",

@@ -1,4 +1,3 @@
-import { assertOfficialServiceRemoved } from "@zcode/shared";
 import {
   ApiError,
   BIGMODEL_PROVIDER_ID,
@@ -120,9 +119,6 @@ export class BigModelProviderAdapter implements OAuthProviderAdapter {
     params: OAuthCallbackParams,
     _context: OAuthProviderContext,
   ): Promise<OAuthTokenSet> {
-    // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-    assertOfficialServiceRemoved("account");
-
     const tokenSet = await this.exchangeZcodeJwtToken(params, _context);
 
     return {
@@ -228,9 +224,6 @@ export class BigModelProviderAdapter implements OAuthProviderAdapter {
     tokenSet: OAuthTokenSet,
     _context: OAuthProviderContext,
   ): Promise<OAuthUserProfile> {
-    // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-    assertOfficialServiceRemoved("account");
-
     if (tokenSet.zcodeJwtToken && tokenSet.accessToken === tokenSet.zcodeJwtToken) {
       // 移除 tokenByAuthCode 后 callback 阶段没有 BigModel access token。
       // zcode JWT 不能调用 bigmodel.cn 的 customer 接口，避免无意义的鉴权失败请求。

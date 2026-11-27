@@ -2,18 +2,12 @@ import { useUiPluginRecommendations } from "@/plugin-ui/index.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 /* eslint-disable max-lines -- 商店列表页把搜索/公开-社区-个人分段/Featured/分类折叠聚合成一个连贯浏览面，拆散反而难以维持 1:1 布局。 */
 import { useMemo, useState } from "react";
-import type {
-  PluginStoreOrder,
-  ZCodePluginMarketplaceSummary,
-} from "@zcode/shared";
+import type { PluginStoreOrder, ZCodePluginMarketplaceSummary } from "@zcode/shared";
 import { isPluginStoreVisible } from "@zcode/shared";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { PluginStoreAvatar } from "@/settings/PluginStoreAvatar.js";
-import {
-  PluginStoreCard,
-  type PluginStoreActions,
-} from "@/settings/PluginStoreCard.js";
+import { PluginStoreCard, type PluginStoreActions } from "@/settings/PluginStoreCard.js";
 import { SettingsSearchInput } from "@/settings/SettingsSearchInput.js";
 import {
   FALLBACK_CATEGORY,
@@ -63,15 +57,10 @@ export function PluginStoreListView({
   const isOfficeMode = useIsOfficeMode();
   const modeOrder = isOfficeMode ? order?.work : order?.code;
   const keyword = query.trim().toLowerCase();
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(
-    {},
-  );
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
   // 旧版会话恢复入口退出市场；统一过滤所有浏览投影，旧缓存/精选也不能重新露出。
   // 完整 ID 只命中官方插件，插件管理页继续使用原始条目管理已有安装。
-  const items = useMemo(
-    () => allItems.filter((item) => isPluginStoreVisible(item.id)),
-    [allItems],
-  );
+  const items = useMemo(() => allItems.filter((item) => isPluginStoreVisible(item.id)), [allItems]);
 
   const segmentItems = useMemo(
     () => items.filter((item) => resolvePluginStoreSegment(item) === segment),
@@ -87,9 +76,7 @@ export function PluginStoreListView({
     return segmentItems
       .filter(isUiPluginItem)
       .sort(
-        (left, right) =>
-          (ranks.get(left.id) ?? ranks.size) -
-          (ranks.get(right.id) ?? ranks.size),
+        (left, right) => (ranks.get(left.id) ?? ranks.size) - (ranks.get(right.id) ?? ranks.size),
       );
   }, [segmentItems, recommendations]);
   const publicItems = useMemo(
@@ -127,11 +114,7 @@ export function PluginStoreListView({
     const titled: PersonalMarketplaceGroup[] = [...groups.entries()].map(
       ([marketplace, groupItems]) => ({
         marketplace,
-        title: resolveMarketplaceDisplayName(
-          marketplace,
-          marketplaces,
-          claudeCodePlugins,
-        ),
+        title: resolveMarketplaceDisplayName(marketplace, marketplaces, claudeCodePlugins),
         items: groupItems.toSorted((left, right) =>
           resolveItemDisplayName(left, locale).localeCompare(
             resolveItemDisplayName(right, locale),
@@ -156,10 +139,7 @@ export function PluginStoreListView({
   }, [segmentItems, keyword, locale]);
 
   const toggleGroup = (key: string) => {
-    setExpandedGroups((current) => ({
-      ...current,
-      [key]: !(current[key] ?? true),
-    }));
+    setExpandedGroups((current) => ({ ...current, [key]: !(current[key] ?? true) }));
   };
 
   return (
@@ -178,9 +158,7 @@ export function PluginStoreListView({
           <SegmentPill
             active={segment === "community"}
             testId="plugin-store-segment-community"
-            label={intl.formatMessage({
-              id: "settings.plugins.store.segment.community",
-            })}
+            label={intl.formatMessage({ id: "settings.plugins.store.segment.community" })}
             onClick={() => onSegmentChange("community")}
           />
           <SegmentPill
@@ -198,12 +176,9 @@ export function PluginStoreListView({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.nativeEvent.isComposing)
-              onSearchSubmit?.();
+            if (event.key === "Enter" && !event.nativeEvent.isComposing) onSearchSubmit?.();
           }}
-          placeholder={intl.formatMessage({
-            id: "settings.plugins.store.searchPlaceholder",
-          })}
+          placeholder={intl.formatMessage({ id: "settings.plugins.store.searchPlaceholder" })}
         />
       </div>
 
@@ -252,9 +227,7 @@ export function PluginStoreListView({
               data-testid="plugin-store-community-empty"
               className="py-8 text-center text-ui-base text-foreground-subtle"
             >
-              {intl.formatMessage({
-                id: "settings.plugins.store.communityEmpty",
-              })}
+              {intl.formatMessage({ id: "settings.plugins.store.communityEmpty" })}
             </p>
           ) : null}
           {loading ||
@@ -347,12 +320,7 @@ function CardGrid({
   return (
     <div className="grid gap-x-6 gap-y-1 @min-[40rem]/plugin-store:grid-cols-2">
       {items.map((item) => (
-        <PluginStoreCard
-          key={item.id}
-          item={item}
-          actions={actions}
-          locale={locale}
-        />
+        <PluginStoreCard key={item.id} item={item} actions={actions} locale={locale} />
       ))}
     </div>
   );
@@ -377,9 +345,7 @@ function CollapsibleCardGroup({
   const { intl } = useZCodeIntl();
   const visible = expanded ? items : items.slice(0, CATEGORY_VISIBLE_LIMIT);
   const hidden = expanded ? [] : items.slice(CATEGORY_VISIBLE_LIMIT);
-  const hiddenNames = hidden
-    .slice(0, 2)
-    .map((item) => resolveItemDisplayName(item, locale));
+  const hiddenNames = hidden.slice(0, 2).map((item) => resolveItemDisplayName(item, locale));
   return (
     <div>
       <CardGrid items={visible} actions={actions} locale={locale} />
@@ -391,10 +357,7 @@ function CollapsibleCardGroup({
           className="mt-2 flex w-full min-w-0 items-center gap-2 rounded-xl px-2 py-2 text-left text-ui-base text-foreground-subtle transition-colors hover:bg-hover hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
           onClick={() => onToggle(groupKey)}
         >
-          <span
-            className="flex shrink-0 items-center gap-1.5"
-            aria-hidden="true"
-          >
+          <span className="flex shrink-0 items-center gap-1.5" aria-hidden="true">
             {hidden.slice(0, 3).map((item) => (
               <PluginStoreAvatar
                 key={item.id}
@@ -409,18 +372,14 @@ function CollapsibleCardGroup({
               ? intl.formatMessage(
                   { id: "settings.plugins.store.viewMore" },
                   {
-                    names: hiddenNames.join(
-                      intl.formatMessage({ id: "common.listSeparator" }),
-                    ),
+                    names: hiddenNames.join(intl.formatMessage({ id: "common.listSeparator" })),
                     count: String(hidden.length - hiddenNames.length),
                   },
                 )
               : intl.formatMessage(
                   { id: "settings.plugins.store.viewMoreFew" },
                   {
-                    names: hiddenNames.join(
-                      intl.formatMessage({ id: "common.listSeparator" }),
-                    ),
+                    names: hiddenNames.join(intl.formatMessage({ id: "common.listSeparator" })),
                   },
                 )}
           </span>
@@ -542,9 +501,7 @@ function PersonalSegment({
           <CollapsibleCardGroup
             groupKey={`marketplace:${group.marketplace}`}
             items={group.items}
-            expanded={
-              expandedGroups[`marketplace:${group.marketplace}`] ?? true
-            }
+            expanded={expandedGroups[`marketplace:${group.marketplace}`] ?? true}
             onToggle={onToggleGroup}
             actions={actions}
             locale={locale}

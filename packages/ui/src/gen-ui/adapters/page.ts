@@ -1,8 +1,4 @@
-import {
-  AppBridge,
-  type McpUiStyles,
-  type McpUiHostContext,
-} from "@modelcontextprotocol/ext-apps/app-bridge";
+import { AppBridge, type McpUiHostContext } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { z } from "zod";
 import type { IGenUiService } from "@zcode/services";
 import type { PluginSandboxPlatformPort, PluginSandboxHandle } from "@zcode/shared/mcp-apps";
@@ -27,7 +23,7 @@ import {
 } from "@/plugin-ui/hostPrimitives.js";
 import type { GenUiCardTarget, GenUiPage, GenUiPageSnapshot } from "../contract.js";
 import { EMPTY_GEN_UI_SNAPSHOT } from "../contract.js";
-import { readGenUiStyleVariables } from "./theme.js";
+import { readGenUiStyleContext } from "./theme.js";
 import { createGenUiTweakRegistry } from "../app/tweaks.js";
 
 export interface GenUiPageInput {
@@ -79,7 +75,7 @@ export function createGenUiPage(input: GenUiPageInput): GenUiPage {
   const context: McpUiHostContext = {
     displayMode: "inline",
     theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
-    styles: { variables: readGenUiStyleVariables() as McpUiStyles },
+    ...readGenUiStyleContext(),
   };
   const pushContext = () => {
     bridge?.setHostContext({ ...context });
@@ -90,7 +86,6 @@ export function createGenUiPage(input: GenUiPageInput): GenUiPage {
   };
   const followUp = async (prompt: string, title?: string, hostGesture = false) => {
     assertCurrent();
-    const sourceBridge = bridge;
     if (sending) throw new Error("A follow-up is already pending");
     const actions = getPluginUiSessionActions(target);
     if (!actions) throw new Error("This session is read-only or disconnected");
@@ -103,8 +98,6 @@ export function createGenUiPage(input: GenUiPageInput): GenUiPage {
       }
       await saves;
       assertCurrent();
-      // 确认和状态保存都可能跨过沙箱重建；ready 只代表新页面，不能授权旧桥的续写请求。
-      if (bridge !== sourceBridge) throw new Error("Gen UI instance was closed");
       if (getPluginUiSessionActions(target) !== actions) throw new Error("Session binding changed");
       await actions.sendFollowUp({
         prompt,
@@ -236,7 +229,7 @@ export function createGenUiPage(input: GenUiPageInput): GenUiPage {
   });
   const themes = new MutationObserver(() => {
     context.theme = document.documentElement.classList.contains("dark") ? "dark" : "light";
-    context.styles = { variables: readGenUiStyleVariables() as McpUiStyles };
+    Object.assign(context, readGenUiStyleContext());
     pushContext();
   });
   themes.observe(document.documentElement, {

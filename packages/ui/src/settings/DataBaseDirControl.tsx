@@ -1,12 +1,12 @@
-import { FolderOpen, Loader2 } from "lucide-react";
+import { FolderOpen, LoaderCircle } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { isDataBaseDirForbiddenWindowsInstallDirError } from "@zcode/shared";
 import {
-  isDataBaseDirForbiddenWindowsInstallDirError,
   TID_SETTINGS_DATA_BASE_DIR_BROWSE,
   TID_SETTINGS_DATA_BASE_DIR_INPUT,
   TID_SETTINGS_DATA_BASE_DIR_SAVE,
   TID_SETTINGS_DATA_BASE_DIR_STATUS,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -16,14 +16,11 @@ export function DataBaseDirControl({
   defaultHomeDir,
   onDataBaseDirChange,
   onSelectDataBaseDir,
-  onOpenDataRootImport,
 }: {
   dataBaseDir: string;
   defaultHomeDir: string;
   onDataBaseDirChange: (dir: string) => Promise<void>;
   onSelectDataBaseDir: () => Promise<string | null>;
-  /** 打开“从旧数据目录再次导入”独立窗口；仅 Desktop 提供。 */
-  onOpenDataRootImport?: () => void;
 }) {
   const { intl } = useZCodeIntl();
   const effectiveDir = dataBaseDir || defaultHomeDir;
@@ -111,23 +108,11 @@ export function DataBaseDirControl({
           onClick={() => void handleSave()}
         >
           {isSaving ? (
-            <Loader2 className="size-4 animate-spin" />
+            <LoaderCircle className="size-4 animate-spin" />
           ) : (
             intl.formatMessage({ id: "settings.dataBaseDirSave" })
           )}
         </Button>
-        {onOpenDataRootImport ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            title={intl.formatMessage({ id: "settings.dataBaseDirImportHint" })}
-            disabled={isSaving || isPickingDataBaseDir}
-            onClick={onOpenDataRootImport}
-          >
-            {intl.formatMessage({ id: "settings.dataBaseDirImport" })}
-          </Button>
-        ) : null}
       </div>
       {saveState === "saving" ? (
         <p

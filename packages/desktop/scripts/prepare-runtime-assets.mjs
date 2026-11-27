@@ -26,19 +26,18 @@ const shouldPrepareWindowsCuaHelper =
 // CUA 权限浮窗的吸附数据源。仅 macOS；缺 swiftc 时脚本内部自行降级为跳过（浮窗 fail-open
 // 到屏幕底部，仍可用），所以无条件挂在 darwin 上不会让构建变脆。
 const shouldPrepareMacosWindowBounds = target.os === "darwin";
-// CUA helper 随包（docs/spec/cua-runtime-builtin.md §B）：darwin 从官方 CDN 抽
-// Developer-ID helper（网络失败时脚本内部 warn+skip），win32 只做入库 runtime 完整性自检。
-const shouldPrepareCuaHelper = target.os === "darwin" || target.os === "win32";
 
 // 本机桌面包不再内置 glm 原生二进制（prepare:glm），改为内置 agent 的 JS bundle（prepare:agent-bundle），
 // 运行时由 app 的 Electron Node runtime 执行。Source Server 资源由独立 stage:remote-assets 入口负责。
 const localRuntimeScripts = [
   "prepare:agent-bundle",
+  ...(target.os === "win32" ? ["prepare:windows-runtime-host"] : []),
   ...(shouldPrepareWindowsCuaHelper ? ["prepare:windows-cua-helper"] : []),
   ...(nativeSearchReleasePlan.enabled ? ["prepare:native-search"] : []),
   ...(shouldPrepareWindowsBrowserImportHelper ? ["prepare:browser-import-helper"] : []),
+  // 预装工具的 Windows 入口都由这个 shim 提供；缺失时入口无法写入。
+  ...(target.os === "win32" ? ["prepare:preinstalled-entry-shim"] : []),
   ...(shouldPrepareMacosWindowBounds ? ["prepare:macos-window-bounds"] : []),
-  ...(shouldPrepareCuaHelper ? ["prepare:cua-helper"] : []),
 ];
 
 function runTimedPnpmScript(scriptName) {

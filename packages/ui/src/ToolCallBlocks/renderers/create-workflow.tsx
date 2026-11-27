@@ -69,7 +69,7 @@ const workflowCardOpenState = new Map<string, boolean>();
  * 聊天区的 CreateWorkflow / AmendWorkflow 工具卡。
  *
  * 编写中使用不可展开的 ToolLayout，行下常驻草稿阶段线（站随脚本流式写出）；待确认使用可展开脚本的 ToolLayout；编不过是编译反馈行
- * （「工作流草稿 · 第 n 稿 · n 处待修正 · 未运行」）——不是失败，什么都没跑。
+ * （「工作流草稿 · 第 n 稿 · n 处待修正 未运行」，状态两词以 gap 分隔）——不是失败，什么都没跑。
  * v4 已关联 run 的上方行由 WorkflowToolSummary 承载。本组件保留旧宿主的运行卡渲染。
  *
  * AmendWorkflow 行走**同一个**渲染器（display kind 同为 `create_workflow`，图、草稿笔与诊断卡只有一份
@@ -295,7 +295,7 @@ export function CreateWorkflowToolCallBlock(context: ToolCallBlockRenderContext)
   const resume =
     workflowRun?.resumable === true && onResumeWorkflowRun !== undefined ? (
       <Button
-        className="ms-auto"
+        className="ml-auto"
         data-testid="workflow-card-resume"
         onClick={handleResume}
         size="sm"
@@ -417,7 +417,7 @@ export function CreateWorkflowToolCallBlock(context: ToolCallBlockRenderContext)
               // 没有 run 就没有详情页的 Script 区，脚本原文只能在这里读；默认收起，与确认窗同形。
               <Collapsible open={scriptOpen} onOpenChange={setScriptOpen}>
                 <CollapsibleTrigger
-                  className="flex min-w-0 items-center gap-1 rounded-md py-0.5 text-start text-ui-xs font-medium text-foreground-subtlest transition-colors hover:text-foreground-subtle"
+                  className="flex min-w-0 items-center gap-1 rounded-md py-0.5 text-left text-ui-xs font-medium text-foreground-subtlest transition-colors hover:text-foreground-subtle"
                   data-testid="workflow-card-script-toggle"
                 >
                   <ChevronRightIcon

@@ -3,27 +3,30 @@ import { logger } from "@/logger.js";
 
 export type SettingsSectionId =
   | "general"
+  | "agentBehavior"
   | "appearance"
-  | "systemPrompt"
   | "migration"
   | "browser"
   | "modelProvider"
   | "remoteDevices"
+  | "dataSync"
+  | "personalization"
   | "memory"
   | "plugin"
   | "mcp"
   | "skill"
   | "plugins"
-  | "usage"
+  | "projects"
   | "archives"
+  | "shares"
+  | "usage"
   | "subagents"
   | "commands"
   | "hooks"
   | "workspaceFileSearch"
   | "computerUse"
   | "automations"
-  | "shortcuts"
-  | "officialServices";
+  | "shortcuts";
 
 export type SettingsUsageTabTarget = "app" | "codingPlan";
 export type SettingsPluginTabTarget = "plugins" | "mcps" | "skills" | "commands";
@@ -34,7 +37,10 @@ const SETTINGS_SECTION_INTENT_KEY = "zcode-settings-section-intent",
   SETTINGS_PLUGIN_TAB_INTENT_KEY = "zcode-settings-plugin-tab-intent",
   SETTINGS_PLUGIN_ORIGIN_INTENT_KEY = "zcode-settings-plugin-origin-intent",
   SETTINGS_PLUGIN_SCOPE_KEY_INTENT_KEY = "zcode-settings-plugin-scope-key-intent";
+const SETTINGS_SOURCE_SERVER_ID_INTENT_KEY = "zcode-settings-source-server-id-intent";
+const SETTINGS_SOURCE_SERVER_DETAILS_INTENT_KEY = "zcode-settings-source-server-details-intent";
 const SETTINGS_MODEL_PROVIDER_ID_INTENT_KEY = "zcode-settings-model-provider-id-intent";
+const SETTINGS_HOOK_WORKSPACE_PATH_INTENT_KEY = "zcode-settings-hook-workspace-path-intent";
 const SETTINGS_SECTION_INTENT_EVENT = "zcode:settings-section-intent",
   SETTINGS_LAST_SECTION_STORAGE_KEY = "zcode-settings-last-section";
 const HIDDEN_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
@@ -46,9 +52,6 @@ const HIDDEN_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
   // 工作区搜索（.zcodeignore）设置入口先隐藏：规则文件仍生效并可手动编辑，
   // 编辑页代码保留，放开时从这里移除即可。
   "workspaceFileSearch",
-  // computerUse 曾随 workspace stub 一起隐藏（stub 下分区是死功能）；CUA 运行时
-  // 内置化后分区恢复（docs/spec/cua-runtime-builtin.md），web/linux 仍由
-  // createSettingsPageConfig 的桌面平台门控挡住。
 ]);
 
 export interface SettingsSectionIntentEventDetail {
@@ -58,6 +61,10 @@ export interface SettingsSectionIntentEventDetail {
   pluginScopeKey?: string;
   usageTab?: SettingsUsageTabTarget;
   modelProviderId?: string;
+  sourceServerId?: string;
+  sourceServerDetails?: boolean;
+  /** 受管 worktree 任务「去审核」时的会话 cwd，钩子设置页按它发现声明（D23）。 */
+  hookWorkspacePath?: string;
 }
 
 export interface SettingsModelProviderTarget {
@@ -67,22 +74,23 @@ export interface SettingsModelProviderTarget {
 function isSettingsSectionId(value: string): value is SettingsSectionId {
   return (
     value === "general" ||
+    value === "agentBehavior" ||
     value === "appearance" ||
-    value === "systemPrompt" ||
     value === "migration" ||
     value === "browser" ||
     value === "modelProvider" ||
-    // #79：分区渲染、一次性导航和持久偏好必须接受同一组合法 ID；否则设备管理
-    // 和审计版已有官方服务设置都能点击，却在恢复/跳转时悄悄落回常规页。
     value === "remoteDevices" ||
-    value === "officialServices" ||
+    value === "dataSync" ||
+    value === "personalization" ||
     value === "memory" ||
     value === "plugin" ||
     value === "mcp" ||
     value === "skill" ||
     value === "plugins" ||
-    value === "usage" ||
+    value === "projects" ||
     value === "archives" ||
+    value === "shares" ||
+    value === "usage" ||
     value === "subagents" ||
     value === "commands" ||
     value === "hooks" ||
@@ -231,12 +239,17 @@ export function setPendingSettingsSectionIntent(
     pluginOrigin?: SettingsPluginNavigationOrigin;
     pluginScopeKey?: string;
     modelProviderId?: string;
+    sourceServerId?: string;
+    sourceServerDetails?: boolean;
     usageTab?: SettingsUsageTabTarget;
+    hookWorkspacePath?: string;
   } = {},
 ): void {
   if (typeof window === "undefined") {
     return;
   }
+  const hookWorkspacePath =
+    section === "hooks" ? options.hookWorkspacePath?.trim() || undefined : undefined;
 
   try {
     window.sessionStorage.setItem(SETTINGS_SECTION_INTENT_KEY, section);
@@ -259,10 +272,32 @@ export function setPendingSettingsSectionIntent(
     if (options.usageTab) {
       window.sessionStorage.setItem(SETTINGS_USAGE_TAB_INTENT_KEY, options.usageTab);
     }
+    if (section === "remoteDevices" && options.sourceServerId?.trim()) {
+      window.sessionStorage.setItem(
+        SETTINGS_SOURCE_SERVER_ID_INTENT_KEY,
+        options.sourceServerId.trim(),
+      );
+    } else {
+      window.sessionStorage.removeItem(SETTINGS_SOURCE_SERVER_ID_INTENT_KEY);
+    }
+    if (
+      section === "remoteDevices" &&
+      options.sourceServerId?.trim() &&
+      options.sourceServerDetails
+    ) {
+      window.sessionStorage.setItem(SETTINGS_SOURCE_SERVER_DETAILS_INTENT_KEY, "true");
+    } else {
+      window.sessionStorage.removeItem(SETTINGS_SOURCE_SERVER_DETAILS_INTENT_KEY);
+    }
     if (options.modelProviderId) {
       window.sessionStorage.setItem(SETTINGS_MODEL_PROVIDER_ID_INTENT_KEY, options.modelProviderId);
     } else {
       window.sessionStorage.removeItem(SETTINGS_MODEL_PROVIDER_ID_INTENT_KEY);
+    }
+    if (hookWorkspacePath) {
+      window.sessionStorage.setItem(SETTINGS_HOOK_WORKSPACE_PATH_INTENT_KEY, hookWorkspacePath);
+    } else {
+      window.sessionStorage.removeItem(SETTINGS_HOOK_WORKSPACE_PATH_INTENT_KEY);
     }
   } catch {
     // 忽略浏览器存储异常，不影响主流程。
@@ -279,6 +314,13 @@ export function setPendingSettingsSectionIntent(
         pluginScopeKey: options.pluginScopeKey?.trim() || undefined,
         usageTab: options.usageTab,
         modelProviderId: options.modelProviderId,
+        hookWorkspacePath,
+        ...(section === "remoteDevices" && options.sourceServerId?.trim()
+          ? {
+              sourceServerId: options.sourceServerId.trim(),
+              ...(options.sourceServerDetails ? { sourceServerDetails: true } : {}),
+            }
+          : {}),
       },
     }),
   );
@@ -291,11 +333,14 @@ function clearPendingSettingsSectionIntent(): void {
 
   try {
     window.sessionStorage.removeItem(SETTINGS_SECTION_INTENT_KEY);
+    window.sessionStorage.removeItem(SETTINGS_SOURCE_SERVER_ID_INTENT_KEY);
+    window.sessionStorage.removeItem(SETTINGS_SOURCE_SERVER_DETAILS_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_USAGE_TAB_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_MODEL_PROVIDER_ID_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_PLUGIN_TAB_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_PLUGIN_ORIGIN_INTENT_KEY);
     window.sessionStorage.removeItem(SETTINGS_PLUGIN_SCOPE_KEY_INTENT_KEY);
+    window.sessionStorage.removeItem(SETTINGS_HOOK_WORKSPACE_PATH_INTENT_KEY);
   } catch {
     // 忽略浏览器存储异常，不影响主流程。
   }
@@ -365,6 +410,27 @@ export function consumePendingSettingsPluginScopeKey(): string | undefined {
     return raw?.trim() || undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** 与 scopeKey 相同：挂载时读取，挂载完成后再清理，兼容 Strict Mode 双执行 initializer。 */
+export function consumePendingSettingsHookWorkspacePath(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    return (
+      window.sessionStorage.getItem(SETTINGS_HOOK_WORKSPACE_PATH_INTENT_KEY)?.trim() || undefined
+    );
+  } catch {
+    return undefined;
+  }
+}
+
+export function clearPendingSettingsHookWorkspacePath(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.removeItem(SETTINGS_HOOK_WORKSPACE_PATH_INTENT_KEY);
+  } catch {
+    // 忽略浏览器存储异常，不影响主流程。
   }
 }
 
@@ -446,35 +512,6 @@ export function shouldFallbackSettingsUsageTabToApp({
   );
 }
 
-/**
- * URL hash 深链（FR-B14「在完整界面查看/撤销权限规则」入口，VS Code 插件跳转用）：
- * `#settings=<sectionId>`，值缺省或未注册时只表达「打开设置页」。
- *
- * 只读不写 hash：fragment 里可能同时承载 E2EE 的 `#k=`（spec vps-relay-bridge.md §16，
- * autoReconnect 的整页重载依赖 URL 原样保留），深链绝不能清除或改写地址栏；
- * 一次性语义由 Root 侧的 ref 守卫保证，刷新后同 URL 再触发一次属于深链的自然语义。
- */
-export function readSettingsSectionFromLocationHash(): {
-  requested: boolean;
-  section?: SettingsSectionId;
-} {
-  if (typeof window === "undefined") {
-    return { requested: false };
-  }
-  const hash = window.location.hash;
-  if (!hash.startsWith("#")) {
-    return { requested: false };
-  }
-  const raw = new URLSearchParams(hash.slice(1)).get("settings");
-  if (raw === null) {
-    return { requested: false };
-  }
-  return {
-    requested: true,
-    ...(isSettingsSectionId(raw) ? { section: resolveSettingsSection(raw) } : {}),
-  };
-}
-
 export function addPendingSettingsSectionListener(
   listener: (section: SettingsSectionId, detail?: SettingsSectionIntentEventDetail) => void,
 ): () => void {
@@ -497,4 +534,27 @@ export function addPendingSettingsSectionListener(
   return () => {
     window.removeEventListener(SETTINGS_SECTION_INTENT_EVENT, handleIntent);
   };
+}
+
+/** 设置页先消费分区，再消费卡片目标；已挂载页面由同一导航事件直接接收。 */
+export function consumePendingSettingsSourceServerId(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const id = window.sessionStorage.getItem(SETTINGS_SOURCE_SERVER_ID_INTENT_KEY);
+    window.sessionStorage.removeItem(SETTINGS_SOURCE_SERVER_ID_INTENT_KEY);
+    return id?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function consumePendingSettingsSourceServerDetails(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    const details = window.sessionStorage.getItem(SETTINGS_SOURCE_SERVER_DETAILS_INTENT_KEY);
+    window.sessionStorage.removeItem(SETTINGS_SOURCE_SERVER_DETAILS_INTENT_KEY);
+    return details === "true";
+  } catch {
+    return false;
+  }
 }

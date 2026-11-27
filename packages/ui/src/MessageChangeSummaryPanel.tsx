@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import type {
   ZCodePersistedFileChange,
   ZCodeTaskChangeSummary,
   ZCodeTurnFileState,
 } from "@zcode/shared";
-import { TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON, testId } from "@zcode/shared";
+import { TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON, testId } from "@zcode/shared/test-ids";
 import { ChevronRightIcon, Undo2 } from "lucide-react";
 import {
   Collapsible,
@@ -22,7 +22,6 @@ import {
   buildChangeSummaryDiffViewerSource,
   buildChangeSummaryFilePreviewSource,
   openChangeSummaryDiffViewer,
-  resolveChangeSummaryViewerSource,
 } from "@/messageChangeSummaryPreview.js";
 export {
   buildChangeSummaryDiffViewerSource,
@@ -71,19 +70,6 @@ export function MessageChangeSummaryPanel({
     return buildTurnChangeSummary(changeDetails) ?? summary;
   }, [changeDetails, summary]);
 
-  // 窄侧栏（VS Code webview）里卡片默认收起时只露一行聚合计数，「审查 / 打开」
-  // 入口被完全藏起来，用户看到的就是「点卡片没反应」。单文件改动只多一行，
-  // 自动展开让操作路径直接可见；多文件仍默认收起，避免把最新回复挤走。
-  // changeDetails 可能异步到达（历史消息二次校验），所以用 effect 而不是 useState 初值。
-  const [autoExpandDone, setAutoExpandDone] = useState(false);
-  useEffect(() => {
-    if (autoExpandDone || compactForRemoteControl) return;
-    if (turnSummary.fileCount === 1) {
-      setIsFileListOpen(true);
-      setAutoExpandDone(true);
-    }
-  }, [autoExpandDone, compactForRemoteControl, turnSummary.fileCount]);
-
   const filesChangedLabel = intl.formatMessage(
     {
       id:
@@ -102,202 +88,188 @@ export function MessageChangeSummaryPanel({
   );
   const isFileRewindApplied = fileState === "reverted";
   const toggleActionLabel = intl.formatMessage({
-    id: isFileRewindApplied ? "chat.changeSummary.reverted" : "chat.changeSummary.rewind",
+    id: isFileRewindApplied
+      ? "chat.changeSummary.reverted"
+      : "chat.changeSummary.rewind",
   });
   const panelToggleLabel = intl.formatMessage({
     id: isFileListOpen ? "chat.changeSummary.collapse" : "chat.changeSummary.expand",
   });
   const reviewDiffLabel = intl.formatMessage({ id: "chat.changeSummary.review" });
-  const openInEditorLabel = intl.formatMessage({ id: "chat.changeSummary.openInEditor" });
-  const diffUnavailableLabel = intl.formatMessage({ id: "chat.changeSummary.diffUnavailable" });
   const canRequestFileRewind = Boolean(onToggleFiles);
 
   return (
     <>
-      <Collapsible
-        open={isFileListOpen}
-        onOpenChange={setIsFileListOpen}
-        // Bugfix: 历史消息里的文件卡会等二次校验后再出现；
-        // summary 如果没有同样的渐入，会在文件卡稳定前后显得像突兀跳出。
-        data-zcode-stream-animate="true"
-        className="overflow-hidden rounded-xl border border-border bg-card shadow-none"
-        style={
-          {
-            "--zcode-stream-animation-delay": `${animationDelayMs}ms`,
-          } as CSSProperties
-        }
-      >
-        {/* Bugfix: 展开/收起触发器之前只给内部小按钮加 hover 背景，
+    <Collapsible
+      open={isFileListOpen}
+      onOpenChange={setIsFileListOpen}
+      // Bugfix: 历史消息里的文件卡会等二次校验后再出现；
+      // summary 如果没有同样的渐入，会在文件卡稳定前后显得像突兀跳出。
+      data-zcode-stream-animate="true"
+      className="overflow-hidden rounded-xl border border-border bg-card shadow-none"
+      style={
+        {
+          "--zcode-stream-animation-delay": `${animationDelayMs}ms`,
+        } as CSSProperties
+      }
+    >
+      {/* Bugfix: 展开/收起触发器之前只给内部小按钮加 hover 背景，
           收起态看起来像 header 里漂着一块。hover 视觉提升到整行 header，
           但仍只让左侧标题区域负责 toggle，避免右侧撤销按钮误触发折叠。 */}
-        <div className="flex h-10 items-center justify-between gap-3 px-2 transition-colors hover:bg-hover">
-          <CollapsibleTrigger asChild>
-            <button
+      <div className="flex h-10 items-center justify-between gap-3 px-2 transition-colors hover:bg-hover">
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            aria-label={panelToggleLabel}
+            title={panelToggleLabel}
+            className="flex h-full min-w-0 flex-1 items-center gap-2 px-1 text-left"
+          >
+            <ChevronRightIcon
+              className={`size-3.5 shrink-0 text-foreground-subtlest transition-transform ${
+                isFileListOpen ? "rotate-90" : ""
+              }`}
+              aria-hidden="true"
+            />
+            <span className="min-w-0 truncate text-ui-base font-medium text-foreground">
+              {filesChangedLabel}
+            </span>
+            <span className="shrink-0 tabular-nums text-ui-base">
+              <span className="text-diff-added">+{turnSummary.added}</span>{" "}
+              <span className="text-diff-removed">-{turnSummary.removed}</span>
+            </span>
+          </button>
+        </CollapsibleTrigger>
+        {canRequestFileRewind && turnSummary.fileCount > 0 && changeDetails ? (
+          <div className="flex items-center gap-1.5 text-ui-base text-foreground-subtle">
+            <Button
               type="button"
-              aria-label={panelToggleLabel}
-              title={panelToggleLabel}
-              className="flex h-full min-w-0 flex-1 items-center gap-2 px-1 text-left"
+              variant="ghost"
+              size="sm"
+              data-testid={
+                messageId
+                  ? testId(TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON, messageId)
+                  : TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON
+              }
+              data-message-id={messageId}
+              aria-label={toggleActionLabel}
+              title={toggleActionLabel}
+              disabled={isFileRewindApplied}
+              onClick={() => onToggleFiles?.()}
+              className="h-7 gap-1.5 px-2 text-ui-base text-foreground-subtle hover:text-foreground"
             >
-              <ChevronRightIcon
-                className={`size-3.5 shrink-0 text-foreground-subtlest transition-transform ${
-                  isFileListOpen ? "rotate-90" : ""
-                }`}
-                aria-hidden="true"
-              />
-              <span className="min-w-0 truncate text-ui-base font-medium text-foreground">
-                {filesChangedLabel}
-              </span>
-              <span className="shrink-0 tabular-nums text-ui-base">
-                <span className="text-diff-added">+{turnSummary.added}</span>{" "}
-                <span className="text-diff-removed">-{turnSummary.removed}</span>
-              </span>
-            </button>
-          </CollapsibleTrigger>
-          {canRequestFileRewind && turnSummary.fileCount > 0 && changeDetails ? (
-            <div className="flex items-center gap-1.5 text-ui-base text-foreground-subtle">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                data-testid={
-                  messageId
-                    ? testId(TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON, messageId)
-                    : TID_CHAT_CHANGE_SUMMARY_TOGGLE_FILES_BUTTON
-                }
-                data-message-id={messageId}
-                aria-label={toggleActionLabel}
-                title={toggleActionLabel}
-                disabled={isFileRewindApplied}
-                onClick={() => onToggleFiles?.()}
-                className="h-7 gap-1.5 px-2 text-ui-base text-foreground-subtle hover:text-foreground"
-              >
-                <span>{toggleActionLabel}</span>
-                <Undo2 className="size-3.5" />
-              </Button>
-            </div>
-          ) : null}
-        </div>
+              <span>{toggleActionLabel}</span>
+              <Undo2 className="size-3.5" />
+            </Button>
+          </div>
+        ) : null}
+      </div>
 
-        <CollapsibleContent>
-          {/* Bugfix: 变更摘要整体之前没有折叠态，完成任务后会默认展开所有文件行。
+      <CollapsibleContent>
+        {/* Bugfix: 变更摘要整体之前没有折叠态，完成任务后会默认展开所有文件行。
             默认闭合可避免大批文件变更把最新回复向上挤开；单文件 diff 仍保持按需展开。 */}
-          {turnSummary.files.map((file) => {
-            const relativePath = toWorkspaceRelativePath(workspacePath, file.path);
-            const snapshot = snapshotsByPath.get(file.path);
-            const readonlyPatch = readonlyDiffPatchesByPath?.get(file.path);
-            const diffViewerSource = buildChangeSummaryDiffViewerSource({
-              patch: readonlyPatch,
-              path: file.path,
-              snapshot,
-              relativePath,
-              workspacePath,
-              workspaceIdentity,
-              workspaceRemoteSessionId,
-            });
-            const filePreviewSource = buildChangeSummaryFilePreviewSource({
-              path: file.path,
-              relativePath,
-              workspacePath,
-              workspaceIdentity,
-              workspaceRemoteSessionId,
-            });
-            // diff 源（patch 或 before/after 快照）可能缺席。旧实现此时把整行和
-            // 「审查」按钮一起 disabled，点击毫无反馈——这是「无响应」的主要来源之一。
-            // 现在降级为在编辑器里打开当前文件：点击始终有可见结果，并用文案说明
-            // 当前是「审查」还是「在编辑器中打开」。
-            const viewerSource = resolveChangeSummaryViewerSource(
-              diffViewerSource,
-              filePreviewSource,
-            );
-            const canOpenViewer = Boolean(viewerSource && onOpenCodeViewer);
-            const openViewer = () => {
-              openChangeSummaryDiffViewer(viewerSource, onOpenCodeViewer);
-            };
-            const reviewLabel = diffViewerSource ? reviewDiffLabel : openInEditorLabel;
-            const reviewHint = diffViewerSource ? reviewDiffLabel : diffUnavailableLabel;
+        {turnSummary.files.map((file) => {
+          const relativePath = toWorkspaceRelativePath(workspacePath, file.path);
+          const snapshot = snapshotsByPath.get(file.path);
+          const readonlyPatch = readonlyDiffPatchesByPath?.get(file.path);
+          const diffViewerSource = buildChangeSummaryDiffViewerSource({
+            patch: readonlyPatch,
+            path: file.path,
+            snapshot,
+            relativePath,
+            workspacePath,
+            workspaceIdentity,
+            workspaceRemoteSessionId,
+          });
+          const filePreviewSource = buildChangeSummaryFilePreviewSource({
+            path: file.path,
+            relativePath,
+            workspacePath,
+            workspaceIdentity,
+            workspaceRemoteSessionId,
+          });
+          const canOpenDiff = Boolean(diffViewerSource && onOpenCodeViewer);
+          const openDiffViewer = () => {
+            openChangeSummaryDiffViewer(diffViewerSource, onOpenCodeViewer);
+          };
 
-            return (
-              <div key={file.path} className="w-full bg-background/50 overflow-hidden">
-                <div
-                  aria-disabled={!canOpenViewer}
-                  className={cn(
-                    // 窄侧栏适配：文件信息与操作按钮分列两行。「审查 / 打开」原先与长路径
-                    // 挤在同一行，300px 侧栏里被裁切，看起来就是按钮不存在/点了没反应。
-                    "flex w-full flex-col gap-1.5 px-2 py-2 text-left transition-colors",
-                    canOpenViewer ? "cursor-pointer hover:bg-hover/30" : "cursor-default",
-                  )}
-                  onClick={openViewer}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") {
-                      return;
-                    }
-                    event.preventDefault();
-                    openViewer();
-                  }}
-                  role="button"
-                  tabIndex={canOpenViewer ? 0 : -1}
-                  title={file.path}
-                >
-                  <div className="flex w-full min-w-0 items-center justify-between gap-2">
-                    <div className="min-w-0 flex items-center">
-                      <FileDisplayInline
-                        path={file.path}
-                        options={{
-                          basePath: workspacePath,
-                          showFilePath: true,
-                          className: "inline-flex min-w-0 max-w-full items-center gap-1.5",
-                          fileNameClassName: "truncate text-ui-base font-medium text-foreground",
-                          filePathClassName: "truncate text-ui-base text-foreground-subtlest",
-                        }}
-                      />
-                    </div>
-                    <span className="flex shrink-0 items-center gap-2 tabular-nums text-ui-base">
-                      {file.added > 0 ? (
-                        <span className="text-diff-added">+{file.added}</span>
-                      ) : null}
-                      {file.removed > 0 ? (
-                        <span className="text-diff-removed">-{file.removed}</span>
-                      ) : null}
-                    </span>
-                  </div>
-                  <div className="flex w-full shrink-0 items-center justify-end gap-1.5">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="default"
-                      aria-label={reviewLabel}
-                      title={reviewHint}
-                      disabled={!canOpenViewer}
-                      className="h-7 gap-1.5 rounded-lg bg-input px-2 text-ui-base"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        openViewer();
+          return (
+            <div key={file.path} className="w-full bg-background/50 overflow-hidden">
+              <div
+                aria-disabled={!canOpenDiff}
+                className={cn(
+                  "flex w-full items-center gap-1 px-2 py-2 text-left transition-colors",
+                  canOpenDiff ? "cursor-pointer hover:bg-hover/30" : "cursor-default",
+                )}
+                onClick={openDiffViewer}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") {
+                    return;
+                  }
+                  event.preventDefault();
+                  openDiffViewer();
+                }}
+                role="button"
+                tabIndex={canOpenDiff ? 0 : -1}
+                title={file.path}
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <div className="min-w-0 flex items-center">
+                    <FileDisplayInline
+                      path={file.path}
+                      options={{
+                        basePath: workspacePath,
+                        showFilePath: true,
+                        className: "inline-flex min-w-0 max-w-full items-center gap-1.5",
+                        fileNameClassName: "truncate text-ui-base font-medium text-foreground",
+                        filePathClassName: "truncate text-ui-base text-foreground-subtlest",
                       }}
-                      onPointerDown={(event) => event.stopPropagation()}
-                    >
-                      <span>{reviewLabel}</span>
-                    </Button>
-                    <OpenSplitButton
-                      target={{
-                        type: "file",
-                        path: file.path,
-                        title: relativePath,
-                        label: relativePath,
-                        previewSource: filePreviewSource,
-                      }}
-                      onOpenCodeViewer={onOpenCodeViewer}
-                      // Bugfix: 手机远控只需要在应用内预览 diff 文件，不需要桌面端的“选择 App 打开”菜单。
-                      // 隐藏下拉区可以减少窄屏误触，同时保留主“打开”按钮的预览能力。
-                      hideOpenWithMenu={compactForRemoteControl}
-                      stopPropagation
                     />
                   </div>
+                  <span className="flex shrink-0 items-center gap-2 tabular-nums text-ui-base">
+                    {file.added > 0 ? <span className="text-diff-added">+{file.added}</span> : null}
+                    {file.removed > 0 ? (
+                      <span className="text-diff-removed">-{file.removed}</span>
+                    ) : null}
+                  </span>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="default"
+                    aria-label={reviewDiffLabel}
+                    title={reviewDiffLabel}
+                    disabled={!canOpenDiff}
+                    className="h-7 gap-1.5 rounded-lg bg-input px-2 text-ui-base"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openDiffViewer();
+                    }}
+                    onPointerDown={(event) => event.stopPropagation()}
+                  >
+                    <span>{reviewDiffLabel}</span>
+                  </Button>
+                  <OpenSplitButton
+                    target={{
+                      type: "file",
+                      path: file.path,
+                      title: relativePath,
+                      label: relativePath,
+                      previewSource: filePreviewSource,
+                    }}
+                    onOpenCodeViewer={onOpenCodeViewer}
+                    // Bugfix: 手机远控只需要在应用内预览 diff 文件，不需要桌面端的“选择 App 打开”菜单。
+                    // 隐藏下拉区可以减少窄屏误触，同时保留主“打开”按钮的预览能力。
+                    hideOpenWithMenu={compactForRemoteControl}
+                    stopPropagation
+                  />
                 </div>
               </div>
-            );
-          })}
-        </CollapsibleContent>
-      </Collapsible>
+            </div>
+          );
+        })}
+      </CollapsibleContent>
+    </Collapsible>
     </>
   );
 }

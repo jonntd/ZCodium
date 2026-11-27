@@ -108,7 +108,6 @@ const SANITIZED_RUNTIME_ENV_KEYS = [
   "ZCODE_CUA_PERMISSION_BROKER_TOKEN",
   "ZCODE_CUA_PERMISSION_BROKER_REFRESH_MARKER",
   "ZCODE_CUA_PLUGIN_AUTHORITY",
-  // 审计版不再捕获遥测配置；仍剔除旧环境变量，避免凭据泄漏给 Bash/MCP 子进程。
   // 官方命令端点的地址与 token 属于某一个 session，由 agent 定向注入；从父进程继承来的
   // 值（例如嵌套运行的 agent）一律剔除，避免一个 session 拿着另一个 session 的 token。
   ZCODE_OFFICIAL_ENDPOINT_ENV_KEY,

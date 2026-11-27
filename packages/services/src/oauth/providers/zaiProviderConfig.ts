@@ -1,5 +1,6 @@
 import {
   ZAI_PROVIDER_ID,
+  ZAI_CN_PROVIDER_ID,
   buildRuntimeZaiBusinessUrl,
   buildRuntimeZaiOAuthUrl,
   resolveZaiOAuthClientId,
@@ -19,7 +20,7 @@ export const ZAI_OAUTH_PROVIDER_CONFIG: Omit<OAuthProviderRuntimeConfig, "appSec
   order: 1,
   // ZAI 当前 OAuth 授权入口使用 /api/oauth 前缀，继续走 /auth/oauth 会打开旧入口。
   authorizeUrl: "https://chat.z.ai/api/oauth/authorize",
-  tokenUrl: "",
+  tokenUrl: "https://zcode.z.ai/api/v1/oauth/token",
   userinfoUrl: "https://chat.z.ai/api/oauth/userinfo",
   businessLoginUrl: "https://api.z.ai/api/auth/z/login",
   // 生产 client_id 不是 secret，但保留 fallback 可以避免未配置 env 的旧构建直接无法登录。
@@ -51,4 +52,17 @@ export function resolveZaiUserinfoUrl(env: NodeJS.ProcessEnv): string {
   return (
     readEnv(env, "ZAI_OAUTH_USERINFO_URL") ?? buildRuntimeZaiOAuthUrl(env, "/api/oauth/userinfo")
   );
+}
+
+/** 中国区授权信息由 ZCode init 提供，不猜测中国区业务端点或使用全球区换证。 */
+export function createZaiCnProviderRuntimeConfig(
+  env: NodeJS.ProcessEnv,
+): OAuthProviderRuntimeConfig {
+  return {
+    ...createZaiProviderRuntimeConfig(env),
+    id: ZAI_CN_PROVIDER_ID,
+    displayName: "Z.ai (CN)",
+    order: 2,
+    userinfoUrl: buildZCodeApiUrlFromEnv(env, "/api/v1/oauth/profile"),
+  };
 }

@@ -1,16 +1,8 @@
-import type { RemoteConnectionProgressInput } from "./contract.js";
-
-/** 值来自原 SSHDialog，不创建连接或把 Context 当作可写 Host 状态。 */
-export const remoteConnectionProgressExample = {
-  currentStep: "connecting",
-  loading: true,
-  selectingDirectory: false,
-  open: false,
-  error: "",
-  connectedSessionId: null,
-  connectingRequestId: "original-request",
-  pendingRemoteTarget: { kind: "ssh", host: "example.test", username: "user" },
-  connectionLogs: [],
-  onResume() {},
-  onCancel() {},
-} satisfies RemoteConnectionProgressInput;
+import type { RemoteConnectionFlowOptions } from "@/remote-connection-flow/contract.js";
+/** 项目向导在设备连通后接管选目录；保存成功前不会准备会话。 */
+export function projectConnectionOptions(
+  ports: Pick<RemoteConnectionFlowOptions, "onConnect" | "onCancelSession" | "onSelectProject">,
+  chooseAndSaveProject: (connectionId: string) => Promise<void>,
+): RemoteConnectionFlowOptions {
+  return { ...ports, onConnectionReady: chooseAndSaveProject };
+}

@@ -45,8 +45,9 @@ describe("Read PDF executor schema", () => {
     const supported = readTool(runtime, { supportsPdf: true, supportsImages: true });
     const unsupported = readTool(runtime, { supportsPdf: false, supportsImages: true });
 
+    // PDF 句接在图片行末尾，同一行。
     expect(supported.description.split("\n")).toContain(
-      '- Reads PDFs via the `pages` parameter (e.g. "1-5", max 20 pages/request; required for PDFs over 10 pages).',
+      '- Reads images (PNG, JPG, …) and presents them visually. Reads PDFs via the `pages` parameter (e.g. "1-5", max 20 pages/request; required for PDFs over 10 pages).',
     );
     expect(supported.inputSchema.properties).toHaveProperty("pages");
     expect(unsupported.description).not.toContain("Reads PDFs via the `pages` parameter");
@@ -95,7 +96,7 @@ describe("Read PDF executor schema", () => {
     {
       errorCode: 7,
       message:
-        'Invalid pages parameter: "invalid". Use formats like "1-5", "3", or "10-20". Pages are 1-indexed.',
+        'Invalid pages parameter: "invalid". Give one page ("3") or one range ("1-5"), not a list. To read several pages or ranges, read each one separately. Pages are 1-indexed.',
       pages: "invalid",
     },
     {

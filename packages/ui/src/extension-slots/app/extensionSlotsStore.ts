@@ -4,10 +4,7 @@ import {
   type ContributionSnapshot,
   type ExtensionStaticTable,
 } from "@zcode/shared/extension-host";
-import type {
-  ExtensionsContributionsMessage,
-  IExtensionsService,
-} from "@zcode/services";
+import type { ExtensionsContributionsMessage, IExtensionsService } from "@zcode/services";
 import { logger } from "@/logger.js";
 import type { ExtensionSlotsSources } from "@/extension-slots/contract.js";
 
@@ -19,11 +16,7 @@ import type { ExtensionSlotsSources } from "@/extension-slots/contract.js";
 
 export type ExtensionSlotsState = ExtensionSlotsSources;
 
-const EMPTY_STATE: ExtensionSlotsState = {
-  table: null,
-  snapshot: null,
-  status: null,
-};
+const EMPTY_STATE: ExtensionSlotsState = { table: null, snapshot: null, status: null };
 
 export interface ExtensionSlotsStore {
   readonly store: StoreApi<ExtensionSlotsState>;
@@ -55,9 +48,7 @@ export function reduceStaticTable(
   return undefined;
 }
 
-export function getExtensionSlotsStore(
-  service: IExtensionsService,
-): ExtensionSlotsStore {
+export function getExtensionSlotsStore(service: IExtensionsService): ExtensionSlotsStore {
   const existing = stores.get(service);
   if (existing) return existing;
   const store = createStore<ExtensionSlotsState>(() => EMPTY_STATE);
@@ -72,40 +63,26 @@ export function getExtensionSlotsStore(
         subscriptions = [
           service.onDynamicContributions(undefined)((message) => {
             if (message.kind === "static") {
-              const table = reduceStaticTable(
-                store.getState().table,
-                message.table,
-                firstTable,
-              );
+              const table = reduceStaticTable(store.getState().table, message.table, firstTable);
               firstTable = false;
               if (!table) return;
               // 静态表只在插件清单变化与重新加载时重读，频率低。
               logger.lifecycle.info("[extension-slots] static table", {
                 rev: table.rev,
                 plugins: table.plugins.length,
-                items: table.plugins.reduce(
-                  (count, plugin) => count + plugin.slotItems.length,
-                  0,
-                ),
+                items: table.plugins.reduce((count, plugin) => count + plugin.slotItems.length, 0),
               });
               store.setState({ table });
               return;
             }
-            const next = reduceContributionsMessage(
-              store.getState().snapshot,
-              message,
-            );
+            const next = reduceContributionsMessage(store.getState().snapshot, message);
             if (next === undefined) return;
             if (message.kind !== "delta") {
               // 快照与断开只在状态变化时出现，频率低；增量（流式期间每秒最多 2 次）不记日志。
               logger.lifecycle.info(
                 "[extension-slots] contributions",
                 next
-                  ? {
-                      gen: next.gen,
-                      rev: next.rev,
-                      extensions: next.extensions.length,
-                    }
+                  ? { gen: next.gen, rev: next.rev, extensions: next.extensions.length }
                   : "detached",
               );
             }

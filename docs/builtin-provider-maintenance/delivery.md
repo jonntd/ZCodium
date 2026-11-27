@@ -20,7 +20,7 @@ MR 说明至少列出模板与型号增删、默认启停、能力/Map/URL 的�
 
 创建/更新 MR 使用仓库 `zcode-mr` 工具：在干净的特性分支先运行 `python3 .agents/skills/zcode-mr/scripts/zcode_git_workflow.py setup` 检查认证，将五章描述写入临时 UTF-8 文件，再运行 `python3 .agents/skills/zcode-mr/scripts/zcode_git_workflow.py mr --description-file <描述文件> staging`。工具会保留 push hook、查找同源/目标 MR 并只在缺少时创建。检查返回的真实 MR URL；仅生成预填链接不算创建成功。已有 MR 的正文变化还需通过 glab 更新并核对。认证失败保留本地成果，不把凭据写入描述或命令。
 
-普通目录改动走配置 MR；新协议、Access、Adapter、Logo 资源或 UI 行为需要对应代码和测试，不能以“只是模型更新”省略检查。缺 Key 的变更在 MR 中清楚保留待验证，是否接受例外由负责角色明确决定。
+普通目录改动走配置 MR；新协议、Access、Adapter、Logo 资源或 UI 行为需要对应代码和测试，不能以“只是模型更新”省略检查。缺 Key 的变更在 MR 中清楚保留真实 API 待验证项，默认启用按维护范围原则决定，不把缺 Key 作为额外例外审批事项。
 
 ## 选择交付方式
 
@@ -42,7 +42,7 @@ MR 说明至少列出模板与型号增删、默认启停、能力/Map/URL 的�
 
 ## 必要时动态上线
 
-现有客户端使用两阶段下载：控制面 `/api/v1/client/configs` 按 app_version/platform 返回 `data.configs.builtin_provider_config_json`，该字段是 HTTPS 下载 URL；URL 内容是完整 Release。没有该字段表示本次无发布，不清空已有配置。
+现有客户端使用两阶段下载：控制面 `/api/v1/client/configs` 按 app_version/platform 返回 `data.configs.builtin_provider_config_json`，该字段是 HTTP 或 HTTPS 下载 URL；URL 内容是完整 Release。没有该字段表示本次无发布，不清空已有配置。
 
 ```mermaid
 sequenceDiagram
@@ -67,16 +67,31 @@ sequenceDiagram
 4. 验证实际客户端的下载结果、Active revision、完整 Registry 和后续创建 Model 的请求。成功下载不是成功采用，页面列表变化也不代表所有调用方已更新。
 5. 观察受影响入口的鉴权、参数拒绝、工具流和用户反馈；按下述边界恢复。记录采用证据，更新工作项交付状态。
 
-下载器限制 HTTPS、无 URL userinfo、无重定向，不携带账号 Token/Key；两次请求总预算 20 秒，正文按实际字节限制为 10,000,000。以[下载实现](../../packages/provider-node/src/zcode-builtin-download.ts)为准，不复制一套发布客户端。
+正式、测试环境以及 App Host、独立 CLI 共用下载器，均允许 HTTP / HTTPS；正式交付使用维护者配置的 HTTPS 地址，HTTP 保留给临时测试等场景；客户端不按环境强制分流。URL 不允许 userinfo，不跟随重定向，不携带账号 Token/Key；两次请求总预算 20 秒，正文按实际字节限制为 10,000,000。以[下载实现](../../packages/provider-node/src/zcode-builtin-download.ts)为准，不复制一套发布客户端。
+
+HTTP 支持属于客户端代码能力，不能通过修改远端 JSON 让旧客户端解除 HTTPS 限制；发布 HTTP 地址前需按客户端版本确认支持范围。本次不新增环境开关，不自动切换协议。HTTP 下载失败与 HTTPS 一样保留有效本地配置。
+
+2026-10-28 合入测试退役前的验证记录（相关 App 单测现已退役，桌面 E2E 和 CLI 测试保留）：共用下载边界及失败保留专项 28 项、独立 CLI Registry 12 项通过；真实 HTTP socket 覆盖正文超时取消和随后成功下载。桌面 BR117-F01 已验证 HTTP 下载请求实际到达并返回 500 后，Team 切换和 Start 模型选择仍成功。没有改动配置内容或 revision，也未切换线上下载地址。
 
 ## 生效与恢复边界
 
 - 启动在兼容有效的包内/Active 候选中选较高 revision；在线低版本忽略，同版本同内容不变，同版本不同内容拒绝。启动遇到同号缓存内容冲突会回包内可信候选。
 - Provider 与 Model 规则整体替换；结构合法不保证业务正确。下载失败保留基线，不承诺错误业务配置会自动回滚。
-- Host/独立 CLI 持有刷新；每分钟检查、成功默认一小时后再下载，失败按分钟指数退避至一小时。手动 force 绕到期限制，不绕有效 lease。
+- Host/独立 CLI 持有刷新；每分钟检查一次。成功后的下载间隔取第一跳响应 `clientConfigRefreshIntervalSeconds`（60–3600 秒，缺省一小时），从本轮开始计时，到期判断有 5 秒容差，配成 60 秒时每分钟实际刷新一次。失败按分钟指数退避至一小时。手动 force 绕到期限制，不绕有效 lease；同进程内普通刷新在途时，force 等它结束后再强制刷新一次（在途的普通刷新可能复用 URL 跳过 CDN），并发的 force 合并为这一次。
+- 第一跳每轮都请求；`builtin_provider_config_json` 与上次成功下载的 URL 相同且距上次下载不足一小时时跳过 CDN，记为 unchanged。“一小时”与到期判断使用同一 5 秒容差，否则一小时间隔的轮次略早到达时会再推迟一小时。URL 变化、超过一小时或手动 force 时重新下载。控制文件额外记录 `releaseUrl`、`releaseDownloadedAt`，缺失时按需下载，不影响 revision 判定。因此发布新配置必须换新 URL（见上文操作顺序第 3 步），否则最长一小时后才生效。
 - 缓存按平台、App 版本、控制面 Endpoint 隔离；换 CDN URL 不重置来源版本。测试/正式不能只凭相同 revision 判断内容一致。
 - Managed Worker 不独立下载；手机使用目标 Host。Builtin 与 Account 未对齐时保留上一份完整 Registry，不能把状态混合发布。
 - Personal 意图不被覆盖，已有执行 Model 不原地变更；不要承诺当前请求或所有存量运行立即切换。
 - 回退发布**更高 revision 的已验证旧行为/纠正内容**。仅把 URL 指回低 revision 不能让已经升级的客户端回退；客户端代码不兼容则需要修正版客户端或经过验证的投放限制。
 
 实现核验：[Release Source](../../packages/provider-node/src/zcode-builtin-provider-config-source.ts)、[刷新协调](../../packages/provider-node/src/zcode-builtin-remote-synchronizer.ts)、[Registry 版本配对](../../packages/provider/src/registry-service.ts)。本轮没有查询当前线上指针；任何历史线上 revision 都不能代替今天的生产状态。
+
+### 刷新节奏验收
+
+| ID     | 前置 → 操作                                     | 断言                                                                        |
+| ------ | ----------------------------------------------- | --------------------------------------------------------------------------- |
+| BIR-01 | 第一跳间隔 60 秒，URL 不变 → 等两轮；再换新 URL | 第一跳约每 60 秒一次；URL 不变的一轮不请求 CDN；新 URL 在一个间隔内自动生效 |
+| BIR-02 | 接 BIR-01，URL 不变 → 在设置页点“刷新”          | 同一 URL 的 CDN 被重新下载                                                  |
+
+- E2E：`packages/desktop/test/e2e/settings/providers/manual-review/pending/provider-builtin-refresh-cadence.test.ts`（manual-review，未进 CI）。用例不发模型请求，但 manual-review 且无 case-local fixture 时默认走 capture，需显式 replay：`E2E_PROVIDER_HTTP_MODE=replay E2E_PROVIDER_REPLAY_FIXTURE_PATH=<仓库>/packages/desktop/test/e2e/fixtures/upstream/common.json pnpm test:e2e -- --spec <上述文件>`。
+- 节奏细节由 CLI 测试 `apps/zcode-cli/packages/bootstrap/tests/process-provider-builtin-refresh-cadence.test.ts` 覆盖：到期容差、URL 复用与一小时兜底（含略早到达的轮次）、普通刷新在途时的 force、间隔上下限、撤销与失败退避、独立 CLI 排期。

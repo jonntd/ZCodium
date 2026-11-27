@@ -63,8 +63,26 @@ export async function startProcessProviderRegistryRuntime(
     ...paths,
     ...(bundledFile
       ? {
-          // 去智谱化：停用 CDN 远端源与数据目录缓存，bundled 仓库文件是唯一事实源。
           zcodeBuiltinFilePath: bundledFile,
+          zcodeBuiltinActiveFilePath: paths.zcodeBuiltinFilePath,
+          zcodeBuiltinRemote: {
+            controlFilePath: join(
+              dirname(paths.zcodeBuiltinFilePath),
+              "zcode-builtin-refresh.json",
+            ),
+            resolveEndpointKey: () => resolveRuntimeZCodeEndpointOrigin(env),
+            fetchRelease: (endpointOrigin, signal, { reuseUrl }) =>
+              downloadZCodeBuiltinRelease({
+                endpointOrigin,
+                signal,
+                appVersion: ZCODE_VERSION,
+                platform: resolveZCodeBuiltinClientPlatform(),
+                request: options.standalone?.request ?? globalThis.fetch,
+                resolveZcodeJwtToken: () => credentialStore?.load("zcodejwttoken"),
+                ...(reuseUrl ? { reuseUrl } : {}),
+              }),
+            onRefreshResult: options.standalone?.onBuiltinRefreshResult,
+          },
         }
       : {}),
     onZCodeBuiltinRefreshError: options.standalone?.onBuiltinRefreshError,

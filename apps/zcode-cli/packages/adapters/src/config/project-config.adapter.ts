@@ -10,13 +10,14 @@ import { loadFileConfig, type LoadedConfig } from "./file-config.adapter.js";
 
 const CURRENT_DIRECTORY = ".";
 
-export interface ProjectConfigFile {
+export interface ProjectConfigFile extends LoadedConfig {
   baseDir: string;
-  config: RuntimeConfigPatch;
-  diagnostics: LoadedConfig["diagnostics"];
   hookCandidate?: WorkspaceHookSourceInput;
-  loaded: boolean;
-  path: string;
+  /**
+   * 项目 `plugins.dirs` 解析成的绝对目录，只是待信任候选，不在 config 里。
+   * 插件发现按用户域信任记录逐个准入（docs/plugins/workspace-plugin-dir-trust.md）。
+   */
+  pluginDirCandidates?: string[];
 }
 
 export interface ProjectConfigDiscovery {
@@ -55,10 +56,15 @@ export function loadProjectConfigFile(
     workingDirectory?: string;
   } = {},
 ): ProjectConfigFile {
-  const result = loadFileConfig(path);
+  const result = loadFileConfig(path, { scope: "project" });
   const baseDir = getProjectConfigBaseDir(result.path);
   const diagnostics = [...result.diagnostics];
   const hooks = result.loaded ? result.config.hooks : undefined;
+  const pluginDirCandidates = result.loaded
+    ? (result.config.plugins?.dirs ?? []).map((dir) =>
+        isAbsolute(dir) ? resolve(dir) : resolve(baseDir, dir),
+      )
+    : [];
 
   if (hooks) {
     diagnostics.push({
@@ -91,6 +97,8 @@ export function loadProjectConfigFile(
       : {}),
     loaded: result.loaded,
     path: result.path,
+    ...(pluginDirCandidates.length > 0 ? { pluginDirCandidates } : {}),
+    ...(result.pendingVisualizeMigration ? { pendingVisualizeMigration: true } : {}),
   };
 }
 
@@ -114,12 +122,15 @@ export function summarizeProjectConfigs(files: ProjectConfigFile[]): ProjectConf
   };
 }
 
-function getProjectConfigBaseDir(path: string): string {
+export function getProjectConfigBaseDir(path: string): string {
   const configDirectory = dirname(path);
   return basename(configDirectory) === ".zcode" ? dirname(configDirectory) : configDirectory;
 }
 
-function normalizeProjectConfig(config: RuntimeConfigPatch, baseDir: string): RuntimeConfigPatch {
+export function normalizeProjectConfig(
+  config: RuntimeConfigPatch,
+  baseDir: string,
+): RuntimeConfigPatch {
   const normalized: RuntimeConfigPatch = config.hooks
     ? (() => {
         const { hooks: _hooks, ...safeConfig } = config;
@@ -128,6 +139,13 @@ function normalizeProjectConfig(config: RuntimeConfigPatch, baseDir: string): Ru
         return safeConfig;
       })()
     : { ...config };
+
+  if (normalized.plugins?.dirs) {
+    // 工作区目录插件曾绕过用户安装直接注册 Hook/MCP；项目目录只作为待信任候选
+    // （ProjectConfigFile.pluginDirCandidates），可执行配置里永远没有项目插件根目录。
+    const { dirs: _dirs, ...plugins } = normalized.plugins;
+    normalized.plugins = plugins;
+  }
 
   if (!normalized.mcp?.servers) return normalized;
 
@@ -145,7 +163,10 @@ function normalizeProjectConfig(config: RuntimeConfigPatch, baseDir: string): Ru
   };
 }
 
-function normalizeProjectMcpServer(server: McpServerConfig, baseDir: string): McpServerConfig {
+export function normalizeProjectMcpServer(
+  server: McpServerConfig,
+  baseDir: string,
+): McpServerConfig {
   if (server.type !== "stdio") return server;
 
   const cwd = server.cwd ?? CURRENT_DIRECTORY;

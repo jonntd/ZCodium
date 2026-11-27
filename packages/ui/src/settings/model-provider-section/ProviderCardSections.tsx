@@ -1,11 +1,9 @@
 /* eslint-disable max-lines -- 模型供应商卡片仍在迁移期集中维护多个紧耦合区块，后续拆分时再移除。 */
 import {
   useCallback,
-  useMemo,
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
-  type RefObject,
   type ReactNode,
 } from "react";
 import type {
@@ -13,9 +11,8 @@ import type {
   ProviderSettingsFormModel,
 } from "@/lib/providerSettingsFormTypes.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
-import type { ProviderApiType, RemoteModelCatalogResult } from "@zcode/provider";
+import type { ProviderApiType } from "@zcode/provider";
 import {
-  type OrcaCapability,
   TID_MODEL_PROVIDER_ADD_MODEL_BUTTON,
   TID_MODEL_PROVIDER_BASE_URL_INPUT,
   TID_MODEL_PROVIDER_MODEL_DELETE_BUTTON,
@@ -23,7 +20,7 @@ import {
   TID_MODEL_PROVIDER_NAME_EDIT_BUTTON,
   TID_MODEL_PROVIDER_NAME_INPUT,
   testId,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { InfoIcon, LockKeyholeIcon, Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
@@ -36,17 +33,10 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useServices } from "@/hooks/useServices.js";
-import { useOptionalPlatform } from "@/hooks/usePlatform.js";
-import { toast } from "@/components/ui/toast.js";
 import { TECHNICAL_INPUT_ATTRIBUTES } from "@/lib/technicalInputAttributes.js";
 import { ApiKeyInput } from "./ApiKeyInput.js";
 import { ModelRowInput } from "./ProviderFormControls.js";
-import { OrcaRouterModelSelector } from "./OrcaRouterModelSelector.js";
-import { resolveOrcaDiscoverySurface } from "./orcaRouterModelOptions.js";
 import { PresetProviderApiKeyBanner } from "./PresetProviderApiKeyBanner.js";
-import { ModelhubModelPickerDialog } from "./ModelhubModelPickerDialog.js";
-import { ModelhubHeadersDialog } from "./ModelhubHeadersDialog.js";
-import { readDeletedModelIds } from "./modelhubTombstones.js";
 import { type ProviderModelDraftValues } from "@/settings/model-provider-section/ProviderModelMetadata.js";
 import { ProviderModelMetadataDialog } from "@/settings/model-provider-section/ProviderModelMetadataDialog.js";
 import {
@@ -82,7 +72,6 @@ export function ProviderCardHeader({
   logo,
   editingName,
   nameValue,
-  nameInputRef,
   nameEditable = true,
   onNameChange,
   onNameBlur,
@@ -98,7 +87,6 @@ export function ProviderCardHeader({
   logo?: ProviderConfigObject["logo"];
   editingName: boolean;
   nameValue: string;
-  nameInputRef: RefObject<HTMLInputElement | null>;
   nameEditable?: boolean;
   onNameChange: (value: string) => void;
   onNameBlur: () => void;
@@ -121,7 +109,7 @@ export function ProviderCardHeader({
         {editingName ? (
           <Input
             {...TECHNICAL_INPUT_ATTRIBUTES}
-            ref={nameInputRef}
+            autoFocus
             data-testid={TID_MODEL_PROVIDER_NAME_INPUT}
             type="text"
             size="lg"
@@ -159,10 +147,11 @@ export function ProviderCardHeader({
             <DropdownMenuContent
               align="end"
               onCloseAutoFocus={(event) => {
-                // 重命名后的焦点交给输入框，不能被菜单关闭时重新抢回触发按钮。
+                // 退场动画中的菜单仍会因鼠标移动抢焦点，必须关闭后再挂载并聚焦输入框。
                 if (renameRequestedRef.current) {
                   event.preventDefault();
                   renameRequestedRef.current = false;
+                  onStartEditName();
                 }
               }}
             >
@@ -171,7 +160,6 @@ export function ProviderCardHeader({
                   data-testid={TID_MODEL_PROVIDER_NAME_EDIT_BUTTON}
                   onSelect={() => {
                     renameRequestedRef.current = true;
-                    onStartEditName();
                   }}
                 >
                   <Pencil className="size-3.5" />
@@ -372,12 +360,6 @@ export function ProviderModelsSection({
   onAddModel,
   onReorderModelIds,
   settingsRevision = 0,
-  modelhubEndpoint,
-  providerHeaders,
-  onSaveProviderHeaders,
-  onDetectRemoteModels,
-  discoveryTemplateId = null,
-  discoveryCapability = "chat",
 }: {
   providerId: string;
   providerName?: string;
@@ -395,35 +377,14 @@ export function ProviderModelsSection({
   onAddModel: (model: ProviderSettingsFormModel) => void | Promise<void>;
   onReorderModelIds?: (modelIds: string[]) => void;
   settingsRevision?: number;
-  /** 拉取模型（modelhub）用的渠道连接事实；缺省或无 baseUrl 时隐藏拉取入口。 */
-  modelhubEndpoint?: { apiType: string; baseUrl: string; apiKey: string } | null;
-  /** 渠道当前生效的请求头（api.headers）；配合 onSaveProviderHeaders 提供请求头模拟。 */
-  providerHeaders?: Record<string, string> | null;
-  onSaveProviderHeaders?: (headers: Record<string, string>) => Promise<void>;
-  /** 装配后对话框内出现"检测可用模型"入口；未装配（账号/套餐 Provider）则保持手输。 */
-  onDetectRemoteModels?: () => Promise<RemoteModelCatalogResult>;
-  /** OrcaRouter 模板：模型只能从真实目录生成的下拉中选择，不支持自由输入。 */
-  discoveryTemplateId?: string | null;
-  /**
-   * 目录下拉按哪个 AI 入口的能力过滤，由调用方按当前入口传入。
-   *
-   * Provider 设置页维护的是文本 chat/agent 的模型清单，因此默认 `chat`；
-   * 参数化是为了让后续新增的非文本入口显式传入自己的能力，而不是在本组件里写死。
-   */
-  discoveryCapability?: OrcaCapability;
 }) {
   const { intl } = useZCodeIntl();
   const { providerSettingsService } = useServices();
-  const platform = useOptionalPlatform();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
   const [addSaving, setAddSaving] = useState(false);
   const addSavingRef = useRef(false);
   const [addCommitError, setAddCommitError] = useState<string | null>(null);
   const [addModel] = useState(createEmptyModel);
-  const [detectPending, setDetectPending] = useState(false);
-  const [detectError, setDetectError] = useState<string | null>(null);
-  const [detectModels, setDetectModels] = useState<readonly string[] | null>(null);
-  const latestDetectTokenRef = useRef(0);
   const [addDraftErrorField, setAddDraftErrorField] = useState<
     | "id"
     | "contextWindow"
@@ -449,42 +410,8 @@ export function ProviderModelsSection({
     editor.reset(createEmptyModel());
     setAddDraftErrorField(null);
     setAddCommitError(null);
-    setDetectModels(null);
-    setDetectError(null);
     setAddDialogOpen(true);
   }, [editor.reset]);
-
-  const handleDetectRemoteModels = useCallback(() => {
-    if (!onDetectRemoteModels || detectPending) return;
-    // 连续点击时旧响应可能晚到；token 守卫保证只提交最新一次检测结果。
-    const token = latestDetectTokenRef.current + 1;
-    latestDetectTokenRef.current = token;
-    setDetectPending(true);
-    setDetectError(null);
-    void onDetectRemoteModels()
-      .then((result) => {
-        if (token !== latestDetectTokenRef.current) return;
-        if (result.success) {
-          setDetectModels(result.models);
-          setDetectError(
-            result.models.length === 0
-              ? intl.formatMessage({ id: "settings.modelProvider.detectModelsEmpty" })
-              : null,
-          );
-        } else {
-          setDetectModels(null);
-          setDetectError(result.message);
-        }
-      })
-      .catch((error) => {
-        if (token !== latestDetectTokenRef.current) return;
-        setDetectModels(null);
-        setDetectError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (token === latestDetectTokenRef.current) setDetectPending(false);
-      });
-  }, [onDetectRemoteModels, detectPending, intl]);
 
   const updateAddDraft = (patch: Partial<ProviderModelDraftValues>) => {
     editor.change(patch);
@@ -495,9 +422,6 @@ export function ProviderModelsSection({
     setAddDialogOpen(false);
     editor.reset(createEmptyModel());
     setAddDraftErrorField(null);
-    setAddCommitError(null);
-    setDetectModels(null);
-    setDetectError(null);
     editor.cancel();
   };
 
@@ -544,237 +468,24 @@ export function ProviderModelsSection({
       })
     : null;
 
-  // ── 拉取模型（zcode-patcher --modelhub 原生版）──
-  // main 进程拉取 /models → 选择器勾选（可视觉探测）→ 走与「添加模型」一致的
-  // onAddModel 通路逐个落库（useRecommendedConfig=true，推荐配置由服务端解析）。
-  const [headersDialogOpen, setHeadersDialogOpen] = useState(false);
-  // 删除墓碑：本会话内删除的模型在拉取选择器中标「已删除」并禁止重添。
-  // 每次读取现读 localStorage（bugfix：曾用 useState 初值只读一次，墓碑由
-  // InlineEditableProviderCard 的删除回调写入，同一卡片挂载期间删除的模型在
-  // 随后的拉取选择器里仍可作为新模型勾选）。依赖 models——增删模型都会改变
-  // models 引用，触发重读；key=providerId 保证换供应商时重挂载重读。
-  const deletedIds = useMemo(() => readDeletedModelIds(providerId), [providerId, models]);
-  const [fetchDialogOpen, setFetchDialogOpen] = useState(false);
-  const [fetchedModels, setFetchedModels] = useState<{ id: string; visionGuess: boolean }[] | null>(
-    null,
-  );
-  const [fetching, setFetching] = useState(false);
-  const modelhubAvailable = platform?.modelhubFetchModels != null;
-  const modelhubUsable =
-    modelhubAvailable && modelhubEndpoint != null && modelhubEndpoint.baseUrl.trim().length > 0;
-
-  const resolveModelhubDialect = useCallback(() => {
-    // 协议 dialect：anthropic-messages → anthropic；其余（含 responses）按 openai-compatible。
-    return String(modelhubEndpoint?.apiType ?? "").includes("anthropic")
-      ? "anthropic"
-      : "openai-compatible";
-  }, [modelhubEndpoint?.apiType]);
-
-  const handleFetchModels = useCallback(async () => {
-    if (!platform?.modelhubFetchModels || !modelhubEndpoint) return;
-    setFetching(true);
-    try {
-      const result = await platform.modelhubFetchModels({
-        baseUrl: modelhubEndpoint.baseUrl,
-        ...(modelhubEndpoint.apiKey ? { apiKey: modelhubEndpoint.apiKey } : {}),
-        dialect: resolveModelhubDialect(),
-      });
-      if (!result.ok || !result.models) {
-        toast(
-          intl.formatMessage(
-            { id: "settings.modelhub.fetch.failed" },
-            { error: result.error ?? "" },
-          ),
-        );
-        return;
-      }
-      if (result.models.length === 0) {
-        toast(intl.formatMessage({ id: "settings.modelhub.fetch.empty" }));
-        return;
-      }
-      setFetchedModels(result.models);
-      setFetchDialogOpen(true);
-    } catch (error) {
-      toast(
-        intl.formatMessage(
-          { id: "settings.modelhub.fetch.failed" },
-          { error: error instanceof Error ? error.message : String(error) },
-        ),
-      );
-    } finally {
-      setFetching(false);
-    }
-  }, [intl, modelhubEndpoint, platform, resolveModelhubDialect]);
-
-  const handleProbeVision = useCallback(
-    async (modelId: string): Promise<boolean | null> => {
-      if (!platform?.modelhubProbeVision || !modelhubEndpoint) return null;
-      const result = await platform.modelhubProbeVision({
-        baseUrl: modelhubEndpoint.baseUrl,
-        ...(modelhubEndpoint.apiKey ? { apiKey: modelhubEndpoint.apiKey } : {}),
-        model: modelId,
-        dialect: resolveModelhubDialect(),
-      });
-      return result.ok ? (result.vision ?? null) : null;
-    },
-    [modelhubEndpoint, platform, resolveModelhubDialect],
-  );
-
-  const handleConfirmFetchedModels = useCallback(
-    async (selected: { id: string; vision: boolean }[]) => {
-      const key = (value: string) => value.trim().toLowerCase();
-      const existingSet = new Set(models.map((model) => key(model.modelId)));
-      for (const id of deletedIds) existingSet.add(key(id));
-      let added = 0;
-      const addedIds: string[] = [];
-      for (const item of selected) {
-        if (existingSet.has(key(item.id))) continue;
-        try {
-          // 与「添加模型」弹窗的提交产物同形：推荐配置由服务端解析，
-          // 视觉探测结果通过 metadata 弹窗继续编辑，不在这里伪造 properties。
-          await onAddModel({
-            ...createEmptyModel(),
-            modelId: item.id,
-            personalConfig: {},
-            useRecommendedConfig: true,
-          });
-          added += 1;
-          addedIds.push(item.id);
-          existingSet.add(key(item.id));
-        } catch (error) {
-          toast(
-            intl.formatMessage(
-              { id: "settings.modelhub.fetch.addFailed" },
-              { model: item.id, error: error instanceof Error ? error.message : String(error) },
-            ),
-          );
-        }
-      }
-      // 拉取成功后按名称自然排序（与补丁「已按名称自动排序」一致）。
-      if (added > 0 && onReorderModelIds) {
-        const merged = [...models.map((model) => model.modelId), ...addedIds];
-        const natural = [...new Set(merged)].sort((a, b) =>
-          String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: "base" }),
-        );
-        if (JSON.stringify(natural) !== JSON.stringify(models.map((model) => model.modelId))) {
-          onReorderModelIds(natural);
-        }
-      }
-      toast(intl.formatMessage({ id: "settings.modelhub.fetch.done" }, { count: added }));
-    },
-    [deletedIds, intl, models, onAddModel, onReorderModelIds],
-  );
-
-  // OrcaRouter：模型不能自由输入，只能从真实目录生成、按当前入口能力过滤的下拉中选择。
-  // 判定逻辑收敛在 resolveOrcaDiscoverySurface（可用纯函数测试证明，而不是内联比较）。
-  const discoverySurface = resolveOrcaDiscoverySurface({
-    templateId: discoveryTemplateId,
-    capability: discoveryCapability,
-  });
-  const orcaRouterTemplate = discoverySurface.mode === "catalog-only";
-  const handleSelectOrcaModel = useCallback(
-    async (modelId: string | null) => {
-      if (!modelId) return;
-      const existing = models.find((model) => model.modelId === modelId);
-      await onAddModel(
-        existing
-          ? { ...existing, hasPersonalConfig: true }
-          : { ...createEmptyModel(), modelId, hasPersonalConfig: true },
-      );
-    },
-    [models, onAddModel],
-  );
-
   return (
     <div>
       <div className="mb-1 flex flex-wrap items-center justify-between gap-3">
         <span className="text-ui-base text-foreground-subtle">
           {intl.formatMessage({ id: "settings.modelProvider.models" })}
         </span>
-        <div className="flex items-center gap-2">
-          {onSaveProviderHeaders ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="default"
-              className="rounded-lg"
-              data-testid="v4-modelhub-headers-button"
-              onClick={() => setHeadersDialogOpen(true)}
-            >
-              {intl.formatMessage({ id: "settings.modelhub.headers.action" })}
-            </Button>
-          ) : null}
-          {modelhubUsable ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="default"
-              className="rounded-lg"
-              data-testid="v4-modelhub-fetch-button"
-              disabled={fetching}
-              onClick={() => void handleFetchModels()}
-            >
-              {intl.formatMessage({ id: "settings.modelhub.fetch.action" })}
-            </Button>
-          ) : null}
-          {orcaRouterTemplate ? null : (
-            <Button
-              type="button"
-              variant="secondary"
-              size="default"
-              className="rounded-lg"
-              data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
-              onClick={openAddDialog}
-            >
-              <Plus data-icon="inline-start" aria-hidden="true" />
-              {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
-            </Button>
-          )}
-        </div>
+        <Button
+          type="button"
+          variant="secondary"
+          size="default"
+          className="rounded-lg"
+          data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
+          onClick={openAddDialog}
+        >
+          <Plus data-icon="inline-start" aria-hidden="true" />
+          {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
+        </Button>
       </div>
-      <ModelhubHeadersDialog
-        open={headersDialogOpen}
-        onOpenChange={setHeadersDialogOpen}
-        currentHeaders={providerHeaders ?? {}}
-        onApply={(headers) => {
-          void onSaveProviderHeaders?.(headers).catch((error) => {
-            toast(
-              intl.formatMessage(
-                { id: "settings.modelhub.headers.failed" },
-                { error: error instanceof Error ? error.message : String(error) },
-              ),
-            );
-          });
-        }}
-      />
-      <ModelhubModelPickerDialog
-        open={fetchDialogOpen}
-        onOpenChange={setFetchDialogOpen}
-        models={fetchedModels ?? []}
-        existingIds={models.map((model) => model.modelId)}
-        deletedIds={[...deletedIds]}
-                // 修复说明：曾错用 modelhubAvailable（拉取能力）装配探测，导致无探测能力
-                // 的宿主（VS Code/Web）上「探测视觉/探测全部」可点但静默返回 null；改为按
-                // 探测能力装配，与 spec modelhub-fetch-models §6「避免可点但必失败」对齐
-                // （桌面探测链路不受影响）。
-                onProbeVision={
-                  platform?.modelhubProbeVision != null
-                    ? (modelId) => handleProbeVision(modelId)
-                    : undefined
-                }
-        onConfirm={(selected) => void handleConfirmFetchedModels(selected)}
-      />
-      {orcaRouterTemplate ? (
-        <div className="mb-2">
-          <OrcaRouterModelSelector
-            capability={discoveryCapability}
-            selectedModelId={models[0]?.modelId ?? null}
-            onSelectModel={(modelId) => {
-              void handleSelectOrcaModel(modelId);
-            }}
-          />
-        </div>
-      ) : null}
       {models.length > 0 ? (
         <div className="overflow-hidden rounded-lg border border-input-border bg-input">
           <SortableProviderModelList
@@ -816,7 +527,6 @@ export function ProviderModelsSection({
                       })
                     }
                     settingsRevision={settingsRevision}
-                    modelIdReadOnly={orcaRouterTemplate}
                     onDelete={!model.builtin ? () => onDeleteModel(model.modelId) : undefined}
                     onEnabledChange={(enabled) => {
                       void Promise.resolve(onModelEnabledChange?.(model.modelId, enabled)).catch(
@@ -837,13 +547,12 @@ export function ProviderModelsSection({
           />
         </div>
       ) : (
-        <div className="mt-1 flex h-12 items-center justify-start gap-2 rounded-lg border border-dashed border-border px-4 text-start text-ui-base text-foreground-subtle">
+        <div className="mt-1 flex h-12 items-center justify-start gap-2 rounded-lg border border-dashed border-border px-4 text-left text-ui-base text-foreground-subtle">
           <InfoIcon className="size-4 shrink-0" aria-hidden="true" />
           {intl.formatMessage({ id: "settings.modelProvider.modelsEmpty" })}
         </div>
       )}
-      {/* OrcaRouter 的模型只能来自目录下拉，不提供任何自由填写入口（含"检测可用模型"对话框）。 */}
-      {orcaRouterTemplate ? null : (
+      <>
         <ProviderModelMetadataDialog
           onRestore={() => {
             setAddDraftErrorField(null);
@@ -867,21 +576,11 @@ export function ProviderModelsSection({
           saving={addSaving}
           modelConfigResolutionPending={editor.pending}
           modelDefaultsLoaded={editor.defaultsLoaded}
-          remoteModelDetection={
-            onDetectRemoteModels
-              ? {
-                  pending: detectPending,
-                  error: detectError,
-                  models: detectModels,
-                  onDetect: handleDetectRemoteModels,
-                }
-              : undefined
-          }
           onModelIdBlur={() => {
             void editor.flush().catch(() => undefined);
           }}
         />
-      )}
+      </>
     </div>
   );
 }

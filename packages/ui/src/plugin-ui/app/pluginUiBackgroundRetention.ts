@@ -38,8 +38,7 @@ export class PluginUiBackgroundRetention<T extends RetainedPage> {
   setWindowVisible(visible: boolean): void {
     if (this.windowVisible === visible) return;
     // 可见期间不累计闲置时间；最小化从当前时刻开始计时。
-    for (const page of this.pages.keys())
-      if (page.visible) this.pages.set(page, this.now());
+    for (const page of this.pages.keys()) if (page.visible) this.pages.set(page, this.now());
     this.windowVisible = visible;
     this.changed();
   }
@@ -75,12 +74,7 @@ export class PluginUiBackgroundRetention<T extends RetainedPage> {
     void Promise.resolve().then(async () => {
       try {
         for (const [page] of this.background().sort((a, b) => a[1] - b[1])) {
-          if (
-            !this.pages.has(page) ||
-            !page.running() ||
-            !this.canRecycle(page)
-          )
-            continue;
+          if (!this.pages.has(page) || !page.running() || !this.canRecycle(page)) continue;
           await page.suspend().catch(() => false);
         }
       } finally {
@@ -95,9 +89,7 @@ export class PluginUiBackgroundRetention<T extends RetainedPage> {
   private background(): [T, number][] {
     return [...this.pages].filter(
       ([page]) =>
-        page.running() &&
-        !this.pending.has(page) &&
-        !(this.windowVisible && page.visible),
+        page.running() && !this.pending.has(page) && !(this.windowVisible && page.visible),
     );
   }
   private schedule(): void {
@@ -109,9 +101,6 @@ export class PluginUiBackgroundRetention<T extends RetainedPage> {
       .filter((ms) => ms > 0);
     // 到期但被 Agent 拒绝的候选等待下一次状态事件，不能用零延时循环重试。
     if (remaining.length)
-      this.cancelTimer = this.timer(
-        () => this.changed(),
-        Math.min(...remaining),
-      );
+      this.cancelTimer = this.timer(() => this.changed(), Math.min(...remaining));
   }
 }

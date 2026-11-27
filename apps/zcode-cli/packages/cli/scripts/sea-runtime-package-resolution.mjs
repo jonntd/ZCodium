@@ -34,26 +34,14 @@ export const resolveRuntimePackageDirectory = async ({
   if (workspacePackageDirectory) {
     const directory = workspacePackageDirectory;
     await assertPackageDirectory(packageName, directory);
-    if (!(await exists(resolve(directory, "dist", "index.js")))) {
-      // dist/index.js 只对「声明了 dist 根入口」的包是硬要求。源码直出包
-      // （exports 全部指向 src、无 "." 根导出，如 @zcode/session-control）没有
-      // 也不可能有 dist/index.js——它们经 CLI esbuild 内联进 zcode.cjs，SEA 资产
-      // 里只按目录归档（node_modules 已被 staging 排除）。v3.15.7 release CI
-      // 实测：硬编码检查对这类包误报 Missing dist files，CLI 发行构建全挂。
-      const packageJson = JSON.parse(
-        await readFile(resolve(directory, "package.json"), "utf8"),
+    // 原检查要求 dist/index.js。shared 依赖 session-control 后，session-control 进入 TUI 闭包；
+    // 但它只有子路径导出，不会生成 dist/index.js，build:sea 因此必然失败。
+    // SEA 运行时只加载 @zcode/tui/dist/index.js（esbuild 已内联全部 @zcode/* 源码），
+    // 闭包中其他 workspace 包的 dist 不会被加载，所以这里只确认包已构建，不校验具体入口。
+    if (!(await exists(resolve(directory, "dist")))) {
+      throw new Error(
+        `Missing ${packageName} dist files. Run \`pnpm build:sea:prepare\` from the repository root before \`pnpm sea\`.`,
       );
-      const rootEntry =
-        packageJson.main ??
-        (packageJson.exports && typeof packageJson.exports === "object"
-          ? packageJson.exports["."]
-          : undefined);
-      const entryReferencesDist = JSON.stringify(rootEntry ?? "").includes(
-        "dist",
-      );
-      if (entryReferencesDist) {
-        throw new Error(`Missing ${packageName} dist files. Run \`pnpm build\` before \`pnpm sea\`.`);
-      }
     }
     return directory;
   }

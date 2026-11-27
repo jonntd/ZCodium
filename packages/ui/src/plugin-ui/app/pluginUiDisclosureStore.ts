@@ -6,17 +6,8 @@
 const pinsBySession = new Map<string, ReadonlyMap<string, boolean>>();
 const emptyPins: ReadonlyMap<string, boolean> = new Map();
 const listeners = new Set<() => void>();
-let version = 0;
 
-/** fork 兼容：任一记录变化即递增；时间线据此重建折叠边界（上游按会话快照，这里是全局计数）。 */
-export function getPluginUiDisclosureVersion(): number {
-  return version;
-}
-
-export function getPluginUiManualPin(
-  sessionKey: string,
-  toolCallId: string,
-): boolean | undefined {
+export function getPluginUiManualPin(sessionKey: string, toolCallId: string): boolean | undefined {
   return getPluginUiDisclosureSnapshot(sessionKey).get(toolCallId);
 }
 
@@ -32,14 +23,11 @@ export function setPluginUiManualPin(
   else next.set(toolCallId, pinned);
   if (next.size === 0) pinsBySession.delete(sessionKey);
   else pinsBySession.set(sessionKey, next);
-  version += 1;
   for (const listener of listeners) listener();
 }
 
 /** 原全局版本把其他会话的固定操作传播到当前时间线；快照只随所属会话变化。 */
-export function getPluginUiDisclosureSnapshot(
-  sessionKey: string,
-): ReadonlyMap<string, boolean> {
+export function getPluginUiDisclosureSnapshot(sessionKey: string): ReadonlyMap<string, boolean> {
   return pinsBySession.get(sessionKey) ?? emptyPins;
 }
 

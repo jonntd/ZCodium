@@ -8,10 +8,7 @@ import { logger } from "@/logger.js";
 import { loadPluginCreatorPrefill } from "@/settings/pluginCreatorPrefill.js";
 import { isWorkspaceReadOnly } from "@/store/tabStore.js";
 import { useTabStore, useTabStoreApi } from "@/store/TabStoreProvider.js";
-import {
-  INITIAL_PANE_LAYOUT,
-  usePaneLayoutStore,
-} from "@/v4/paneLayoutStore.js";
+import { INITIAL_PANE_LAYOUT, usePaneLayoutStore } from "@/v4/paneLayoutStore.js";
 import { resolveWorkbenchNewTaskTarget } from "@/conversation-workspace-target/workbenchTarget.js";
 import { useWorkbenchGroupStore } from "@/v4/workbenchGroupStore.js";
 
@@ -22,9 +19,7 @@ export function usePluginCreator(
   const { intl } = useZCodeIntl();
   const tabStore = useTabStoreApi();
   const activeWorkspacePath = useTabStore((state) => state.activeWorkspacePath);
-  const activeWorkspaceIdentity = useTabStore(
-    (state) => state.activeWorkspaceIdentity,
-  );
+  const activeWorkspaceIdentity = useTabStore((state) => state.activeWorkspaceIdentity);
   const paneLayout = usePaneLayoutStore((state) => state);
   const group = useWorkbenchGroupStore((state) =>
     state.activeGroupId ? (state.groups[state.activeGroupId] ?? null) : null,
@@ -35,8 +30,7 @@ export function usePluginCreator(
     activeGroup: isWebRemoteControl ? null : group,
     paneLayout: isWebRemoteControl ? INITIAL_PANE_LAYOUT : paneLayout,
   });
-  const targetKey =
-    target?.workspaceIdentity?.trim() || target?.workspacePath || "";
+  const targetKey = target?.workspaceIdentity?.trim() || target?.workspacePath || "";
   const resolution = useWorkspaceServicesResolution(
     target?.workspacePath,
     undefined,
@@ -44,13 +38,7 @@ export function usePluginCreator(
   );
   const scope = useMemo(
     () => ({ active: true }),
-    [
-      targetKey,
-      resolution.services,
-      resolution.remoteSessionId,
-      resolution.rpcReady,
-      onCreateTask,
-    ],
+    [targetKey, resolution.services, resolution.remoteSessionId, resolution.rpcReady, onCreateTask],
   );
   useEffect(() => {
     scope.active = true;
@@ -63,9 +51,7 @@ export function usePluginCreator(
   const create = useCallback(async () => {
     if (pending.current === scope || !target || !onCreateTask) return;
     if (!resolution.rpcReady) {
-      toast(intl.formatMessage({ id: "pluginCreator.unavailable" }), {
-        variant: "warning",
-      });
+      toast(intl.formatMessage({ id: "pluginCreator.unavailable" }), { variant: "warning" });
       return;
     }
     const isCurrent = () => {
@@ -78,19 +64,12 @@ export function usePluginCreator(
           !isWebRemoteControl && groups.activeGroupId
             ? (groups.groups[groups.activeGroupId] ?? null)
             : null,
-        paneLayout: isWebRemoteControl
-          ? INITIAL_PANE_LAYOUT
-          : usePaneLayoutStore.getState(),
+        paneLayout: isWebRemoteControl ? INITIAL_PANE_LAYOUT : usePaneLayoutStore.getState(),
       });
       return (
         scope.active &&
-        (current?.workspaceIdentity?.trim() || current?.workspacePath || "") ===
-          targetKey &&
-        !isWorkspaceReadOnly(
-          state,
-          target.workspacePath,
-          target.workspaceIdentity,
-        )
+        (current?.workspaceIdentity?.trim() || current?.workspacePath || "") === targetKey &&
+        !isWorkspaceReadOnly(state, target.workspacePath, target.workspaceIdentity)
       );
     };
     pending.current = scope;
@@ -106,9 +85,7 @@ export function usePluginCreator(
         isCurrent,
       );
       if (prefill) {
-        logger.info("[PluginCreator] 已解析创建技能", {
-          workspaceKey: targetKey,
-        });
+        logger.info("[PluginCreator] 已解析创建技能", { workspaceKey: targetKey });
         onCreateTask({ ...prefill, expectedWorkspaceKey: targetKey });
       }
     } catch (error) {
@@ -117,27 +94,12 @@ export function usePluginCreator(
           error: error instanceof Error ? error.message : String(error),
           workspaceKey: targetKey,
         });
-        toast(intl.formatMessage({ id: "pluginCreator.unavailable" }), {
-          variant: "warning",
-        });
+        toast(intl.formatMessage({ id: "pluginCreator.unavailable" }), { variant: "warning" });
       }
     } finally {
       if (pending.current === scope) pending.current = null;
       if (scope.active) setBusyScope(null);
     }
-  }, [
-    intl,
-    isWebRemoteControl,
-    onCreateTask,
-    resolution,
-    scope,
-    tabStore,
-    target,
-    targetKey,
-  ]);
-  return {
-    create,
-    busy: busyScope === scope,
-    available: Boolean(target && onCreateTask),
-  };
+  }, [intl, isWebRemoteControl, onCreateTask, resolution, scope, tabStore, target, targetKey]);
+  return { create, busy: busyScope === scope, available: Boolean(target && onCreateTask) };
 }

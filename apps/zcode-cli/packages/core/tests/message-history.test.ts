@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createTestModelSelection } from "./test-model-selection.js";
-import { MessageHistoryImpl, countContextPrefixMessages } from "../src/agent/message-history.js";
+import {
+  MessageHistoryImpl,
+  countContextPrefixMessages,
+  createRuntimeAssistantEntry,
+} from "../src/agent/message-history.js";
 import { buildProviderRequestMessages } from "../src/runtime/helpers/provider-request-messages.js";
 import type { ContextBuildResult, ContextSection } from "../src/context/types.js";
 import { estimateTokens } from "../src/context/utils.js";
@@ -46,6 +50,40 @@ describe("message history metadata", () => {
       providerId: "provider-a",
       modelId: "model-a",
     });
+  });
+
+  it("stamps entry time from its clock and keeps it out of provider messages", () => {
+    let now = 1_000;
+    const history = new MessageHistoryImpl(() => now);
+    history.addUser("prompt", { source: "real_user" });
+    now = 2_000;
+    history.addAssistant("answer");
+    now = 3_000;
+    history.addToolResult("call_1", "Read", "body", true);
+    history.addAttachment("environment", "environment");
+    // 已带时间的条目（冷恢复、先持久化的提醒）不改写。
+    history.addEntries([
+      { message: { role: "user", content: "hydrated" }, time: 500 },
+      { message: { role: "assistant", content: "fresh" } },
+    ]);
+    now = 4_000;
+    history.replaceMessages([
+      ...history.toRuntimeEntries(),
+      { message: { role: "user", content: "summary" } },
+    ]);
+    expect(history.toRuntimeEntries().map((entry) => entry.time)).toEqual([
+      1_000, 2_000, 3_000, 3_000, 500, 3_000, 4_000,
+    ]);
+    expect(
+      JSON.stringify(
+        buildProviderRequestMessages({ entries: history.toRuntimeEntries() }).messages,
+      ),
+    ).not.toContain("4000");
+
+    // 没有时钟的历史（单元测试直接构造）不加时间。
+    const untimed = new MessageHistoryImpl();
+    untimed.addUser("prompt");
+    expect(untimed.toRuntimeEntries()[0]).not.toHaveProperty("time");
   });
 
   it("preserves assistant tokens in runtime entries without exposing them to the provider", () => {
@@ -154,14 +192,15 @@ describe("message history metadata", () => {
     });
   });
 
-  it("counts metadata-marked request prefix before falling back to legacy text detection", () => {
+  it("counts only system messages and legacy unmarked reminders as request prefix", () => {
     const history = new MessageHistoryImpl();
     history.init([
       { role: "system", content: "system prompt" },
+      // 指令文件是持久化公告；带来源标记的条目属于会话历史。
       {
-        message: { role: "user", content: "skill listing" },
+        message: { role: "user", content: "context prefix" },
         metadata: {
-          source: "skills_listing",
+          source: "context_prefix",
         },
       },
       {
@@ -175,8 +214,8 @@ describe("message history metadata", () => {
       },
     ]);
 
-    expect(countContextPrefixMessages(history.toRuntimeEntries())).toBe(2);
-    expect(history.getCacheStats().cachedMessages).toBe(2);
+    expect(countContextPrefixMessages(history.toRuntimeEntries())).toBe(1);
+    expect(history.getCacheStats().cachedMessages).toBe(1);
 
     expect(
       countContextPrefixMessages([
@@ -187,27 +226,18 @@ describe("message history metadata", () => {
     ).toBe(2);
   });
 
-  it("builds skills listing context as a structured attachment entry", () => {
-    const skillsSection = contextSection({
-      name: "Available Skills",
-      source: "skills",
-      content: "# Skills\n- review: Inspect code",
-    });
+  it("keeps instruction attachments out of context prefix entries", () => {
     const dateSection = contextSection({
       name: "Request User Context",
       source: "request_user_context",
       content: "# currentDate\nToday's date is 2026-06-17.",
     });
     const contextResult: ContextBuildResult = {
-      sections: [skillsSection, dateSection],
-      totalChars: skillsSection.chars + dateSection.chars,
-      totalTokens: skillsSection.tokens + dateSection.tokens,
-      systemMessages: [],
+      sections: [dateSection],
+      totalChars: dateSection.chars,
+      totalTokens: dateSection.tokens,
+      systemMessages: [{ role: "system", content: "system prompt" }],
       metaUserAttachments: [
-        {
-          source: "skills_listing",
-          content: "# Skills\n- review: Inspect code",
-        },
         {
           source: "context_prefix",
           content:
@@ -216,18 +246,9 @@ describe("message history metadata", () => {
       ],
     };
 
+    // Skill 列表与指令文件由请求前的动态公告宣告，prefix 只含 system 消息。
     expect(buildContextHistoryEntries(contextResult)).toEqual([
-      {
-        kind: "attachment",
-        content: "# Skills\n- review: Inspect code",
-        metadata: { source: "skills_listing" },
-      },
-      {
-        kind: "attachment",
-        content:
-          "As you answer the user's questions, you can use the following context:\n# currentDate\nToday's date is 2026-06-17.\n\n      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.",
-        metadata: { source: "context_prefix" },
-      },
+      { message: { role: "system", content: "system prompt" } },
     ]);
   });
 });
@@ -248,3 +269,19 @@ function contextSection(input: {
     preview: input.content.slice(0, 100),
   };
 }
+
+describe("legacy assistant entries", () => {
+  it("drop blockIndex that a non-stream result wrote onto reasoning blocks", () => {
+    // 非流式结果会在原对象上给 reasoning 编号；旧条目不带 blockIndex，
+    // 否则只有思考块的条目会被请求投影当成有序条目（docs/design/v2/model/assistant-block-order.md）。
+    const reasoning = [
+      { type: "reasoning" as const, text: "think", providerOptions: { a: 1 }, blockIndex: 0 },
+    ];
+    const entry = createRuntimeAssistantEntry("answer", undefined, reasoning);
+    expect(entry.message.content).toEqual([
+      { type: "reasoning", text: "think", providerOptions: { a: 1 } },
+      { type: "text", text: "answer" },
+    ]);
+    expect(reasoning[0]).toHaveProperty("blockIndex", 0);
+  });
+});

@@ -40,12 +40,14 @@ ZCode 的默认发布形态仍然是标准 Node.js CLI 包：`dist/zcode.cjs` �
 
 用户接口：
 
-- `pnpm run build:sea`：从仓库根依赖中解析 Turbo，并通过
-  `--cwd apps/zcode-cli` 在 CLI workspace 内用 `--force` 重建 CLI 之外的 package，
-  再直接重建 CLI bundle，最后构建首批全部 target；仓库包含嵌套 pnpm workspace，
-  因此 package 脚本不能用 `--workspace-root` 解析 Turbo，否则会错误限定到缺少该
-  binary 的内层 workspace。该流程既避免复用旧 package `dist`，也不把已有 SEA
-  产物写入 CLI build cache。
+- `pnpm run build:sea`：先在仓库根执行 `build:sea:prepare`，再构建首批全部 target。
+  准备入口先强制编译根 `shared`，再用根 pnpm workspace 按依赖顺序构建 CLI 包及其
+  传递依赖（含根 `model-option-map`、`session-control`），最后单独重建 CLI bundle。
+  CLI 子 workspace 的 Turbo 图看不到根目录的包，不能只用它构建。准备阶段不使用
+  Turbo 缓存，也不缓存已有 SEA 产物。
+- `pnpm run build:sea --darwin`、`--linux`、`--win`（可叠加，如 `--darwin --linux`）：同一入口，
+  只构建所选平台的全部 target。pnpm 把脚本名后的参数逐层追加到 `build-sea.mjs --all` 之后，
+  三层 package script 不变。
 - 根目录 `pnpm build:sea:all`：安装依赖后转发到同一个 all-target `build:sea` 入口。
 - `pnpm run sea -- <target 参数>`：只封装当前已有的 `dist/zcode.cjs` 和 runtime
   assets，不负责重新编译 workspace。
@@ -55,13 +57,18 @@ ZCode 的默认发布形态仍然是标准 Node.js CLI 包：`dist/zcode.cjs` �
 - `node scripts/build-sea.mjs --all`：构建首批全部 target。
 - `node scripts/build-sea.mjs --node-binary linux-x64=/abs/path/node`：使用用户提供的目标 Node 二进制，跳过该 target 的下载解析。
 
+平台参数 `--darwin`、`--linux`、`--win` 只做筛选：在 `--all`、`--target`、`--targets` 或
+`--node-binary` 选出的 target 中保留所选平台；没有其他 target 参数时从首批全部 target 中筛选。
+不带平台参数时结果不变。筛选后没有 target（例如 `--target darwin-x64 --linux`）时报错，不回落到 host。
+不能用 `--target` 缩小 `build:sea`：它与 `--all` 取并集。
+
 target 参数使用 release 命名里的平台名；Windows 输入使用 `win-x64` / `win-arm64`。Windows 产物发布文件名使用 `windows`，对齐旧 GLM agent 下载契约；内部平台 key 和 host 判断仍使用 Node.js `process.platform` 风格的 `win32`。
 
 ## Target Runtime Assets
 
 SEA 可以在一个 host 上下载并注入其它 target 的官方 Node.js binary。`bfs`、`ugrep` 必须先由对应目标平台的 producer 构建、验证并发布到统一依赖源；macOS x64/arm64、Linux x64/arm64 与 Windows x64/arm64 的 `rg` 全部使用固定 SHA-256 的 Microsoft `ripgrep-prebuilt v14.1.1-1` 原始归档，并从同一内网依赖源的 `native-search-tools/ripgrep-v14.1.1-1` 镜像目录下载。所选 macOS 归档的 deployment target 不得高于既有 macOS 12.0 下限；Linux `rg` 必须使用不引入 glibc 依赖的 musl 归档，`bfs` / `ugrep` producer 固定 Node 24、glibc 2.28、GCC 12 与 G++ 12，并通过最终 ELF 的 GLIBC 2.28 ceiling、版本、feature、架构和动态依赖校验；Windows 两个架构必须拒绝动态 CRT、PCRE2 与构建契约要求静态链接的压缩库依赖。SEA 构建按 target 复用同一份 native-search release plan 和下载器，将两类预编译产物校验并准备到 `packages/desktop/bundled-tools/<platform>-<arch>/`。SEA 不在 foreign target 构建期间交叉编译、切换来源或降级省略工具。
 
-公开 `build:sea` 的既有契约始终是 all-target，不能因为某个平台的 native search 尚未接入而降级成 host-only。构建会为每个 target 自动准备并收集对应的 runtime assets；预编译归档缺失、下载失败或目标格式与架构校验失败时，必须在生成该 target SEA 前终止，不能产出 provider-visible embedded search 已启用、执行层却缺少包内工具的正式二进制。
+公开 `build:sea` 不带平台参数时始终是 all-target，不能因为某个平台的 native search 尚未接入而降级成 host-only；平台参数是使用者显式选择的范围，不是构建脚本的降级。构建会为每个 target 自动准备并收集对应的 runtime assets；预编译归档缺失、下载失败或目标格式与架构校验失败时，必须在生成该 target SEA 前终止，不能产出 provider-visible embedded search 已启用、执行层却缺少包内工具的正式二进制。
 
 当前 macOS、Linux、Windows 的 x64/arm64 native-search release plan 均已启用。macOS/Linux target 准备 `bfs`、`ugrep`、`rg`，Windows target 准备 `ugrep.exe`、`rg.exe`，Windows `find` 继续回退 Git Bash/system。工具最终布局与 SEA manifest 不暴露 producer/Microsoft 来源差异；SEA asset collector 只按统一 release plan 取目标工具。host-only 开发和 E2E 使用 `sea` 或显式 `--target`。
 
@@ -117,8 +124,8 @@ SEA blob 由当前运行脚本的 Node.js 生成，target Node 版本必须与�
 
 CLI、桌面内置 Agent 和 SEA 共用的 JS 构建必须统一使用 Zod v4 `4.6.5`，
 以避免旧版在启动时为每个 schema 提前创建全部方法闭包。`packages/shared/package.json` 的精确版本是构建门禁的事实源，
-其余直接依赖声明与根 lockfile 必须与它一致；不使用会改写双 major peer 范围的全局 override。Zod v3 工具契约
-及 `zod-to-json-schema` 保持原有 major，不做跨 major 替换。
+其余直接依赖声明与根 lockfile 必须与它一致；不使用会改写双 major peer 范围的全局 override。工具契约
+`@zcode/contracts` 也使用这个版本，不再依赖 Zod v3 与 `zod-to-json-schema`；第三方依赖自带的 Zod v3 保持原样。
 
 去重由 CLI 的 esbuild 构建入口负责：先按消费者原有解析规则选择 package
 版本和导出，再把同版本的不同安装目录归并到一份实现。保留子入口及
@@ -174,6 +181,7 @@ Windows 官方 `node.exe` 通常带 Authenticode 签名。脚本构建 Windows t
 ## 测试覆盖
 
 - target 参数解析，包括 repeated target、CSV target、`--all` 和非法 target。
+- 平台参数：`--all --linux`、叠加多个平台、单独使用、经 `--` 透传、与 `--target` 组合后为空时报错。
 - package scripts 保证 `build:sea` 始终显式传入 `--all`，根目录 `build:sea:all` 转发到该既有入口。
 - target 到 release artifact、下载 URL、产物名的映射。
 - postject 参数按目标平台生成。
@@ -183,9 +191,7 @@ Windows 官方 `node.exe` 通常带 Authenticode 签名。脚本构建 Windows t
 - OpenTUI runtime asset manifest 覆盖 `@zcode/tui`、`@zcode/i18n`、
   `@zcode/contracts` 的 workspace runtime closure，并排除 workspace 源文件。
 - CLI bundle 版本注入读取仓库根 `package.json`，即使 `packages/cli/package.json` 版本不同也不改变 `zcode --version` 的构建时版本。
-- `build:sea` workspace 脚本必须在 `build-sea.mjs --all` 前通过 Turbo `--force`
-  重建 CLI 之外的 workspace，再通过 package-local `pnpm build` 直接重建 CLI；
-  CLI 必须排除在 Turbo build 外，避免把同目录中的已有 SEA 产物写入 `dist/**` cache。
-- package 脚本必须从仓库根解析 Turbo，但将 Turbo 的工作目录保持为
-  `apps/zcode-cli`；dry-run 回归测试需证明命令可执行、任务集合非空且不包含
-  `@zcode/cli`。
+- `build:sea` 脚本必须先调用根 `build:sea:prepare`；回归测试需证明准备入口的根 pnpm
+  依赖图包含 `@zcode/session-control`，且不包含单独构建的 `@zcode/cli`。
+- SEA 检查 workspace 包时只要求 `dist` 目录存在；只有子路径导出的包（如
+  `session-control`）没有 `dist/index.js`，回归测试需证明其产物被打入 SEA。

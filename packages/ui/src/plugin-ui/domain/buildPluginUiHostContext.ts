@@ -4,10 +4,7 @@ import type {
   McpUiHostContext,
   McpUiStyles,
 } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type {
-  McpAppsHostTitleBar,
-  McpAppsStyleVariables,
-} from "@zcode/shared/mcp-apps";
+import type { McpAppsHostTitleBar, McpAppsStyleVariables } from "@zcode/shared/mcp-apps";
 import { PLUGIN_UI_CARD_MAX_HEIGHT_PX } from "../contract.js";
 
 export interface PluginUiHostContextInput {
@@ -28,16 +25,12 @@ export interface PluginUiHostContextInput {
 }
 
 /** hostContext 的唯一构造点。 */
-export function buildPluginUiHostContext(
-  input: PluginUiHostContextInput,
-): McpUiHostContext {
+export function buildPluginUiHostContext(input: PluginUiHostContextInput): McpUiHostContext {
   return {
     theme: input.theme,
     locale: input.locale,
     displayMode: input.displayMode,
-    availableDisplayModes: [
-      ...(input.availableDisplayModes ?? ["inline", "fullscreen"]),
-    ],
+    availableDisplayModes: [...(input.availableDisplayModes ?? ["inline", "fullscreen"])],
     // 规范：内联卡片高度跟随内容（size-changed），宿主只给上限；宽度是确定值。
     containerDimensions: {
       width: Math.max(0, Math.round(input.width)),
@@ -49,9 +42,7 @@ export function buildPluginUiHostContext(
     timeZone: input.timeZone ?? resolveTimeZone(),
     // 桌面宿主固定有 hover、无 touch。
     deviceCapabilities: { hover: true, touch: false },
-    ...(input.styleVariables
-      ? { styles: { variables: input.styleVariables as McpUiStyles } }
-      : {}),
+    ...(input.styleVariables ? { styles: { variables: input.styleVariables as McpUiStyles } } : {}),
     ...(input.titleBar ? { titleBar: input.titleBar } : {}),
   };
 }
@@ -86,12 +77,8 @@ export function constrainPluginUiDisplayModes(
   capabilities: McpUiAppCapabilities | undefined,
   preferredDisplayMode?: McpUiDisplayMode,
 ): McpUiHostContext {
-  const availableDisplayModes = (
-    context.availableDisplayModes ?? ["inline", "fullscreen"]
-  ).filter(
-    (mode) =>
-      mode !== "pip" &&
-      appAllowsDisplayMode(capabilities, mode, preferredDisplayMode),
+  const availableDisplayModes = (context.availableDisplayModes ?? ["inline", "fullscreen"]).filter(
+    (mode) => mode !== "pip" && appAllowsDisplayMode(capabilities, mode, preferredDisplayMode),
   );
   const current = context.displayMode ?? "inline";
   return {
@@ -109,9 +96,7 @@ export function resolveRequestedDisplayMode(
   current: McpUiDisplayMode,
   available: readonly McpUiDisplayMode[],
 ): McpUiDisplayMode {
-  return requested !== "pip" && available.includes(requested)
-    ? requested
-    : current;
+  return requested !== "pip" && available.includes(requested) ? requested : current;
 }
 
 /**

@@ -33,6 +33,14 @@ import type { ToolPermissionRulePolicy } from "../tool/types.js";
 /** 草稿免确认的规则号。 */
 const WORKFLOW_DRAFT_PREAPPROVED_RULE_ID = "tool.workflowDraft.preapproved";
 
+/**
+ * `disallowedTools` 拒绝整个工具时模型看到的文字（2026-11-14，原来是 `Tool X is explicitly disallowed`）。
+ * 项目权限规则的拒绝可能只针对部分输入（路径、命令），文字不变，不能说成整个工具被拒绝。
+ */
+function toolDeniedMessage(toolName: string): string {
+  return `Permission to use ${toolName} has been denied.`;
+}
+
 export interface PermissionContext {
   toolName: string;
   input: unknown;
@@ -51,8 +59,6 @@ export interface PermissionToolCapability {
   userApprovalRule?: string;
   allowedInPlanMode?: boolean;
   alwaysAsk?: boolean;
-  /** 工具自报的 ask 原因；alwaysAsk 命中时压过模式级默认文案。 */
-  askReason?: string;
   readOnly?: boolean;
   destructive?: boolean;
   requiresUserInteraction?: boolean;
@@ -124,7 +130,7 @@ export class PermissionService {
           context,
           capability,
           "rule.disallowedTools",
-          `Tool ${context.toolName} is explicitly disallowed`,
+          toolDeniedMessage(context.toolName),
         );
       }
 
@@ -165,7 +171,7 @@ export class PermissionService {
         context,
         capability,
         "rule.disallowedTools",
-        `Tool ${context.toolName} is explicitly disallowed`,
+        toolDeniedMessage(context.toolName),
       );
     }
 
@@ -244,6 +250,25 @@ export class PermissionService {
       );
     }
 
+    // 根因：needsApproval=false 不会越过 build/edit 对 workspace 副作用的通用询问，
+    // 导致无人值守的 automation 执行轮停在审批界面。该工具无模型可控 id，只能暂停
+    // Host 为本轮注入且用户可恢复的任务；显式 project deny/ask 与 plan 限制已在上方处理。
+    if (
+      context.toolName === "CronPauseSelf" &&
+      capability.permissionName === "automation.pause" &&
+      capability.sideEffectScope === "workspace" &&
+      capability.riskLevel === "low" &&
+      !capability.destructive &&
+      !capability.needsApproval
+    ) {
+      return this.allow(
+        context,
+        capability,
+        "tool.automationPauseSelf.preapproved",
+        "The current automation run may pause only its own automation",
+      );
+    }
+
     // workflow 草稿免确认：
     // 与 WebFetch 预批同一位次——排在 plan 分支之后，因为 plan 模式必须继续拦下一切写入，
     // 草稿也是写入；也排在项目 deny / ask 之后，项目规则照样压得过它。判定本身见
@@ -272,6 +297,14 @@ export class PermissionService {
       );
     }
 
+    if (capability.permission?.confirmationHandledByTool) {
+      return this.allow(
+        context,
+        capability,
+        "tool.explicitConfirmation",
+        "Tool collects explicit confirmation before mutations",
+      );
+    }
     if (context.mode === "edit") {
       return this.checkEditMode(context, capability);
     }
@@ -398,7 +431,7 @@ export class PermissionService {
         context,
         capability,
         "rule.disallowedTools",
-        `Tool ${context.toolName} is explicitly disallowed`,
+        toolDeniedMessage(context.toolName),
       );
     }
     if (this.matchesProjectRules(projectRules, "deny", context, capability, rulePolicy)) {
@@ -436,10 +469,7 @@ export class PermissionService {
       context,
       capability,
       "tool.alwaysAsk",
-      // askReason 让工具把「为什么必须问」（如批量删除审批的文件数）透传到确认窗；
-      // 缺省维持原有文案，不影响其他 alwaysAsk 工具。
-      capability.askReason ??
-        `Tool ${context.toolName} always requires explicit approval`,
+      `Tool ${context.toolName} always requires explicit approval`,
     );
   }
 
@@ -678,8 +708,6 @@ export class PermissionService {
     return {
       allowedInPlanMode: toolCapability?.allowedInPlanMode ?? false,
       alwaysAsk: toolCapability?.permission?.alwaysAsk ?? toolCapability?.alwaysAsk ?? false,
-      // askReason 是运行时能力（tool/types.ts）自报的动态原因；契约级 ToolPermissionSpec 不携带。
-      askReason: toolCapability?.askReason,
       readOnly: toolCapability?.readOnly ?? this.isReadOnlyTool(context.toolName),
       destructive: toolCapability?.destructive ?? this.isDestructiveTool(context.toolName),
       requiresUserInteraction:
@@ -699,6 +727,7 @@ export class PermissionService {
         !this.isReadOnlyTool(context.toolName),
       permissionCapabilityGroup: toolCapability?.permissionCapabilityGroup,
       permissionName: toolCapability?.permission?.permission,
+      permission: toolCapability?.permission,
     };
   }
 
@@ -751,9 +780,9 @@ export class PermissionService {
 }
 
 interface ResolvedPermissionCapability {
+  permission?: ToolPermissionSpec;
   allowedInPlanMode: boolean;
   alwaysAsk: boolean;
-  askReason?: string;
   readOnly: boolean;
   destructive: boolean;
   requiresUserInteraction: boolean;

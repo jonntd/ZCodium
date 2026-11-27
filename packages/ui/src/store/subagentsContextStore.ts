@@ -96,9 +96,7 @@ async function loadContext(
     bypassCache: boolean;
   },
   set: (
-    updater: (
-      state: SubagentsContextStoreState,
-    ) => Partial<SubagentsContextStoreState>,
+    updater: (state: SubagentsContextStoreState) => Partial<SubagentsContextStoreState>,
   ) => void,
   get: () => SubagentsContextStoreState,
 ): Promise<void> {
@@ -173,90 +171,50 @@ async function loadContext(
   }
 }
 
-export const useSubagentsContextStore = create<SubagentsContextStoreState>(
-  (set, get) => ({
-    contexts: {},
-    async initialize(
+export const useSubagentsContextStore = create<SubagentsContextStoreState>((set, get) => ({
+  contexts: {},
+  async initialize(workspacePath, provider, subagentsService, workspaceIdentity) {
+    const key = getSubagentsContextKey(
       workspacePath,
       provider,
-      subagentsService,
       workspaceIdentity,
-    ) {
+      subagentsService,
+    );
+    // Bugfix：多个可见 pane 会各自挂载 Subagents 消费者。旧单例把“当前 workspace”
+    // 当成全局可变字段，跨 workspace pane 会互相触发 initialize；按 workspaceKey+provider
+    // 分桶后，每个 effect 只订阅自己的稳定快照。
+    if (get().contexts[key]) return;
+    await loadContext(
+      { workspacePath, provider, subagentsService, workspaceIdentity, bypassCache: false },
+      set,
+      get,
+    );
+  },
+  async refresh(workspacePath, provider, subagentsService, workspaceIdentity) {
+    await loadContext(
+      { workspacePath, provider, subagentsService, workspaceIdentity, bypassCache: true },
+      set,
+      get,
+    );
+  },
+  async setEnabled(workspacePath, provider, agentId, enabled, subagentsService, workspaceIdentity) {
+    try {
+      await subagentsService.setEnabled({ agentId, enabled });
+      await get().refresh(workspacePath, provider, subagentsService, workspaceIdentity);
+    } catch (error) {
       const key = getSubagentsContextKey(
         workspacePath,
         provider,
         workspaceIdentity,
         subagentsService,
       );
-      // Bugfix：多个可见 pane 会各自挂载 Subagents 消费者。旧单例把“当前 workspace”
-      // 当成全局可变字段，跨 workspace pane 会互相触发 initialize；按 workspaceKey+provider
-      // 分桶后，每个 effect 只订阅自己的稳定快照。
-      if (get().contexts[key]) return;
-      await loadContext(
-        {
-          workspacePath,
-          provider,
-          subagentsService,
-          workspaceIdentity,
-          bypassCache: false,
-        },
-        set,
-        get,
-      );
-    },
-    async refresh(
-      workspacePath,
-      provider,
-      subagentsService,
-      workspaceIdentity,
-    ) {
-      await loadContext(
-        {
-          workspacePath,
-          provider,
-          subagentsService,
-          workspaceIdentity,
-          bypassCache: true,
-        },
-        set,
-        get,
-      );
-    },
-    async setEnabled(
-      workspacePath,
-      provider,
-      agentId,
-      enabled,
-      subagentsService,
-      workspaceIdentity,
-    ) {
-      try {
-        await subagentsService.setEnabled({ agentId, enabled });
-        await get().refresh(
-          workspacePath,
-          provider,
-          subagentsService,
-          workspaceIdentity,
-        );
-      } catch (error) {
-        const key = getSubagentsContextKey(
-          workspacePath,
-          provider,
-          workspaceIdentity,
-          subagentsService,
-        );
-        const message = error instanceof Error ? error.message : String(error);
-        set((state) => {
-          const existing = state.contexts[key];
-          return existing
-            ? updateContext(state, key, {
-                ...existing,
-                loading: false,
-                error: message,
-              })
-            : {};
-        });
-      }
-    },
-  }),
-);
+      const message = error instanceof Error ? error.message : String(error);
+      set((state) => {
+        const existing = state.contexts[key];
+        return existing
+          ? updateContext(state, key, { ...existing, loading: false, error: message })
+          : {};
+      });
+    }
+  },
+}));

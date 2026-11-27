@@ -70,10 +70,7 @@ export interface PluginManagementState {
     pluginService?: IPluginManagementService,
     options?: { background?: boolean },
   ) => Promise<void>;
-  addMarketplace: (
-    source: string,
-    pluginService: IPluginManagementService,
-  ) => Promise<boolean>;
+  addMarketplace: (source: string, pluginService: IPluginManagementService) => Promise<boolean>;
   updateMarketplace: (
     marketplace: string | null,
     pluginService: IPluginManagementService,
@@ -93,14 +90,8 @@ export interface PluginManagementState {
     pluginService: IPluginManagementService,
     removeCache?: boolean,
   ) => Promise<void>;
-  updatePlugin: (
-    pluginId: string,
-    pluginService: IPluginManagementService,
-  ) => Promise<boolean>;
-  restoreBuiltin: (
-    pluginId: string,
-    pluginService: IPluginManagementService,
-  ) => Promise<boolean>;
+  updatePlugin: (pluginId: string, pluginService: IPluginManagementService) => Promise<boolean>;
+  restoreBuiltin: (pluginId: string, pluginService: IPluginManagementService) => Promise<boolean>;
   configurePlugin: (
     pluginId: string,
     options: Record<string, string | number | boolean>,
@@ -113,16 +104,21 @@ export interface PluginManagementState {
     pluginService: IPluginManagementService,
     scope?: ZCodePluginScope,
   ) => Promise<boolean>;
-  validateSource: (
-    source: string,
-    pluginService: IPluginManagementService,
-  ) => Promise<void>;
+  validateSource: (source: string, pluginService: IPluginManagementService) => Promise<void>;
   setEnabled: (
     pluginId: string,
     enabled: boolean,
     pluginService: IPluginManagementService,
     scope?: ZCodePluginScope,
   ) => Promise<boolean>;
+  /**
+   * 信任项目 `plugins.dirs` 声明的目录插件（docs/plugins/workspace-plugin-dir-trust.md）。
+   * 写入目标 Host 的用户域记录后重新拉取列表；声明在审核后又变了时返回 declaration_changed。
+   */
+  trustWorkspacePlugin: (
+    pluginId: string,
+    pluginService: IPluginManagementService,
+  ) => Promise<"accepted" | "declaration_changed" | "failed">;
   // 按需拉取插件组件清单（名称+描述）；force 跳过缓存重试。
   describePlugin: (
     pluginId: string,
@@ -138,17 +134,13 @@ function toMessage(error: unknown): string {
 }
 
 function throwForErrorDiagnostic(diagnostics: ZCodePluginDiagnostic[]): void {
-  const blockingDiagnostic = diagnostics.find(
-    (diagnostic) => diagnostic.severity === "error",
-  );
+  const blockingDiagnostic = diagnostics.find((diagnostic) => diagnostic.severity === "error");
   if (blockingDiagnostic) {
     throw new Error(blockingDiagnostic.message);
   }
 }
 
-export const createPluginManagementStore = (
-  initialService?: IPluginManagementService,
-) => {
+export const createPluginManagementStore = (initialService?: IPluginManagementService) => {
   let lastService = initialService;
   return create<PluginManagementState>((set, get) => ({
     workspacePath: null,
@@ -200,9 +192,7 @@ export const createPluginManagementStore = (
         configScope: normalizedConfigScope,
         // 有缓存时后台刷新、保留列表, 避免切换 workspace 时闪烁; 无缓存才显示阻塞 loading。
         loading: !hasCache,
-        marketplaceAvailabilityKnown: hasCache
-          ? current.marketplaceAvailabilityKnown
-          : false,
+        marketplaceAvailabilityKnown: hasCache ? current.marketplaceAvailabilityKnown : false,
         error: null,
         lastFailedPluginId: null,
         // 配置保存后的 overview 刷新可能还没结束，用户已切到另一层配置视图；
@@ -234,8 +224,7 @@ export const createPluginManagementStore = (
     },
 
     async refresh(pluginService = lastService, options = {}) {
-      const { workspacePath, workspaceIdentity, authorityKey, configScope } =
-        get();
+      const { workspacePath, workspaceIdentity, authorityKey, configScope } = get();
       if (!workspacePath || !pluginService) return;
       lastService = pluginService;
       if (!options.background) set({ error: null, lastFailedPluginId: null });
@@ -324,12 +313,7 @@ export const createPluginManagementStore = (
       );
     },
 
-    async installPlugin(
-      pluginName,
-      marketplace,
-      pluginService,
-      scope = "user",
-    ) {
+    async installPlugin(pluginName, marketplace, pluginService, scope = "user") {
       return runWorkspaceOperation(
         set,
         get,
@@ -373,10 +357,7 @@ export const createPluginManagementStore = (
         pluginService,
         `plugin:update:${pluginId}`,
         async (workspace) => {
-          const result = await pluginService.updatePlugin({
-            ...workspace,
-            pluginId,
-          });
+          const result = await pluginService.updatePlugin({ ...workspace, pluginId });
           // update 与 install 共享同一诊断式失败契约。抛入 runWorkspaceOperation 后不会
           // 覆盖当前 overview，因此旧版本和 update badge 会一直保留到用户重试成功。
           throwForErrorDiagnostic(result.diagnostics);
@@ -391,22 +372,13 @@ export const createPluginManagementStore = (
         pluginService,
         `plugin:restore:${pluginId}`,
         async (workspace) => {
-          const result = await pluginService.restoreBuiltinPlugin({
-            ...workspace,
-            pluginId,
-          });
+          const result = await pluginService.restoreBuiltinPlugin({ ...workspace, pluginId });
           throwForErrorDiagnostic(result.diagnostics);
         },
       );
     },
 
-    async configurePlugin(
-      pluginId,
-      options,
-      pluginService,
-      scope = "user",
-      clearOptionKeys = [],
-    ) {
+    async configurePlugin(pluginId, options, pluginService, scope = "user", clearOptionKeys = []) {
       return await runWorkspaceOperation(
         set,
         get,
@@ -445,11 +417,7 @@ export const createPluginManagementStore = (
     async validateSource(source, pluginService) {
       const { workspacePath, workspaceIdentity } = get();
       if (!workspacePath) return;
-      const finish = beginPluginOperation(
-        set,
-        get,
-        `marketplace:validate:${source}`,
-      );
+      const finish = beginPluginOperation(set, get, `marketplace:validate:${source}`);
       const version = get().operationVersion;
       try {
         const result = await pluginService.validatePlugin({
@@ -457,13 +425,9 @@ export const createPluginManagementStore = (
           ...(workspaceIdentity ? { workspaceIdentity } : {}),
           source,
         });
-        if (get().operationVersion === version)
-          set({ diagnostics: result.diagnostics });
+        if (get().operationVersion === version) set({ diagnostics: result.diagnostics });
       } catch (error) {
-        logger.error("[plugins] validate source failed", {
-          source,
-          error: toMessage(error),
-        });
+        logger.error("[plugins] validate source failed", { source, error: toMessage(error) });
         if (get().operationVersion === version) {
           set({ error: toMessage(error), lastFailedPluginId: null });
         }
@@ -473,23 +437,62 @@ export const createPluginManagementStore = (
     },
 
     async setEnabled(pluginId, enabled, pluginService, scope = "user") {
-      return setPluginEnabledOptimistically(
-        set,
-        get,
-        pluginId,
-        enabled,
-        pluginService,
-        scope,
-      );
+      return setPluginEnabledOptimistically(set, get, pluginId, enabled, pluginService, scope);
     },
 
-    async describePlugin(
-      pluginId,
-      pluginName,
-      marketplace,
-      pluginService,
-      force = false,
-    ) {
+    async trustWorkspacePlugin(pluginId, pluginService) {
+      const { workspacePath, workspaceIdentity, authorityKey, configScope } = get();
+      const trust = get().plugins.find((plugin) => plugin.id === pluginId)?.workspaceTrust;
+      if (!workspacePath || !trust) return "failed";
+      set({ togglingPluginId: pluginId, error: null, lastFailedPluginId: null });
+      try {
+        const result = await pluginService.setWorkspacePluginTrust({
+          workspacePath,
+          ...(workspaceIdentity ? { workspaceIdentity } : {}),
+          pluginRoot: trust.pluginRoot,
+          declarationDigest: trust.declarationDigest,
+          trusted: true,
+        });
+        logger.info("[plugins] workspace plugin trust", {
+          pluginId,
+          accepted: result.accepted,
+          reasonCode: result.reasonCode,
+        });
+        // 无论成败都重新拉取：声明变了时要展示新的待信任摘要，成功时展示已信任状态。
+        await loadInto(set, get, {
+          workspacePath,
+          workspaceIdentity,
+          authorityKey,
+          configScope,
+          pluginService,
+          fresh: true,
+        });
+        if (!result.accepted) {
+          return result.reasonCode === "workspace_plugin_declaration_changed"
+            ? "declaration_changed"
+            : "failed";
+        }
+        notifyPluginManagementChange({
+          owner: get,
+          workspacePath,
+          workspaceIdentity,
+          authorityKey,
+          scope: "workspace",
+        });
+        return "accepted";
+      } catch (error) {
+        logger.error("[plugins] workspace plugin trust failed", {
+          pluginId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        set({ lastFailedPluginId: pluginId });
+        return "failed";
+      } finally {
+        if (get().togglingPluginId === pluginId) set({ togglingPluginId: null });
+      }
+    },
+
+    async describePlugin(pluginId, pluginName, marketplace, pluginService, force = false) {
       const { workspacePath, workspaceIdentity, describeCache } = get();
       if (!workspacePath) return;
       const cached = describeCache[pluginId];
@@ -516,10 +519,7 @@ export const createPluginManagementStore = (
           set({
             describeCache: {
               ...get().describeCache,
-              [pluginId]: {
-                status: "error",
-                error: blockingDiagnostic.message,
-              },
+              [pluginId]: { status: "error", error: blockingDiagnostic.message },
             },
           });
           return;
@@ -564,14 +564,9 @@ function subscribeStore(store: ReturnType<typeof createPluginManagementStore>) {
 subscribeStore(usePluginManagementStore);
 
 /** 每个市场/管理视图持有独立查询投影，写入仍由同一个 CLI 插件服务负责。 */
-export function useScopedPluginManagementStore(
-  pluginService: IPluginManagementService,
-) {
+export function useScopedPluginManagementStore(pluginService: IPluginManagementService) {
   // 服务切换后不能复用旧主机的目录和在途写入状态。
-  const store = useMemo(
-    () => createPluginManagementStore(pluginService),
-    [pluginService],
-  );
+  const store = useMemo(() => createPluginManagementStore(pluginService), [pluginService]);
   useEffect(() => subscribeStore(store), [store]);
   return store;
 }

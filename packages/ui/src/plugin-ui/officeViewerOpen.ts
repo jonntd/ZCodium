@@ -1,11 +1,7 @@
 import { pluginUiPages } from "@/plugin-ui/adapters/pluginUiPageRegistry.js";
 import { logger } from "@/logger.js";
 import type { CodeViewerSource } from "@/lib/codeViewer.js";
-import {
-  decodeFilePathUriEscapes,
-  isAbsoluteFilePath,
-  joinFilePath,
-} from "@/lib/path.js";
+import { decodeFilePathUriEscapes, isAbsoluteFilePath, joinFilePath } from "@/lib/path.js";
 
 /**
  * `.xlsx` 文件打开到内置查看面板的路由表：扩展名 → 插件 surface。
@@ -22,26 +18,18 @@ const OFFICE_VIEWER_SURFACE_ROUTES = [
   },
 ] as const;
 
-export type OfficeViewerSurfaceRoute =
-  (typeof OFFICE_VIEWER_SURFACE_ROUTES)[number];
+export type OfficeViewerSurfaceRoute = (typeof OFFICE_VIEWER_SURFACE_ROUTES)[number];
 
-const OFFICE_VIEWER_ROUTE_BY_EXTENSION = new Map<
-  string,
-  OfficeViewerSurfaceRoute
->(
+const OFFICE_VIEWER_ROUTE_BY_EXTENSION = new Map<string, OfficeViewerSurfaceRoute>(
   OFFICE_VIEWER_SURFACE_ROUTES.flatMap((route) =>
     route.extensions.map((extension) => [extension, route] as const),
   ),
 );
 
-export function matchOfficeViewerSurfaceRoute(
-  path: string,
-): OfficeViewerSurfaceRoute | null {
+export function matchOfficeViewerSurfaceRoute(path: string): OfficeViewerSurfaceRoute | null {
   const dot = path.lastIndexOf(".");
   if (dot < 0) return null;
-  return (
-    OFFICE_VIEWER_ROUTE_BY_EXTENSION.get(path.slice(dot).toLowerCase()) ?? null
-  );
+  return OFFICE_VIEWER_ROUTE_BY_EXTENSION.get(path.slice(dot).toLowerCase()) ?? null;
 }
 
 /**
@@ -61,16 +49,13 @@ export function resolveOfficeViewerDocumentPath(params: {
     ? decoded
     : joinFilePath(params.workspacePath, decoded);
   // 归一规则与 workspace-file-tree/model.ts 的 normalizeForRelativePath 一致：反斜杠统一、去尾斜杠。
-  const normalize = (path: string) =>
-    path.replace(/\\/g, "/").replace(/\/+$/, "");
+  const normalize = (path: string) => path.replace(/\\/g, "/").replace(/\/+$/, "");
   const workspace = normalize(params.workspacePath);
   const target = normalize(absolute);
   if (target === workspace) return null;
   if (!target.startsWith(`${workspace}/`)) return null;
   const relative = target.slice(workspace.length + 1);
-  return relative.startsWith("../") || relative.includes("/../")
-    ? null
-    : relative;
+  return relative.startsWith("../") || relative.includes("/../") ? null : relative;
 }
 
 /** 面板就绪等待上限；超时说明沙箱或插件 server 未起来，回退 Preview Pane 旧链路。 */
@@ -127,10 +112,7 @@ export function queueOfficeViewerPendingOpen(params: {
 }
 
 /** 面板侧订阅本 tab 的待开文件；订阅时立即投递一次当前值。 */
-export function subscribeOfficeViewerPendingOpen(
-  tabId: string,
-  listener: () => void,
-): () => void {
+export function subscribeOfficeViewerPendingOpen(tabId: string, listener: () => void): () => void {
   const listeners = pendingListenersByTabId.get(tabId) ?? new Set();
   listeners.add(listener);
   pendingListenersByTabId.set(tabId, listeners);
@@ -146,10 +128,7 @@ export function subscribeOfficeViewerPendingOpen(
  * 通知通道回投（面板按既有快照逻辑加载，office-runtime 零改动）。
  * 页面未就绪时保留待开项，等下一次触发；返回是否发起了调用。
  */
-export function deliverOfficeViewerDocumentIfReady(
-  tabId: string,
-  pageKey: string,
-): boolean {
+export function deliverOfficeViewerDocumentIfReady(tabId: string, pageKey: string): boolean {
   const pending = pendingByTabId.get(tabId);
   if (!pending) return false;
   const page = pluginUiPages.get(pageKey);
@@ -160,34 +139,25 @@ export function deliverOfficeViewerDocumentIfReady(
   const { seq, relativePath, onFallback, source } = pending;
   void (async () => {
     try {
-      const result = await page.callPanelTool(
-        OFFICE_VIEWER_OPEN_DOCUMENT_TOOL,
-        {
-          path: relativePath,
-        },
-      );
+      const result = await page.callPanelTool(OFFICE_VIEWER_OPEN_DOCUMENT_TOOL, {
+        path: relativePath,
+      });
       if (latestSeqByTabId.get(tabId) !== seq) return;
       if (result.isError) {
-        logger.warn(
-          "[office-viewer] open_document 失败，回退 Preview Pane 预览",
-          {
-            path: relativePath,
-            source,
-          },
-        );
+        logger.warn("[office-viewer] open_document 失败，回退 Preview Pane 预览", {
+          path: relativePath,
+          source,
+        });
         onFallback();
         return;
       }
       page.notifyPanelToolResult(result);
     } catch (error) {
       if (latestSeqByTabId.get(tabId) !== seq) return;
-      logger.warn(
-        "[office-viewer] open_document 调用异常，回退 Preview Pane 预览",
-        {
-          path: relativePath,
-          message: error instanceof Error ? error.message : String(error),
-        },
-      );
+      logger.warn("[office-viewer] open_document 调用异常，回退 Preview Pane 预览", {
+        path: relativePath,
+        message: error instanceof Error ? error.message : String(error),
+      });
       onFallback();
     }
   })();

@@ -1,4 +1,3 @@
-import { assertOfficialServiceRemoved } from "@zcode/shared";
 /* off-peak 服务端五接口客户端。
    只负责 额度快照/取号/批量查状态/结算 四个 JSON 接口——messages 调模型不走这里
    （由 idle plan per-turn provider 在 agent 进程内直连，D33）。
@@ -133,6 +132,8 @@ export interface OffPeakServerClientDeps {
   resolveCredentials: () => Promise<OffPeakCredentialSnapshot>;
   fetchImpl?: typeof fetch;
   logger: ServiceLogger;
+  /** 宿主的实时界面语言，用于 X-Client-Language；与 NodeApiClient 同源。 */
+  resolveClientLanguage?: () => string | undefined;
 }
 
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -148,9 +149,6 @@ export function createOffPeakServerClient(deps: OffPeakServerClientDeps): OffPea
   const fetchImpl = deps.fetchImpl ?? fetch;
 
   async function request(method: "GET" | "POST", path: string, body?: unknown): Promise<unknown> {
-    // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-    assertOfficialServiceRemoved("offPeak");
-
     const credentials = await deps.resolveCredentials();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
@@ -160,7 +158,8 @@ export function createOffPeakServerClient(deps: OffPeakServerClientDeps): OffPea
       // test 服务端只能看到 user_agent=node，且客户端日志无法关联 2007/裸 429 的服务端请求。
       // 这里只补标准非敏感来源头和链路 id，JWT/API Key 仍禁止进入日志。
       const headers = withRequestIdHeader({
-        ...buildZCodeSourceHeaders(),
+        // 以前无参调用，X-Client-Language 回落到进程 Intl 系统语言，与界面语言不一致。
+        ...buildZCodeSourceHeaders({ clientLanguage: deps.resolveClientLanguage?.() }),
         ...(body === undefined ? {} : { "content-type": "application/json" }),
         authorization: `Bearer ${credentials.jwt}`,
         "x-coding-plan-api-key": credentials.codingPlanApiKey,

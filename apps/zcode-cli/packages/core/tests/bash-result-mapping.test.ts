@@ -11,6 +11,8 @@ import {
   type ToolArtifactWriteRequest,
 } from "@zcode/contracts";
 import { bashHandler, bashToolEntry } from "../src/tool/handlers/bash.js";
+import { formatBashTimeoutDuration } from "../src/tool/handlers/bash-output.js";
+import { isErrorForToolResult } from "../src/runtime/helpers/tool-result.js";
 import { formatPersistedOutputEnvelope } from "../src/tool/result-persistence-format.js";
 import { serializeOutput } from "../src/tool/executor/result-serialization.js";
 import type { ToolExecutorDeps } from "../src/tool/executor/types.js";
@@ -105,6 +107,76 @@ describe("Bash result mapping", () => {
         }),
       ),
     ).toBe("partial\nstderr\n<error>Command was aborted before completion</error>");
+  });
+
+  it.each([
+    ["no output", "", "Exit code 143\nCommand timed out after 1s"],
+    // 输出开头的空行保留，只去掉末尾空白。
+    ["captured output", "\n\npartial\n", "Exit code 143\nCommand timed out after 1s\n\n\npartial"],
+  ])(
+    "formats a hard timeout with %s as a failure without the aborted tag",
+    async (_name, stdout, expected) => {
+      let requestedTimeoutMs: number | undefined;
+      const executionPort: ExecutionPort = {
+        async run(request) {
+          requestedTimeoutMs = request.timeoutMs;
+          return executionResult({
+            status: "timed_out",
+            stdout,
+            exitCode: 143,
+            timedOut: true,
+            // adapter 的通用文案；模型看到的超时行由 Bash 投影按实际生效的超时重新格式化。
+            error: { type: "timeout", message: "Command timed out after 1.5s" },
+          });
+        },
+      };
+
+      const output = (await bashHandler(
+        { command: "sleep 3", timeout: 1500 } satisfies BashInput,
+        contextWith(executionPort),
+      )) as BashOutput;
+
+      expect(requestedTimeoutMs).toBe(1500);
+      expect(formatText(output)).toBe(expected);
+      expect(
+        isErrorForToolResult({ success: true, output, toolCallId: "tool_bash", toolName: "Bash" }),
+      ).toBe(true);
+    },
+  );
+
+  it("keeps the leading blank lines of failed output", async () => {
+    const executionPort: ExecutionPort = {
+      async run() {
+        return executionResult({ status: "failed", stdout: "\n\nboom\n", exitCode: 7 });
+      },
+    };
+
+    const output = (await bashHandler(
+      { command: "printf '\\n\\nboom\\n'; exit 7" } satisfies BashInput,
+      contextWith(executionPort),
+    )) as BashOutput;
+
+    expect(formatText(output)).toBe("Exit code 7\n\n\nboom");
+  });
+
+  it.each([
+    [0, "0s"],
+    [0.5, "0.0s"],
+    [50, "0s"],
+    [1000, "1s"],
+    [1500, "1s"],
+    [59_999, "59s"],
+    [60_000, "1m 0s"],
+    [90_000, "1m 30s"],
+    [90_500, "1m 31s"],
+    [120_000, "2m 0s"],
+    [600_000, "10m 0s"],
+    [3_599_500, "1h 0m 0s"],
+    [3_600_000, "1h 0m 0s"],
+    [86_400_000, "1d 0h 0m"],
+    [90_061_000, "1d 1h 1m"],
+  ])("formats a %d ms Bash timeout as %s", (timeoutMs, expected) => {
+    expect(formatBashTimeoutDuration(timeoutMs)).toBe(expected);
   });
 
   it("keeps the zcode generic no-output placeholder for empty Bash output", async () => {
@@ -208,8 +280,8 @@ describe("Bash result mapping", () => {
     expect(result.modelContent).toBe(result.content);
   });
 
-  it("uses Bash persisted-output projection for failed oversized Bash results", async () => {
-    const stdout = "O".repeat(30_001);
+  it("keeps the head and tail of large failed Bash output inline", async () => {
+    const stdout = `${"H".repeat(6_000)}${"M".repeat(18_000)}${"T".repeat(6_001)}`;
     const artifactStore = new RecordingArtifactStore();
 
     const result = await serializeOutput(
@@ -231,12 +303,181 @@ describe("Bash result mapping", () => {
       new AbortController().signal,
     );
 
-    expect(artifactStore.requests).toHaveLength(1);
-    expect(result.content).toContain(
-      "Output too large (29.3KB). Full output saved to: /artifacts/artifact-1.json",
+    // 失败命令不落盘：完整文本超过 1 万 + 1024 字符时，保留头尾各 5000 字符，中间写明截掉的字符数。
+    const full = `Exit code 2\n${stdout}\nbad command`;
+    expect(artifactStore.requests).toHaveLength(0);
+    expect(result.content).toBe(
+      `${full.slice(0, 5_000)}\n\n... [${full.length - 10_000} characters truncated] ...\n\n${full.slice(-5_000)}`,
     );
-    expect(result.content).toContain(`Preview (first 2KB):\nExit code 2\n${"O".repeat(1_988)}`);
     expect(result.modelContent).toBe(result.content);
+  });
+
+  it.each([10_500, 20_000])(
+    "keeps a failed Bash output of %i CJK characters inline instead of persisting it",
+    async (length) => {
+      const stdout = "错".repeat(length);
+      const artifactStore = new RecordingArtifactStore();
+
+      const result = await serializeOutput(
+        { ...minimalToolExecutorDeps(), artifactStore },
+        bashOutput({ exitCode: 1, status: "failed", stdout }),
+        bashToolEntry,
+        {},
+        "tool_bash",
+        new AbortController().signal,
+      );
+
+      // 失败正文已按字符保留头尾；多字节文本超过 30000 字节也不能再被落盘成 2KB 开头预览。
+      const full = `Exit code 1\n${stdout}`;
+      const expected =
+        full.length <= 11_024
+          ? full
+          : `${full.slice(0, 5_000)}\n\n... [${full.length - 10_000} characters truncated] ...\n\n${full.slice(-5_000)}`;
+      expect(Buffer.byteLength(expected, "utf8")).toBeGreaterThan(30_000);
+      expect(artifactStore.requests).toHaveLength(0);
+      expect(result.content).toBe(expected);
+      expect(result.content).not.toContain("<persisted-output>");
+      expect(result.truncated).toBe(false);
+      expect(result.modelContent).toBe(result.content);
+    },
+  );
+
+  it("still persists a successful CJK Bash output over the byte budget", async () => {
+    const stdout = "错".repeat(10_500);
+    const artifactStore = new RecordingArtifactStore();
+
+    const result = await serializeOutput(
+      { ...minimalToolExecutorDeps(), artifactStore },
+      bashOutput({ stdout }),
+      bashToolEntry,
+      {},
+      "tool_bash",
+      new AbortController().signal,
+    );
+
+    expect(artifactStore.requests).toHaveLength(1);
+    expect(result.content).toContain("<persisted-output>");
+  });
+
+  it("keeps the byte budget for a failed Bash result that returns structuredContent", async () => {
+    const artifactStore = new RecordingArtifactStore();
+
+    const result = await serializeOutput(
+      { ...minimalToolExecutorDeps(), artifactStore },
+      bashOutput({
+        exitCode: 1,
+        status: "failed",
+        structuredContent: [{ type: "text", text: "structured".repeat(10_000) }],
+      }),
+      bashToolEntry,
+      {},
+      "tool_bash",
+      new AbortController().signal,
+    );
+
+    // structuredContent 不经过失败正文的头尾截断，没有字符上限，仍按字节预算落盘。
+    expect(artifactStore.requests).toHaveLength(1);
+    expect(result.truncated).toBe(true);
+  });
+
+  it("shows failed Bash output in full up to the truncation slack", () => {
+    const stdout = "x".repeat(11_000);
+    expect(formatText(bashOutput({ exitCode: 1, status: "failed", stdout }))).toBe(
+      `Exit code 1\n${stdout}`,
+    );
+  });
+
+  it("uses the inline output of an adapter-persisted failure instead of the saved-file preview", () => {
+    const stdout = "y".repeat(30_000);
+    const text = formatText(
+      bashOutput({
+        exitCode: 1,
+        status: "failed",
+        stdout,
+        persistedOutputPath: "/tmp/exec_fail.output",
+        persistedOutputSize: 90_000,
+      }),
+    );
+    expect(text).not.toContain("<persisted-output>");
+    expect(text).toBe(
+      `Exit code 1\n${"y".repeat(4_988)}\n\n... [20012 characters truncated] ...\n\n${"y".repeat(5_000)}`,
+    );
+  });
+
+  it("names the timeout when a foreground command is moved to the background", () => {
+    expect(
+      formatText(
+        bashOutput({
+          status: "backgrounded",
+          backgroundTaskId: "exec_bg",
+          persistedOutputPath: "/tmp/exec_bg.output",
+          timedOutAfterMs: 120_000,
+        }),
+      ),
+    ).toBe(
+      "Command did not complete within its 120s timeout and was moved to the background (ID: exec_bg). Output is being written to: /tmp/exec_bg.output. You will be notified when it completes. To check interim output, use Read on that file path.",
+    );
+  });
+
+  it("appends the session cwd note after the background text", () => {
+    const note =
+      "Session cwd remains /work/repo; directory changes made by the backgrounded command do not apply to subsequent commands.";
+    expect(
+      formatText(
+        bashOutput({
+          status: "backgrounded",
+          backgroundTaskId: "exec_bg",
+          persistedOutputPath: "/tmp/exec_bg.output",
+          backgroundSessionCwd: "/work/repo",
+        }),
+      ),
+    ).toBe(
+      `Command running in background with ID: exec_bg. Output is being written to: /tmp/exec_bg.output. You will be notified when it completes. To check interim output, use Read on that file path.\n${note}`,
+    );
+    expect(
+      formatText(
+        bashOutput({
+          status: "backgrounded",
+          backgroundTaskId: "exec_bg",
+          persistedOutputPath: "/tmp/exec_bg.output",
+          timedOutAfterMs: 120_000,
+          backgroundSessionCwd: "/work/repo",
+        }),
+      ),
+    ).toBe(
+      `Command did not complete within its 120s timeout and was moved to the background (ID: exec_bg). Output is being written to: /tmp/exec_bg.output. You will be notified when it completes. To check interim output, use Read on that file path.\n${note}`,
+    );
+  });
+
+  it("tells a synchronous subagent that no notification follows its final response", () => {
+    const sync =
+      "If it exits while you are still working you will be notified, but it is terminated when you give your final response and no notification can follow that \u2014 so do not end your turn to wait for it; if you need its result, wait for it before giving your final response.";
+    expect(
+      formatText(
+        bashOutput({
+          status: "backgrounded",
+          backgroundTaskId: "exec_bg",
+          persistedOutputPath: "/tmp/exec_bg.output",
+          backgroundInSyncSubagent: true,
+        }),
+      ),
+    ).toBe(
+      `Command running in background with ID: exec_bg. Output is being written to: /tmp/exec_bg.output. ${sync} To check interim output, use Read on that file path.`,
+    );
+    expect(
+      formatText(
+        bashOutput({
+          status: "backgrounded",
+          backgroundTaskId: "exec_bg",
+          persistedOutputPath: "/tmp/exec_bg.output",
+          timedOutAfterMs: 120_000,
+          backgroundInSyncSubagent: true,
+          backgroundSessionCwd: "/work/repo",
+        }),
+      ),
+    ).toBe(
+      `Command did not complete within its 120s timeout and was moved to the background (ID: exec_bg). Output is being written to: /tmp/exec_bg.output. ${sync} To check interim output, use Read on that file path.\nSession cwd remains /work/repo; directory changes made by the backgrounded command do not apply to subsequent commands.`,
+    );
   });
 
   it("does not rehydrate structuredContent after serializer persists a large Bash result", async () => {
@@ -410,6 +651,9 @@ function executionResult(options: {
   status: ExecutionResult["status"];
   stdout?: string;
   stderr?: string;
+  exitCode?: number;
+  timedOut?: boolean;
+  error?: ExecutionResult["error"];
 }): ExecutionResult {
   const now = new Date();
   return {
@@ -425,10 +669,12 @@ function executionResult(options: {
       truncated: false,
     },
     durationMs: 1,
-    timedOut: false,
+    timedOut: options.timedOut ?? false,
     cancelled: false,
     startedAt: now,
     completedAt: now,
+    ...(options.exitCode !== undefined ? { exitCode: options.exitCode } : {}),
+    ...(options.error ? { error: options.error } : {}),
   };
 }
 

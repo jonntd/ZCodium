@@ -5,10 +5,6 @@
 export const dataSyncServiceModule = {
   id: "data-sync-service",
   requires: ["services", "shared"],
-  provides: [
-    "data-sync-category-service",
-    "device-sync-state-service",
-    "user-config-sync-service",
-  ],
+  provides: ["data-sync-category-service", "device-sync-state-service", "user-config-sync-service"],
   publicEntrypoints: ["index.ts", "contract.ts", "node.ts"],
 } as const;

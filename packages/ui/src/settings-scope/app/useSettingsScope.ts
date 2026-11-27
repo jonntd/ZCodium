@@ -29,14 +29,11 @@ import {
   useSourceSettingsServices,
 } from "@/store/sourceSettingsServiceStore.js";
 import {
-  useConfigWorkspaceCatalogReadiness,
   useConfigWorkspaceTargets,
   type ConfigWorkspaceTarget,
 } from "@/workspace-config-catalog/index.js";
 
-function useServicesHomeDir(
-  services: IServiceAccessor | undefined,
-): string | undefined {
+function useServicesHomeDir(services: IServiceAccessor | undefined): string | undefined {
   const [snapshot, setSnapshot] = useState<{
     services: IServiceAccessor;
     homedir: string;
@@ -51,17 +48,14 @@ function useServicesHomeDir(
         if (current) setSnapshot({ services, homedir: result.homedir });
       },
       (error: unknown) => {
-        if (current)
-          logger.warn("[settings-scope] 读取设备 home 目录失败", error);
+        if (current) logger.warn("[settings-scope] 读取设备 home 目录失败", error);
       },
     );
     return () => {
       current = false;
     };
   }, [services]);
-  return snapshot && snapshot.services === services
-    ? snapshot.homedir
-    : undefined;
+  return snapshot && snapshot.services === services ? snapshot.homedir : undefined;
 }
 
 /**
@@ -73,22 +67,18 @@ function useRemoteUserServices(sourceServerId: string | null, online: boolean) {
   const request = useOptionalPlatform()?.requestSourceSettingsAttachment;
   const registered = useSourceSettingsServices(sourceServerId ?? undefined);
   const services = sourceServerId && online ? registered : undefined;
-  const [failedSourceServerId, setFailedSourceServerId] = useState<
-    string | null
-  >(null);
+  const [failedSourceServerId, setFailedSourceServerId] = useState<string | null>(null);
   useEffect(() => {
     if (!sourceServerId || !online || registered || !request) return;
     let current = true;
     setFailedSourceServerId(null);
-    ensureSourceSettingsServices(sourceServerId, request).catch(
-      (error: unknown) => {
-        logger.warn("[settings-scope] 申请设备配置连接失败", {
-          sourceServerId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-        if (current) setFailedSourceServerId(sourceServerId);
-      },
-    );
+    ensureSourceSettingsServices(sourceServerId, request).catch((error: unknown) => {
+      logger.warn("[settings-scope] 申请设备配置连接失败", {
+        sourceServerId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      if (current) setFailedSourceServerId(sourceServerId);
+    });
     return () => {
       current = false;
     };
@@ -97,9 +87,7 @@ function useRemoteUserServices(sourceServerId: string | null, online: boolean) {
   return {
     services,
     homedir,
-    failed: Boolean(
-      sourceServerId && failedSourceServerId === sourceServerId && !registered,
-    ),
+    failed: Boolean(sourceServerId && failedSourceServerId === sourceServerId && !registered),
   };
 }
 
@@ -127,23 +115,16 @@ export function useSettingsScope(params: {
   /** 选中的项目已关闭、回退到同设备「用户」时通知（插件页沿用原有提示）。 */
   onFallback?(): void;
 }): SettingsScopeState {
-  const { workspacePath, workspaceIdentity, initialScopeKey, onFallback } =
-    params;
+  const { workspacePath, workspaceIdentity, initialScopeKey, onFallback } = params;
   const base = useBaseWorkspaceServices();
-  const remoteUserAvailable = Boolean(
-    useOptionalPlatform()?.requestSourceSettingsAttachment,
-  );
-  // fork 适配：catalog hook 返回裸数组，就绪信号从 readiness hook 取（fork 适配导出）。
-  const targets = useConfigWorkspaceTargets();
-  const catalogLoaded = useConfigWorkspaceCatalogReadiness();
+  const remoteUserAvailable = Boolean(useOptionalPlatform()?.requestSourceSettingsAttachment);
+  const { targets, loaded: catalogLoaded } = useConfigWorkspaceTargets();
   const inputs = useRemoteDevicePresentationInputs();
   const devices = useMemo<SettingsScopeDeviceState[]>(
     () =>
       [...inputs.entries()].map(([sourceServerId, input]) => ({
         sourceServerId,
-        name:
-          formatRemoteDeviceName(input.target, input.displayName) ??
-          sourceServerId,
+        name: formatRemoteDeviceName(input.target, input.displayName) ?? sourceServerId,
         // 与数据同步页设备行的「已连接」判断一致：只取自管理快照。
         online: resolveRemoteConnectionPresentation(input).status === "online",
       })),
@@ -163,13 +144,8 @@ export function useSettingsScope(params: {
     remoteTarget: activeTarget?.remoteTarget,
     remoteUserAvailable,
   });
-  const [pickedKey, setPickedKey] = useState(() =>
-    normalizeInitialScopeKey(initialScopeKey),
-  );
-  useEffect(
-    () => setPickedKey(normalizeInitialScopeKey(initialScopeKey)),
-    [initialScopeKey],
-  );
+  const [pickedKey, setPickedKey] = useState(() => normalizeInitialScopeKey(initialScopeKey));
+  useEffect(() => setPickedKey(normalizeInitialScopeKey(initialScopeKey)), [initialScopeKey]);
   const selectedScopeKey = pickedKey ?? defaultKey;
   const rawResolution = resolveSettingsScope(selectedScopeKey, context);
   // 默认 key 指向的项目可能还没出现在目录表里（异步读取）：只在本帧按回退目标解析，不改写选择。
@@ -195,24 +171,15 @@ export function useSettingsScope(params: {
   const deviceTargets = useMemo(
     () =>
       groups
-        .find(
-          (group) =>
-            (group.device.kind === "local" ? "local" : group.device.id) ===
-            deviceId,
-        )
-        ?.options.flatMap((option) => (option.target ? [option.target] : [])) ??
-      [],
+        .find((group) => (group.device.kind === "local" ? "local" : group.device.id) === deviceId)
+        ?.options.flatMap((option) => (option.target ? [option.target] : [])) ?? [],
     [deviceId, groups],
   );
 
   const remoteSourceServerId =
-    device.kind === "remote" && remoteUserAvailable
-      ? device.sourceServerId
-      : null;
+    device.kind === "remote" && remoteUserAvailable ? device.sourceServerId : null;
   const remoteOnline = remoteSourceServerId
-    ? devices.some(
-        (item) => item.sourceServerId === remoteSourceServerId && item.online,
-      )
+    ? devices.some((item) => item.sourceServerId === remoteSourceServerId && item.online)
     : false;
   const remote = useRemoteUserServices(remoteSourceServerId, remoteOnline);
   const localHomeDir = useServicesHomeDir(base);
@@ -221,25 +188,15 @@ export function useSettingsScope(params: {
     // 本机「用户」借用一个本机项目作为插件 / 技能接口需要的 cwd（与旧行为一致）；没有本机项目时用本机 home。
     const activeLocal =
       workspacePath && !workspaceIdentity?.trim()
-        ? (deviceTargets.find(
-            (target) => target.workspacePath === workspacePath,
-          ) ?? {
+        ? (deviceTargets.find((target) => target.workspacePath === workspacePath) ?? {
             workspacePath,
             label: getPathLeaf(workspacePath) || workspacePath,
           })
         : undefined;
     const anchor = activeLocal ?? deviceTargets[0];
     if (anchor) return anchor;
-    return localHomeDir
-      ? { workspacePath: localHomeDir, label: localHomeDir }
-      : null;
-  }, [
-    device.kind,
-    deviceTargets,
-    localHomeDir,
-    workspaceIdentity,
-    workspacePath,
-  ]);
+    return localHomeDir ? { workspacePath: localHomeDir, label: localHomeDir } : null;
+  }, [device.kind, deviceTargets, localHomeDir, workspaceIdentity, workspacePath]);
 
   const user: SettingsUserScope =
     device.kind === "local"
@@ -253,19 +210,14 @@ export function useSettingsScope(params: {
           : remote.services && remote.homedir
             ? {
                 status: "ready",
-                target: {
-                  workspacePath: remote.homedir,
-                  label: remote.homedir,
-                },
+                target: { workspacePath: remote.homedir, label: remote.homedir },
                 unscopedServices: remote.services,
                 cacheAuthorityKey: `source-settings:${remoteSourceServerId}`,
               }
             : { status: "connecting" };
 
   const syncSourceServerId =
-    resolution.status === "ready" &&
-    resolution.kind === "user" &&
-    device.kind === "remote"
+    resolution.status === "ready" && resolution.kind === "user" && device.kind === "remote"
       ? device.sourceServerId
       : null;
   const activeDeviceId = workspaceIdentity?.trim()
@@ -285,24 +237,18 @@ export function useSettingsScope(params: {
       : device.sourceServerId
         ? remoteUserScopeKey(device.sourceServerId)
         : LOCAL_USER_SCOPE_KEY;
-  const setSelectedScopeKey = useCallback(
-    (key: string) => setPickedKey(key),
-    [],
-  );
+  const setSelectedScopeKey = useCallback((key: string) => setPickedKey(key), []);
   const toLocalScopeKey = useCallback(
-    (pageKey: string) =>
-      isUserScopeKey(pageKey) ? LOCAL_USER_SCOPE_KEY : pageKey,
+    (pageKey: string) => (isUserScopeKey(pageKey) ? LOCAL_USER_SCOPE_KEY : pageKey),
     [],
   );
   const toPageScopeKey = useCallback(
-    (localKey: string) =>
-      localKey === LOCAL_USER_SCOPE_KEY ? deviceUserKey : localKey,
+    (localKey: string) => (localKey === LOCAL_USER_SCOPE_KEY ? deviceUserKey : localKey),
     [deviceUserKey],
   );
   return {
     groups,
-    selectedScopeKey:
-      resolution.status === "missing" ? selectedScopeKey : resolution.key,
+    selectedScopeKey: resolution.status === "missing" ? selectedScopeKey : resolution.key,
     setSelectedScopeKey,
     resolution,
     device,

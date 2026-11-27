@@ -35,8 +35,7 @@ export function PluginUiCard(props: PluginUiCardProps) {
 
   useLayoutEffect(() => {
     const node = containerRef.current;
-    if (!node || !props.onWidthChange || typeof ResizeObserver === "undefined")
-      return;
+    if (!node || !props.onWidthChange || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width;
       if (typeof width === "number") props.onWidthChange?.(width);

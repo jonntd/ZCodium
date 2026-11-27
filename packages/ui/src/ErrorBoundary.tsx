@@ -1,12 +1,11 @@
-import { Component, useEffect } from "react";
+import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import type { Locale } from "@zcode/shared";
-import { DEFAULT_LOCALE } from "@zcode/shared";
+import { DEFAULT_LOCALE, isLocale, resolveLocaleFromLanguageTag } from "@zcode/shared";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
-import zhCN from "@/i18n/locales/zh-CN.js";
-import enUS from "@/i18n/locales/en-US.js";
-import faIR from "@/i18n/locales/fa.js";
+import { LOCALE_MESSAGES } from "@/i18n/localeMessages.js";
 import { logger } from "@/logger.js";
+import { reportReactErrorToArms } from "@/lib/reactErrorArmsTelemetry.js";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
 import { AlertTriangleIcon, RefreshCw } from "lucide-react";
@@ -16,6 +15,8 @@ interface AppErrorBoundaryProps {
   isDesktop?: boolean;
   isMacDesktop?: boolean;
   isWindowsDesktop?: boolean;
+  /** 宿主注入紧急重启能力；根边界位于 PlatformProvider 外，不能依赖故障子树。 */
+  onRestart?: () => Promise<unknown>;
   /**
    * React 错误边界捕获的异常不会冒泡到 window.onerror，监控 SDK默认收不到。
    * Desktop 等宿主可传入此回调，将 React 错误边界捕获的异常转发到监控 SDK。
@@ -66,11 +67,7 @@ function resolveBoundaryLocale(): Locale {
   if (typeof localStorage !== "undefined" && typeof localStorage.getItem === "function") {
     try {
       const storedPreference = localStorage.getItem(LOCALE_PREFERENCE_KEY);
-      if (
-        storedPreference === "zh-CN" ||
-        storedPreference === "en-US" ||
-        storedPreference === "fa-IR"
-      ) {
+      if (isLocale(storedPreference)) {
         return storedPreference;
       }
     } catch {
@@ -81,10 +78,7 @@ function resolveBoundaryLocale(): Locale {
   }
 
   if (typeof navigator !== "undefined") {
-    const normalized = navigator.language.toLowerCase();
-    if (normalized.startsWith("zh")) return "zh-CN";
-    if (normalized.startsWith("fa")) return "fa-IR";
-    return "en-US";
+    return resolveLocaleFromLanguageTag(navigator.language);
   }
 
   return DEFAULT_LOCALE;
@@ -92,7 +86,7 @@ function resolveBoundaryLocale(): Locale {
 
 function formatBoundaryMessage(id: string): string {
   const locale = resolveBoundaryLocale();
-  const messages = locale === "en-US" ? enUS : locale === "fa-IR" ? faIR : zhCN;
+  const messages = LOCALE_MESSAGES[locale];
   return messages[id] ?? id;
 }
 
@@ -112,6 +106,7 @@ function ErrorFallback({
   componentStack,
   onReset,
   onReload,
+  onRestart,
   isDesktop,
   isMacDesktop,
   isWindowsDesktop,
@@ -120,19 +115,12 @@ function ErrorFallback({
   componentStack: string;
   onReset: () => void;
   onReload: () => void;
+  onRestart?: () => void;
   isDesktop?: boolean;
   isMacDesktop?: boolean;
   isWindowsDesktop?: boolean;
 }) {
   const errorSummary = error.message.trim() || formatBoundaryMessage("appError.unknown");
-
-  // 错误边界可能脱离 IntlProvider 渲染，这里按 fallback 语言同步 html lang/dir（fa-IR 为 RTL）。
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const locale = resolveBoundaryLocale();
-    document.documentElement.lang = locale;
-    document.documentElement.dir = locale === "fa-IR" ? "rtl" : "ltr";
-  }, []);
 
   return (
     <DesktopWindowFrame
@@ -172,7 +160,24 @@ function ErrorFallback({
               <RefreshCw />
               {formatBoundaryMessage("appError.reload")}
             </Button>
+            {onRestart ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onRestart}
+                data-testid="app-error-restart"
+              >
+                <RefreshCw />
+                {formatBoundaryMessage("appError.restart")}
+              </Button>
+            ) : null}
           </div>
+
+          {onRestart ? (
+            <p className="mt-2 text-ui-base text-foreground-subtle">
+              {formatBoundaryMessage("appError.restartHint")}
+            </p>
+          ) : null}
 
           <p className="mt-4 text-ui-base leading-5 text-on-surface-muted">
             {formatBoundaryMessage("appError.hint")}
@@ -338,6 +343,12 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
       errorInfo.componentStack,
     );
     this.props.onCaughtReactError?.(normalizedError, errorInfo);
+    // React 错误边界拦截了异常、阻止其冒泡到 window.onerror，RUM Browser SDK 默认收不到。
+    // 主动转发到 ARMS 自定义事件干道（reporter 在 renderer 入口早注入），补上根级渲染崩溃盲区。
+    reportReactErrorToArms({
+      error: normalizedError,
+      componentStack: errorInfo.componentStack ?? "",
+    });
     this.setState({ componentStack: errorInfo.componentStack ?? "" });
   }
 
@@ -354,6 +365,12 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
     }
   };
 
+  private handleRestart = () => {
+    void this.props.onRestart?.().catch((error: unknown) => {
+      logger.error("[AppErrorBoundary] restart failed:", error);
+    });
+  };
+
   override render() {
     if (!this.state.error) {
       return this.props.children;
@@ -365,6 +382,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
         componentStack={this.state.componentStack}
         onReset={this.handleReset}
         onReload={this.handleReload}
+        onRestart={this.props.onRestart ? this.handleRestart : undefined}
         isDesktop={this.props.isDesktop}
         isMacDesktop={this.props.isMacDesktop}
         isWindowsDesktop={this.props.isWindowsDesktop}
@@ -406,6 +424,13 @@ export class ScopedErrorBoundary extends Component<
       errorInfo.componentStack,
     );
     this.props.onCaughtReactError?.(normalizedError, errorInfo, this.props.scope);
+    // 同根级边界：scoped 区域捕获的渲染异常同样不会冒泡到 RUM，按 scope 区分上报，
+    // 让 sidebar/chat/terminal/settings 等局部崩溃在 RUM 里可见、可定位。
+    reportReactErrorToArms({
+      error: normalizedError,
+      componentStack: errorInfo.componentStack ?? "",
+      scope: this.props.scope,
+    });
     this.setState({ componentStack: errorInfo.componentStack ?? "" });
   }
 

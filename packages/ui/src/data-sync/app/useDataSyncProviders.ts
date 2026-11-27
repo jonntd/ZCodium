@@ -1,12 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  IServiceAccessor,
-  ProviderProvisioningLaneStatus,
-} from "@/data-sync/contract.js";
-import {
-  toDataSyncProviderRows,
-  type DataSyncProviderRow,
-} from "@/data-sync/domain/providers.js";
+import type { IServiceAccessor, ProviderProvisioningLaneStatus } from "@/data-sync/contract.js";
+import { toDataSyncProviderRows, type DataSyncProviderRow } from "@/data-sync/domain/providers.js";
 import { logger } from "@/logger.js";
 
 export type DataSyncProvidersList =
@@ -65,20 +59,14 @@ export function useDataSyncProviders(params: {
       const seq = ++requestSeqRef.current;
       return request().then(
         (status) => {
-          if (
-            generation !== generationRef.current ||
-            seq !== requestSeqRef.current
-          ) {
+          if (generation !== generationRef.current || seq !== requestSeqRef.current) {
             return undefined;
           }
           setProvisioning({ phase: "ready", status });
           return status;
         },
         (error: unknown) => {
-          if (
-            generation === generationRef.current &&
-            seq === requestSeqRef.current
-          ) {
+          if (generation === generationRef.current && seq === requestSeqRef.current) {
             setProvisioning({ phase: "error" });
           }
           logger.warn("[DataSync] 读取模型提供商同步状态失败", {
@@ -120,9 +108,7 @@ export function useDataSyncProviders(params: {
       setProvisioning({ phase: "ready", status: { lane: "none" } });
       return;
     }
-    void applyStatus(generation, () =>
-      laneService.getStatus({ sourceServerId }),
-    ).then((status) => {
+    void applyStatus(generation, () => laneService.getStatus({ sourceServerId })).then((status) => {
       if (status?.lane === "present" && status.running) {
         void applyStatus(generation, () =>
           laneService.getStatus({ sourceServerId, waitForIdle: true }),
@@ -130,21 +116,13 @@ export function useDataSyncProviders(params: {
       }
     });
     // online 变化也重新读取：设备重新上线后 lane 可能已重新注册并完成首次同步。
-  }, [
-    applyStatus,
-    laneService,
-    online,
-    providerSettingsService,
-    sourceServerId,
-  ]);
+  }, [applyStatus, laneService, online, providerSettingsService, sourceServerId]);
 
   const retry = useCallback(() => {
     if (!laneService) return;
     const generation = generationRef.current;
     setRetrying(true);
-    void applyStatus(generation, () =>
-      laneService.retry({ sourceServerId }),
-    ).finally(() => {
+    void applyStatus(generation, () => laneService.retry({ sourceServerId })).finally(() => {
       if (generation === generationRef.current) setRetrying(false);
     });
   }, [applyStatus, laneService, sourceServerId]);

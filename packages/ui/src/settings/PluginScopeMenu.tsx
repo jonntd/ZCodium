@@ -86,41 +86,32 @@ function DeviceScopeMenu({
     {
       device: contextDevice,
       options: [
-        ...(userAvailable
-          ? [{ key: LOCAL_USER_SCOPE_KEY, kind: "user" as const }]
-          : []),
-        ...workspaceTabs
-          .filter(isPluginScopeWorkspaceConnected)
-          .map((target) => ({
-            key: getPluginWorkspaceKey(target),
-            kind: "workspace" as const,
-            target,
-          })),
+        ...(userAvailable ? [{ key: LOCAL_USER_SCOPE_KEY, kind: "user" as const }] : []),
+        ...workspaceTabs.filter(isPluginScopeWorkspaceConnected).map((target) => ({
+          key: getPluginWorkspaceKey(target),
+          kind: "workspace" as const,
+          target,
+        })),
       ],
     },
   ];
   const deviceName = (device: SettingsScopeDevice) =>
     device.kind === "local"
       ? intl.formatMessage({ id: "settings.scope.localDevice" })
-      : device.name ||
-        intl.formatMessage({ id: "settings.machine.unknownRemote" });
+      : device.name || intl.formatMessage({ id: "settings.machine.unknownRemote" });
   const userLabel = intl.formatMessage({ id: "settings.plugin.scope.user" });
   const selectedGroup = menuGroups.find((group) =>
     group.options.some((option) => option.key === selectedScopeKey),
   );
-  const selectedOption = selectedGroup?.options.find(
-    (option) => option.key === selectedScopeKey,
-  );
-  const triggerDevice =
-    selectedGroup?.device ?? selectedDevice ?? menuGroups[0]!.device;
+  const selectedOption = selectedGroup?.options.find((option) => option.key === selectedScopeKey);
+  const triggerDevice = selectedGroup?.device ?? selectedDevice ?? menuGroups[0]!.device;
   const triggerIsUser = selectedOption
     ? selectedOption.kind === "user"
     : isUserScopeKey(selectedScopeKey);
   const triggerScopeLabel = triggerIsUser
     ? userLabel
     : (selectedOption?.target?.label ?? selectedLabel ?? selectedScopeKey);
-  const TriggerIcon =
-    triggerDevice.kind === "remote" ? Server : triggerIsUser ? Monitor : Folder;
+  const TriggerIcon = triggerDevice.kind === "remote" ? Server : triggerIsUser ? Monitor : Folder;
 
   return (
     <DropdownMenu>
@@ -134,11 +125,7 @@ function DeviceScopeMenu({
           data-plugin-scope-key={selectedScopeKey}
           className="rounded-full pl-2.5 pr-1.5"
         >
-          <TriggerIcon
-            className="size-4"
-            aria-hidden="true"
-            data-testid={triggerIconTestId}
-          />
+          <TriggerIcon className="size-4" aria-hidden="true" data-testid={triggerIconTestId} />
           <span className="flex max-w-56 min-w-0 items-center gap-1">
             <span className="truncate">{deviceName(triggerDevice)}</span>
             <span
@@ -150,32 +137,16 @@ function DeviceScopeMenu({
             </span>
             <span className="truncate">{triggerScopeLabel}</span>
           </span>
-          <ChevronDown
-            className="size-4 text-foreground-subtlest"
-            aria-hidden="true"
-          />
+          <ChevronDown className="size-4 text-foreground-subtlest" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align={align}
-        className="w-64 max-w-[calc(100vw-2rem)]"
-      >
-        <DropdownMenuRadioGroup
-          value={selectedScopeKey}
-          onValueChange={onScopeKeyChange}
-        >
+      <DropdownMenuContent align={align} className="w-64 max-w-[calc(100vw-2rem)]">
+        <DropdownMenuRadioGroup value={selectedScopeKey} onValueChange={onScopeKeyChange}>
           {menuGroups.map((group, index) => {
-            const groupId =
-              group.device.kind === "local" ? "local" : group.device.id;
-            const userOption = group.options.find(
-              (option) => option.kind === "user",
-            );
-            const projects = group.options.filter(
-              (option) => option.kind === "workspace",
-            );
-            const selectedProject = projects.find(
-              (option) => option.key === selectedScopeKey,
-            );
+            const groupId = group.device.kind === "local" ? "local" : group.device.id;
+            const userOption = group.options.find((option) => option.kind === "user");
+            const projects = group.options.filter((option) => option.kind === "workspace");
+            const selectedProject = projects.find((option) => option.key === selectedScopeKey);
             const userTestId =
               group.device.kind === "local" || !groups
                 ? userOptionTestId
@@ -218,9 +189,7 @@ function DeviceScopeMenu({
                       </span>
                       {selectedProject ? (
                         <span className="flex min-w-0 items-center gap-1 text-ui-sm text-foreground-subtle">
-                          <span className="truncate">
-                            {selectedProject.target?.label}
-                          </span>
+                          <span className="truncate">{selectedProject.target?.label}</span>
                           <Check
                             className="size-4 text-foreground"
                             aria-hidden="true"
@@ -228,9 +197,7 @@ function DeviceScopeMenu({
                           />
                         </span>
                       ) : (
-                        <span className="text-ui-sm text-foreground-subtle">
-                          {projects.length}
-                        </span>
+                        <span className="text-ui-sm text-foreground-subtle">{projects.length}</span>
                       )}
                     </DropdownMenuSubTrigger>
                     <DropdownMenuSubContent
@@ -239,9 +206,7 @@ function DeviceScopeMenu({
                     >
                       <ScopeProjectList
                         projects={projects}
-                        workspaceOptionTestIdPrefix={
-                          workspaceOptionTestIdPrefix
-                        }
+                        workspaceOptionTestIdPrefix={workspaceOptionTestIdPrefix}
                       />
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
@@ -291,9 +256,7 @@ function ScopeProjectList({
           <InputGroup className="h-8 border-0 !bg-transparent hover:border-input-border-hover">
             <input
               value={query}
-              placeholder={intl.formatMessage({
-                id: "settings.scope.searchProjects",
-              })}
+              placeholder={intl.formatMessage({ id: "settings.scope.searchProjects" })}
               onChange={(event) => setQuery(event.target.value)}
               className="w-full text-ui-base/relaxed text-foreground outline-hidden placeholder:text-foreground-subtlest"
             />
@@ -375,26 +338,13 @@ function FlatScopeMenu({
           data-plugin-scope-key={selectedScopeKey}
           className="rounded-full"
         >
-          <Folder
-            className="size-4"
-            aria-hidden="true"
-            data-testid={triggerIconTestId}
-          />
+          <Folder className="size-4" aria-hidden="true" data-testid={triggerIconTestId} />
           <span className="max-w-48 truncate">{selectedWorkspace?.label}</span>
-          <ChevronDown
-            className="size-4 text-foreground-subtlest"
-            aria-hidden="true"
-          />
+          <ChevronDown className="size-4 text-foreground-subtlest" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align={align}
-        className="w-64 max-w-[calc(100vw-2rem)]"
-      >
-        <DropdownMenuRadioGroup
-          value={selectedScopeKey}
-          onValueChange={onScopeKeyChange}
-        >
+      <DropdownMenuContent align={align} className="w-64 max-w-[calc(100vw-2rem)]">
+        <DropdownMenuRadioGroup value={selectedScopeKey} onValueChange={onScopeKeyChange}>
           {workspaceOptions.length > 0 ? (
             <>
               <DropdownMenuLabel>

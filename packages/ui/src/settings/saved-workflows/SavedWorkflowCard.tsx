@@ -1,15 +1,15 @@
 import { memo, type ReactNode } from "react";
-import { Ban, CircleCheck, Loader2, TriangleAlert } from "lucide-react";
+import { Ban, CircleCheck, LoaderCircle, TriangleAlert } from "lucide-react";
 import {
   TID_WORKFLOW_CARD,
   TID_WORKFLOW_CARD_MENU,
   TID_WORKFLOW_CARD_RUN,
   TID_WORKFLOW_ACTION_DELETE,
   TID_WORKFLOW_ACTION_MOVE,
-  testId,
   type ZCodeSavedWorkflowEntry,
   type ZCodeSavedWorkflowRun,
 } from "@zcode/shared";
+import { testId } from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import {
   DropdownMenu,
@@ -62,7 +62,7 @@ export function SavedWorkflowLastRunBadge({
       break;
     case "running":
       // running 用活动色 warning（与实例详情页状态头同源）。
-      icon = <Loader2 className="size-4 animate-spin" strokeWidth={1.33} aria-hidden="true" />;
+      icon = <LoaderCircle className="size-4 animate-spin" strokeWidth={1.33} aria-hidden="true" />;
       className = "rounded-lg bg-warning/10 text-warning";
       break;
     case "stopped":
@@ -73,7 +73,7 @@ export function SavedWorkflowLastRunBadge({
   return (
     <span
       className={cn(
-        "inline-flex min-w-0 max-w-full items-center gap-0.5 py-0.5 ps-1 pe-2 text-ui-base font-normal",
+        "inline-flex min-w-0 max-w-full items-center gap-0.5 py-0.5 pl-1 pr-2 text-ui-base font-normal",
         className,
       )}
       data-workflow-last-run={kind}
@@ -135,10 +135,10 @@ export const SavedWorkflowCard = memo(function SavedWorkflowCard({
           onOpen(entry);
         }
       }}
-      className="group relative flex h-full min-h-0 cursor-pointer gap-3 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-start transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+      className="group relative flex h-full min-h-0 cursor-pointer gap-3 overflow-hidden rounded-xl border border-card-border bg-background p-3 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
     >
       <div className="flex h-full min-w-0 flex-1 flex-col gap-3">
-        <span className="block truncate pe-28 text-ui-base font-medium leading-5 text-foreground">
+        <span className="block truncate pr-28 text-ui-base font-medium leading-5 text-foreground">
           {entry.name}
         </span>
         <p className="text-wrap-phrase line-clamp-2 h-10 text-ui-base font-normal leading-5 text-foreground-subtle">
@@ -173,7 +173,7 @@ export const SavedWorkflowCard = memo(function SavedWorkflowCard({
 
       {/* 卡面动作与整卡点击分层：按钮 stopPropagation，键盘上也不会把 Enter 冒泡成「打开详情」。 */}
       <div
-        className="absolute end-3 top-3 flex items-center gap-1"
+        className="absolute right-3 top-3 flex items-center gap-1"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >

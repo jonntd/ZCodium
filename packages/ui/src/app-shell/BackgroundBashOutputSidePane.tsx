@@ -1,5 +1,5 @@
 import { memo, useLayoutEffect, useRef } from "react";
-import { ArrowDownIcon, LoaderCircleIcon } from "lucide-react";
+import { ArrowDownIcon, LoaderCircle } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { ScrollFadeViewport } from "@/components/ui/scroll-fade-viewport.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -54,7 +54,7 @@ export const BackgroundBashOutputSidePane = memo(function BackgroundBashOutputSi
             data-testid="background-bash-running"
             className="flex shrink-0 items-center gap-2"
           >
-            <LoaderCircleIcon className="size-3 animate-spin" />
+            <LoaderCircle className="size-3 animate-spin" />
             {intl.formatMessage({ id: "bashOutput.status.running" })}
           </span>
         ) : null}
@@ -62,7 +62,7 @@ export const BackgroundBashOutputSidePane = memo(function BackgroundBashOutputSi
           <Button
             variant="link"
             size="xs"
-            className="ms-auto h-auto px-0 text-ui-sm text-foreground-subtle"
+            className="ml-auto h-auto px-0 text-ui-sm text-foreground-subtle"
             title={latest.outputPath}
             data-testid="background-bash-file"
             onClick={() =>
@@ -119,7 +119,7 @@ export const BackgroundBashOutputSidePane = memo(function BackgroundBashOutputSi
             variant="outline"
             size="icon"
             type="button"
-            className="absolute bottom-3 start-1/2 -translate-x-1/2 rtl:translate-x-1/2 rounded-full bg-card shadow-sm hover:bg-card-selected"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-card shadow-sm hover:bg-card-selected"
             data-testid="background-bash-resume"
             aria-label={intl.formatMessage({ id: "chat.scrollToBottom" })}
             title={intl.formatMessage({ id: "chat.scrollToBottom" })}

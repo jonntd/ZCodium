@@ -5,14 +5,14 @@ import { prepareRuntimeProviderRequest } from "../src/runtime/helpers/runtime-pr
 import { createToolRegistry } from "../src/tool/registry.js";
 import { readToolEntry } from "../src/tool/handlers/read.js";
 import { toolSearchToolEntry } from "../src/tool/handlers/tool-search.js";
-import { webFetchToolEntry } from "../src/tool/handlers/webfetch.js";
+import { taskOutputToolEntry } from "../src/tool/handlers/task-output.js";
 import { createTestModelFactory, createTestRuntimeModel } from "./test-runtime-model.js";
 import { createTestAgentRuntime } from "./test-agent-runtime.js";
 import { createTestSessionEventStore } from "./test-event-store.js";
 
 function fixture(defaultEnabled = true, protocolSupported = true) {
   const registry = createToolRegistry();
-  [readToolEntry, toolSearchToolEntry, webFetchToolEntry].forEach((entry) =>
+  [readToolEntry, toolSearchToolEntry, taskOutputToolEntry].forEach((entry) =>
     registry.register(entry),
   );
   const model: Model = {
@@ -34,7 +34,9 @@ function history(): RuntimeMessageEntry[] {
       message: {
         role: "assistant",
         content: "",
-        toolCalls: [{ id: "search-real", name: "ToolSearch", input: { query: "select:WebFetch" } }],
+        toolCalls: [
+          { id: "search-real", name: "ToolSearch", input: { query: "select:TaskOutput" } },
+        ],
       },
     },
     {
@@ -42,14 +44,14 @@ function history(): RuntimeMessageEntry[] {
         role: "tool",
         toolName: "ToolSearch",
         toolCallId: "search-real",
-        content: [{ type: "tool_reference", toolName: "WebFetch" }],
+        content: [{ type: "tool_reference", toolName: "TaskOutput" }],
       },
     },
     {
       message: { role: "user", content: "old tool announcement" },
       metadata: {
         source: "legacy_synthetic",
-        toolSearchAnnouncement: { addedNames: ["WebFetch"], removedNames: [], readdedNames: [] },
+        toolSearchAnnouncement: { addedNames: ["TaskOutput"], removedNames: [], readdedNames: [] },
       },
     },
   ];
@@ -66,7 +68,9 @@ it("prepares a scoped request without collecting announcements", () => {
   );
   expect(prepared.request.toolSearchEnabled).toBe(true);
   expect(prepared.request.tools.map((tool) => tool.name)).toEqual(["Read", "ToolSearch"]);
-  expect(prepared.toolSearch.catalog.find((tool) => tool.name === "WebFetch")?.deferred).toBe(true);
+  expect(prepared.toolSearch.catalog.find((tool) => tool.name === "TaskOutput")?.deferred).toBe(
+    true,
+  );
   expect(prepared.request.messages.at(-1)?.content).toBe("Summarize");
   expect(JSON.stringify(prepared.request.messages)).not.toContain("schemas are NOT loaded");
   expect(prepared).not.toHaveProperty("announcement");
@@ -96,7 +100,8 @@ it.each(["goal", "memory"])(
         message.toolCalls?.some((call) => call.id === "search-real"),
       ),
     ).toBe(true);
-    expect(JSON.stringify(prepared.request.messages)).not.toContain("old tool announcement");
+    // 已发送的公告只在请求模式为 off 时隐藏；控制工具不在本次请求中不改写历史字节。
+    expect(JSON.stringify(prepared.request.messages)).toContain("old tool announcement");
     expect(entries).toEqual(before);
     expect(prepared).not.toHaveProperty("announcement");
   },
@@ -110,7 +115,7 @@ it("restores definitions from compact metadata before rendering, and filters too
       metadata: {
         compactBoundary: {
           boundaryId: "boundary",
-          preCompactDiscoveredTools: ["WebFetch", "removed_tool"],
+          preCompactDiscoveredTools: ["TaskOutput", "removed_tool"],
         },
       },
     },
@@ -119,11 +124,13 @@ it("restores definitions from compact metadata before rendering, and filters too
     { config: { toolSearch: { mode: "auto" } } },
     { ...input, entries },
   );
-  expect(prepared.request.tools.find((tool) => tool.name === "WebFetch")?.deferLoading).toBe(true);
+  expect(prepared.request.tools.find((tool) => tool.name === "TaskOutput")?.deferLoading).toBe(
+    true,
+  );
   expect(prepared.request.tools.some((tool) => tool.name === "removed_tool")).toBe(false);
   expect(JSON.stringify(prepared.request.messages)).not.toContain("preCompactDiscoveredTools");
   expect(entries[0]?.metadata?.compactBoundary?.preCompactDiscoveredTools).toEqual([
-    "WebFetch",
+    "TaskOutput",
     "removed_tool",
   ]);
 });
@@ -167,52 +174,18 @@ it.each<{
   defaultEnabled?: boolean;
   force?: boolean;
   expectedEnabled?: boolean;
-  expectedToolCount: number;
 }>([
-  {
-    scenario: "denied search above threshold",
-    mcpCount: 101,
-    searchAllowed: false,
-    expectedToolCount: 0,
-  },
-  {
-    scenario: "denied search below threshold",
-    mcpCount: 1,
-    searchAllowed: false,
-    expectedToolCount: 3,
-  },
-  {
-    scenario: "always-loaded MCP above threshold",
-    mcpCount: 99,
-    alwaysLoad: true,
-    expectedToolCount: 0,
-  },
-  {
-    scenario: "always-loaded MCP at threshold",
-    mcpCount: 98,
-    alwaysLoad: true,
-    expectedToolCount: 100,
-  },
-  { scenario: "no deferred compact candidates", mcpCount: 0, expectedToolCount: 2 },
-  {
-    scenario: "ordinary provider above threshold",
-    mcpCount: 101,
-    defaultEnabled: false,
-    expectedToolCount: 0,
-  },
-  {
-    scenario: "Coding Plan search available",
-    mcpCount: 101,
-    expectedEnabled: true,
-    expectedToolCount: 2,
-  },
+  { scenario: "denied search with many MCP tools", mcpCount: 101, searchAllowed: false },
+  { scenario: "always-loaded MCP tools", mcpCount: 99, alwaysLoad: true },
+  { scenario: "no deferred compact candidates", mcpCount: 0 },
+  { scenario: "ordinary provider with many MCP tools", mcpCount: 101, defaultEnabled: false },
+  { scenario: "Coding Plan search available", mcpCount: 101, expectedEnabled: true },
   {
     scenario: "forced search available",
     mcpCount: 101,
     defaultEnabled: false,
     force: true,
     expectedEnabled: true,
-    expectedToolCount: 2,
   },
 ])(
   "selects compact tools using actual ToolSearch availability: $scenario",
@@ -224,7 +197,6 @@ it.each<{
     defaultEnabled = true,
     force = false,
     expectedEnabled = false,
-    expectedToolCount,
   }) => {
     const registry = createToolRegistry();
     for (let index = 0; index < mcpCount; index++) {
@@ -287,12 +259,13 @@ it.each<{
     expect(compactRequests).toHaveLength(1);
     const request = compactRequests[0]!;
     expect(request.toolSearchEnabled).toBe(expectedEnabled);
-    expect(request.tools).toHaveLength(expectedToolCount);
+    // 修复回归：摘要请求的 tools 与主循环相同，不按数量裁剪；tools 段不同时整个摘要请求不命中缓存。
+    expect(request.tools).toEqual(initialRequest?.tools);
     expect(request.tools?.some((tool) => tool.name === "ToolSearch")).toBe(expectedEnabled);
     if (expectedEnabled) {
-      expect(request.tools?.map((tool) => tool.name).sort()).toEqual(["Read", "ToolSearch"]);
+      expect(request.tools?.map((tool) => tool.name)).toEqual(["Read", "ToolSearch", "Write"]);
     } else {
-      expect(request.tools).toEqual(expectedToolCount ? initialRequest?.tools : []);
+      expect(request.tools).toHaveLength(2 + mcpCount);
       expect(JSON.stringify(request.messages)).not.toContain("schemas are NOT loaded");
       expect(request.tools?.every((tool) => tool.deferLoading === undefined)).toBe(true);
     }

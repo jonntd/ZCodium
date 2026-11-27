@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { MigrationResult } from "@zcode/shared/sqlite-migrations";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -13,7 +14,9 @@ import type {
   CreateSessionTaskLinkInput,
   CreateSessionInput,
   FileDiff,
+  MessageCommitBundle,
   ForkCommitBundle,
+  ForkFromSourceInput,
   ForkChildSessionMetadata,
   GoalStatus,
   InputHistoryAttachment,
@@ -40,6 +43,7 @@ import type {
   ScriptWorkflowRunRecord,
   ScriptWorkflowRunStatus,
   ScriptWorkflowStorePort,
+  SessionDeletionInspectOptions,
   SessionGoal,
   SessionId,
   SessionInfo,
@@ -187,6 +191,12 @@ function assertForkBundleChildLocal(bundle: ForkCommitBundle): void {
         assertMessage(boundary?.preservedSegment?.headMessageId, "compact preserved head");
         assertMessage(boundary?.preservedSegment?.anchorMessageId, "compact preserved anchor");
         assertMessage(boundary?.preservedSegment?.tailMessageId, "compact preserved tail");
+        // metadata 是宽松字段，非数组时与读取方一样忽略。修复原因：字符串会被逐字符校验，
+        // 数字会抛 TypeError，fork 因一条读取方本来不用的数据失败。
+        const leadingIds = part.metadata?.compactLeadingMessageIds;
+        for (const id of Array.isArray(leadingIds) ? leadingIds : []) {
+          assertMessage(id, "compact leading announcement");
+        }
       }
       if (part.type === "tool" && part.state.status === "completed") {
         for (const attachment of part.state.attachments ?? []) {
@@ -222,7 +232,6 @@ function assertForkBundleChildLocal(bundle: ForkCommitBundle): void {
   }
 }
 
-
 export class SqliteSessionStore
   implements
     SessionStorePort,
@@ -247,7 +256,10 @@ export class SqliteSessionStore
     this.forkCommitFaultAt = options.forkCommitFaultAt;
   }
 
-  static async open(options: SqliteSessionStoreOptions = {}, migrationOptions?: AsyncSqliteMigrationOptions): Promise<SqliteSessionStore> {
+  static async open(
+    options: SqliteSessionStoreOptions = {},
+    migrationOptions?: AsyncSqliteMigrationOptions,
+  ): Promise<SqliteSessionStore> {
     const dbPath = options.dbPath ?? getDefaultSessionDbPath();
     const startupLockTimeoutMs =
       options.startupLockTimeoutMs ?? DEFAULT_SQLITE_STARTUP_LOCK_TIMEOUT_MS;
@@ -267,16 +279,81 @@ export class SqliteSessionStore
       });
     }
     try {
-      const migration = await runSqliteSessionMigrationsAsync(db, dbPath, migrationOptions ?? { lockWaitTimeoutMs: startupLockTimeoutMs });
+      const migration = await runSqliteSessionMigrationsAsync(
+        db,
+        dbPath,
+        migrationOptions ?? { lockWaitTimeoutMs: startupLockTimeoutMs },
+      );
       return new SqliteSessionStore(db, dbPath, options, migration);
     } catch (error) {
-      try { db.close(); } catch { /* 关闭失败不能覆盖迁移错误。 */ }
+      try {
+        db.close();
+      } catch {
+        /* 关闭失败不能覆盖迁移错误。 */
+      }
       throw error;
     }
   }
 
-  static async openStartup(options: SqliteSessionStoreOptions = {}, migrationOptions: AsyncSqliteMigrationOptions = {}) {
+  static async openStartup(
+    options: SqliteSessionStoreOptions = {},
+    migrationOptions: AsyncSqliteMigrationOptions = {},
+  ) {
     return SqliteSessionStore.open(options, migrationOptions);
+  }
+
+  private readonly runtimeOwnerId = `${process.pid}:${randomUUID()}`;
+
+  async assertSessionNotDeleting(id: SessionId): Promise<void> {
+    if (this.db.prepare("select 1 from session_purge where session_id=?").get(id))
+      throw new Error("session-data.deleting");
+  }
+  async registerSessionRuntime(id: SessionId): Promise<void> {
+    this.db
+      .prepare(
+        "insert or ignore into session_runtime_presence(session_id,owner_id,process_id) values(?,?,?)",
+      )
+      .run(id, this.runtimeOwnerId, process.pid);
+  }
+  async unregisterSessionRuntime(id: SessionId): Promise<void> {
+    this.db
+      .prepare("delete from session_runtime_presence where session_id=? and owner_id=?")
+      .run(id, this.runtimeOwnerId);
+  }
+  async inspectSessionDeletion(id: SessionId, options?: SessionDeletionInspectOptions) {
+    return sessionRepository.inspectSessionDeletion(this.db, id, this.runtimeOwnerId, options);
+  }
+  async inspectSessionDeletions(
+    targets: ReadonlyArray<{ sessionId: SessionId } & SessionDeletionInspectOptions>,
+  ) {
+    return sessionRepository.inspectSessionDeletions(
+      this.db,
+      targets.map(({ sessionId, scanArtifactReferences }) => ({
+        root: sessionId,
+        scanArtifactReferences,
+      })),
+      this.runtimeOwnerId,
+    );
+  }
+  async beginSessionDeletion(
+    id: SessionId,
+    revision: string,
+    operationId: string,
+    retained: Array<{ sessionId: SessionId; artifactId: string }>,
+    options?: SessionDeletionInspectOptions,
+  ): Promise<void> {
+    sessionRepository.beginSessionDeletion(
+      this.db,
+      id,
+      this.runtimeOwnerId,
+      revision,
+      operationId,
+      retained,
+      options,
+    );
+  }
+  async completeSessionDeletion(id: SessionId): Promise<void> {
+    sessionRepository.completeSessionDeletion(this.db, id);
   }
 
   getDatabasePath(): string {
@@ -284,6 +361,9 @@ export class SqliteSessionStore
   }
 
   close(): void {
+    this.db
+      .prepare("delete from session_runtime_presence where owner_id=?")
+      .run(this.runtimeOwnerId);
     this.db.close();
   }
 
@@ -371,8 +451,44 @@ export class SqliteSessionStore
     }
   }
 
-  async commitForkBundle(bundle: ForkCommitBundle): Promise<SessionInfo> {
+  async commitForkFromSource(input: ForkFromSourceInput): Promise<SessionInfo> {
     this.throwBeforeWrite();
+    this.db.exec("begin immediate");
+    try {
+      const session = sessionRepository.getSession(this.db, input.sessionID);
+      if (!session) throw new Error(`Session not found: ${input.sessionID}`);
+      const source = messageRepository.forkSourceMetadata(this.db, input.sessionID);
+      // 保留比较基准，不能让规划器修改输入后把变更误判成“未改动”。正文不进入此快照。
+      const bundle = input.build({ session, messages: structuredClone(source) });
+      if (bundle && typeof (bundle as unknown as { then?: unknown }).then === "function") {
+        throw new Error("Fork source builder must be synchronous");
+      }
+      if (bundle.child.parentID !== input.sessionID) throw new Error("Fork source parent mismatch");
+      const child = this.writeForkBundle(bundle, source);
+      this.db.exec("commit");
+      return child;
+    } catch (error) {
+      this.db.exec("rollback");
+      throw error;
+    }
+  }
+
+  async commitForkBundle(bundle: ForkCommitBundle): Promise<SessionInfo> {
+    // DatabaseSync 事务属于整个连接：BEGIN 到提交/回滚之间不能 await，
+    // 否则其他会话的成功写入会被 fork 回滚误删，重启后无法再打开。
+    this.throwBeforeWrite();
+    this.db.exec("begin immediate");
+    try {
+      const child = this.writeForkBundle(bundle);
+      this.db.exec("commit");
+      return child;
+    } catch (error) {
+      this.db.exec("rollback");
+      throw error;
+    }
+  }
+
+  private writeForkBundle(bundle: ForkCommitBundle, source?: MessageWithParts[]): SessionInfo {
     const { child, commandFact, initialInput } = bundle;
     if (
       !child.parentID ||
@@ -383,76 +499,102 @@ export class SqliteSessionStore
       throw new Error("Fork commit bundle identity is invalid");
     }
     const entryId = `v4_command_fact:child:${commandFact.parentSessionId}:${commandFact.sourceCommandId}`;
-    this.db.exec("begin immediate");
-    try {
-      const existing = sessionEntryRepository
-        .sessionEntries(this.db, {
-          sessionID: child.parentID,
-          type: "v4/command_fact",
-        })
-        .find((entry) => entry.id === entryId);
-      if (existing) {
-        const existingChildId = forkChildSessionId(existing);
-        const existingChild = existingChildId
-          ? sessionRepository.getSession(this.db, existingChildId)
-          : null;
-        if (!existingChild) throw new Error(`Fork bundle command fact is corrupt: ${entryId}`);
-        this.db.exec("commit");
-        return existingChild;
-      }
+    const existing = sessionEntryRepository
+      .sessionEntries(this.db, {
+        sessionID: child.parentID,
+        type: "v4/command_fact",
+      })
+      .find((entry) => entry.id === entryId);
+    if (existing) {
+      const existingChildId = forkChildSessionId(existing);
+      const existingChild = existingChildId
+        ? sessionRepository.getSession(this.db, existingChildId)
+        : null;
+      if (!existingChild) throw new Error(`Fork bundle command fact is corrupt: ${entryId}`);
+      return existingChild;
+    }
 
-      assertForkBundleChildLocal(bundle);
-      const persistedChild = sessionRepository.createSession(this.db, child);
-      this.maybeThrowForkCommitFault("afterChild");
+    assertForkBundleChildLocal(bundle);
+    const persistedChild = sessionRepository.createSession(this.db, child);
+    this.maybeThrowForkCommitFault("afterChild");
+    if (source) {
+      messageRepository.copyForkMessages(this.db, bundle, source);
+    } else {
       for (const message of bundle.messages) {
         const messageSource = bundle.copySources?.messages[message.info.id];
-        await messageRepository.saveMessage(
+        messageRepository.saveMessage(
           this.db,
           message.info,
           messageSource ? { sessionID: child.parentID, id: messageSource } : undefined,
         );
         for (const part of message.parts) {
           const partSource = bundle.copySources?.parts[part.id];
-          await messageRepository.savePart(
+          messageRepository.savePart(
             this.db,
             part,
             partSource ? { sessionID: child.parentID, id: partSource } : undefined,
           );
         }
       }
-      this.maybeThrowForkCommitFault("afterMessages");
-      if (bundle.goal) {
-        cloneSessionTargetForFork(this.db, {
-          source: bundle.goal.source,
-          sessionID: child.id,
-          status: bundle.goal.status,
-        });
-      }
-      this.maybeThrowForkCommitFault("afterGoal");
-      for (const entry of bundle.entries) {
-        sessionEntryRepository.saveSessionEntry(this.db, entry);
-      }
-      this.maybeThrowForkCommitFault("afterEntries");
-      if (initialInput) {
-        await sessionInputRepository.saveSessionInput(this.db, initialInput);
-      }
-      this.maybeThrowForkCommitFault("afterInput");
-      const now = Date.now();
-      sessionEntryRepository.saveSessionEntry(this.db, {
-        id: entryId,
-        sessionID: child.parentID,
-        type: "v4/command_fact",
-        time: { created: now, updated: now },
-        data: {
-          source: "child",
-          ack: commandFact.ack,
-          metadata: commandFact.metadata,
-        },
+    }
+    this.maybeThrowForkCommitFault("afterMessages");
+    if (bundle.goal) {
+      cloneSessionTargetForFork(this.db, {
+        source: bundle.goal.source,
+        sessionID: child.id,
+        status: bundle.goal.status,
       });
-      this.maybeThrowForkCommitFault("afterCommandFact");
-      this.maybeThrowForkCommitFault("beforeCommit");
+    }
+    this.maybeThrowForkCommitFault("afterGoal");
+    for (const entry of bundle.entries) {
+      sessionEntryRepository.saveSessionEntry(this.db, entry);
+    }
+    this.maybeThrowForkCommitFault("afterEntries");
+    if (initialInput) {
+      sessionInputRepository.saveSessionInput(this.db, initialInput);
+    }
+    this.maybeThrowForkCommitFault("afterInput");
+    const now = Date.now();
+    sessionEntryRepository.saveSessionEntry(this.db, {
+      id: entryId,
+      sessionID: child.parentID,
+      type: "v4/command_fact",
+      time: { created: now, updated: now },
+      data: {
+        source: "child",
+        ack: commandFact.ack,
+        metadata: commandFact.metadata,
+      },
+    });
+    this.maybeThrowForkCommitFault("afterCommandFact");
+    this.maybeThrowForkCommitFault("beforeCommit");
+    return persistedChild;
+  }
+
+  async commitMessageBundle(bundle: MessageCommitBundle): Promise<void> {
+    this.throwBeforeWrite();
+    const sessionID = String(bundle.sessionID);
+    for (const message of bundle.messages) {
+      if (
+        String(message.info.sessionID) !== sessionID ||
+        message.parts.some(
+          (part) =>
+            String(part.sessionID) !== sessionID ||
+            String(part.messageID) !== String(message.info.id),
+        )
+      ) {
+        throw new Error("Message bundle record does not belong to the bundle session");
+      }
+    }
+    this.db.exec("begin immediate");
+    try {
+      for (const message of bundle.messages) {
+        messageRepository.saveMessage(this.db, message.info);
+        for (const part of message.parts) {
+          messageRepository.savePart(this.db, part);
+        }
+      }
       this.db.exec("commit");
-      return persistedChild;
     } catch (error) {
       this.db.exec("rollback");
       throw error;
@@ -490,9 +632,9 @@ export class SqliteSessionStore
         return existing;
       }
       const persisted = sessionRepository.createSession(this.db, session);
-      await messageRepository.saveMessage(this.db, contextMessage.info);
+      messageRepository.saveMessage(this.db, contextMessage.info);
       for (const part of contextMessage.parts) {
-        await messageRepository.savePart(this.db, part);
+        messageRepository.savePart(this.db, part);
       }
       sessionEntryRepository.saveSessionEntry(this.db, provenance);
       this.db.exec("commit");
@@ -539,18 +681,18 @@ export class SqliteSessionStore
           ...(input.sourceId ? { sourceId: input.sourceId } : {}),
         },
       });
-      const contextMessage = (
-        await messageRepository.messages(this.db, { sessionID: input.sessionID })
-      ).find((message) => {
-        const metadata = message.info.metadata;
-        return Boolean(
-          metadata &&
-          typeof metadata === "object" &&
-          (metadata as Record<string, unknown>).contextId === input.contextId,
-        );
-      });
+      const contextMessage = messageRepository
+        .messages(this.db, { sessionID: input.sessionID })
+        .find((message) => {
+          const metadata = message.info.metadata;
+          return Boolean(
+            metadata &&
+            typeof metadata === "object" &&
+            (metadata as Record<string, unknown>).contextId === input.contextId,
+          );
+        });
       if (contextMessage) {
-        await messageRepository.saveMessage(this.db, {
+        messageRepository.saveMessage(this.db, {
           ...contextMessage.info,
           metadata: {
             ...(contextMessage.info.metadata ?? {}),
@@ -576,7 +718,22 @@ export class SqliteSessionStore
     sessionRepository.softDeleteSession(this.db, sessionID, timeDeleted);
   }
 
+  async listOwnedSessionTrees(sessionIDs: SessionId[]): Promise<Map<SessionId, SessionId[]>> {
+    return sessionRepository.listOwnedSessionTrees(this.db, sessionIDs);
+  }
+
+  async listArtifactReferrers(sessionIDs: SessionId[]): Promise<Map<SessionId, SessionId[]>> {
+    return sessionRepository.listArtifactReferrers(this.db, sessionIDs);
+  }
+
+  async purgeSessions(sessionIDs: SessionId[]): Promise<void> {
+    this.throwBeforeWrite();
+    sessionRepository.purgeSessions(this.db, sessionIDs);
+  }
+
   async getSession(sessionID: SessionId): Promise<SessionInfo | null> {
+    if (this.db.prepare("select 1 from session_purge where session_id=?").get(sessionID))
+      return null;
     return sessionRepository.getSession(this.db, sessionID);
   }
 
@@ -638,7 +795,7 @@ export class SqliteSessionStore
     return messageRepository.messageWithParts(this.db, input);
   }
 
-  async messages(input: { sessionID: SessionId }): Promise<MessageWithParts[]> {
+  async messages(input: Parameters<SessionStorePort["messages"]>[0]): Promise<MessageWithParts[]> {
     return messageRepository.messages(this.db, input);
   }
 
@@ -840,10 +997,6 @@ export class SqliteSessionStore
 
   async upsertToolUsage(input: ToolUsageRecord): Promise<void> {
     return usageRepository.upsertToolUsage(this.db, input);
-  }
-
-  async pruneUsage(input?: { beforeTime?: number }): Promise<void> {
-    return usageRepository.pruneUsage(this.db, input);
   }
 
   async queryAppUsage(input: AppUsageQueryInput): Promise<AppUsageQueryResult> {

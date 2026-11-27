@@ -1,14 +1,14 @@
-import type { OfficialServiceSwitches } from "./officialPlatformPolicy.js";
 import type { RemoteAssetInstallMode } from "./remoteAssetInstallMode.js";
 import type { RemoteResourcePackageSelection } from "./remoteResourcePackages.js";
 import type { ProviderFamilyDomain } from "./model-provider-family.js";
 import type { ProviderFamilyConnectionSelectionSettings } from "./provider-family-connection-selection.js";
+import type { ZCodeProvider } from "./zcode-task-types-core.js";
 import type { WorkspacePurpose } from "./workspacePurpose.js";
 import type { DynamicWorkflowMode } from "./dynamic-workflow-feature.js";
 import type { EmbeddedBrowserViewportPreference } from "./browser-use/command-metadata.js";
 import type { AppToolSearchMode } from "./app-runtime-preferences.js";
+import type { OfficialServiceSwitches } from "./officialPlatformPolicy.js";
 import type { CustomSystemSegments } from "./system-prompt-segments.js";
-import type { ZCodeProvider } from "./zcode-task-types-core.js";
 
 // ── Domain types ──
 
@@ -263,14 +263,13 @@ export interface ResourceUsageSnapshot {
 }
 
 export interface AppSettings {
+  /** 当前 App/Host 不再显示提交前体验套餐推荐；不改变任何入口的模型选择。 */
+  startPlanRecommendationDismissed?: boolean;
   /**
-   * 官方平台服务开关；缺省全部关闭（不连接官方平台）。
-   * 键定义见 officialPlatformPolicy.ts；对话分享已永久下线，不在此列。
+   * 官方服务进程级开关（fork 定制）。键定义见 officialPlatformPolicy.ts；对话分享已永久下线，不在此列。
    * 字段允许缺省：读取/投影方用 normalizeOfficialServiceSwitches 补全为全关。
    */
   officialServices?: Partial<OfficialServiceSwitches>;
-  /** 当前 App/Host 不再显示提交前体验套餐推荐；不改变任何入口的模型选择。 */
-  startPlanRecommendationDismissed?: boolean;
   recentProjects: string[]; // 最近项目列表，最多保留 10 个
   locale: Locale; // 界面语言
   /**
@@ -293,6 +292,10 @@ export interface AppSettings {
   httpProxyNoProxy?: string;
   /** 自定义 PEM 根证书路径；下次启动 app/agent 时用于 renderer 校验与 agent NODE_EXTRA_CA_CERTS。 */
   httpProxyCaCertPath?: string;
+  /** 本机预装工具的自动准备偏好；由预装工具进程写入。 */
+  preinstalledToolsAutoInstall?: boolean;
+  /** Agent 禁用预装版本的工具；缺省全部开启，仅由本机预装进程写入。 */
+  preinstalledToolsAgentDisabled?: string[];
   /**
    * 内置浏览器忽略 HTTPS 证书校验错误（自签名、过期、域名不匹配等），用于访问内网测试站点。
    * 只影响内置浏览器出口，不影响 ZCode 自身对后端与模型 API 的请求。默认关闭，重启后生效。
@@ -345,12 +348,6 @@ export interface AppSettings {
   messageStreamShowReasoningMigrationInitialized?: boolean;
   /** 是否在消息流中展示 todo 工具渲染；不影响摘要面板的 todo */
   messageStreamShowTodos?: boolean;
-  /** 是否把连续的只读工具调用聚合成 Explore。 */
-  toolGroupingExploreEnabled?: boolean;
-  /** 是否把连续的非只读 Shell 工具调用聚合成 Terminal。 */
-  toolGroupingTerminalEnabled?: boolean;
-  /** 是否把连续的 Write/Edit/ApplyPatch 工具调用聚合成 Changes。 */
-  toolGroupingChangesEnabled?: boolean;
   /** ZCode 运行中继续输入时，是排队到下一轮，还是引导到下一次工具调用后运行 */
   zcodeInteractionBehavior?: ZCodeInteractionBehavior;
   /** Agent 提问五分钟无人回答时是否允许自动继续；缺失按开启兼容旧配置。 */
@@ -391,14 +388,18 @@ export interface AppSettings {
   providerFamilyDomainUpdatedAt?: number;
   /** 旧 oauth/provider 状态是否已经尝试迁移到 providerFamilyDomain。 */
   providerFamilyDomainMigrated?: boolean;
-  /** 去智谱化的一次性清理是否已执行：存量 providerFamilyDomain 与按 family 的连接选择已被清空。 */
-  retiredProviderFamilySettingsPurged?: boolean;
   /** 新建或冷恢复 Session 是否为 Bash 注入 bfs/ugrep 增强；默认启用。 */
   nativeSearchEnhancementsEnabled?: boolean;
   /** 新建或冷恢复时读取；已有 Runtime 保持原策略。 */
   toolSearchMode?: AppToolSearchMode;
+  /** token 预算提醒；新建或冷恢复时读取，已有 Runtime 保持原值。默认关闭。 */
+  totalTokensReminderEnabled?: boolean;
+  /** Agent 是否总在后台运行；新建或冷恢复时读取，已有 Runtime 保持原值。默认开启。 */
+  agentAlwaysBackgroundEnabled?: boolean;
   /** 新建或冷恢复 Session 是否启用 Memory；默认关闭。 */
   memoryEnabled?: boolean;
+  /** Agent 回复语言（自由文本，未设置时跟随对话语言）；只由 Main 写入，见 docs/i18n/agent-reply-language.md。 */
+  replyLanguage?: string;
   onboardingOccupation?:
     | "office"
     | "developer"
@@ -436,8 +437,6 @@ export interface AppSettings {
   sourceServerWorkspaceHistory?: import("./source-server/contracts.js").SourceServerWorkspaceHistoryEntry[];
   /** 桌面端启动时是否执行 Source Server 静默重连；缺失按 true 兼容旧设置。 */
   remoteStartupAutoReconnectEnabled?: boolean;
-  /** 控制端远端运行时来源；缺省为自有 Release，offline 禁止任何资源网络请求。 */
-  remoteRuntimeAssets?: import("./source-server/release.js").RemoteRuntimeAssetSettings;
   sourceServerDirectoryMigrationVersion?: 1;
   /** 旧客户端只接受 2；保留回滚兼容，新介绍不使用该字段判断已读。 */
   remoteBoundaryOnboardingVersion?: 2;

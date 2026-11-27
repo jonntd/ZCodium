@@ -2,10 +2,7 @@ import { useCallback, useEffect, useMemo } from "react";
 import { useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
 import { useShallow } from "zustand/react/shallow";
-import type {
-  IExtensionsService,
-  IExtensionViewsService,
-} from "@zcode/services";
+import type { IExtensionsService, IExtensionViewsService } from "@zcode/services";
 import { useOptionalBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { logger } from "@/logger.js";
 import {
@@ -80,19 +77,14 @@ export function useComposerStatusSlot({
   sessionId,
 }: ComposerStatusSlotProps): ComposerStatusSlotModel | null {
   const service = useExtensionsService();
-  const { table, snapshot, status } = useExtensionSlotsState(
-    service,
-    (state) => ({
-      table: state.table,
-      snapshot: state.snapshot,
-      status: state.status,
-    }),
-  );
+  const { table, snapshot, status } = useExtensionSlotsState(service, (state) => ({
+    table: state.table,
+    snapshot: state.snapshot,
+    status: state.status,
+  }));
   const workspace = useMemo(
     () =>
-      workspacePath
-        ? { workspacePath, ...(workspaceIdentity ? { workspaceIdentity } : {}) }
-        : null,
+      workspacePath ? { workspacePath, ...(workspaceIdentity ? { workspaceIdentity } : {}) } : null,
     [workspacePath, workspaceIdentity],
   );
   const items = useMemo(
@@ -111,21 +103,16 @@ export function useComposerStatusSlot({
   const runCommand = useCallback(
     (commandId: string) => {
       if (!service) return;
-      void service
-        .executeCommand({ commandId, scope })
-        .catch((error: unknown) => {
-          logger.lifecycle.warn("[extension-slots] command failed", {
-            commandId,
-            message: error instanceof Error ? error.message : String(error),
-          });
+      void service.executeCommand({ commandId, scope }).catch((error: unknown) => {
+        logger.lifecycle.warn("[extension-slots] command failed", {
+          commandId,
+          message: error instanceof Error ? error.message : String(error),
         });
+      });
     },
     [scope, service],
   );
-  return useMemo(
-    () => (service ? { items, runCommand } : null),
-    [items, runCommand, service],
-  );
+  return useMemo(() => (service ? { items, runCommand } : null), [items, runCommand, service]);
 }
 
 /** 启动页「扩展」分区的渲染模型：没有扩展门面时为 null。 */
@@ -134,14 +121,11 @@ export function useExtensionLauncher({
   workspaceIdentity,
 }: ExtensionLauncherSectionProps = {}): ExtensionLauncherModel | null {
   const service = useExtensionsService();
-  const { table, snapshot, status } = useExtensionSlotsState(
-    service,
-    (state) => ({
-      table: state.table,
-      snapshot: state.snapshot,
-      status: state.status,
-    }),
-  );
+  const { table, snapshot, status } = useExtensionSlotsState(service, (state) => ({
+    table: state.table,
+    snapshot: state.snapshot,
+    status: state.status,
+  }));
   const reload = useReloadExtensions();
   const openView = useOpenExtensionView();
   const openLogsEntry = useOpenExtensionLogs();
@@ -156,10 +140,7 @@ export function useExtensionLauncher({
         { table, snapshot, status },
         {
           workspace: workspacePath
-            ? {
-                workspacePath,
-                ...(workspaceIdentity ? { workspaceIdentity } : {}),
-              }
+            ? { workspacePath, ...(workspaceIdentity ? { workspaceIdentity } : {}) }
             : null,
           sessionId: null,
         },
@@ -183,26 +164,7 @@ export function useExtensionLauncher({
   );
   return useMemo(
     () =>
-      service
-        ? {
-            views,
-            openView,
-            problems,
-            stopped,
-            reload,
-            openLogs,
-            pendingActivations,
-          }
-        : null,
-    [
-      openLogs,
-      openView,
-      pendingActivations,
-      problems,
-      reload,
-      service,
-      stopped,
-      views,
-    ],
+      service ? { views, openView, problems, stopped, reload, openLogs, pendingActivations } : null,
+    [openLogs, openView, pendingActivations, problems, reload, service, stopped, views],
   );
 }

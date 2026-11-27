@@ -105,7 +105,6 @@ export function EvalWorkflowSnippetToolCallBlock(context: ToolCallBlockRenderCon
         }
         sourceLabel={context.sourceLabel}
         primaryText={durationNode}
-        summaryContentSeparator="·"
         statusLabel={failed ? intl.formatMessage({ id: "chat.toolCall.status.failed" }) : undefined}
         statusTooltip={failed ? error : undefined}
         showFailureStatus={failed}
@@ -251,7 +250,7 @@ function SnippetTextPanel({
           wrapLongLines
           renderMermaid={false}
         >
-          <CodeBlockHeader className="ps-3 pe-2 pt-2" language={language} />
+          <CodeBlockHeader className="pl-3 pr-2 pt-2" language={language} />
         </CodeBlock>
       </div>
       {truncated ? (

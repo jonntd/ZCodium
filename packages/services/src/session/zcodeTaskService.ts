@@ -1,7 +1,12 @@
+import type {
+  V4SessionDeletionPreview,
+  V4SessionDeletionPreviewBatchResult,
+  V4SessionDeletionResult,
+} from "@zcode/shared/zcode-protocol-v4";
 /* eslint-disable max-lines -- ZCode task wrapper service 接口集中承载 app/runtime API，拆散会让替换阶段更难追踪。 */
 import type { Event } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
-import type { CommandPayloadMap } from "@zcode/shared/zcode-protocol-v4";
+import type { CommandAck, CommandPayloadMap } from "@zcode/shared/zcode-protocol-v4";
 import { createServiceDescriptor } from "#src/descriptors.js";
 import type {
   ZCodeImportSessionsResult,
@@ -183,30 +188,6 @@ export interface ZCodeTaskReadyOutcome {
  * ZCode Agent server 维护，新功能应优先走 IZCodeSessionService。
  */
 export interface IZCodeTaskService {
-  /** 审计版兼容旧 UI：上游 3.16 已移除 grouped task view，保留可选签名。 */
-  listGroupedTaskViewStructure?(
-    input: import("./zcodeTaskListTypes.js").ZCodeGroupedTaskViewQuery,
-  ): Promise<import("./zcodeTaskListTypes.js").ZCodeGroupedTaskViewStructure>;
-  applyGroupedTaskViewOrder?(
-    input: import("./zcodeTaskListTypes.js").ZCodeGroupedTaskViewOrderInput,
-  ): Promise<import("./zcodeTaskListTypes.js").ZCodeGroupedTaskView>;
-  createTaskGroup?(input?: {
-    workspaceScopes?: import("./zcodeTaskListTypes.js").ZCodeTaskListWorkspaceScope[];
-  }): Promise<import("./zcodeTaskListTypes.js").ZCodeTaskGroup>;
-  renameTaskGroup?(input: {
-    groupId: string;
-    title: string;
-    workspaceScopes: import("./zcodeTaskListTypes.js").ZCodeTaskListWorkspaceScope[];
-  }): Promise<import("./zcodeTaskListTypes.js").ZCodeTaskGroup>;
-  updateTaskGroupColor?(input: {
-    groupId: string;
-    color: import("./zcodeTaskListTypes.js").ZCodeTaskGroupColor;
-    workspaceScopes: import("./zcodeTaskListTypes.js").ZCodeTaskListWorkspaceScope[];
-  }): Promise<import("./zcodeTaskListTypes.js").ZCodeTaskGroup>;
-  deleteTaskGroup?(input: {
-    groupId: string;
-    workspaceScopes: import("./zcodeTaskListTypes.js").ZCodeTaskListWorkspaceScope[];
-  }): Promise<void>;
   // ---- 生命周期 ----
 
   /** 检查 agent runtime 是否可用 */
@@ -312,7 +293,10 @@ export interface IZCodeTaskService {
     source: import("@zcode/shared").BotGroupInputSource;
   }): Promise<import("@zcode/shared/zcode-protocol-v4").CommandAck>;
 
-  /** 发送 prompt 到指定 task */
+  /**
+   * 发送 prompt 到指定 task。
+   * v4 文本路径返回 sendText ACK（含 duplicate）；附件旧路径与旧版远端不返回 ACK。
+   */
   sendPrompt(
     params: {
       taskId: string;
@@ -331,10 +315,11 @@ export interface IZCodeTaskService {
       botDeliveryTarget?: ZCodeAutomationBotDeliveryTarget;
       /** 标准模型选择；闲时任务同样经 Registry / ModelFactory 创建 Model。 */
       modelSelection?: CommandPayloadMap["sendText"]["modelSelection"];
+      modelSelectionBasis?: CommandPayloadMap["sendText"]["modelSelectionBasis"];
       /** 单次执行约束与动态鉴权；仅 idle start-now 接受，不进入普通队列。 */
       modelExecution?: CommandPayloadMap["sendText"]["modelExecution"];
     } & ZCodeBackgroundTurnAttribution,
-  ): Promise<void>;
+  ): Promise<CommandAck | void>;
 
   deliverSessionMessage(
     request: SessionMessageSendRequested,
@@ -465,6 +450,12 @@ export interface IZCodeTaskService {
 
   /** 读取 workspace 下已删除 task id；供闲时绑定会话与 Bots tombstone 判断 session 是否已删除 */
   listDeletedTaskIds(params: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+  }): Promise<string[]>;
+
+  /** 永久删除的最小凭据；供新 attachment 清理离线期间遗留的客户端内容。 */
+  listPermanentlyDeletedTaskIds?(params: {
     workspacePath: string;
     workspaceIdentity?: string;
   }): Promise<string[]>;
@@ -694,6 +685,23 @@ export interface IZCodeTaskService {
     resumeTaskId?: string;
     bumpRuntimeEpoch?: boolean;
   }): Promise<void>;
+
+  previewArchivedTaskDeletion(params: {
+    taskId: string;
+    workspacePath: string;
+    workspaceIdentity?: string;
+  }): Promise<V4SessionDeletionPreview>;
+  /** 批量预检，结果按 tasks 顺序；未归档判定与单项 previewArchivedTaskDeletion 一致。 */
+  previewArchivedTaskDeletions(params: {
+    tasks: Array<{ taskId: string; workspacePath: string; workspaceIdentity?: string }>;
+  }): Promise<V4SessionDeletionPreviewBatchResult>;
+  permanentlyDeleteArchivedTask(params: {
+    taskId: string;
+    workspacePath: string;
+    workspaceIdentity?: string;
+    revision: string;
+    operationId: string;
+  }): Promise<V4SessionDeletionResult>;
 
   /** 将已持久化 task 标记为列表不可见；CLI session 内容继续保留 */
   deleteTask(params: {

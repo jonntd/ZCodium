@@ -1,3 +1,4 @@
+import { TID_CHAT_MODEL_SELECT_TRIGGER } from "@zcode/shared/test-ids";
 import {
   E2E_BIGMODEL_PLAN_PROVIDER_ID,
   E2E_PLAN_FIRST_MODEL,
@@ -6,12 +7,14 @@ import {
   seedBigModelOAuthCredential,
   seedHighspeedLoginCredential,
   seedPersistedModelSelection,
+  seedStartPlanRecommendationDismissed,
   waitForSelectedModel,
 } from "./model-provider-restart.js";
 import { skipOccupationOnboardingIfPresent } from "./occupation-onboarding.js";
 import {
   prepareV4ConversationE2E,
   sendV4Prompt,
+  switchV4Model,
   waitForV4Pane,
   waitForV4TimelineContaining,
 } from "./v4-conversation.js";
@@ -38,6 +41,12 @@ export interface HighspeedEntranceSnapshot {
 // builtinModelIds 都只剩 GLM-5.3 / GLM-5.3-Flash，继续 seed GLM-5.2 会被判为目录外模型，
 // toolbar 回落到首个模型，waitForSelectedModel 在抽卡前就失败。改用两者目录共有的 GLM-5.3。
 const HIGHSPEED_E2E_MODEL = E2E_PLAN_FIRST_MODEL;
+const HIGHSPEED_E2E_CONNECTION = {
+  kind: "team-coding-plan",
+  productId: "product-team-a",
+  organizationId: "org-team-a",
+  projectId: "proj-team-a",
+} as const;
 
 declare global {
   interface Window {
@@ -64,12 +73,11 @@ export async function prepareHighspeedDrawWorkspace() {
   // Provider 重构后连接方式按 family 记录结构化 selection（不再是 `coding-plan:<id>` 字符串键），
   // 且 E2E_BIGMODEL_PLAN_PROVIDER_ID 就是 Team Coding Plan，Team scope 必须一并 seed，
   // 否则加速卡请求期解析不到账号访问上下文。
-  await seedBigModelConnectionSelection({
-    kind: "team-coding-plan",
-    productId: "product-team-a",
-    organizationId: "org-team-a",
-    projectId: "proj-team-a",
-  });
+  await seedBigModelConnectionSelection(HIGHSPEED_E2E_CONNECTION);
+  // 修复原因：seed 的 BigModel 登录身份在 Start Plan mock 下有体验额度，提交时会弹
+  // "体验套餐有可用额度"推荐并挡住首轮发送（本地复跑视频停在该弹窗，用例整体超时）。
+  // Highspeed 用例不验证该推荐，按用户"不再提示"的偏好关闭。
+  await seedStartPlanRecommendationDismissed();
   // Bug 根因：Team Coding Plan 自 2026-09-10 起官方请求链路只接受 HTTPS Endpoint。旧实现把
   // Provider 改写成 HTTP Mock Endpoint，每轮都在 model creation 阶段失败，turn 失败、timeline
   // 为空。保留内建 HTTPS Endpoint，由 wdio 的 Coding Plan 数据面代理回放。
@@ -81,6 +89,46 @@ export async function prepareHighspeedDrawWorkspace() {
   });
 
   await restartIntoWorkspace();
+  // 原因：重启前已初始化的草稿选择不会被 Recent 种子覆盖；抽卡用例通过真实菜单选择
+  // 前置 Team 模型，避免在抽卡前误测草稿偏好恢复。冷启动偏好另有独立用例覆盖。
+  // 团队菜单按 connection 身份分行，不再使用 registry-provider:<id>，否则找不到真实团队行。
+  const connectionKey = JSON.stringify([
+    "bigmodel",
+    HIGHSPEED_E2E_CONNECTION.kind,
+    HIGHSPEED_E2E_CONNECTION.productId,
+    HIGHSPEED_E2E_CONNECTION.organizationId,
+    HIGHSPEED_E2E_CONNECTION.projectId,
+  ]);
+  const teamSelector = `[data-model-provider-key=${JSON.stringify(connectionKey)}]`;
+  // 修复原因：Windows CI 冷启动后 Team Plan 入口项目校验（coding-plan-availability）晚于菜单
+  // 打开才完成，团队行随之重挂或菜单被关闭：旧元素 click 报 "element wasn't found"，或 5s 内
+  // 不可点击。每轮重新查询团队行，菜单已关闭时按真实入口重新展开，直到点击成功。
+  await browser.waitUntil(
+    async () => {
+      const team = $(teamSelector);
+      if (await team.isClickable().catch(() => false)) {
+        return team.click().then(
+          () => true,
+          () => false,
+        );
+      }
+      const providerTrigger = $('[data-testid="composer-provider-trigger"]');
+      if (await providerTrigger.isClickable().catch(() => false)) {
+        if ((await providerTrigger.getAttribute("aria-expanded")) !== "true") {
+          await providerTrigger.click().catch(() => undefined);
+        }
+        return false;
+      }
+      const modelTrigger = $(`[data-testid="${TID_CHAT_MODEL_SELECT_TRIGGER}"]`);
+      if ((await modelTrigger.getAttribute("aria-expanded").catch(() => null)) !== "true") {
+        await modelTrigger.click().catch(() => undefined);
+      }
+      return false;
+    },
+    { timeout: 30_000, interval: 500, timeoutMsg: `模型菜单没有可点击的团队行: ${connectionKey}` },
+  );
+  await browser.keys("Escape");
+  await switchV4Model(E2E_BIGMODEL_PLAN_PROVIDER_ID, HIGHSPEED_E2E_MODEL, "high");
   await waitForSelectedModel(E2E_BIGMODEL_PLAN_PROVIDER_ID, HIGHSPEED_E2E_MODEL);
 }
 
@@ -117,8 +165,26 @@ export async function waitForHighspeedComposerCleared(timeoutMsg: string) {
   );
 }
 
+// 修复原因：Windows 关闭"客户区动画"（CI 的 LocalSystem 会话默认如此）时，Chromium 报告
+// prefers-reduced-motion: reduce，产品按设计跳过扩散 Canvas（挂载即卸载，MutationObserver 回调
+// 时节点已不在子树），扩散探针永远记不到。探针前显式仿真 no-preference，恢复正向对照。
+async function forceMotionPreference() {
+  await browser.electron.execute(async (electron) => {
+    const window = electron.BrowserWindow.getAllWindows().find(
+      (candidate) => !candidate.isDestroyed() && candidate.isVisible(),
+    );
+    if (!window) throw new Error("没有可见 Electron 窗口");
+    const devtools = window.webContents.debugger;
+    if (!devtools.isAttached()) devtools.attach("1.3");
+    await devtools.sendCommand("Emulation.setEmulatedMedia", {
+      features: [{ name: "prefers-reduced-motion", value: "no-preference" }],
+    });
+  });
+}
+
 /** 从此刻起记录扩散 Canvas 是否挂载过；按新增节点判定，挂载后很快卸载也能记到。 */
 export async function startHighspeedEntranceProbe() {
+  await forceMotionPreference();
   await browser.execute(() => {
     window.__zcodeHighspeedEntranceProbe?.observer.disconnect();
     const state = { diffusionMounted: false };

@@ -1,8 +1,31 @@
 {
   "version": 1,
   "caseName": "conversation-session-stop-empty",
-  "spec": "./test/e2e/conversation-session/conversation-session-stop-empty.test.ts",
+  "spec": "./test/e2e/conversation-session/execution/conversation-session-stop-empty.test.ts",
   "fixtures": [
+    {
+      "id": "conversation-session-stop-empty-title-sidecar",
+      "description": "本例标题旁路响应。",
+      "metadata": {
+        "kind": "common",
+        "source": "synthetic",
+        "timingPolicy": "fast-text",
+        "syntheticReason": "运行时证据显示标题旁路缺少响应；在本例显式登记固定标题，避免依赖 legacy fixture 或触发后台网络重试。"
+      },
+      "match": {
+        "method": "POST",
+        "pathIncludes": "/messages",
+        "bodyIncludes": ["Generate a concise title"]
+      },
+      "response": {
+        "statusCode": 200,
+        "statusMessage": "OK",
+        "headers": {
+          "content-type": "application/json; charset=utf-8"
+        },
+        "body": "{\"id\":\"upstream-e2e-title-fixture\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-v4-flash\",\"content\":[{\"type\":\"text\",\"text\":\"{\\\"title\\\":\\\"Upstream E2E Fixture\\\"}\"}],\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":125,\"cache_creation_input_tokens\":0,\"cache_read_input_tokens\":0,\"output_tokens\":24,\"service_tier\":\"standard\"}}"
+      }
+    },
     {
       "id": "upstream-stop-empty-running-slow-stream",
       "description": "Stop empty queue 首轮慢流，稳定制造 queue=0 的 running 窗口。",
@@ -95,7 +118,7 @@
     },
     {
       "id": "upstream-stop-empty-toolcall-bash",
-      "description": "Stop empty queue 的 tool call 运行窗口：返回一个长时间 Bash tool_use。",
+      "description": "Stop empty queue 的 tool call 运行窗口：返回一个长时间 Bash tool_use。用 sh -c 包一层：第一个子命令是 sleep 25 秒以上的前台命令会在执行前被拒绝。",
       "metadata": {
         "kind": "main",
         "timingPolicy": "fast-tool-use",
@@ -116,7 +139,7 @@
           "id": "toolu_e2e_stop_empty_toolcall_bash",
           "name": "Bash",
           "input": {
-            "command": "sleep 60",
+            "command": "sh -c 'sleep 60'",
             "description": "E2E stop empty long Bash"
           }
         }

@@ -22,7 +22,6 @@ import {
   resolveZaiOAuthOrigin,
   normalizeDynamicWorkflowMode,
   sanitizeZCodeRuntimeEnv,
-  readExternalEnvVar,
   type SourceServerArtifactPolicy,
   type ZCodeRuntimeEnv,
 } from "@zcode/shared";
@@ -48,6 +47,8 @@ import {
   type ResolveRemoteCdnOptions,
 } from "./remoteCdn.js";
 import { getElectronAppPath, isElectronAppPackaged } from "./desktopElectronApp.js";
+
+declare const __ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__: Readonly<Record<string, string>> | undefined;
 
 const isLocalDevelopmentRuntime = !isElectronAppPackaged();
 export const desktopRuntimeEnv: ZCodeRuntimeEnv = isLocalDevelopmentRuntime
@@ -102,6 +103,8 @@ export const runtimeSessionDataPath =
 // 导致 Electron 已启动但 WebDriver session 一直创建失败。测试态打开该开关后保留 Chromedriver 的目录。
 export const hostModulePath = join(import.meta.dirname, "../host/index.js");
 export const schedulerModulePath = join(import.meta.dirname, "../scheduler/index.js");
+// 全 App 唯一的扩展进程（docs/plugins/extension-host.md §12.1）。
+export const extensionHostModulePath = join(import.meta.dirname, "../extension-host/index.js");
 export function getCredentialsDir() {
   return getAppConfigDir();
 }
@@ -221,6 +224,28 @@ export function loadHostProcessEnvFromLocalFiles(): Record<string, string> {
   }
 
   return applySelectedZCodeEnvLinks(merged);
+}
+
+export function resolvePackagedAgentTelemetryEnv(
+  compiledEnv:
+    | Readonly<Record<string, string>>
+    | undefined = typeof __ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__ === "undefined"
+    ? undefined
+    : __ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__,
+): Record<string, string> {
+  if (!compiledEnv) {
+    return {};
+  }
+
+  // 修复原因：开发版通过启动进程继承 OTLP 配置，正式安装包从 Finder/开始菜单启动时没有
+  // 这组运行时环境，Agent 因而静默落入 Noop。构建默认值只允许连接字段进入 Main；
+  // UID、Device MID 和 runtime surface 仍由 Host 的可信运行时上下文生成。
+  return readZCodeAgentTelemetryEnv({
+    OTEL_EXPORTER_OTLP_ENDPOINT: compiledEnv.OTEL_EXPORTER_OTLP_ENDPOINT,
+    OTEL_EXPORTER_OTLP_HEADERS: compiledEnv.OTEL_EXPORTER_OTLP_HEADERS,
+    OTEL_SERVICE_NAME: compiledEnv.OTEL_SERVICE_NAME,
+    ZCODE_TELEMETRY_RUNTIME_DISTRIBUTION: compiledEnv.ZCODE_TELEMETRY_RUNTIME_DISTRIBUTION,
+  });
 }
 
 function resolveDevelopmentMockCdnDir(): string {
@@ -417,42 +442,37 @@ function resolveBundledRuntimeToolBinaryPath(
   return candidates.find((candidate) => existsSync(candidate));
 }
 
-// CUA helper dev 自动接线（docs/spec/cua-runtime-builtin.md §C）：dev（未打包）不再依赖
-// install.sh 时代的 launchctl setenv——按显式 env 覆盖 → prepare:cua-helper 的 staging 产物
-// → zcode home 既有安装（dev 变体优先）的顺序探测，命中即随 host env 注入 bundled path。
-// 生产打包态不走这里（resourcesPath/cua-helper 是唯一事实源）。
-// 候选解析本体在 desktopCuaHelperBundledPath（纯函数），与 main 侧 installer 链共用，
-// 两处顺序不得漂移。
-function defaultDevCuaHelperRootCandidates(): string[] {
-  return defaultDevCuaHelperRootCandidatesPure(process.cwd(), import.meta.dirname);
-}
-
-// 读 helper 自身 Info.plist 的 ZCodeCUAHelperBuildId：实现与 main 侧 installer 链共用
-// （desktopCuaHelperBundledPath.readCuaHelperBuildIdFromPlist），两条链必须钉同一实读值。
-function readCuaHelperBuildId(helperAppPath: string): string | undefined {
-  return readCuaHelperBuildIdFromPlist(helperAppPath);
-}
-
-export function resolveDevCuaHelperAppPath({
-  envOverride,
-  zcodeHome,
-  platformKey,
-  rootCandidates = defaultDevCuaHelperRootCandidates(),
-  existsSyncImpl = existsSync,
-}: {
-  envOverride?: string;
-  zcodeHome: string;
-  platformKey: string;
-  rootCandidates?: string[];
-  existsSyncImpl?: (path: string) => boolean;
-}): string | undefined {
-  return resolveDevCuaHelperAppPathPure({
-    envOverride,
-    zcodeHome,
-    platformKey,
-    rootCandidates,
-    existsSyncImpl,
-  });
+/** 预装工具的 Windows 入口 shim；其他平台没有。规格见 docs/preinstalled-tools/windows-entry-shim.md。 */
+export function resolvePreinstalledEntryShimPath(): string | undefined {
+  if (process.platform !== "win32") return undefined;
+  const shimName = "zcode-preinstalled-entry-shim.exe";
+  const platformKey = resolvePlatformKeyForPackagedApp();
+  // 根因：桌面 E2E 从 .e2e-cache/<run>/app 运行 Main，只按 import.meta.dirname 推算找不到 shim，
+  // 预装进程因此写不了入口。与 Agent 二进制相同，开发态再按 cwd 查找 bundled-tools。
+  const candidates = [
+    isElectronAppPackaged()
+      ? join(process.resourcesPath, "preinstalled-entry-shim", shimName)
+      : null,
+    // E2E 的运行目录携带独立副本，必须先于 cwd 共享缓存，避免后续构建改写读取源。
+    join(
+      import.meta.dirname,
+      "../../bundled-tools",
+      platformKey,
+      "preinstalled-entry-shim",
+      shimName,
+    ),
+    join(process.cwd(), "bundled-tools", platformKey, "preinstalled-entry-shim", shimName),
+    join(
+      process.cwd(),
+      "packages",
+      "desktop",
+      "bundled-tools",
+      platformKey,
+      "preinstalled-entry-shim",
+      shimName,
+    ),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+  return candidates.find((candidate) => existsSync(candidate));
 }
 
 function resolveBundledLarkCliBinaryPath(): string | undefined {

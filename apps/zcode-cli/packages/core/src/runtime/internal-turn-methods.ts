@@ -1,3 +1,4 @@
+import type { ToolSearchDelivery } from "@zcode/contracts";
 import type { BackgroundBashOutputResult } from "@zcode/shared";
 import type { ModelToolContract, RuntimeInputPresentation } from "@zcode/contracts";
 import type {
@@ -287,7 +288,6 @@ export interface AgentRuntimeTurnMethods {
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
-    paths?: readonly string[];
   }): Promise<WorkspaceFileRewindPreview>;
   applyWorkspaceFileRewind(options?: {
     abortSignal?: AbortSignal;
@@ -296,7 +296,6 @@ export interface AgentRuntimeTurnMethods {
     targetMessageIds?: MessageId[];
     targetTurnId?: TurnId;
     traceContext?: TraceContext;
-    paths?: readonly string[];
     commitAfterApply?: () => Promise<void>;
   }): Promise<WorkspaceFileRewindApplyResult>;
   loadCheckpointMessagePreviews(): Promise<Map<MessageId, string>>;
@@ -308,7 +307,7 @@ export interface AgentRuntimeTurnMethods {
       onStatus?: (event: ModelNetworkStatusEvent) => void;
       streamRecovery?: ModelStreamRecoveryStatus;
     },
-  ): ModelStatusSink;
+  ): ModelStatusSink & Disposable;
   logModelNetworkStatus(statusEvent: ModelNetworkStatusEvent, traceContext: TraceContext): void;
   buildBackgroundTaskPayload(
     taskId: string,
@@ -365,9 +364,12 @@ export interface AgentRuntimeTurnMethods {
     compactBoundary: CompactBoundaryPayload,
     traceContext: TraceContext,
     options?: {
+      created?: number;
       model?: Model;
       operationId?: string;
+      leadingReminderEntries?: readonly RuntimeMessageEntry[];
       postCompactReminderEntries?: readonly RuntimeMessageEntry[];
+      toolSearchDelivery?: ToolSearchDelivery;
     },
   ): Promise<void>;
   persistUserPrompt(
@@ -393,6 +395,8 @@ export interface AgentRuntimeTurnMethods {
     toModelLabel: string;
   }): void;
   persistPendingModelChangeTimeline(traceContext: TraceContext): Promise<void>;
+  recordPendingWorktreeCreation(fact: import("@zcode/contracts").WorktreeCreationFact): void;
+  persistPendingWorktreeCreationTimeline(traceContext: TraceContext): Promise<void>;
   persistSyntheticUserNotice(
     messageID: MessageId,
     text: string,
@@ -402,7 +406,7 @@ export interface AgentRuntimeTurnMethods {
     messageID: MessageId;
     sessionId: SessionId;
     source: SyntheticUserMessageSource;
-    text: string;
+    text: string | readonly string[];
     traceContext: TraceContext;
     metadata?: Record<string, unknown>;
     visibility?: MessageVisibility;
@@ -428,6 +432,8 @@ export interface AgentRuntimeTurnMethods {
           error?: { name: string; data?: Record<string, unknown> };
           finish?: string;
           tokens?: unknown;
+          signedReasoningReset?: boolean;
+          toolSearchDelivery?: ToolSearchDelivery;
         }
       | undefined,
     traceContext: TraceContext,

@@ -9,10 +9,8 @@ import {
 import { WorkspaceFileTreeRowView } from "@/workspace-file-tree/WorkspaceFileTreeRowView.js";
 import type {
   WorkspaceFileGitStatusLabels,
-  WorkspaceFileTreeCompareBaseline,
   WorkspaceFileTreeContextMenuLabels,
   WorkspaceFileTreeEditorState,
-  WorkspaceFileTreeOpenPreviewOptions,
   WorkspaceFileTreeStickyFolderItem,
 } from "@/workspace-file-tree/types.js";
 
@@ -30,9 +28,6 @@ export function WorkspaceFileTreeStickyFolders({
   onToggleDirectory,
   onRevealRow,
   onOpenPreview,
-  compareBaseline,
-  onCompareWithBaseline,
-  workspaceRemoteSessionId,
   onOpenBrowserUrl,
   onKeyDown,
 }: {
@@ -48,10 +43,7 @@ export function WorkspaceFileTreeStickyFolders({
   onSelect: (path: string) => void;
   onToggleDirectory: (row: WorkspaceFileTreeRow) => void;
   onRevealRow: (item: WorkspaceFileTreeStickyFolderItem) => void;
-  onOpenPreview: (row: WorkspaceFileTreeRow, options?: WorkspaceFileTreeOpenPreviewOptions) => void;
-  compareBaseline?: WorkspaceFileTreeCompareBaseline | null;
-  onCompareWithBaseline?: (row: WorkspaceFileTreeRow) => void;
-  workspaceRemoteSessionId?: string;
+  onOpenPreview: (row: WorkspaceFileTreeRow) => void;
   onOpenBrowserUrl?: (url: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLDivElement>, row: WorkspaceFileTreeRow) => void;
 }) {
@@ -87,15 +79,13 @@ export function WorkspaceFileTreeStickyFolders({
               installedEditors={editorState.installedEditors}
               isRemoteWorkspaceFileTree={editorState.isRemoteWorkspaceFileTree}
               remoteTarget={editorState.remoteTarget}
+              workspaceRemoteSessionId={editorState.workspaceRemoteSessionId}
               workspacePath={workspacePath}
               workspaceIdentity={workspaceIdentity}
               style={{}}
               onSelect={onSelect}
               onToggleDirectory={handleToggle}
               onOpenPreview={onOpenPreview}
-              compareBaseline={compareBaseline}
-              onCompareWithBaseline={onCompareWithBaseline}
-              workspaceRemoteSessionId={workspaceRemoteSessionId}
               onOpenBrowserUrl={onOpenBrowserUrl}
               onKeyDown={onKeyDown}
             />

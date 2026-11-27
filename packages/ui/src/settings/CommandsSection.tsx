@@ -6,7 +6,6 @@ import type { CommandConfig, UserCommand, ZCodeCommand } from "@zcode/shared";
 import type { IServiceAccessor } from "@zcode/services";
 import { isPluginCommand, isUserCommand, ZCODE_COMMAND_AGENT_SOURCE } from "@zcode/shared";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { buildSourceSettingsProjectionKey } from "@/settings/settingsSourceWorkspace.js";
 import { toast } from "@/components/ui/toast.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useCommands } from "@/hooks/useCommands.js";
@@ -148,7 +147,6 @@ export function CommandsSection({
   const plugins = usePluginManagementStore((state) => state.plugins);
   const pluginStoreWorkspacePath = usePluginManagementStore((state) => state.workspacePath);
   const pluginStoreWorkspaceIdentity = usePluginManagementStore((state) => state.workspaceIdentity);
-  const pluginStoreAuthorityKey = usePluginManagementStore((state) => state.authorityKey);
   const pluginConfigScope = usePluginManagementStore((state) => state.configScope);
   const installedPlugins = usePluginManagementStore((state) => state.installedPlugins);
   const availablePlugins = usePluginManagementStore((state) => state.availablePlugins);
@@ -324,16 +322,9 @@ export function CommandsSection({
   // effectiveCommandScopeKey ≠ selectedScopeKey 时会用不同 target 交替初始化它。
   // PluginList 已用 storeKey!==targetKey 自保护，这里复用同一模式，避免插件贡献的
   // 命令分组短暂取自别的 target 的插件投影。
-  // 比较必须用 authority\0identity|path 同格式 key（settingsSourceWorkspace 的投影 key）：
-  // 远端「用户」没有 identity 只有 home 路径，两台设备 home 同串时裸路径比较会互串投影。
   const pluginStoreMatchesTarget =
-    buildSourceSettingsProjectionKey(
-      pluginStoreWorkspacePath,
-      pluginStoreWorkspaceIdentity,
-      pluginStoreAuthorityKey,
-    ) ===
-      buildSourceSettingsProjectionKey(workspacePath, workspaceIdentity, cacheAuthorityKey) &&
-    pluginConfigScope === scopeFilter;
+    (pluginStoreWorkspaceIdentity?.trim() || pluginStoreWorkspacePath || "") ===
+      currentWorkspaceKey && pluginConfigScope === scopeFilter;
   const scopedPlugins = useMemo(
     () =>
       pluginStoreMatchesTarget ? selectPluginsForScope(plugins, installedPlugins, scopeFilter) : [],

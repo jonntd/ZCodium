@@ -2,6 +2,9 @@ import { createSourceServerMigrationCounts } from "./sourceServerMigrationCounts
 import { Emitter, type Event } from "@zcode/rpc";
 import {
   sourceServerManagementSnapshotSchema,
+  sourceServerLifecycleSourceIdSchema,
+  sourceServerRunningTasksResultSchema,
+  sourceServerUpdateCancelProfileIdSchema,
   sourceServerUpdateRequestSchema,
   isSameSourceServerUpdateTarget,
   sourceServerManagementSnapshotRequestSchema,
@@ -9,8 +12,6 @@ import {
   sourceServerManagementDirectoryDeltaSchema,
   sourceServerManagementStateDeltaSchema,
   sourceServerOperationLogSchema,
-  offlineRuntimeImportResultSchema,
-  type OfflineRuntimeImportResult,
   SOURCE_SERVER_REMOVE_CALLBACK_FAILED_ERROR_CODE,
   SOURCE_SERVER_REMOVE_CALLBACK_MISSING_ERROR_CODE,
   SOURCE_SERVER_REMOVE_PERSIST_FAILED_ERROR_CODE,
@@ -21,8 +22,12 @@ import {
   type SourceServerManagementSnapshot,
   type SourceServerManagementStateDelta,
   type SourceServerOperationLog,
+  type SourceServerRunningTasksResult,
 } from "@zcode/shared";
-import type { SourceServerDirectorySnapshot } from "./sourceServerDirectory.js";
+import type {
+  SourceServerDirectorySnapshot,
+  SourceServerReconnectCandidate,
+} from "./sourceServerDirectory.js";
 import type {
   ManagedSourceServerConnection,
   SourceServerConnectionManagerOptions,
@@ -36,6 +41,7 @@ interface SourceServerManagementDirectory {
   resolveProfileTarget(
     profileOrId: string | ConnectionProfile,
   ): Promise<Exclude<RemoteTarget, { kind: "server" }>>;
+  resolveSourceLifecycleRoute(sourceServerId: string): Promise<SourceServerReconnectCandidate>;
   renameSource(sourceServerId: string, displayName: string): Promise<void>;
   renameProfile(profileId: string, displayName: string): Promise<void>;
   updateProfile(input: UpdateConnectionProfileInput): Promise<void>;
@@ -64,11 +70,25 @@ interface SourceServerManagementManager {
     profile: ConnectionProfile;
     target: Exclude<RemoteTarget, { kind: "server" }>;
     force?: boolean;
+    allowDowngrade?: boolean;
     resolveRelease?: SourceServerConnectionManagerOptions["resolveRelease"];
     context?: {
       onLog?: (event: { phase: string; message: string; progress?: number }) => void;
     };
   }): Promise<ManagedSourceServerConnection>;
+  cancelUpdate(profileId: string): boolean;
+  stopSource(input: {
+    sourceServerId: string;
+    resolveOfflineRoute: () => Promise<SourceServerReconnectCandidate>;
+  }): Promise<void>;
+  restartSource(input: {
+    sourceServerId: string;
+    resolveOfflineRoute: () => Promise<SourceServerReconnectCandidate>;
+  }): Promise<ManagedSourceServerConnection>;
+  getSourceRunningTasks(input: {
+    sourceServerId: string;
+    resolveOfflineRoute: () => Promise<SourceServerReconnectCandidate>;
+  }): Promise<SourceServerRunningTasksResult>;
   disconnect(sourceServerId: string): void;
   removeProfile(profileId: string): void;
 }
@@ -83,9 +103,13 @@ export function createSourceServerManagementService(options: {
   resolveRelease?: SourceServerConnectionManagerOptions["resolveRelease"];
   onDirectorySnapshot?: (snapshot: SourceServerDirectorySnapshot) => void;
   onBeforeSourceServerRemoved?: (sourceServerId: string) => Promise<void>;
+  /** 归还未识别线路的本机成员预留；profiles 为操作完成后的线路集合。 */
+  releaseUnboundProfileHost?: (
+    profile: ConnectionProfile,
+    profiles: readonly ConnectionProfile[],
+  ) => Promise<void>;
   onConnectionLog?: NonNullable<ConnectSourceServerOptions["context"]>["onLog"];
   now?: () => number;
-  importOfflineRuntime?: (directory: string) => Promise<OfflineRuntimeImportResult>;
 }): SourceServerManagementService {
   let generation = 0;
   let disposed = false;
@@ -154,11 +178,6 @@ export function createSourceServerManagementService(options: {
   }
 
   return {
-    async importOfflineRuntime(directory) {
-      if (!options.importOfflineRuntime)
-        throw new Error("Offline runtime import is unavailable in this Host");
-      return offlineRuntimeImportResultSchema.parse(await options.importOfflineRuntime(directory));
-    },
     onDidChangeState: stateEmitter.event,
     onDidChangeDirectory: directoryEmitter.event,
     onDidAppendOperationLog: operationLogEmitter.event,
@@ -228,7 +247,8 @@ export function createSourceServerManagementService(options: {
       return result;
     },
     async updateSource(input) {
-      const { profileId, expectedTarget, force } = sourceServerUpdateRequestSchema.parse(input);
+      const { profileId, expectedTarget, force, allowDowngrade } =
+        sourceServerUpdateRequestSchema.parse(input);
       const profile = await readProfile(profileId);
       // Profile ID 可原位改址；在读取凭据前核验失败身份，再从同一 Profile 固定执行目标。
       // force 确认后的请求也必须经过此边界，不能把旧授权用于另一设备/账户。
@@ -246,9 +266,42 @@ export function createSourceServerManagementService(options: {
         profile,
         target,
         force,
+        allowDowngrade,
         resolveRelease: options.resolveRelease,
       });
       return await getSnapshot();
+    },
+    async cancelSourceUpdate(profileId) {
+      return {
+        canceled: options.manager.cancelUpdate(
+          sourceServerUpdateCancelProfileIdSchema.parse(profileId),
+        ),
+      };
+    },
+    async stopSource(input) {
+      const sourceServerId = sourceServerLifecycleSourceIdSchema.parse(input);
+      await options.manager.stopSource({
+        sourceServerId,
+        resolveOfflineRoute: () => options.directory.resolveSourceLifecycleRoute(sourceServerId),
+      });
+      return await getSnapshot();
+    },
+    async restartSource(input) {
+      const sourceServerId = sourceServerLifecycleSourceIdSchema.parse(input);
+      await options.manager.restartSource({
+        sourceServerId,
+        resolveOfflineRoute: () => options.directory.resolveSourceLifecycleRoute(sourceServerId),
+      });
+      return await getSnapshot();
+    },
+    async getSourceRunningTasks(input) {
+      const sourceServerId = sourceServerLifecycleSourceIdSchema.parse(input);
+      return sourceServerRunningTasksResultSchema.parse(
+        await options.manager.getSourceRunningTasks({
+          sourceServerId,
+          resolveOfflineRoute: () => options.directory.resolveSourceLifecycleRoute(sourceServerId),
+        }),
+      );
     },
     async renameSource(sourceServerId, displayName) {
       await options.directory.renameSource(sourceServerId, displayName);
@@ -259,7 +312,16 @@ export function createSourceServerManagementService(options: {
       return await getSnapshot();
     },
     async updateProfile(input) {
+      const previous = (await options.directory.snapshot()).profiles.find(
+        (profile) => profile.profileId === input.profileId,
+      );
       await options.directory.updateProfile(input);
+      // Bug 原因：未识别线路改址后，旧地址的 admission 预留无人释放，成为侧栏持续读取失败的孤儿行。
+      if (previous)
+        await options.releaseUnboundProfileHost?.(
+          previous,
+          (await options.directory.snapshot()).profiles,
+        );
       return await getSnapshot();
     },
     async setPreferredProfile(sourceServerId, profileId) {
@@ -267,6 +329,16 @@ export function createSourceServerManagementService(options: {
       return await getSnapshot();
     },
     async removeProfile(profileId) {
+      const { profiles } = await options.directory.snapshot();
+      const removed = profiles.find((profile) => profile.profileId === profileId);
+      // Bug 原因：首次连接在 probe 前按地址写入 hosts 预留行，握手成功才改名为设备行；删除未完成
+      // 连接只改 settings，预留行成为孤儿，侧栏每次刷新都对它 readTree 并持续报 host-offline。
+      // 与 removeSourceServer 同序先释放本机成员；settings 删除失败时线路保留，下次 add 连接重建预留。
+      if (removed)
+        await options.releaseUnboundProfileHost?.(
+          removed,
+          profiles.filter((profile) => profile.profileId !== profileId),
+        );
       await options.directory.removeProfile(profileId);
       options.manager.removeProfile(profileId);
       return await getSnapshot();

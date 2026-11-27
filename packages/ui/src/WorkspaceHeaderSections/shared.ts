@@ -2,6 +2,7 @@ import type {
   ZCodeTaskMeta,
   ZCodeProvider,
   ZCodeTaskChangeSummary,
+  EditorInfo,
   GitRepositorySummary,
   RemoteTarget,
   UserInfo,
@@ -54,6 +55,7 @@ export interface WorkspaceHeaderTitleSectionProps {
   isWindowsDesktop?: boolean;
   isWebRemoteControl?: boolean;
   simplifyForNarrowRemote?: boolean;
+  selectedEditor: EditorInfo | null;
   compact?: boolean;
 }
 
@@ -73,6 +75,7 @@ export interface WorkspaceHeaderActionSectionProps {
   onToggleTerminal: () => void;
   onToggleSidePane: () => void;
   toggleSidePaneShortcutLabel?: string;
+  onSelectedEditorChange?: (editor: EditorInfo | null) => void;
   simplifyForNarrowRemote?: boolean;
   hideHelpMenu?: boolean;
   showWindowControls?: boolean;

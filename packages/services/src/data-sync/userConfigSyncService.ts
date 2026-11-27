@@ -1,19 +1,11 @@
-import type {
-  UserConfigSyncCategory,
-  UserConfigSyncPayloadMap,
-} from "@zcode/shared";
+import type { UserConfigSyncCategory, UserConfigSyncPayloadMap } from "@zcode/shared";
 import { createCommandDataSyncMethods } from "./commandDataSync.js";
-import type {
-  IDataSyncCategoryService,
-  IUserConfigSyncService,
-} from "./contract.js";
+import type { IDataSyncCategoryService, IUserConfigSyncService } from "./contract.js";
 import { createHookDataSyncMethods } from "./hookDataSync.js";
 import { createSubagentDataSyncMethods } from "./subagentDataSync.js";
 
 type CategoryMethods = {
-  [C in UserConfigSyncCategory]: IDataSyncCategoryService<
-    UserConfigSyncPayloadMap[C]
-  >;
+  [C in UserConfigSyncCategory]: IDataSyncCategoryService<UserConfigSyncPayloadMap[C]>;
 };
 
 /**
@@ -27,9 +19,7 @@ export function createUserConfigSyncService(): IUserConfigSyncService {
     hooks: createHookDataSyncMethods(),
   };
 
-  function resolve<C extends UserConfigSyncCategory>(
-    category: C,
-  ): CategoryMethods[C] {
+  function resolve<C extends UserConfigSyncCategory>(category: C): CategoryMethods[C] {
     if (!Object.hasOwn(categories, category)) {
       throw new Error(`unknown user config sync category: ${String(category)}`);
     }
@@ -37,12 +27,10 @@ export function createUserConfigSyncService(): IUserConfigSyncService {
   }
 
   return {
-    listSyncItems: async ({ category }) =>
-      await resolve(category).listSyncItems(),
+    listSyncItems: async ({ category }) => await resolve(category).listSyncItems(),
     getSyncContentHashes: async ({ category, keys }) =>
       await resolve(category).getSyncContentHashes({ keys }),
-    checkSyncWriteAccess: async ({ category }) =>
-      await resolve(category).checkSyncWriteAccess(),
+    checkSyncWriteAccess: async ({ category }) => await resolve(category).checkSyncWriteAccess(),
     exportSyncItems: async ({ category, keys }) =>
       await resolve(category).exportSyncItems({ keys }),
     importSyncItems: async ({ category, payload, items }) =>

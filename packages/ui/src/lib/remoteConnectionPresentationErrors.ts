@@ -5,17 +5,17 @@ import {
   REMOTE_WORKSPACE_BIND_SESSION_MISSING_ERROR_CODE,
   REMOTE_WORKSPACE_DIRECTORY_UNAVAILABLE_ERROR_CODE,
   REMOTE_WORKSPACE_DIRECTORY_UNRESPONSIVE_ERROR_CODE,
-  SOURCE_SERVER_CONTROL_UNRESPONSIVE_ERROR_CODE,
-  SOURCE_SERVER_DOWNGRADE_UNCONFIRMED_ERROR_CODE,
   SOURCE_SERVER_INSTALL_REQUIRED_ERROR_CODE,
-  SOURCE_SERVER_STOP_FAILED_ERROR_CODE,
   SOURCE_SERVER_IDENTITY_CHANGE_PENDING_ERROR_CODE,
   SOURCE_SERVER_UPDATE_RUNNING_TASKS_ERROR_CODE,
+  SOURCE_SERVER_DOWNGRADE_UNCONFIRMED_ERROR_CODE,
+  SOURCE_SERVER_UPDATE_IN_PROGRESS_ERROR_CODE,
   SOURCE_SERVER_UPGRADE_REQUIRED_ERROR_CODE,
   SOURCE_SERVER_REMOVE_CALLBACK_MISSING_ERROR_CODE,
   SOURCE_SERVER_REMOVE_CALLBACK_FAILED_ERROR_CODE,
   SOURCE_SERVER_REMOVE_PERSIST_FAILED_ERROR_CODE,
-  SOURCE_SERVER_UPDATE_IN_PROGRESS_ERROR_CODE,
+  SOURCE_SERVER_STOP_FAILED_ERROR_CODE,
+  SOURCE_SERVER_CONTROL_UNRESPONSIVE_ERROR_CODE,
   WORKSPACE_CONFIG_FILE_CONFLICT_ERROR_CODE,
   WORKSPACE_MIGRATION_PLAN_DIVERGED_ERROR_CODE,
   WORKSPACE_SESSION_GENERATION_CHANGED_ERROR_CODE,
@@ -38,7 +38,7 @@ export interface RemoteConnectionErrorPresentation {
 
 const messageIdByCode: Record<PublicZCodeErrorCode, string> = {
   "remote-authentication-failed": "remote.error.authentication",
-  "remote-authentication-unsupported": "remote.error.authentication",
+  "remote-authentication-unsupported": "remote.error.authenticationUnsupported",
   "remote-host-unreachable": "remote.error.hostUnreachable",
   "remote-connection-timeout": "remote.error.connectionTimeout",
   "remote-host-not-found": "remote.error.hostNotFound",
@@ -49,7 +49,7 @@ const messageIdByCode: Record<PublicZCodeErrorCode, string> = {
   "remote-install-failed": "remote.error.installFailed",
   "remote-space-insufficient": "remote.error.spaceInsufficient",
   "remote-permission-denied": "remote.error.permissionDenied",
-  "remote-platform-unsupported": "remote.error.unknown",
+  "remote-platform-unsupported": "remote.error.platformUnsupported",
   "remote-connection-canceled": "remote.error.connectionCanceled",
   "remote-connection-unknown": "remote.error.unknown",
 
@@ -58,9 +58,8 @@ const messageIdByCode: Record<PublicZCodeErrorCode, string> = {
     "remote.error.sourceServerIdentityChangePending",
   [SOURCE_SERVER_UPGRADE_REQUIRED_ERROR_CODE]: "remote.error.sourceServerUpgradeRequired",
   [SOURCE_SERVER_UPDATE_RUNNING_TASKS_ERROR_CODE]: "remote.error.sourceServerRunningTasks",
-  [SOURCE_SERVER_DOWNGRADE_UNCONFIRMED_ERROR_CODE]: "remote.error.unknown",
-  [SOURCE_SERVER_STOP_FAILED_ERROR_CODE]: "remote.error.unknown",
-  [SOURCE_SERVER_CONTROL_UNRESPONSIVE_ERROR_CODE]: "remote.error.unknown",
+  [SOURCE_SERVER_DOWNGRADE_UNCONFIRMED_ERROR_CODE]: "remote.error.sourceServerDowngradeUnconfirmed",
+  [SOURCE_SERVER_UPDATE_IN_PROGRESS_ERROR_CODE]: "remote.error.sourceServerUpdateInProgress",
   [WORKSPACE_TASK_IDENTITY_CONFLICT_ERROR_CODE]: "remote.error.workspaceTaskIdentityConflict",
   [WORKSPACE_CONFIG_FILE_CONFLICT_ERROR_CODE]: "remote.error.workspaceConfigConflict",
   [WORKSPACE_MIGRATION_PLAN_DIVERGED_ERROR_CODE]: "remote.error.workspaceMigrationPlanDiverged",
@@ -71,16 +70,15 @@ const messageIdByCode: Record<PublicZCodeErrorCode, string> = {
   [REMOTE_WORKSPACE_BIND_SESSION_MISSING_ERROR_CODE]: "remote.error.bindSessionMissing",
   [REMOTE_WORKSPACE_DIRECTORY_UNAVAILABLE_ERROR_CODE]: "remote.error.workspaceDirectoryUnavailable",
   [REMOTE_WORKSPACE_DIRECTORY_UNRESPONSIVE_ERROR_CODE]:
-    "remote.error.workspaceDirectoryUnavailable",
+    "remote.error.workspaceDirectoryUnresponsive",
   [SOURCE_SERVER_REMOVE_CALLBACK_MISSING_ERROR_CODE]:
     "settings.source.error.source-server-remove-callback-missing",
   [SOURCE_SERVER_REMOVE_CALLBACK_FAILED_ERROR_CODE]:
     "settings.source.error.source-server-remove-callback-failed",
   [SOURCE_SERVER_REMOVE_PERSIST_FAILED_ERROR_CODE]:
     "settings.source.error.source-server-remove-persist-failed",
-  // 上游 R3 §6.3 新增错误码：同一设备更新进行中（fork errorCodes 已同步该码）。
-  [SOURCE_SERVER_UPDATE_IN_PROGRESS_ERROR_CODE]:
-    "settings.source.error.source-server-update-in-progress",
+  [SOURCE_SERVER_STOP_FAILED_ERROR_CODE]: "remote.error.sourceServerStopFailed",
+  [SOURCE_SERVER_CONTROL_UNRESPONSIVE_ERROR_CODE]: "remote.error.sourceServerControlUnresponsive",
 };
 
 export function classifyRemoteConnectionError(input: {
@@ -120,6 +118,8 @@ export function classifyRemoteConnectionError(input: {
     case "remote-host-key-changed":
       primaryAction = "security";
       break;
+    case "remote-authentication-unsupported":
+    case "remote-platform-unsupported":
     case "remote-space-insufficient":
     case "remote-permission-denied":
       primaryAction = "details";

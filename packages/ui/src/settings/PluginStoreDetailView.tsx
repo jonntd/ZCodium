@@ -16,22 +16,14 @@ import {
   Maximize2,
   RotateCcw,
 } from "lucide-react";
-import type {
-  ZCodePluginComponentKind,
-  ZCodePluginsDescribeResult,
-} from "@zcode/shared";
+import type { ZCodePluginComponentKind, ZCodePluginsDescribeResult } from "@zcode/shared";
 import {
   EXTENSION_GRANTS,
   normalizeGrants,
   type ExtensionGrant,
 } from "@zcode/shared/extension-host";
 import { Button } from "@/components/ui/button.js";
-import {
-  Dialog,
-  DialogContent,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog.js";
+import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog.js";
 import { resolvePluginUiSurfaceTitle } from "@/plugin-ui/index.js";
 import { ExtensionPermissionsSection } from "@/extension-slots/index.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -46,6 +38,8 @@ import {
   PluginStoreItemMenu,
   PluginStorePaidPlanBadge,
   PluginStoreOpenUiButton,
+  PluginStoreTrustButton,
+  PluginStoreTrustPendingBadge,
   PluginStoreUpdateButton,
   type PluginStoreActions,
 } from "@/settings/PluginStoreCard.js";
@@ -69,13 +63,7 @@ import type { PluginComponentDisplayGroup } from "@/settings/PluginComponentGrou
 import type { PluginDescribeEntry } from "@/store/pluginManagementStore.js";
 
 // 组件分区顺序与截图一致：MCP 服务器 → 技能 → 命令 → 子智能体 → Hooks。
-const SECTION_ORDER: ZCodePluginComponentKind[] = [
-  "mcp",
-  "skill",
-  "command",
-  "agent",
-  "hook",
-];
+const SECTION_ORDER: ZCodePluginComponentKind[] = ["mcp", "skill", "command", "agent", "hook"];
 
 const SECTION_TITLE_IDS: Record<ZCodePluginComponentKind, string> = {
   mcp: "settings.plugins.store.section.mcp",
@@ -96,18 +84,13 @@ const SECTION_ICONS: Record<ZCodePluginComponentKind, typeof Server> = {
 
 type ExamplePromptDocumentIcon = "documents" | "pdf" | "spreadsheets";
 
-const EXAMPLE_PROMPT_DOCUMENT_ICON_URLS: Record<
-  ExamplePromptDocumentIcon,
-  string
-> = {
+const EXAMPLE_PROMPT_DOCUMENT_ICON_URLS: Record<ExamplePromptDocumentIcon, string> = {
   documents: documentsIconUrl,
   pdf: pdfIconUrl,
   spreadsheets: spreadsheetsIconUrl,
 };
 
-export function resolveExamplePromptDocumentIcon(
-  prompt: string,
-): ExamplePromptDocumentIcon {
+export function resolveExamplePromptDocumentIcon(prompt: string): ExamplePromptDocumentIcon {
   if (/\bpdf\b/iu.test(prompt)) {
     return "pdf";
   }
@@ -139,15 +122,10 @@ export function PluginStoreDetailView({
   const description = resolveItemDescription(item, locale);
   const heroImage = item.listing?.heroImage;
   const examplePrompts =
-    resolveLocalizedList(
-      locale,
-      item.listing?.examplePrompts,
-      item.listing?.examplePromptsI18n,
-    ) ?? [];
+    resolveLocalizedList(locale, item.listing?.examplePrompts, item.listing?.examplePromptsI18n) ??
+    [];
   const describeMetadata =
-    describeEntry?.status === "loaded"
-      ? describeEntry.data?.metadata
-      : undefined;
+    describeEntry?.status === "loaded" ? describeEntry.data?.metadata : undefined;
 
   const componentGroups: PluginComponentDisplayGroup[] = item.info
     ? buildInstalledPluginDisplayGroups(item.info)
@@ -156,26 +134,15 @@ export function PluginStoreDetailView({
       : [];
   const orderedGroups = SECTION_ORDER.map((kind) =>
     componentGroups.find((group) => group.kind === kind),
-  ).filter(
-    (group): group is PluginComponentDisplayGroup => group !== undefined,
-  );
-  const componentsLoading =
-    !item.info && (describeEntry?.status ?? "loading") === "loading";
+  ).filter((group): group is PluginComponentDisplayGroup => group !== undefined);
+  const componentsLoading = !item.info && (describeEntry?.status ?? "loading") === "loading";
   const componentsFailed = !item.info && describeEntry?.status === "error";
 
   return (
-    <div
-      className="space-y-8"
-      data-testid="plugin-store-detail"
-      data-plugin-id={item.id}
-    >
+    <div className="space-y-8" data-testid="plugin-store-detail" data-plugin-id={item.id}>
       {/* 头部：大图标后，显示名与菜单/主按钮同排；简介和来源提示另起一行。 */}
       <div className="space-y-3">
-        <PluginStoreAvatar
-          item={item}
-          className="size-16 rounded-2xl"
-          iconClassName="size-6"
-        />
+        <PluginStoreAvatar item={item} className="size-16 rounded-2xl" iconClassName="size-6" />
         <div
           className="flex min-w-0 flex-wrap items-center justify-between gap-3"
           data-testid="plugin-store-title-actions"
@@ -185,8 +152,10 @@ export function PluginStoreDetailView({
               {displayName}
             </h1>
             <PluginStorePaidPlanBadge item={item} />
+            <PluginStoreTrustPendingBadge item={item} />
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <PluginStoreTrustButton item={item} actions={actions} size="lg" />
             <PluginStoreUpdateButton item={item} actions={actions} size="lg" />
             {item.installed ? (
               <>
@@ -199,11 +168,7 @@ export function PluginStoreDetailView({
                 {/* 顶部试用与示例提示词共用同一 canonical 构造；空 prompt 表示只预填 Plugin mention。 */}
                 {/* 只有会话右侧市场提供 onOpenUi；主导航详情保留普通插件的「立即试用」。 */}
                 {isUiPluginItem(item) && actions.onOpenUi ? (
-                  <PluginStoreOpenUiButton
-                    item={item}
-                    actions={actions}
-                    size="lg"
-                  />
+                  <PluginStoreOpenUiButton item={item} actions={actions} size="lg" />
                 ) : (
                   <Button
                     type="button"
@@ -214,28 +179,19 @@ export function PluginStoreDetailView({
                     onClick={() => onUsePrompt(item, "")}
                   >
                     <MessagesSquare className="size-3.5" aria-hidden="true" />
-                    {intl.formatMessage({
-                      id: "settings.plugins.store.tryNow",
-                    })}
+                    {intl.formatMessage({ id: "settings.plugins.store.tryNow" })}
                   </Button>
                 )}
               </>
             ) : (
               <>
-                <PluginStoreInstallButton
-                  item={item}
-                  actions={actions}
-                  size="lg"
-                />
+                <PluginStoreInstallButton item={item} actions={actions} size="lg" />
               </>
             )}
           </div>
         </div>
         {description ? (
-          <p
-            data-testid="plugin-store-description"
-            className="text-ui-base text-foreground-subtle"
-          >
+          <p data-testid="plugin-store-description" className="text-ui-base text-foreground-subtle">
             {description}
           </p>
         ) : null}
@@ -256,9 +212,7 @@ export function PluginStoreDetailView({
             className="flex items-center gap-1.5 text-ui-base text-warning"
           >
             <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" />
-            {intl.formatMessage({
-              id: "settings.plugins.store.extension.incompatibleHint",
-            })}
+            {intl.formatMessage({ id: "settings.plugins.store.extension.incompatibleHint" })}
           </p>
         ) : null}
       </div>
@@ -282,9 +236,7 @@ export function PluginStoreDetailView({
         >
           <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
           <span>
-            {intl.formatMessage({
-              id: "settings.plugins.marketplace.componentsLoading",
-            })}
+            {intl.formatMessage({ id: "settings.plugins.marketplace.componentsLoading" })}
           </span>
         </div>
       ) : componentsFailed ? (
@@ -292,11 +244,7 @@ export function PluginStoreDetailView({
           className="flex items-center justify-between gap-2 rounded-xl border border-warning/30 bg-warning/10 px-3 py-2 text-ui-base text-foreground-subtle"
           data-testid="plugin-store-components-error"
         >
-          <span>
-            {intl.formatMessage({
-              id: "settings.plugins.marketplace.componentsError",
-            })}
-          </span>
+          <span>{intl.formatMessage({ id: "settings.plugins.marketplace.componentsError" })}</span>
           <Button
             type="button"
             variant="outline"
@@ -305,15 +253,11 @@ export function PluginStoreDetailView({
             onClick={onRetryDescribe}
           >
             <RefreshCw className="size-3" aria-hidden="true" />
-            {intl.formatMessage({
-              id: "settings.plugins.marketplace.componentsRetry",
-            })}
+            {intl.formatMessage({ id: "settings.plugins.marketplace.componentsRetry" })}
           </Button>
         </div>
       ) : (
-        orderedGroups.map((group) => (
-          <ComponentSection key={group.kind} group={group} />
-        ))
+        orderedGroups.map((group) => <ComponentSection key={group.kind} group={group} />)
       )}
 
       {/* 信息区：listing 优先，manifest（运行时/describe）回退；无值整行省略（ADR-0001）。 */}
@@ -347,9 +291,7 @@ export function PluginStoreDetailView({
           onClick={() => actions.onResetConfig?.(item.id)}
         >
           <RotateCcw className="size-3.5" aria-hidden="true" />
-          {intl.formatMessage({
-            id: "settings.plugins.scope.restoreUserDefault",
-          })}
+          {intl.formatMessage({ id: "settings.plugins.scope.restoreUserDefault" })}
         </Button>
       ) : null}
 
@@ -393,9 +335,7 @@ function HeroSection({
           aria-hidden="true"
           className="size-7 shrink-0 object-contain"
         />
-        <span className="shrink-0 font-medium text-white/70">
-          {displayName}
-        </span>
+        <span className="shrink-0 font-medium text-white/70">{displayName}</span>
         <span className="min-w-0 whitespace-normal">{prompt}</span>
         <span
           aria-hidden="true"
@@ -443,9 +383,7 @@ function HeroSection({
               className="absolute right-3 top-3"
               size="icon-md"
               data-testid="plugin-store-preview-open"
-              aria-label={intl.formatMessage({
-                id: "settings.plugins.store.ui.preview",
-              })}
+              aria-label={intl.formatMessage({ id: "settings.plugins.store.ui.preview" })}
             >
               <Maximize2 className="size-4" aria-hidden="true" />
             </Button>
@@ -454,11 +392,7 @@ function HeroSection({
       </div>
       <DialogContent className="max-w-5xl" aria-describedby={undefined}>
         <DialogTitle>{displayName}</DialogTitle>
-        <img
-          src={heroImage}
-          alt={displayName}
-          className="max-h-[80vh] w-full object-contain"
-        />
+        <img src={heroImage} alt={displayName} className="max-h-[80vh] w-full object-contain" />
       </DialogContent>
     </Dialog>
   );
@@ -468,24 +402,16 @@ function ComponentSection({ group }: { group: PluginComponentDisplayGroup }) {
   const { intl } = useZCodeIntl();
   const Icon = SECTION_ICONS[group.kind];
   return (
-    <section
-      data-testid="plugin-store-component-section"
-      data-component-kind={group.kind}
-    >
+    <section data-testid="plugin-store-component-section" data-component-kind={group.kind}>
       <div className="flex items-baseline gap-2 border-b border-border pb-2">
         <h2 className="text-ui-lg font-semibold text-foreground">
           {intl.formatMessage({ id: SECTION_TITLE_IDS[group.kind] })}
         </h2>
-        <span className="text-ui-base text-foreground-subtle">
-          {group.count}
-        </span>
+        <span className="text-ui-base text-foreground-subtle">{group.count}</span>
       </div>
       <ul className="mt-1 divide-y divide-border/60">
         {group.items.map((componentItem) => (
-          <li
-            key={componentItem.name}
-            className="flex min-w-0 items-center gap-3 py-2.5"
-          >
+          <li key={componentItem.name} className="flex min-w-0 items-center gap-3 py-2.5">
             <span
               aria-hidden="true"
               className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-surface text-foreground-subtle"
@@ -519,12 +445,9 @@ function InfoSection({
   const { intl } = useZCodeIntl();
   const platform = useOptionalPlatform();
   const listing = item.listing;
-  const developer =
-    listing?.author ?? item.info?.author ?? describeMetadata?.author;
+  const developer = listing?.author ?? item.info?.author ?? describeMetadata?.author;
   const category = resolveStoreCategory(listing?.category);
-  const categoryLabelId = category
-    ? KNOWN_CATEGORY_LABEL_IDS[category]
-    : undefined;
+  const categoryLabelId = category ? KNOWN_CATEGORY_LABEL_IDS[category] : undefined;
   const categoryLabel = category
     ? categoryLabelId
       ? intl.formatMessage({ id: categoryLabelId })
@@ -535,11 +458,7 @@ function InfoSection({
     item.installedMeta?.version ??
     item.summary?.version ??
     describeMetadata?.version;
-  const website = pickHttpsUrl(
-    listing?.homepage,
-    item.info?.homepage,
-    describeMetadata?.homepage,
-  );
+  const website = pickHttpsUrl(listing?.homepage, item.info?.homepage, describeMetadata?.homepage);
   const privacyPolicy = pickHttpsUrl(listing?.privacyPolicy);
   const termsOfService = pickHttpsUrl(listing?.termsOfService);
 
@@ -547,9 +466,7 @@ function InfoSection({
   if (developer) {
     rows.push({
       key: "developer",
-      label: intl.formatMessage({
-        id: "settings.plugins.store.info.developer",
-      }),
+      label: intl.formatMessage({ id: "settings.plugins.store.info.developer" }),
       value: developer,
     });
   }
@@ -578,18 +495,14 @@ function InfoSection({
   if (privacyPolicy) {
     linkRows.push({
       key: "privacyPolicy",
-      label: intl.formatMessage({
-        id: "settings.plugins.store.info.privacyPolicy",
-      }),
+      label: intl.formatMessage({ id: "settings.plugins.store.info.privacyPolicy" }),
       url: privacyPolicy,
     });
   }
   if (termsOfService) {
     linkRows.push({
       key: "termsOfService",
-      label: intl.formatMessage({
-        id: "settings.plugins.store.info.termsOfService",
-      }),
+      label: intl.formatMessage({ id: "settings.plugins.store.info.termsOfService" }),
       url: termsOfService,
     });
   }
@@ -604,21 +517,13 @@ function InfoSection({
       </div>
       <dl className="mt-3 space-y-2.5">
         {rows.map((row) => (
-          <div
-            key={row.key}
-            className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-3"
-          >
+          <div key={row.key} className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-3">
             <dt className="text-ui-base text-foreground-subtle">{row.label}</dt>
-            <dd className="min-w-0 truncate text-ui-base text-foreground">
-              {row.value}
-            </dd>
+            <dd className="min-w-0 truncate text-ui-base text-foreground">{row.value}</dd>
           </div>
         ))}
         {linkRows.map((row) => (
-          <div
-            key={row.key}
-            className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-3"
-          >
+          <div key={row.key} className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-3">
             <dt className="text-ui-base text-foreground-subtle">{row.label}</dt>
             <dd className="min-w-0">
               <button
@@ -639,9 +544,7 @@ function InfoSection({
 }
 
 /** 外链只放行 https（信息区渲染层统一收口，schema 不做校验）。 */
-function pickHttpsUrl(
-  ...candidates: Array<string | undefined>
-): string | undefined {
+function pickHttpsUrl(...candidates: Array<string | undefined>): string | undefined {
   return candidates.find(
     (candidate): candidate is string =>
       typeof candidate === "string" && candidate.startsWith("https://"),
@@ -649,11 +552,7 @@ function pickHttpsUrl(
 }
 
 /** 高级折叠区外壳：详情页底部的「更多详情」，内容由父级注入（rootPath/Hook 明细/配置）。 */
-export function PluginStoreAdvancedSection({
-  children,
-}: {
-  children: ReactNode;
-}) {
+export function PluginStoreAdvancedSection({ children }: { children: ReactNode }) {
   const { intl } = useZCodeIntl();
   return (
     <details
@@ -694,33 +593,24 @@ function PluginStoreExtensionNotice({ item }: { item: StorePluginItem }) {
   ];
   const fullAccess = known.includes("sessions.fullAccess");
   return (
-    <section
-      data-testid="plugin-store-extension-notice"
-      data-plugin-id={item.id}
-    >
+    <section data-testid="plugin-store-extension-notice" data-plugin-id={item.id}>
       <div className="border-b border-border pb-2">
         <h2 className="text-ui-lg font-semibold text-foreground">
           {intl.formatMessage({ id: "settings.plugins.store.extension.title" })}
         </h2>
       </div>
       <p className="mt-3 text-ui-base text-foreground">
-        {intl.formatMessage({
-          id: "settings.plugins.store.extension.description",
-        })}
+        {intl.formatMessage({ id: "settings.plugins.store.extension.description" })}
       </p>
       <h3 className="mt-3 text-ui-base font-medium text-foreground">
-        {intl.formatMessage({
-          id: "settings.plugins.store.extension.grantsTitle",
-        })}
+        {intl.formatMessage({ id: "settings.plugins.store.extension.grantsTitle" })}
       </h3>
       {grants.length === 0 ? (
         <p
           data-testid="plugin-store-extension-no-grants"
           className="mt-1 text-ui-base text-foreground-subtle"
         >
-          {intl.formatMessage({
-            id: "settings.plugins.store.extension.noGrants",
-          })}
+          {intl.formatMessage({ id: "settings.plugins.store.extension.noGrants" })}
         </p>
       ) : (
         <ul className="mt-1 space-y-1">
@@ -743,15 +633,11 @@ function PluginStoreExtensionNotice({ item }: { item: StorePluginItem }) {
           data-testid="plugin-store-extension-full-access"
           className="mt-3 rounded-lg bg-warning-surface px-3 py-2 text-ui-base text-warning-surface-foreground"
         >
-          {intl.formatMessage({
-            id: "extensions.grants.dialog.fullAccessBody",
-          })}
+          {intl.formatMessage({ id: "extensions.grants.dialog.fullAccessBody" })}
         </p>
       ) : null}
       <p className="mt-2 text-ui-sm text-foreground-subtle">
-        {intl.formatMessage({
-          id: "settings.plugins.store.extension.consentNote",
-        })}
+        {intl.formatMessage({ id: "settings.plugins.store.extension.consentNote" })}
       </p>
     </section>
   );

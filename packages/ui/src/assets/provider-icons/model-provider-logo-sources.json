@@ -121,32 +121,40 @@
       "normalization": "Official GitHub organization avatar downsampled from 460x460 to 80x80 RGB."
     },
     {
-      "brand": "OrcaRouter",
-      "file": "model-provider-orcarouter.png",
-      "providerIds": ["orcarouter"],
-      "sourceUrl": "https://www.orcarouter.ai/orca-logo-classic.png",
-      "sourceOwner": "OrcaRouter",
-      "normalization": "Official classic logo downloaded unchanged from https://www.orcarouter.ai/orca-logo-classic.png. One asset serves both the API-key and the PKCE entries. Retrieved 2026-10-02."
+      "brand": "Tencent Cloud",
+      "file": "model-provider-tencent-cloud.png",
+      "providerIds": ["tencent-tokenhub-cn", "tencent-tokenhub-intl"],
+      "sourceUrl": "https://github.com/TencentCloud.png?size=80",
+      "sourcePage": "https://github.com/TencentCloud",
+      "sourceOwner": "Tencent Cloud",
+      "normalization": "Official GitHub organization avatar, unchanged 80x80 RGBA PNG. Retrieved 2026-10-15. Shared by both regions and themes."
     },
     {
-      "brand": "Cheaper Inference",
-      "file": "model-provider-cheaperinference-light.svg",
-      "darkFile": "model-provider-cheaperinference-dark.svg",
-      "providerIds": ["cheaperinference"],
-      "sourceUrl": "https://github.com/lobehub/lobe-icons/blob/63ef3f5900f7387b3024c920f6c1978672d8f9e4/src/CheaperInference/components/Mono.tsx",
-      "sourceOwner": "LobeHub; Cheaper Inference trademark belongs to its owner",
-      "license": "MIT",
-      "licenseUrl": "https://github.com/lobehub/lobe-icons/blob/63ef3f5900f7387b3024c920f6c1978672d8f9e4/LICENSE",
-      "normalization": "Current 24x24 LobeHub Mono paths unchanged. Only currentColor replaced by #000000 / #ffffff for themes. Full MIT notice embedded in both SVGs. Shape cross-checked against https://www.cheaperinference.com/icon.svg. Retrieved 2026-11-02."
+      "brand": "Volcano Engine",
+      "file": "model-provider-volcengine.png",
+      "providerIds": ["volcengine-ark", "volcengine-coding-plan", "volcengine-agent-plan"],
+      "sourceUrl": "https://github.com/volcengine.png?size=80",
+      "sourcePage": "https://github.com/volcengine",
+      "sourceOwner": "volcengine",
+      "normalization": "Official 80x80 GitHub organization avatar. JPEG decoded to PNG; no resize or visual edits. Retrieved 2026-10-15; shared by both themes."
     },
     {
-      "brand": "cheapaimodel",
-      "file": "model-provider-cheapaimodel-light.svg",
-      "darkFile": "model-provider-cheapaimodel-dark.svg",
-      "providerIds": ["cheapaimodel"],
-      "sourceUrl": "https://cheapaimodel.ai/favicon.svg",
-      "sourceOwner": "cheapaimodel",
-      "normalization": "Official three-feather mark from the favicon, paths and 30x30 viewBox unchanged. Background tile removed. Fill set to #000000 for light backgrounds and #ffffff for dark backgrounds. Retrieved 2026-11-05."
+      "brand": "StepFun",
+      "file": "model-provider-stepfun.png",
+      "providerIds": ["stepfun", "stepfun-step-plan"],
+      "sourceUrl": "https://github.com/stepfun-ai.png?size=80",
+      "sourcePage": "https://github.com/stepfun-ai",
+      "sourceOwner": "stepfun-ai",
+      "normalization": "Official 80x80 GitHub organization avatar. JPEG decoded to PNG; no resize or visual edits. Retrieved 2026-10-15; shared by both themes."
+    },
+    {
+      "brand": "SiliconFlow",
+      "file": "model-provider-siliconflow.png",
+      "providerIds": ["siliconflow-cn"],
+      "sourceUrl": "https://github.com/siliconflow.png?size=80",
+      "sourcePage": "https://github.com/siliconflow",
+      "sourceOwner": "siliconflow",
+      "normalization": "Official 80x80 GitHub organization avatar. PNG unchanged. Retrieved 2026-10-15; shared by both themes."
     }
   ]
 }

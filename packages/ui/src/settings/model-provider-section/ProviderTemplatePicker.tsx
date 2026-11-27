@@ -1,13 +1,14 @@
 import type { ProviderSettingsView } from "@zcode/services";
 import { ArrowLeftIcon, ChevronRightIcon, PlusIcon } from "lucide-react";
 import { resolveProviderTemplateName } from "@zcode/provider";
+import { OFFICIAL_PROVIDER_TEMPLATE_IDS, toZhOrEnLocale } from "@zcode/shared";
 import type { ReactNode } from "react";
 import {
   TID_MODEL_PROVIDER_TEMPLATE_BACK_BUTTON,
   TID_MODEL_PROVIDER_TEMPLATE_ITEM,
   TID_MODEL_PROVIDER_TEMPLATE_PICKER,
   testId,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -34,13 +35,20 @@ export function ProviderTemplatePicker({
   const { intl, locale } = useZCodeIntl();
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
   const customLabel = intl.formatMessage({ id: "settings.modelProvider.newProviderName" });
-  // 去智谱化：不再设"智谱"专属分组，Z.ai / BigModel 与其他预设并列展示。
   const groups = [
     {
-      id: "other" as const,
-      templates,
+      id: "zhipu",
+      templates: OFFICIAL_PROVIDER_TEMPLATE_IDS.flatMap((id) =>
+        templates.filter((template) => template.templateId === id),
+      ),
     },
-  ];
+    {
+      id: "other",
+      templates: templates.filter(
+        (template) => !OFFICIAL_PROVIDER_TEMPLATE_IDS.includes(template.templateId),
+      ),
+    },
+  ] as const;
   const createWithFeedback = async (create: () => Promise<void>) => {
     const feedbackKey = "provider-template-create";
     dismissFeedback(feedbackKey);
@@ -101,7 +109,12 @@ export function ProviderTemplatePicker({
                 />
               ) : null}
               {group.templates.map((template) => {
-                const label = resolveProviderTemplateName(template.templateId, template, locale);
+                const label = resolveProviderTemplateName(
+                  template.templateId,
+                  template,
+                  // Provider 模板名只有中英两套。
+                  toZhOrEnLocale(locale),
+                );
                 return (
                   <ProviderTemplateCard
                     key={template.templateId}
@@ -147,7 +160,7 @@ function ProviderTemplateCard({
         data-testid={cardTestId}
         disabled={disabled}
         onClick={onClick}
-        className="flex min-h-16 min-w-0 items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-start transition-colors outline-none hover:border-border-hover hover:bg-hover focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-60"
+        className="flex min-h-16 min-w-0 items-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-left transition-colors outline-none hover:border-border-hover hover:bg-hover focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20 disabled:opacity-60"
       >
         {icon}
         <span className="min-w-0 flex-1 break-words text-ui-base font-medium">{label}</span>

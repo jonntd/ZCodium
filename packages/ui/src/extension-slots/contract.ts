@@ -195,10 +195,7 @@ export type OpenExtensionView = (viewId: string) => boolean;
  * 走 Root 的新建任务（插件市场「试用」同一条路径），不自动发送。返回 false 表示这个窗口不能新建草稿
  * （例如当前工作区只读且没有指定工作区）；草稿准备失败由 Root 提示用户，不经这里返回。
  */
-export type StartExtensionDraft = (request: {
-  text: string;
-  workspace?: WorkspaceRef;
-}) => boolean;
+export type StartExtensionDraft = (request: { text: string; workspace?: WorkspaceRef }) => boolean;
 
 /** nav.primary 插槽（§16.4）由 Shell 提供的部分：经侧栏 props 传给 NavPrimarySlot。 */
 export interface NavPrimarySlotHost {

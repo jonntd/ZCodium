@@ -1,3 +1,4 @@
+import { Slot } from "radix-ui";
 import {
   cloneElement,
   createContext,
@@ -10,14 +11,13 @@ import {
   type Ref,
 } from "react";
 import { cn } from "@/components/lib/utils.js";
-import { Slot } from "radix-ui";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip.js";
-import { isAppleKeyboardPlatform } from "@/lib/keyboardShortcuts.js";
+import { ControlShortcutBadge } from "@/ControlShortcutBadge.js";
 
 interface ControlHintTooltipProps {
   children: ReactNode;
@@ -30,6 +30,8 @@ interface ControlHintTooltipProps {
   side?: ComponentProps<typeof TooltipContent>["side"];
   align?: ComponentProps<typeof TooltipContent>["align"];
   sideOffset?: ComponentProps<typeof TooltipContent>["sideOffset"];
+  /** 与视口边缘的最小间距；默认 0，提示可以贴边。 */
+  collisionPadding?: ComponentProps<typeof TooltipContent>["collisionPadding"];
   className?: string;
   triggerClassName?: string;
   triggerRef?: Ref<HTMLElement>;
@@ -39,9 +41,6 @@ type TriggerChildProps = {
   className?: string;
   ref?: Ref<HTMLElement>;
 };
-
-const shortcutKbdBaseClassName =
-  "rounded-md h-4 inline-flex items-center bg-tooltip-tag px-1.5 text-ui-xs font-medium text-tooltip-tag-foreground";
 
 function setRef<T>(ref: Ref<T> | undefined, value: T | null) {
   if (!ref) {
@@ -65,18 +64,11 @@ export function ControlHintTooltip({
   side = "top",
   align = "center",
   sideOffset = 2,
+  collisionPadding,
   className,
   triggerClassName,
   triggerRef,
 }: ControlHintTooltipProps) {
-  const useAppleShortcutFont = isAppleKeyboardPlatform();
-  const shortcutFontClassName = useAppleShortcutFont ? "tracking-normal" : "font-mono";
-  const shortcutFontStyle = useAppleShortcutFont
-    ? {
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif',
-      }
-    : undefined;
   const isTriggerElement = isValidElement<TriggerChildProps>(children);
   const childRef = isTriggerElement ? children.props.ref : undefined;
   // Radix Tooltip/Dropdown/Popper 的 asChild trigger 会在 ref 变化时同步 setState。
@@ -113,10 +105,11 @@ export function ControlHintTooltip({
         align={align}
         side={side}
         sideOffset={sideOffset}
+        collisionPadding={collisionPadding}
         className={cn(
           description
-            ? "max-w-72 flex-col items-start gap-1.5 px-3 py-2 text-start"
-            : "max-w-[min(28rem,calc(100vw-1rem))] items-center gap-2 px-2.5 py-1 text-start has-data-[slot=kbd]:pe-1",
+            ? "max-w-72 flex-col items-start gap-1.5 px-3 py-2 text-left"
+            : "max-w-[min(28rem,calc(100vw-1rem))] items-center gap-2 px-2.5 py-1 text-left has-data-[slot=kbd]:pr-1",
           className,
         )}
       >
@@ -125,15 +118,7 @@ export function ControlHintTooltip({
             <span className="text-ui-sm font-medium leading-4 text-tooltip-foreground">
               {title}
             </span>
-            {shortcut ? (
-              <kbd
-                data-slot="kbd"
-                className={cn(shortcutKbdBaseClassName, shortcutFontClassName, "shrink-0")}
-                style={shortcutFontStyle}
-              >
-                {shortcut}
-              </kbd>
-            ) : null}
+            {shortcut ? <ControlShortcutBadge>{shortcut}</ControlShortcutBadge> : null}
           </div>
         ) : (
           // 无描述的提示过去同时受 max-w-xs 和 nowrap 约束，长中英文文案会越界裁剪。
@@ -147,15 +132,7 @@ export function ControlHintTooltip({
             {description}
           </span>
         ) : null}
-        {!description && shortcut ? (
-          <kbd
-            data-slot="kbd"
-            className={cn(shortcutKbdBaseClassName, shortcutFontClassName, "shrink-0")}
-            style={shortcutFontStyle}
-          >
-            {shortcut}
-          </kbd>
-        ) : null}
+        {!description && shortcut ? <ControlShortcutBadge>{shortcut}</ControlShortcutBadge> : null}
       </TooltipContent>
     </Tooltip>
   );
@@ -167,17 +144,23 @@ export function ControlHintTooltip({
 
 const SidebarTooltipContext = createContext(false);
 
-/** 项目与分组共享延迟提示，避免每行创建独立 Provider。 */
 export function SidebarTooltipProvider({ children }: { children: ReactNode }) {
+  // 侧栏原先继承全局零延迟，且连续划过按钮会跳过等待；在边界统一配置，每个提示都等待 300ms。
   return (
     <SidebarTooltipContext.Provider value>
-      <TooltipProvider delayDuration={300} skipDelayDuration={0} disableHoverableContent>
+      <TooltipProvider
+        delayDuration={300}
+        skipDelayDuration={0}
+        alwaysDelay
+        disableHoverableContent
+      >
         {children}
       </TooltipProvider>
     </SidebarTooltipContext.Provider>
   );
 }
 
+/** 原生 title 无法配置延迟；只在侧栏范围内替换，复用组件在其它页面的行为不变。 */
 export function SidebarNativeTooltip({
   children,
   ...triggerProps
@@ -191,8 +174,10 @@ export function SidebarNativeTooltip({
   return (
     <ControlHintTooltip
       title={children.props.title}
+      // 原生标题所在元素可能需要收缩；不能继承图标按钮提示的 shrink-0。
       triggerClassName={cn("shrink", children.props.className)}
     >
+      {/* 菜单/树行的 asChild 会把事件和 ref 注入这个适配层，必须通过 Slot 合并回真实触发器。 */}
       {children.props.disabled ? (
         <span className="block min-w-0">
           <Slot.Root {...triggerProps}>{trigger}</Slot.Root>

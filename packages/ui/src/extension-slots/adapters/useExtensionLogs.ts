@@ -10,10 +10,7 @@ import { useExtensionsService } from "@/extension-slots/adapters/useExtensionSlo
 import type { ExtensionLogsModel } from "@/extension-slots/contract.js";
 
 /** 没有扩展门面（Web、手机远控）时用的空 store：hook 照常调用，结果为空。 */
-const EMPTY_STORE = createStore<ExtensionLogsState>(() => ({
-  entries: [],
-  loaded: false,
-}));
+const EMPTY_STORE = createStore<ExtensionLogsState>(() => ({ entries: [], loaded: false }));
 
 /**
  * 扩展日志标签的渲染模型（docs/plugins/extension-host.md §16.8）：挂载时订阅 Renderer 日志 store，

@@ -1,12 +1,18 @@
+import {
+  collectTelemetryRendererContext,
+  resolveWorkspaceTelemetryDetail,
+  ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID,
+  type RendererTelemetryEventPayload,
+} from "@zcode/shared";
+import type { ConversationTelemetryFact } from "@zcode/shared/zcode-protocol-v4";
 // 设置页插件管理薄服务实现——plugins/* 旧协议词的唯一 host 侧消费点。
 // 插件安装/市场/启停的事实源在 zcode-cli 进程（读写 ~/.zcode 插件目录并热更新
 // 运行态），host 无副本，故实现保持 agent 协议往返；收敛价值在 UI 层不再直触
 // IZCodeAgentService，词表消费面从 UI 散点收拢到本文件一处。
-import { isOfficialServiceEnabled, ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID } from "@zcode/shared";
 import type { IZCodeAgentService } from "../zcode-agent/zcodeAgent.js";
 import type { IPluginManagementService } from "./pluginManagement.js";
 
-
+/** 插件管理变更成功的信号（Window Host 侧）。action 与遥测的动作名相同。 */
 export interface PluginMutationSucceededEvent {
   /** install、uninstall、update、restore、configure、reset_config、enable、disable、source_* 等。 */
   action: string;
@@ -15,6 +21,13 @@ export interface PluginMutationSucceededEvent {
 }
 
 export interface PluginManagementServiceDependencies {
+  reportTelemetryEvent?: (event: RendererTelemetryEventPayload) => void | Promise<void>;
+  /**
+   * 插件清单「变了」的 Window Host 侧信号：安装、卸载、启停、配置等变更成功返回后调用。
+   * 扩展进程据此重读插件清单（docs/plugins/extension-host.md §3.4、§13）；配置与重置还通知该插件的
+   * settings.onDidChange（§16.7）。dryRun 不触发。
+   */
+  onMutationSucceeded?: (event: PluginMutationSucceededEvent) => void;
   now?: () => number;
   zcodeAgentService: Pick<
     IZCodeAgentService,
@@ -36,6 +49,7 @@ export interface PluginManagementServiceDependencies {
     | "validatePlugin"
     | "describePlugin"
     | "setPluginEnabled"
+    | "setWorkspacePluginTrust"
   >;
 }
 
@@ -68,6 +82,96 @@ export function createPluginManagementService(
     marketplace?: { id: string };
     plugin?: { id: string; marketplace: string; source: string; version?: string };
   };
+  const report = (
+    action: string,
+    params: Params,
+    startedAt: number,
+    result?: Result,
+    error?: unknown,
+  ) => {
+    if (params.dryRun || !dependencies.reportTelemetryEvent) return;
+    const diagnostics = result?.diagnostics ?? [];
+    const hasError = diagnostics.some((item) => item.severity === "error");
+    // JSON-RPC 保留原始异常类型在 data.name；不能用取消请求的 ACK 或错误文案推断。
+    const errorData =
+      error instanceof Error && "data" in error && error.data && typeof error.data === "object"
+        ? (error.data as { name?: unknown; code?: unknown })
+        : undefined;
+    const cancelled =
+      errorData?.name === "AbortError" ||
+      errorData?.code === "plugin_operation_cancelled" ||
+      (error instanceof Error &&
+        (error.name === "AbortError" ||
+          ("code" in error && error.code === "plugin_operation_cancelled"))) ||
+      diagnostics.some((item) => item.code === "plugin_operation_cancelled");
+    const pluginId =
+      params.pluginId ??
+      (params.pluginName && params.marketplace
+        ? `${params.pluginName}@${params.marketplace}`
+        : result?.pluginId);
+    const installed = result?.installedPlugins?.find((item) => item.id === pluginId);
+    const status = cancelled
+      ? "cancelled"
+      : error
+        ? "failure"
+        : hasError
+          ? action === "update" && !params.pluginId && result?.installedPlugins?.length
+            ? "partial"
+            : "failure"
+          : action === "uninstall" && !result?.removedPlugin
+            ? "noop"
+            : action === "install" && !installed
+              ? "failure"
+              : action === "update" && !result?.installedPlugins?.length
+                ? "noop"
+                : "success";
+    const detail: Record<string, string> = {
+      schema_version: "1",
+      action,
+      result: status,
+      duration_ms: String(Math.max(0, now() - startedAt)),
+      entry: params.telemetry?.entry ?? "unknown",
+      trigger: params.telemetry?.trigger ?? "user",
+      client_kind: params.telemetry?.client_kind ?? "unknown",
+      scope: params.scope ?? installed?.scope ?? "unknown",
+      ...resolveWorkspaceTelemetryDetail(params),
+      ...(pluginId || result?.removedPlugin
+        ? { plugin_id: pluginId ?? result!.removedPlugin!.id }
+        : {}),
+      ...(params.marketplace || installed || result?.removedPlugin || result?.marketplace
+        ? {
+            marketplace:
+              params.marketplace ??
+              installed?.marketplace ??
+              result?.removedPlugin?.marketplace ??
+              result!.marketplace!.id,
+          }
+        : {}),
+      ...(installed?.version ? { version_after: installed.version } : {}),
+      ...(result?.removedPlugin?.version ? { version_before: result.removedPlugin.version } : {}),
+      ...(installed?.listing?.publisherType
+        ? { publisher_type: installed.listing.publisherType }
+        : {}),
+      ...(action === "uninstall" ? { remove_cache: String(params.removeCache ?? true) } : {}),
+      ...(status === "failure" || status === "partial" || status === "cancelled"
+        ? { error_category: cancelled ? "cancelled" : hasError ? "diagnostic" : "transport" }
+        : {}),
+    };
+    // 上报只观察最终结果，不等待网络，失败不得改变原业务返回或触发业务重试。
+    try {
+      void Promise.resolve(
+        dependencies.reportTelemetryEvent({
+          elementName: "plugin_lifecycle",
+          eventRegion: "app",
+          eventType: "result",
+          context: collectTelemetryRendererContext(),
+          eventExtraDetail: detail,
+        }),
+      ).catch(() => {});
+    } catch {
+      /* 观测端故障与业务隔离。 */
+    }
+  };
   const observe = async <T extends Result>(
     action: string,
     params: Params,
@@ -77,8 +181,22 @@ export function createPluginManagementService(
     const { telemetry: _telemetry, ...clean } = params;
     try {
       const result = await invoke(clean);
+      report(action, params, startedAt, result);
+      if (!params.dryRun) {
+        // 通知方故障不能改变已成功的业务返回。
+        try {
+          dependencies.onMutationSucceeded?.({
+            action,
+            ...(params.pluginId ? { pluginId: params.pluginId } : {}),
+            ...(params.scope ? { scope: params.scope } : {}),
+          });
+        } catch {
+          /* 观察者自行记录错误。 */
+        }
+      }
       return result;
     } catch (error) {
+      report(action, params, startedAt, undefined, error);
       throw error;
     }
   };
@@ -88,26 +206,7 @@ export function createPluginManagementService(
     resolveSuggestedPluginReference: (params) => agent.resolveSuggestedPluginReference(params),
     onDynamicPluginOperationProgress: (operationId) =>
       agent.onDynamicPluginOperationProgress(operationId),
-    async getPluginsOverview(params) {
-      const result = await agent.getPluginsOverview(params);
-      // 官方市场开关关闭时只隐藏 CDN 来源的目录条目（含历史缓存）；bundled（本地内置）
-      // 条目是随包 seed 的本地资产，不受官方网络开关影响，公开分段继续可见——
-      // 否则内置插件会在商店里"消失"，与 seed 侧"本地内置不受开关影响"的口径矛盾。
-      // 官方市场身份保留（bundled 条目归属它）；officialMarketplaceEnabled=false 供 UI
-      // 展示 CDN 关闭引导。已安装插件列表不受过滤，用户仍可管理本地已安装的插件。
-      if (isOfficialServiceEnabled("marketplace")) {
-        return { ...result, officialMarketplaceEnabled: true };
-      }
-      return {
-        ...result,
-        officialMarketplaceEnabled: false,
-        availablePlugins: result.availablePlugins.filter(
-          (plugin) =>
-            plugin.marketplace !== ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID ||
-            plugin.officialSource === "bundled",
-        ),
-      };
-    },
+    getPluginsOverview: (params) => agent.getPluginsOverview(params),
     addPluginMarketplace: (params) =>
       observe("source_add", params, (clean) => agent.addPluginMarketplace(clean as typeof params)),
     removePluginMarketplace: (params) =>
@@ -137,5 +236,54 @@ export function createPluginManagementService(
       observe(params.enabled ? "enable" : "disable", params, (clean) =>
         agent.setPluginEnabled(clean as typeof params),
       ),
+    setWorkspacePluginTrust: (params) => agent.setWorkspacePluginTrust(params),
+  };
+}
+
+type PluginDiscoveryFact = Extract<ConversationTelemetryFact, { kind: "plugin.discovery" }>;
+
+const DISCOVERY_ACTION = {
+  searched: "agent_search",
+  card_shown: "recommend_view",
+  card_resolved: "recommend_decision",
+} as const;
+
+/** Agent 推荐链路的 CLI 事实 → 插件业务埋点；Host 单点调用，见 docs/monitoring/plugin-lifecycle-telemetry.md。 */
+export function toAgentPluginDiscoveryTelemetry(
+  fact: PluginDiscoveryFact,
+  workspace: { workspaceIdentity?: string | null; remoteSessionId?: string | null },
+): RendererTelemetryEventPayload {
+  const detail: Record<string, string> = {
+    schema_version: "1",
+    entry: "agent_recommendation",
+    ...resolveWorkspaceTelemetryDetail(workspace),
+    ...(fact.pluginId
+      ? { plugin_id: fact.pluginId, marketplace: ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID }
+      : {}),
+    ...(fact.result ? { result: fact.result } : {}),
+    ...(fact.decision ? { decision: fact.decision } : {}),
+    ...(fact.resultCount !== undefined ? { result_count: String(fact.resultCount) } : {}),
+  };
+  if (fact.phase === "install_settled") {
+    return {
+      elementName: "plugin_lifecycle",
+      eventRegion: "app",
+      eventType: "result",
+      context: collectTelemetryRendererContext(),
+      eventExtraDetail: {
+        ...detail,
+        action: fact.action ?? "install",
+        trigger: "user",
+        scope: "workspace",
+        ...(fact.durationMs !== undefined ? { duration_ms: String(fact.durationMs) } : {}),
+      },
+    };
+  }
+  return {
+    elementName: "plugin_discovery",
+    eventRegion: "app",
+    eventType: fact.phase === "card_resolved" ? "ck" : "view",
+    context: collectTelemetryRendererContext(),
+    eventExtraDetail: { ...detail, action: DISCOVERY_ACTION[fact.phase] },
   };
 }

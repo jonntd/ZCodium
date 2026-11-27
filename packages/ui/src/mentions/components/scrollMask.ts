@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-} from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
 const SCROLL_MASK_EDGE_SIZE_PX = 24;
 const SCROLL_MASK_THRESHOLD_PX = 1;
@@ -68,22 +62,16 @@ export function getVerticalScrollMaskStyle({
 }
 
 /** Thinking 与工具分组共用：容器拥有跟随状态，内容/容器变高时只在用户未离底时跟随。 */
-export function useBottomFollowingScroll(
-  active: boolean,
-  contentVersion: unknown,
-) {
+export function useBottomFollowingScroll(active: boolean, contentVersion: unknown) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const followingRef = useRef(true);
   const [mask, setMask] = useState<ScrollMaskState>(EMPTY_SCROLL_MASK_STATE);
   const updateMask = useCallback(() => {
     const el = scrollRef.current;
-    const next = el
-      ? resolveVerticalScrollMaskState(el)
-      : EMPTY_SCROLL_MASK_STATE;
+    const next = el ? resolveVerticalScrollMaskState(el) : EMPTY_SCROLL_MASK_STATE;
     setMask((previous) =>
-      previous.showTop === next.showTop &&
-      previous.showBottom === next.showBottom
+      previous.showTop === next.showTop && previous.showBottom === next.showBottom
         ? previous
         : next,
     );
@@ -96,8 +84,7 @@ export function useBottomFollowingScroll(
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    followingRef.current =
-      Math.max(0, el.scrollHeight - el.clientHeight - el.scrollTop) <= 2;
+    followingRef.current = Math.max(0, el.scrollHeight - el.clientHeight - el.scrollTop) <= 2;
     updateMask();
   }, [updateMask]);
   useEffect(() => {
@@ -124,11 +111,5 @@ export function useBottomFollowingScroll(
     : mask.showBottom
       ? "bottom"
       : "none";
-  return {
-    scrollRef,
-    contentRef,
-    onScroll,
-    maskData,
-    maskStyle: getVerticalScrollMaskStyle(mask),
-  };
+  return { scrollRef, contentRef, onScroll, maskData, maskStyle: getVerticalScrollMaskStyle(mask) };
 }

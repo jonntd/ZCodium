@@ -24,9 +24,7 @@ export interface SettingsScopeForm<T> {
 export function useSettingsScopeForm<T>(
   scope: Pick<SettingsScopeState, "resolution" | "device">,
 ): SettingsScopeForm<T> {
-  const [form, setForm] = useState<{ deviceKey: string; value: T } | null>(
-    null,
-  );
+  const [form, setForm] = useState<{ deviceKey: string; value: T } | null>(null);
   // 选中的项目关闭时 useSettingsScope 先给出一帧 missing（device 暂记为本机），随后回退到 fallbackKey；
   // 这一帧按回退目标所在设备判断，避免误清同设备的表单。
   const deviceKey =
@@ -36,14 +34,7 @@ export function useSettingsScopeForm<T>(
         ? "local"
         : scope.device.id;
   if (form && form.deviceKey !== deviceKey) setForm(null);
-  const openForm = useCallback(
-    (value: T) => setForm({ deviceKey, value }),
-    [deviceKey],
-  );
+  const openForm = useCallback((value: T) => setForm({ deviceKey, value }), [deviceKey]);
   const closeForm = useCallback(() => setForm(null), []);
-  return {
-    form: form?.deviceKey === deviceKey ? form.value : null,
-    openForm,
-    closeForm,
-  };
+  return { form: form?.deviceKey === deviceKey ? form.value : null, openForm, closeForm };
 }

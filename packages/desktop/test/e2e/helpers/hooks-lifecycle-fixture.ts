@@ -30,6 +30,15 @@ export const HOOKS_CONTEXT = {
   stop: (index: number) => `HOOK_STOP_CONTEXT_${index}`,
 } as const;
 
+/** 工具 Hook 的 context 在模型请求里的文本：`<Event>:<ToolName> hook additional context: <context>`。 */
+export function toolHookContextText(
+  hookEventName: "PreToolUse" | "PostToolUse" | "PostToolUseFailure",
+  toolName: string,
+  context: string,
+): string {
+  return `${hookEventName}:${toolName} hook additional context: ${context}`;
+}
+
 export const HOOKS_REASON = {
   asyncIgnored: "HOOK_ASYNC_DECISION_MUST_BE_IGNORED",
   permissionDeny: "HOOK_PERMISSION_DENY_REASON",
@@ -85,11 +94,15 @@ export async function installHooksLifecycleFixture(): Promise<void> {
   await mkdir(USER_CONFIG_DIR, { recursive: true });
   await rm(HOOKS_CASE_ROOT, { recursive: true, force: true });
   await rm(TRACE_PATH, { force: true });
-  originalConfig = await readFile(CONFIG_PATH, "utf8").catch((error: unknown) => {
-    if (isMissingFileError(error)) return null;
-    throw error;
-  });
-  const existing = originalConfig ? (JSON.parse(originalConfig) as Record<string, unknown>) : {};
+  originalConfig = await readFile(CONFIG_PATH, "utf8").catch(
+    (error: unknown) => {
+      if (isMissingFileError(error)) return null;
+      throw error;
+    },
+  );
+  const existing = originalConfig
+    ? (JSON.parse(originalConfig) as Record<string, unknown>)
+    : {};
   await writeFile(RECORDER_PATH, RECORDER_SOURCE, "utf8");
 
   const processHook = {
@@ -123,7 +136,9 @@ export async function installHooksLifecycleFixture(): Promise<void> {
           timeoutMs: 10000,
           maxOutputBytes: 32768,
           events: {
-            SessionStart: [{ matcher: "startup", hooks: [processHook, syncCommandHook] }],
+            SessionStart: [
+              { matcher: "startup", hooks: [processHook, syncCommandHook] },
+            ],
             UserPromptSubmit: [
               {
                 matcher: "matcher-must-not-filter-prompt",
@@ -133,10 +148,16 @@ export async function installHooksLifecycleFixture(): Promise<void> {
                 hooks: [asyncCommandHook, processHook],
               },
             ],
-            PreToolUse: [{ matcher: "Write|Read", hooks: [processHook, syncCommandHook] }],
-            PermissionRequest: [{ matcher: "Write", hooks: [processHook, syncCommandHook] }],
+            PreToolUse: [
+              { matcher: "Write|Read", hooks: [processHook, syncCommandHook] },
+            ],
+            PermissionRequest: [
+              { matcher: "Write", hooks: [processHook, syncCommandHook] },
+            ],
             PostToolUse: [{ matcher: "Write", hooks: [processHook, syncCommandHook] }],
-            PostToolUseFailure: [{ matcher: "Read", hooks: [processHook, syncCommandHook] }],
+            PostToolUseFailure: [
+              { matcher: "Read", hooks: [processHook, syncCommandHook] },
+            ],
             Stop: [
               {
                 matcher: "matcher-must-not-filter-response",
@@ -183,7 +204,9 @@ export async function waitForHookScenarioTrace(
           record.prompt.includes(marker),
       );
       if (!promptRecord?.session_id) return false;
-      scenarioRecords = records.filter((record) => record.session_id === promptRecord.session_id);
+      scenarioRecords = records.filter(
+        (record) => record.session_id === promptRecord.session_id,
+      );
       return predicate(scenarioRecords);
     },
     { timeout, timeoutMsg },
@@ -203,8 +226,12 @@ export async function readHookTraceRecords(): Promise<HookTraceRecord[]> {
   }
 }
 
-export function processHookRecords(records: HookTraceRecord[]): HookTraceRecord[] {
-  return records.filter((record) => record.executor === "process" && record.phase === "completed");
+export function processHookRecords(
+  records: HookTraceRecord[],
+): HookTraceRecord[] {
+  return records.filter(
+    (record) => record.executor === "process" && record.phase === "completed",
+  );
 }
 
 export function findHookEvent(
@@ -214,9 +241,13 @@ export function findHookEvent(
 ): HookTraceRecord {
   const record = records.find(
     (item) =>
-      item.hook_event_name === event && (toolName === undefined || item.tool_name === toolName),
+      item.hook_event_name === event &&
+      (toolName === undefined || item.tool_name === toolName),
   );
-  if (!record) throw new Error(`Missing ${event}${toolName ? ` hook for ${toolName}` : ""}`);
+  if (!record)
+    throw new Error(
+      `Missing ${event}${toolName ? ` hook for ${toolName}` : ""}`,
+    );
   return record;
 }
 
@@ -230,7 +261,12 @@ export function hasHookRecord(
 }
 
 function isMissingFileError(error: unknown): boolean {
-  return Boolean(error && typeof error === "object" && "code" in error && error.code === "ENOENT");
+  return Boolean(
+    error &&
+    typeof error === "object" &&
+    "code" in error &&
+    error.code === "ENOENT",
+  );
 }
 
 const RECORDER_SOURCE = String.raw`import { appendFileSync, existsSync, readFileSync } from "node:fs";

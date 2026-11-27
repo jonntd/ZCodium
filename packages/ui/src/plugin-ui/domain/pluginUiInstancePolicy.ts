@@ -39,9 +39,7 @@ export const EMPTY_PLUGIN_UI_INSTANCE_DERIVATION: PluginUiInstanceDerivation = {
 
 function isPluginUiToolRow(row: ConversationRow): row is ToolCallRow {
   return (
-    row.kind === "toolCall" &&
-    row.display?.kind === "mcp_tool" &&
-    row.display.ui !== undefined
+    row.kind === "toolCall" && row.display?.kind === "mcp_tool" && row.display.ui !== undefined
   );
 }
 
@@ -106,25 +104,15 @@ export function deriveLogicalUiInstances(
     const group = groups[key]!;
     const successes = group.filter(isSuccessfulUiRow);
     const active = successes.at(-1) ?? group.at(-1)!;
-    const superseded = successes
-      .filter((row) => row !== active)
-      .map((row) => row.toolCallId);
-    const supersededById = Object.fromEntries(
-      superseded.map((id) => [id, true]),
-    );
-    instances.push({
-      key,
-      activeToolCallId: active.toolCallId,
-      supersededToolCallIds: superseded,
-    });
+    const superseded = successes.filter((row) => row !== active).map((row) => row.toolCallId);
+    const supersededById = Object.fromEntries(superseded.map((id) => [id, true]));
+    instances.push({ key, activeToolCallId: active.toolCallId, supersededToolCallIds: superseded });
     for (const row of group) {
       byToolCallId[row.toolCallId] = {
         key,
         superseded: Object.hasOwn(supersededById, row.toolCallId),
         autoExpand: Object.hasOwn(recentTurns, row.turnId),
-        forcedInline:
-          row.display?.kind === "mcp_tool" &&
-          row.display.ui?.showInline === true,
+        forcedInline: row.display?.kind === "mcp_tool" && row.display.ui?.showInline === true,
       };
     }
   }

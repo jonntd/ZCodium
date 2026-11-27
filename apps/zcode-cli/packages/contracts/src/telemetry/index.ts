@@ -16,12 +16,9 @@ export const ModelApiOperation = {
   GoalTitle: "goal_title_generation",
   GoalVerification: "goal_completion_verification",
   GitCommitMessage: "workspace_git_commit_message",
-  PromptEnhance: "workspace_prompt_enhance",
   ProjectMemoryExtract: "project_memory_extract",
   ProjectMemoryDream: "project_memory_dream",
   ProjectMemoryRecall: "project_memory_recall",
-  ReadSessionContextExtract: "read_session_context_extract",
-  ReadSessionContextSynthesize: "read_session_context_synthesize",
   SessionTitle: "session_title_generation",
   ToolInternalModelCall: "tool_internal_model_call",
   WebFetch: "web_fetch_processing",
@@ -186,20 +183,10 @@ function mapQuerySourceToModelApiOperation(querySource: string | undefined): {
         operation: ModelApiOperation.GitCommitMessage,
         actorKind: ModelApiActorKind.System,
       };
-    case "prompt_enhance":
-      return {
-        operation: ModelApiOperation.PromptEnhance,
-        actorKind: ModelApiActorKind.System,
-      };
     case "web_search_tool":
       return { operation: ModelApiOperation.WebSearch, actorKind: ModelApiActorKind.Tool };
     case "web_fetch_processing":
       return { operation: ModelApiOperation.WebFetch, actorKind: ModelApiActorKind.Tool };
-    case "read_session_context":
-      return {
-        operation: ModelApiOperation.ReadSessionContextExtract,
-        actorKind: ModelApiActorKind.Tool,
-      };
     case "project_memory_extract":
       return {
         operation: ModelApiOperation.ProjectMemoryExtract,

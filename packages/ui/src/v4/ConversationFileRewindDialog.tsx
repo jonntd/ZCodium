@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
-import { Loader2Icon, Undo2Icon } from "lucide-react";
+import type { ReactNode } from "react";
+import { LoaderCircle, Undo2Icon } from "lucide-react";
 import {
   TID_V4_EDIT_WORKSPACE_CONFLICT_CONVERSATION_ONLY,
   TID_V4_EDIT_WORKSPACE_CONFLICT_DIALOG,
-} from "@zcode/shared";
+  TID_V4_FILE_REWIND_CONFIRM_LOCKED,
+} from "@zcode/shared/test-ids";
 import type { V4ConversationFileRewindPreviewResult } from "@zcode/shared/zcode-protocol-v4";
 import { Button } from "@/components/ui/button.js";
-import { Checkbox } from "@/components/ui/checkbox.js";
 import {
   Dialog,
   DialogContent,
@@ -15,8 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.js";
+import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { resolveInitialRewindSelection, toRewindCommandPaths } from "@/v4/fileRewindSelection.js";
 
 type FileRewindPreviewFile =
   | V4ConversationFileRewindPreviewResult["safeFiles"][number]
@@ -30,12 +30,11 @@ interface ConversationFileRewindDialogProps {
   previewLoading: boolean;
   applying: boolean;
   error: string | null;
-  /** fileRewind：提交勾选的文件路径子集；editConflict 不使用。 */
-  onApply: (paths: string[]) => void;
+  onApply: () => void;
+  /** 文件撤销被 session 锁住：「撤销文件」禁用并 hover 提示原因。 */
+  applyLocked?: boolean;
   variant?: "fileRewind" | "editConflict";
   onConversationOnly?: () => void;
-  /** 按文件撤销（docs/spec/per-file-rewind.md）：单文件入口只预勾选该文件；缺省全选 safe 文件。 */
-  initialSelectedPath?: string | null;
 }
 
 function formatReason(reason: string, intl: ReturnType<typeof useZCodeIntl>["intl"]) {
@@ -82,58 +81,6 @@ function PreviewFileList({
   );
 }
 
-/** 可撤销文件的勾选列表：每行独立勾选，头部提供全选/全不选。 */
-function SafeFileSelectList({
-  files,
-  selected,
-  onToggle,
-  onToggleAll,
-}: {
-  files: V4ConversationFileRewindPreviewResult["safeFiles"];
-  selected: ReadonlySet<string>;
-  onToggle: (path: string) => void;
-  onToggleAll: () => void;
-}) {
-  const { intl } = useZCodeIntl();
-  const allSelected = files.length > 0 && files.every((file) => selected.has(file.path));
-  const someSelected = files.some((file) => selected.has(file.path));
-  return (
-    <div className="grid gap-1">
-      {files.length > 1 ? (
-        <label className="flex items-center gap-2 px-2 py-1 text-ui-xs text-foreground-subtle">
-          <Checkbox
-            checked={allSelected ? true : someSelected ? "indeterminate" : false}
-            onCheckedChange={onToggleAll}
-            aria-label={intl.formatMessage({ id: "chat.changeSummary.rewindDialog.selectAll" })}
-          />
-          {intl.formatMessage({ id: "chat.changeSummary.rewindDialog.selectAll" })}
-        </label>
-      ) : null}
-      {files.map((file) => (
-        <label
-          key={`safe:${file.path}`}
-          className="flex items-center gap-2 rounded-md border border-border bg-input/30 px-2 py-1.5"
-        >
-          <Checkbox
-            checked={selected.has(file.path)}
-            onCheckedChange={() => onToggle(file.path)}
-            aria-label={file.path}
-          />
-          <span className="min-w-0 flex-1 truncate font-mono text-ui-xs text-foreground">
-            {file.path}
-          </span>
-          <span className="shrink-0 text-ui-xs text-foreground-subtle">
-            {intl.formatMessage(
-              { id: "chat.changeSummary.rewindDialog.operationCount" },
-              { count: String(file.operationCount) },
-            )}
-          </span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
 export function ConversationFileRewindDialog({
   open,
   onOpenChange,
@@ -142,56 +89,14 @@ export function ConversationFileRewindDialog({
   applying,
   error,
   onApply,
+  applyLocked = false,
   variant = "fileRewind",
   onConversationOnly,
-  initialSelectedPath,
 }: ConversationFileRewindDialogProps) {
   const { intl } = useZCodeIntl();
   const safeCount = preview?.safeFiles.length ?? 0;
   const unsafeCount = preview?.unsafeFiles.length ?? 0;
   const ignoredCount = preview?.ignoredFiles.length ?? 0;
-  const revertedCount = preview?.revertedPaths?.length ?? 0;
-  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
-
-  useEffect(() => {
-    if (!open || variant !== "fileRewind" || !preview) return;
-    // 每次打开/预览就绪重置勾选（规则见 fileRewindSelection.ts）。
-    setSelected(
-      resolveInitialRewindSelection(
-        preview.safeFiles.map((file) => file.path),
-        initialSelectedPath,
-      ),
-    );
-  }, [initialSelectedPath, open, preview, variant]);
-
-  const togglePath = (path: string) => {
-    setSelected((previous) => {
-      const next = new Set(previous);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    setSelected((previous) => {
-      if (!preview) return previous;
-      const safe = preview.safeFiles.map((file) => file.path);
-      const allSelected = safe.length > 0 && safe.every((path) => previous.has(path));
-      return new Set(allSelected ? [] : safe);
-    });
-  };
-
-  const selectedCount = selected.size;
-  const isFileRewind = variant === "fileRewind";
-  const confirmLabelId = isFileRewind
-    ? selectedCount === 1
-      ? "chat.changeSummary.rewindDialog.confirmCount.one"
-      : "chat.changeSummary.rewindDialog.confirmCount.other"
-    : "chat.changeSummary.rewindDialog.confirm";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -217,10 +122,10 @@ export function ConversationFileRewindDialog({
             })}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid max-h-[50vh] gap-3 overflow-y-auto pe-1">
+        <div className="grid max-h-[50vh] gap-3 overflow-y-auto pr-1">
           {previewLoading ? (
             <div className="flex items-center gap-2 text-ui-base text-foreground-subtle">
-              <Loader2Icon className="size-3.5 animate-spin" />
+              <LoaderCircle className="size-3.5 animate-spin" />
               {intl.formatMessage({ id: "chat.changeSummary.rewindDialog.loading" })}
             </div>
           ) : preview ? (
@@ -233,12 +138,7 @@ export function ConversationFileRewindDialog({
                       { count: String(safeCount) },
                     )}
                   </h3>
-                  <SafeFileSelectList
-                    files={preview.safeFiles}
-                    selected={selected}
-                    onToggle={togglePath}
-                    onToggleAll={toggleAll}
-                  />
+                  <PreviewFileList files={preview.safeFiles} type="safe" />
                 </section>
               ) : null}
               <section className="grid gap-1">
@@ -261,19 +161,6 @@ export function ConversationFileRewindDialog({
                   <PreviewFileList files={preview.ignoredFiles} type="ignored" />
                 </section>
               ) : null}
-              {variant === "fileRewind" && selectedCount > 0 && selectedCount < safeCount ? (
-                <p className="text-ui-xs text-foreground-subtle">
-                  {intl.formatMessage({ id: "chat.changeSummary.rewindDialog.partialHint" })}
-                </p>
-              ) : null}
-              {variant === "fileRewind" && revertedCount > 0 ? (
-                <p className="text-ui-xs text-foreground-subtle">
-                  {intl.formatMessage(
-                    { id: "chat.changeSummary.rewindDialog.revertedNote" },
-                    { count: String(revertedCount) },
-                  )}
-                </p>
-              ) : null}
             </>
           ) : (
             <p className="text-ui-base text-foreground-subtle">
@@ -281,7 +168,7 @@ export function ConversationFileRewindDialog({
             </p>
           )}
           {error ? <p className="text-ui-base text-danger">{error}</p> : null}
-          {variant === "fileRewind" && preview && safeCount === 0 ? (
+          {variant === "fileRewind" && preview && !preview.canApply ? (
             <p className="text-ui-base text-foreground-subtle">
               {intl.formatMessage({ id: "chat.changeSummary.rewindDialog.cannotApply" })}
             </p>
@@ -304,23 +191,59 @@ export function ConversationFileRewindDialog({
                 data-testid={TID_V4_EDIT_WORKSPACE_CONFLICT_CONVERSATION_ONLY}
                 onClick={onConversationOnly}
               >
-                {applying ? <Loader2Icon className="animate-spin" /> : null}
+                {applying ? <LoaderCircle className="animate-spin" /> : null}
                 {intl.formatMessage({ id: "chat.edit.workspaceConflict.conversationOnly" })}
               </Button>
             </>
           ) : (
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={!preview || previewLoading || applying || selectedCount === 0}
-              onClick={() => onApply(toRewindCommandPaths(selected))}
+            <FileRewindLockedHint
+              // 有不能安全撤销的文件时，解锁后仍不能撤销，不提示锁定原因。
+              locked={applyLocked && preview?.canApply === true}
+              triggerTestId={TID_V4_FILE_REWIND_CONFIRM_LOCKED}
             >
-              {applying ? <Loader2Icon className="animate-spin" /> : <Undo2Icon />}
-              {intl.formatMessage({ id: confirmLabelId }, { count: String(selectedCount) })}
-            </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                // Bug 原因：弹窗打开后 session 才加锁时，pane 撤掉 apply 回调，按钮仍按 preview
+                // 结果可点，点击后静默无反应。锁住时同步禁用，锁解除后自动恢复。
+                disabled={!preview?.canApply || applying || previewLoading || applyLocked}
+                onClick={onApply}
+              >
+                {applying ? <LoaderCircle className="animate-spin" /> : <Undo2Icon />}
+                {intl.formatMessage({ id: "chat.changeSummary.rewindDialog.confirm" })}
+              </Button>
+            </FileRewindLockedHint>
           )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * 文件撤销因 session 锁禁用时的 hover 提示，文件摘要卡与撤销弹窗共用同一条固定文案。
+ * 禁用的 Button 带 pointer-events-none，收不到 hover，由外层 span 承接；未锁时原样渲染。
+ */
+export function FileRewindLockedHint({
+  locked,
+  triggerTestId,
+  children,
+}: {
+  locked: boolean;
+  triggerTestId: string;
+  children: ReactNode;
+}) {
+  const { intl } = useZCodeIntl();
+  if (!locked) return <>{children}</>;
+  return (
+    <ControlHintTooltip title={intl.formatMessage({ id: "chat.changeSummary.rewindLocked" })}>
+      <span
+        className="inline-flex"
+        data-disabled-tooltip-trigger="true"
+        data-testid={triggerTestId}
+      >
+        {children}
+      </span>
+    </ControlHintTooltip>
   );
 }

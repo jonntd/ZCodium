@@ -32,17 +32,12 @@ function formatTime(locale: string, at: number): string {
   });
 }
 
-function formatStatus(
-  { intl, locale }: Intl,
-  display: DataSyncProvisioningDisplay,
-): string {
+function formatStatus({ intl, locale }: Intl, display: DataSyncProvisioningDisplay): string {
   switch (display.kind) {
     case "loading":
       return intl.formatMessage({ id: "remoteSync.overview.loading" });
     case "error":
-      return intl.formatMessage({
-        id: "remoteSync.providers.status.loadFailed",
-      });
+      return intl.formatMessage({ id: "remoteSync.providers.status.loadFailed" });
     case "none":
       return intl.formatMessage({ id: "remoteSync.providers.status.noLane" });
     case "running":
@@ -78,10 +73,7 @@ export function DataSyncProvidersPanel(props: {
   const intl = useZCodeIntl();
   const { formatMessage } = intl.intl;
   const { state } = props;
-  const display = resolveDataSyncProvisioningDisplay(
-    state.provisioning,
-    state.retrying,
-  );
+  const display = resolveDataSyncProvisioningDisplay(state.provisioning, state.retrying);
   const failed = display.kind === "failed";
   return (
     <div
@@ -106,10 +98,7 @@ export function DataSyncProvidersPanel(props: {
         )}
       >
         {display.kind === "running" ? (
-          <RefreshCw
-            className="size-4 shrink-0 animate-spin"
-            aria-hidden="true"
-          />
+          <RefreshCw className="size-4 shrink-0 animate-spin" aria-hidden="true" />
         ) : failed ? (
           <CircleAlert className="size-4 shrink-0" aria-hidden="true" />
         ) : (
@@ -162,11 +151,7 @@ export function DataSyncProvidersPanel(props: {
                 <span className="mt-0.5 block truncate text-ui-sm text-foreground-subtle">
                   {[
                     row.endpoint,
-                    row.models.join(
-                      formatMessage({
-                        id: "remoteSync.dependency.nameSeparator",
-                      }),
-                    ),
+                    row.models.join(formatMessage({ id: "remoteSync.dependency.nameSeparator" })),
                   ]
                     .filter(Boolean)
                     .join(" · ")}
@@ -177,10 +162,7 @@ export function DataSyncProvidersPanel(props: {
                   data-testid={`remote-sync-provider-key-${row.providerId}`}
                   className="mt-0.5 shrink-0 self-start font-mono text-ui-xs text-foreground-subtle"
                 >
-                  {formatMessage(
-                    { id: "remoteSync.providers.apiKey" },
-                    { key: row.maskedApiKey },
-                  )}
+                  {formatMessage({ id: "remoteSync.providers.apiKey" }, { key: row.maskedApiKey })}
                 </span>
               ) : null}
             </div>
@@ -217,16 +199,12 @@ export function DataSyncProvidersOverviewRow(props: {
         onClick={props.onNavigate}
         className="grid w-full grid-cols-[minmax(0,1fr)_64px_64px_minmax(120px,220px)] items-center gap-4 py-3 text-left text-ui-base"
       >
-        <span className="truncate font-medium text-foreground">
-          {props.label}
-        </span>
+        <span className="truncate font-medium text-foreground">{props.label}</span>
         <span
           data-testid="remote-sync-overview-local-providers"
           className="text-center tabular-nums text-foreground-subtle"
         >
-          {props.state.list.phase === "ready"
-            ? props.state.list.rows.length
-            : "–"}
+          {props.state.list.phase === "ready" ? props.state.list.rows.length : "–"}
         </span>
         <span
           data-testid="remote-sync-overview-remote-providers"
@@ -235,13 +213,9 @@ export function DataSyncProvidersOverviewRow(props: {
           –
         </span>
         <span className="flex min-w-0 items-center justify-end gap-2 text-foreground-subtle">
-          <span
-            className={cn("truncate text-right", failed && "text-destructive")}
-          >
+          <span className={cn("truncate text-right", failed && "text-destructive")}>
             {intl.formatMessage({
-              id: failed
-                ? "remoteSync.overview.syncFailed"
-                : "remoteSync.overview.autoSync",
+              id: failed ? "remoteSync.overview.syncFailed" : "remoteSync.overview.autoSync",
             })}
           </span>
           <ChevronRight className="size-3.5 shrink-0" aria-hidden="true" />

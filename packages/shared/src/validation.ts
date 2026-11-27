@@ -58,7 +58,7 @@ import { networkCaptureControlSchema, networkCaptureBatchSchema } from "./networ
 import { browserCommandSchema } from "./browser-use/commands.js";
 import { browserCommandResultSchema } from "./browser-use/result.js";
 import { modelSelectionSchema } from "./model-selection.js";
-import { localeSchema } from "./validationAppSettings.js";
+import { localeSchema, replyLanguageSchema } from "./validationAppSettings.js";
 import { zcodeProcessDiagnosticSchema } from "./process-diagnostic.js";
 import { PROCESS_RESOURCE_CLI_LANES } from "./processResourceTelemetry.js";
 import {
@@ -72,10 +72,7 @@ import { isKnownRemoteResourcePackageId } from "./remoteResourcePackages.js";
 import type { WebRemoteControlAppPayload } from "./web-remote-control.js";
 import { webRemoteControlMobileLogAppPayloadSchemas } from "#src/web-remote-relay/index.js";
 import { PROTOCOL_V4_LIMITS } from "./zcode-protocol-v4/core.js";
-import {
-  remoteRuntimeAssetSettingsSchema,
-  sourceServerArtifactPolicySchema,
-} from "./source-server/release.js";
+import { sourceServerArtifactPolicySchema } from "./source-server/release.js";
 import { sessionWorkflowActivitySchema } from "./zcode-protocol-v4/sessions-index-workflow-activity.js";
 import {
   webRemoteControlRpcTransportAckSchema,
@@ -111,6 +108,7 @@ export {
   appSettingsSchema,
   localeSchema,
   postUpdateReleaseNotesPayloadSchema,
+  REPLY_LANGUAGE_MAX_LENGTH,
 } from "./validationAppSettings.js";
 export { isValidWslUser, WSL_USER_MAX_LENGTH, wslUserSchema } from "./wslUserValidation.js";
 export { zcodeTaskModeSchema } from "./zcode-task-mode-schema.js";
@@ -167,8 +165,6 @@ export const webRemoteControlReconnectWorkspaceResultSchema = z.union([
 ]);
 
 export const webRemoteControlFailureReasonSchema = z.enum([
-  // fork：授权缺席的 fail-closed 语义（上游枚举无此值，fork 授权流需要显式区分）。
-  "auth-required",
   "session-not-found",
   "session-expired",
   "session-conflict",
@@ -712,8 +708,6 @@ export const remoteAssetDirsSchema = z.object({
   remoteCdnBaseUrls: z.array(z.string()).optional(),
   remoteCacheDir: z.string().optional(),
   sourceServerArtifactPolicy: sourceServerArtifactPolicySchema.optional(),
-  // fork 保留：远端运行时资源镜像设置（上游 v3.18.x 移除该面，desktop Host 消费端仍在使用）。
-  runtimeAssetSettings: remoteRuntimeAssetSettingsSchema.optional(),
 });
 
 const hostAgentWarmupTargetSchema = z.object({
@@ -739,6 +733,8 @@ export const hostInitLocalMessageSchema = z.object({
   remoteAssets: remoteAssetDirsSchema.optional(),
   /** spawn 时刻 Main 的实时界面语言；后续变化由 application-locale-changed 推送。 */
   locale: localeSchema.optional(),
+  /** spawn 时刻 Main 持有的 Agent 回复语言（null 为未设置）；后续变化由 reply-language-changed 推送。 */
+  replyLanguage: replyLanguageSchema.nullable().optional(),
   zcodeBuiltinProviderConfigFilePath: nonEmptyStringSchema,
   runtimeProcessEnvPatch: z
     .record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string())
@@ -1094,6 +1090,13 @@ export const hostApplicationLocaleChangedMessageSchema = z
   })
   .strict();
 
+export const hostReplyLanguageChangedMessageSchema = z
+  .object({
+    type: z.literal("reply-language-changed"),
+    replyLanguage: replyLanguageSchema.nullable(),
+  })
+  .strict();
+
 export const hostProviderProvisioningExecuteMessageSchema = z
   .object({
     type: z.literal("provider-provisioning-execute"),
@@ -1215,6 +1218,7 @@ export const hostIncomingMessageSchema = z.discriminatedUnion("type", [
   hostPluginSandboxRegisterResultMessageSchema,
   hostCuaPipFocusChangedMessageSchema,
   hostApplicationLocaleChangedMessageSchema,
+  hostReplyLanguageChangedMessageSchema,
   hostProviderProvisioningExecuteMessageSchema,
   hostProviderProvisioningLaneResultMessageSchema,
 ]);
@@ -1231,12 +1235,6 @@ export const hostRemoteWorkspaceContextBoundResponseSchema = z
   .object({
     type: z.literal("remote-workspace-context-bound"),
     requestId: nonEmptyStringSchema,
-    // Host 权威 workspace scope（bind 的唯一事实源）。desktopRemoteSessions 的 handler
-    // 依赖它重挂 renderer attachment；缺失时走显式「missing authoritative descriptor」
-    // 错误路径而不是 safeParse 静默丢弃——因此保持 optional，不让 strict 校验吞掉
-    // 可诊断的坏帧（2026-11-23 修复：收紧 schema 时 descriptor 字段被整段弄丢，
-    // 所有带 descriptor 的合法 ACK 被静默丢弃，bind 永远挂起）。
-    descriptor: windowHostRemoteWorkspaceDescriptorSchema.optional(),
     // Desktop tab rekey only；手机 replayable attachment 不消费该提示。
     previousWorkspaceIdentity: nonEmptyStringSchema.optional(),
   })
@@ -1502,7 +1500,9 @@ export const hostPluginTelemetryResponseSchema = z
   .object({
     type: z.literal("plugin-telemetry"),
     event: rendererTelemetryEventPayloadSchema.refine((event) =>
-      ["plugin_lifecycle", "plugin_usage", "plugin_runtime_error"].includes(event.elementName),
+      ["plugin_lifecycle", "plugin_discovery", "plugin_usage", "plugin_runtime_error"].includes(
+        event.elementName,
+      ),
     ),
   })
   .strict();

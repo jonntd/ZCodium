@@ -6,10 +6,7 @@ import type {
 } from "@modelcontextprotocol/ext-apps/app-bridge";
 import { constrainPluginUiDisplayModes } from "@/plugin-ui/domain/buildPluginUiHostContext.js";
 import { AppBridge } from "@modelcontextprotocol/ext-apps/app-bridge";
-import type {
-  PluginSandboxHandle,
-  PluginSandboxTransportPort,
-} from "@zcode/shared/mcp-apps";
+import type { PluginSandboxHandle, PluginSandboxTransportPort } from "@zcode/shared/mcp-apps";
 import {
   MCP_APPS_HANDSHAKE_TIMEOUT_MS,
   MCP_APPS_HOST_NAME,
@@ -45,9 +42,7 @@ export function createPluginUiHostController(
   let handle: PluginSandboxHandle | null = null;
   let bridge: PluginUiHostBridge | null = null;
   let boundScope:
-    | (ReturnType<typeof baseScope> & {
-        instance: PluginSandboxHandle["instance"];
-      })
+    | (ReturnType<typeof baseScope> & { instance: PluginSandboxHandle["instance"] })
     | null = null;
   let transport: Transport | null = null;
   let unsubscribePorts: (() => void) | null = null;
@@ -95,9 +90,7 @@ export function createPluginUiHostController(
   /** 经桥的请求共用的归属范围：workspace + session + 本插件 server。 */
   const baseScope = () => ({
     workspacePath: deps.scope.workspacePath,
-    ...(deps.scope.workspaceIdentity
-      ? { workspaceIdentity: deps.scope.workspaceIdentity }
-      : {}),
+    ...(deps.scope.workspaceIdentity ? { workspaceIdentity: deps.scope.workspaceIdentity } : {}),
     sessionId: deps.scope.sessionId,
     pluginId: deps.presentation.pluginId,
     serverName: deps.presentation.serverName,
@@ -147,14 +140,11 @@ export function createPluginUiHostController(
     : null;
 
   const sendFeed = (active: PluginUiHostBridge, feed: PluginUiToolFeed) => {
-    if (feed.toolInput)
-      void active.sendToolInput(feed.toolInput).catch(() => undefined);
+    if (feed.toolInput) void active.sendToolInput(feed.toolInput).catch(() => undefined);
     if (feed.toolCancelled) {
       void active.sendToolCancelled({}).catch(() => undefined);
     } else if (feed.toolResult) {
-      void active
-        .sendToolResult(feed.toolResult as CallToolResult)
-        .catch(() => undefined);
+      void active.sendToolResult(feed.toolResult as CallToolResult).catch(() => undefined);
     }
   };
 
@@ -258,8 +248,7 @@ export function createPluginUiHostController(
       } finally {
         recycling = false;
         // 回收 RPC 失败也不能吞掉等待期间已经收到的来源撤销通知。
-        if (!closed && closedDuringRecycle && !disposed)
-          deps.onInstanceClosed?.();
+        if (!closed && closedDuringRecycle && !disposed) deps.onInstanceClosed?.();
         closedDuringRecycle = false;
       }
     },
@@ -268,8 +257,7 @@ export function createPluginUiHostController(
       setPhase("preparing");
       preparation = (async () => {
         try {
-          const ownerWebContentsId =
-            await deps.platform.getOwnerWebContentsId();
+          const ownerWebContentsId = await deps.platform.getOwnerWebContentsId();
           if (disposed) return;
           const prepared = await deps.bridge.prepareSandbox({
             ...baseScope(),
@@ -283,39 +271,24 @@ export function createPluginUiHostController(
           });
           // prepare 已在 Host/Main 完成登记时，卸载不能只忽略回包，否则沙箱无人释放。
           if (disposed) {
-            await deps.bridge.closeInstance({
-              ...baseScope(),
-              instance: prepared.instance,
-            });
-            await deps.platform.disposeSandbox(
-              prepared.sandboxId,
-              prepared.initId,
-            );
+            await deps.bridge.closeInstance({ ...baseScope(), instance: prepared.instance });
+            await deps.platform.disposeSandbox(prepared.sandboxId, prepared.initId);
             return;
           }
           try {
-            await deps.bridge.validateInstance({
-              ...baseScope(),
-              instance: prepared.instance,
-            });
+            await deps.bridge.validateInstance({ ...baseScope(), instance: prepared.instance });
           } catch (error) {
             await deps.bridge
               .closeInstance({ ...baseScope(), instance: prepared.instance })
               .catch(() => undefined);
-            await deps.platform.disposeSandbox(
-              prepared.sandboxId,
-              prepared.initId,
-            );
+            await deps.platform.disposeSandbox(prepared.sandboxId, prepared.initId);
             throw error;
           }
           if (disposed) {
             await deps.bridge
               .closeInstance({ ...baseScope(), instance: prepared.instance })
               .catch(() => undefined);
-            await deps.platform.disposeSandbox(
-              prepared.sandboxId,
-              prepared.initId,
-            );
+            await deps.platform.disposeSandbox(prepared.sandboxId, prepared.initId);
             return;
           }
           handle = prepared;
@@ -323,8 +296,7 @@ export function createPluginUiHostController(
           // 先订阅端口再挂 webview：main 在 guest dom-ready 后投递端口，挂载后订阅可能错过。
           unsubscribePorts?.();
           unsubscribePorts = deps.platform.onPorts((event) => {
-            if (disposed || !handle || event.sandboxId !== handle.sandboxId)
-              return;
+            if (disposed || !handle || event.sandboxId !== handle.sandboxId) return;
             // 旧 initId 的端口一律丢弃（guest reload / 重复挂载防串线）。
             if (event.initId < handle.initId) return;
             handle = { ...handle, initId: event.initId };
@@ -342,19 +314,13 @@ export function createPluginUiHostController(
                 notifyResourceUpdated: (uri) => {
                   if (!bridge || !attached || !resources.has(uri)) return;
                   void bridge
-                    .notification({
-                      method: "notifications/resources/updated",
-                      params: { uri },
-                    })
+                    .notification({ method: "notifications/resources/updated", params: { uri } })
                     .catch(() => undefined);
                 },
                 notifyResourceListChanged: () => {
                   if (!bridge || !attached) return;
                   void bridge
-                    .notification({
-                      method: "notifications/resources/list_changed",
-                      params: {},
-                    })
+                    .notification({ method: "notifications/resources/list_changed", params: {} })
                     .catch(() => undefined);
                 },
                 notifyAppToolCall: (call) => {
@@ -386,9 +352,7 @@ export function createPluginUiHostController(
     },
     notifyToolResult(result) {
       if (disposed || !bridge || !attached) return;
-      void bridge
-        .sendToolResult(result as CallToolResult)
-        .catch(() => undefined);
+      void bridge.sendToolResult(result as CallToolResult).catch(() => undefined);
     },
     notifyToolCancelled() {
       if (disposed || !bridge || !attached) return;
@@ -421,9 +385,7 @@ export function createPluginUiHostController(
       unsubscribePorts?.();
       unsubscribePorts = null;
       const current = handle;
-      const scope = current
-        ? { ...baseScope(), instance: current.instance }
-        : null;
+      const scope = current ? { ...baseScope(), instance: current.instance } : null;
       unregisterNotifications?.();
       unregisterNotifications = null;
       const active = bridge,
@@ -436,8 +398,7 @@ export function createPluginUiHostController(
       handle = null;
       setPhase("disposed");
       disposal = (async () => {
-        if (scope)
-          await deps.bridge.closeInstance(scope).catch(() => undefined);
+        if (scope) await deps.bridge.closeInstance(scope).catch(() => undefined);
         sampling?.reset();
         await preparation;
         resources.unsubscribeAll();

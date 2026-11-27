@@ -9,25 +9,58 @@ import { createMcpConnectionPool } from "../src/mcp/pool.js";
 import { createMcpTelemetryTracker } from "../src/mcp/telemetry.js";
 
 describe("MCP connection pool isolation", () => {
+  it("closing a lease cancels its resource request without cancelling another session", async () => {
+    const adapter = createFakeAdapter("fixture");
+    const signals: AbortSignal[] = [];
+    adapter.readResource = vi.fn(async (_request, options) => {
+      signals.push(options!.signal!);
+      return { contents: [] };
+    });
+    const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
+    const a = pool.acquireLease(),
+      b = pool.acquireLease();
+    const config: McpServerConfig = { type: "stdio", command: "fixture", isolation: "workspace" };
+    await Promise.all([a.connectServer("fixture", config), b.connectServer("fixture", config)]);
+    await a.readResource!({ serverName: "fixture", uri: "test://a" });
+    await b.readResource!({ serverName: "fixture", uri: "test://b" });
+    await a.close();
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
+    expect(adapter.close).not.toHaveBeenCalled();
+    await b.close();
+    await pool.close();
+  });
+
   it("shares startup waiters and rejects a released lease while another owner connects", async () => {
     const ready = Promise.withResolvers<void>();
     let initialized = false;
     const source = { identity: "trusted", generation: 1 };
+    // 单飞与连接任务归 adapter：pool 把每个 caller 都转给 adapter，由 adapter 复用同一次握手。
+    let handshake: Promise<{ status: string }> | undefined;
+    let handshakes = 0;
     const connectServer = vi.fn(async () => {
-      await ready.promise;
-      initialized = true;
-      return { status: "connected" };
+      handshake ??= ready.promise.then(() => {
+        handshakes++;
+        initialized = true;
+        return { status: "connected" };
+      });
+      return handshake;
     });
     const adapter = {
       connectServer,
-      waitForAppConnection: async () => (initialized ? source : null),
+      // 连接任务与代际归 adapter：等待者先等自己的连接任务，pool 只校验租约归属。
+      waitForAppConnection: async () => {
+        await handshake;
+        return initialized ? source : null;
+      },
+      appConnectionSnapshot: () => (initialized ? source : null),
       close: vi.fn(async () => {}),
     } as unknown as McpPort;
     const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
     const a = pool.acquireLease({ sessionId: "a" });
     const b = pool.acquireLease({ sessionId: "b" });
     const config: McpServerConfig = { type: "stdio", command: "fixture", isolation: "workspace" };
-    const connecting = Promise.all([
+    const connecting = Promise.allSettled([
       a.connectServer("fixture", config),
       b.connectServer("fixture", config),
     ]);
@@ -35,10 +68,16 @@ describe("MCP connection pool isolation", () => {
     const opening = b.waitForAppConnection!("fixture");
     await a.close();
     ready.resolve();
-    await connecting;
+    expect((await connecting).map((result) => result.status)).toEqual(["rejected", "fulfilled"]);
     expect(await released).toBeNull();
-    expect(await opening).toEqual(source);
-    expect(connectServer).toHaveBeenCalledOnce();
+    // 回归：等待结果曾直接返回 adapter 原始快照，而 appConnectionSnapshot 带租约连接前缀；
+    // MCP App 打开时比较两者 identity，经 pool 的连接永远判为"连接不可用"。两者必须同源。
+    const waited = await opening;
+    expect(waited).toEqual(b.appConnectionSnapshot!("fixture"));
+    expect(waited?.identity).not.toBe(source.identity);
+    expect(waited?.identity.endsWith(`:${source.identity}`)).toBe(true);
+    // 两个 owner 共用一次握手；端口调用次数等于 caller 数，不代表重复连接。
+    expect(handshakes).toBe(1);
     await b.close();
     await pool.close();
   });
@@ -423,158 +462,228 @@ describe("MCP connection pool isolation", () => {
   });
 });
 
-// Bugfix 回归：设置页刷新走进程级 `protocol-settings` lease，配置不变时命中同一个 pool entry。
-// 过去 acquire 直接返回首次连接那个 resolve 过的 promise，停掉的 HTTP MCP 永远显示已连接。
-describe("MCP connection pool revalidation", () => {
-  const config: McpServerConfig = { type: "http", url: "https://mcp.example/sse" };
-
-  it("keeps a live connection when the ping succeeds", async () => {
-    const adapter = createControllableAdapter("official_tools");
-    const createAdapter = vi.fn(() => adapter);
-    const pool = createMcpConnectionPool({ createAdapter, idleGraceMs: 0 });
-    const settings = pool.acquireLease({ leaseId: "protocol-settings" });
-
-    await settings.connectConfiguredServers({ official_tools: config }, { revalidate: true });
-    await settings.connectConfiguredServers({ official_tools: config }, { revalidate: true });
-
-    expect(createAdapter).toHaveBeenCalledOnce();
-    expect(adapter.connectServer).toHaveBeenCalledOnce();
-    expect(adapter.pingServer).toHaveBeenCalledOnce();
-    await pool.close();
-  });
-
-  it("reconnects the same pooled entry when the ping reports a dead transport", async () => {
-    const adapter = createControllableAdapter("official_tools");
-    const createAdapter = vi.fn(() => adapter);
-    const pool = createMcpConnectionPool({ createAdapter, idleGraceMs: 0 });
-    const settings = pool.acquireLease({ leaseId: "protocol-settings" });
-
-    await settings.connectConfiguredServers({ official_tools: config }, { revalidate: true });
-    adapter.alive = false;
-    const snapshot = await settings.connectConfiguredServers(
-      { official_tools: config },
-      { revalidate: true },
+// 受管 worktree（docs/git/worktree.md §7.2 / §9.3）：连接分组按工作目录，会话 key 只透传给 adapter
+// 用于发往 Host 的官方 MCP 授权头。
+describe("MCP connection pool session workspace key", () => {
+  it("passes the session workspace key to the adapter without changing the pool scope", async () => {
+    const createAdapter = vi.fn(({ serverName }: { serverName: string }) =>
+      createFakeAdapter(serverName),
     );
-
-    // 原地重连：adapter/entry 身份不变，共享同一连接的其他 lease 不会掉成 "not leased"。
-    expect(createAdapter).toHaveBeenCalledOnce();
-    expect(adapter.connectServer).toHaveBeenCalledTimes(2);
-    expect(snapshot.statuses.official_tools?.status).toBe("connected");
-    await pool.close();
-  });
-
-  it("reconnects a pooled entry that already knows it is disconnected", async () => {
-    const adapter = createControllableAdapter("node_repl");
-    const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
-    const settings = pool.acquireLease({ leaseId: "protocol-settings" });
-
-    await settings.connectConfiguredServers({ node_repl: config }, { revalidate: true });
-    // stdio 的 onclose 已经把 record 标成 disconnected；刷新必须重试，而不是回放这条旧失败。
-    adapter.setStatus("disconnected");
-    await settings.connectConfiguredServers({ node_repl: config }, { revalidate: true });
-
-    expect(adapter.connectServer).toHaveBeenCalledTimes(2);
-    expect(adapter.pingServer).not.toHaveBeenCalled();
-    await pool.close();
-  });
-
-  it("does not disturb an in-flight OAuth handshake", async () => {
-    const adapter = createControllableAdapter("oauth_server");
-    const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
-    const settings = pool.acquireLease({ leaseId: "protocol-settings" });
-
-    await settings.connectConfiguredServers({ oauth_server: config }, { revalidate: true });
-    adapter.setStatus("connecting");
-    await settings.connectConfiguredServers({ oauth_server: config }, { revalidate: true });
-
-    expect(adapter.connectServer).toHaveBeenCalledOnce();
-    expect(adapter.pingServer).not.toHaveBeenCalled();
-    await pool.close();
-  });
-
-  it("treats a port without ping support as alive", async () => {
-    const adapter = createFakeAdapter("legacy_port");
-    const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
-    const settings = pool.acquireLease({ leaseId: "protocol-settings" });
-
-    await settings.connectConfiguredServers({ legacy_port: config }, { revalidate: true });
-    await settings.connectConfiguredServers({ legacy_port: config }, { revalidate: true });
-
-    expect(adapter.connectServer).toHaveBeenCalledOnce();
-    await pool.close();
-  });
-
-  it("skips revalidation when the caller does not ask for it", async () => {
-    const adapter = createControllableAdapter("official_tools");
-    const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
+    const pool = createMcpConnectionPool({ createAdapter, idleGraceMs: 0 });
     const session = pool.acquireLease({ leaseId: "session-a", sessionId: "session-a" });
 
-    await session.connectConfiguredServers({ official_tools: config });
-    adapter.alive = false;
-    await session.connectConfiguredServers({ official_tools: config });
+    await session.connectServer(
+      "node_repl",
+      { command: "node", type: "stdio" },
+      { workingDirectory: "/data/.zcode/worktrees/3f2a/repo", workspaceKey: "/projects/repo" },
+    );
 
-    // session 启动复用刚建立的连接，不该为每次收敛付一次 ping。
-    expect(adapter.pingServer).not.toHaveBeenCalled();
-    expect(adapter.connectServer).toHaveBeenCalledOnce();
+    expect(createAdapter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionContext: expect.objectContaining({
+          workspaceKey: "/data/.zcode/worktrees/3f2a/repo",
+        }),
+        workingDirectory: "/data/.zcode/worktrees/3f2a/repo",
+        workspaceKey: "/projects/repo",
+      }),
+    );
+    await session.close();
     await pool.close();
   });
 
-  it("shares one revalidation between concurrent refreshes", async () => {
-    const adapter = createControllableAdapter("official_tools");
-    const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
-    const settings = pool.acquireLease({ leaseId: "protocol-settings" });
+  it("does not share a workspace connection between sessions with different workspace keys", async () => {
+    const createAdapter = vi.fn(({ serverName }: { serverName: string }) =>
+      createFakeAdapter(serverName),
+    );
+    const pool = createMcpConnectionPool({ createAdapter, idleGraceMs: 0 });
+    const config = { command: "node", type: "stdio" as const, isolation: "workspace" as const };
+    const cwd = "/data/.zcode/worktrees/3f2a/repo";
+    // 同一 cwd：一个是源项目的 worktree 会话，一个把该目录单独添加成项目（MR !3520 review SG-01）。
+    const leases = [
+      pool.acquireLease({ leaseId: "a", sessionId: "a" }),
+      pool.acquireLease({ leaseId: "b", sessionId: "b" }),
+      pool.acquireLease({ leaseId: "c", sessionId: "c" }),
+    ];
+    await leases[0]!.connectServer("shared", config, {
+      workingDirectory: cwd,
+      workspaceKey: "/projects/repo",
+    });
+    await leases[1]!.connectServer("shared", config, { workingDirectory: cwd, workspaceKey: cwd });
+    await leases[2]!.connectServer("shared", config, {
+      workingDirectory: cwd,
+      workspaceKey: "/projects/repo",
+    });
 
-    await settings.connectConfiguredServers({ official_tools: config }, { revalidate: true });
-    adapter.alive = false;
-    await Promise.all([
-      settings.connectConfiguredServers({ official_tools: config }, { revalidate: true }),
-      settings.connectConfiguredServers({ official_tools: config }, { revalidate: true }),
-    ]);
-
-    expect(adapter.connectServer).toHaveBeenCalledTimes(2);
+    expect(
+      createAdapter.mock.calls.map(([input]) => (input as { workspaceKey?: string }).workspaceKey),
+    ).toEqual(["/projects/repo", cwd]);
+    for (const lease of leases) await lease.close();
     await pool.close();
   });
 });
 
-interface ControllableAdapter extends McpPort {
-  alive: boolean;
-  setStatus: (status: McpServerStatus["status"]) => void;
-  connectServer: McpPort["connectServer"] & { mock: { calls: unknown[] } };
-  pingServer: NonNullable<McpPort["pingServer"]> & { mock: { calls: unknown[] } };
-}
+// Bugfix 回归：设置页刷新走进程级 `protocol-settings` lease，配置不变时命中同一个 pool entry。
+// 过去 acquire 直接返回首次连接那个 resolve 过的 promise，停掉的 HTTP MCP 永远显示已连接。
+describe("MCP connection pool async startup", () => {
+  it("snapshots ready servers while another leased server is still starting", async () => {
+    const slowGate = Promise.withResolvers<void>();
+    const pool = createMcpConnectionPool({
+      createAdapter: ({ serverName }) =>
+        createSnapshotAdapter(serverName, serverName === "slow" ? slowGate.promise : undefined),
+      idleGraceMs: 0,
+    });
+    const lease = pool.acquireLease({ sessionId: "a" });
+    const connecting = lease.connectConfiguredServers({
+      fast: { command: "node", type: "stdio" },
+      slow: { type: "http", url: "https://mcp.example.test" },
+    });
 
-function createControllableAdapter(serverName: string): ControllableAdapter {
-  let status: McpServerStatus = {
-    status: "connected",
-    toolCount: 1,
-    transport: "http",
-    updatedAt: new Date(0).toISOString(),
-  };
-  const adapter = {
-    alive: true,
-    setStatus: (next: McpServerStatus["status"]) => {
-      status = { ...status, status: next };
-    },
-    callTool: vi.fn(async () => ({ content: [{ text: "ok", type: "text" }] })),
-    close: vi.fn(async () => undefined),
-    connectConfiguredServers: vi.fn(
-      async (): Promise<McpConnectionSnapshot> => ({
-        statuses: { [serverName]: status },
-        tools: [],
+    await vi.waitFor(() => expect(lease.getToolSnapshot!().fast?.tools).toHaveLength(1));
+    const snapshot = lease.getToolSnapshot!();
+    expect(snapshot.fast!.toolsVersion).toMatch(/^.+:1$/);
+    // adapter 在等待连接前发布 pending，pool 不另造状态或工具。
+    expect(snapshot.slow).toEqual({
+      status: expect.objectContaining({ status: "connecting", toolCount: 0, transport: "stdio" }),
+    });
+
+    slowGate.resolve();
+    await connecting;
+    expect(lease.getToolSnapshot!().slow!.tools).toHaveLength(1);
+    await lease.disconnectServer("slow");
+    expect(lease.getToolSnapshot!().slow).toBeUndefined();
+    await lease.close();
+    expect(lease.getToolSnapshot!()).toEqual({});
+    await pool.close();
+  });
+
+  it("delegates each server wait and its cancellation budget to the adapter", async () => {
+    const adapter = createSnapshotAdapter("slow");
+    adapter.waitForServer = vi.fn(async () => ({ timedOut: true }));
+    const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
+    const lease = pool.acquireLease();
+    await lease.connectServer("slow", { command: "node", type: "stdio" });
+    const signal = new AbortController().signal;
+    expect(await lease.waitForServer!("slow", { signal, timeoutMs: 10 })).toEqual({
+      timedOut: true,
+    });
+    expect(adapter.waitForServer).toHaveBeenCalledExactlyOnceWith("slow", {
+      signal,
+      timeoutMs: 10,
+    });
+    expect(await lease.waitForServer!("missing", { timeoutMs: 10 })).toEqual({ timedOut: false });
+    await pool.close();
+  });
+
+  it("returns at the adapter OAuth boundary while the pooled startup is still pending", async () => {
+    const startup = Promise.withResolvers<McpServerStatus>();
+    const authorization = Promise.withResolvers<void>();
+    const adapterWait = vi.fn(async () => {
+      await authorization.promise;
+      return { timedOut: false };
+    });
+    const pool = createMcpConnectionPool({
+      createAdapter: ({ serverName }) => ({
+        ...createSnapshotAdapter(serverName),
+        connectServer: vi.fn(() => startup.promise),
+        waitForServer: adapterWait,
       }),
-    ),
-    connectServer: vi.fn(async () => {
-      adapter.alive = true;
-      status = { ...status, status: "connected" };
-      return status;
-    }),
-    disconnectServer: vi.fn(async () => ({ ...status, status: "disconnected" as const })),
-    listTools: vi.fn(async () => []),
-    pingServer: vi.fn(async () => adapter.alive),
-    status: vi.fn(async () => ({ [serverName]: status })),
-  } as unknown as ControllableAdapter;
-  return adapter;
-}
+      idleGraceMs: 0,
+    });
+    const lease = pool.acquireLease({ sessionId: "a" });
+    const connecting = lease.connectServer("docs", {
+      type: "http",
+      url: "https://mcp.example.test",
+    });
+    const abort = new AbortController();
+
+    // 原启动 Promise 在等用户授权期间不会结束；pool 不能先等它，必须直接用 adapter 的等待边界。
+    const waiting = lease.waitForServer!("docs", { signal: abort.signal, timeoutMs: 60_000 });
+    authorization.resolve();
+    await expect(waiting).resolves.toEqual({ timedOut: false });
+    expect(adapterWait).toHaveBeenCalledExactlyOnceWith("docs", {
+      signal: abort.signal,
+      timeoutMs: 60_000,
+    });
+
+    startup.resolve({
+      status: "connected",
+      toolCount: 0,
+      transport: "http",
+      updatedAt: new Date(0).toISOString(),
+    });
+    await connecting;
+    await lease.close();
+    await pool.close();
+  });
+});
+
+describe("MCP connection pool revalidation", () => {
+  const config: McpServerConfig = { type: "http", url: "https://mcp.example/mcp" };
+
+  it("delegates explicit revalidation to the connection owner without probing in the pool", async () => {
+    const adapter = createFakeAdapter("docs");
+    adapter.pingServer = vi.fn(async () => false);
+    const createAdapter = vi.fn(() => adapter);
+    const pool = createMcpConnectionPool({ createAdapter, idleGraceMs: 0 });
+    const lease = pool.acquireLease();
+    await lease.connectConfiguredServers({ docs: config });
+    await lease.connectConfiguredServers({ docs: config }, { revalidate: true });
+    expect(createAdapter).toHaveBeenCalledOnce();
+    // pool 只附加本租约的取消信号，校验语义原样交给 adapter。
+    expect(adapter.connectServer).toHaveBeenLastCalledWith(
+      "docs",
+      config,
+      expect.objectContaining({ revalidate: true, signal: expect.any(AbortSignal) }),
+    );
+    expect(adapter.pingServer).not.toHaveBeenCalled();
+    await pool.close();
+  });
+
+  it("does not restore an old lease after a delayed revalidation and configuration replacement", async () => {
+    const probe = Promise.withResolvers<void>();
+    const probing = Promise.withResolvers<void>();
+    const oldAdapter = createFakeAdapter("docs");
+    const status = (await oldAdapter.status()).docs!;
+    vi.mocked(oldAdapter.connectServer)
+      .mockResolvedValueOnce(status)
+      .mockImplementationOnce(async () => {
+        probing.resolve();
+        await probe.promise;
+        return status;
+      });
+    const nextAdapter = createFakeAdapter("docs");
+    const pool = createMcpConnectionPool({
+      createAdapter: ({ config }) =>
+        config.type === "http" && config.url.endsWith("new") ? nextAdapter : oldAdapter,
+      idleGraceMs: 0,
+    });
+    const lease = pool.acquireLease();
+    await lease.connectConfiguredServers({ docs: config });
+    const pending = lease.connectConfiguredServers({ docs: config }, { revalidate: true });
+    await probing.promise;
+    await lease.connectConfiguredServers({ docs: { ...config, url: "https://mcp.example/new" } });
+    probe.resolve();
+    await pending;
+    await lease.callTool({ serverName: "docs", toolName: "ping", arguments: {} });
+    expect(nextAdapter.callTool).toHaveBeenCalledOnce();
+    expect(oldAdapter.connectServer).toHaveBeenCalledTimes(2);
+    await pool.close();
+  });
+
+  it("reuses the connection without revalidation for ordinary session startup", async () => {
+    const adapter = createFakeAdapter("docs");
+    const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
+    const lease = pool.acquireLease();
+    await lease.connectConfiguredServers({ docs: config });
+    await lease.connectConfiguredServers({ docs: config });
+    expect(adapter.connectServer).toHaveBeenCalledTimes(2);
+    // 相同配置的普通请求由 adapter 复用当前记录，pool 只附加本租约的取消信号。
+    expect(adapter.connectServer).toHaveBeenLastCalledWith("docs", config, {
+      signal: expect.any(AbortSignal),
+    });
+    await pool.close();
+  });
+});
 
 function createFakeAdapter(serverName: string): McpPort {
   const status: McpServerStatus = {
@@ -599,6 +708,7 @@ function createFakeAdapter(serverName: string): McpPort {
     })),
     listTools: vi.fn(async () => []),
     status: vi.fn(async () => ({ [serverName]: status })),
+    getToolSnapshot: () => ({ [serverName]: { status, tools: [], toolsVersion: "1" } }),
   };
 }
 
@@ -624,5 +734,86 @@ function createFakeAdapterWithStatus(
     disconnectServer: vi.fn(async () => ({ ...status, status: "disconnected" })),
     listTools: vi.fn(async () => []),
     status: vi.fn(async () => ({ [serverName]: status })),
+    getToolSnapshot: () => ({ [serverName]: { status, tools: [], toolsVersion: "1" } }),
+  };
+}
+
+it("cancels one session waiter without cancelling the pooled connection or another waiter", async () => {
+  const connected = Promise.withResolvers<McpServerStatus>();
+  let signal: AbortSignal | undefined;
+  const adapter = {
+    connectServer: vi.fn((_name, _config, options) => {
+      signal = options?.signal;
+      return connected.promise;
+    }),
+    close: vi.fn(async () => {}),
+  } as unknown as McpPort;
+  const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
+  const a = pool.acquireLease({ sessionId: "a" }),
+    b = pool.acquireLease({ sessionId: "b" });
+  const abort = new AbortController();
+  const config: McpServerConfig = { type: "stdio", command: "fixture", isolation: "workspace" };
+  const openingA = a.connectServer("fixture", config, { signal: abort.signal });
+  const checked = expect(openingA).rejects.toThrow();
+  const openingB = b.connectServer("fixture", config);
+  abort.abort(new Error("session closed"));
+  expect(signal?.aborted).not.toBe(true);
+  await checked;
+  await a.close();
+  connected.resolve({ status: "connected", transport: "stdio", toolCount: 0, updatedAt: "now" });
+  expect((await openingB).status).toBe("connected");
+  expect(adapter.close).not.toHaveBeenCalled();
+  await expect(a.connectServer("fixture", config)).rejects.toThrow();
+  await b.close();
+  await pool.close();
+});
+
+it("lease close interrupts an in-flight connection wait and forbids late reacquisition", async () => {
+  const connecting = Promise.withResolvers<McpServerStatus>();
+  const adapter = {
+    connectServer: () => connecting.promise,
+    close: async () => {},
+  } as unknown as McpPort;
+  const pool = createMcpConnectionPool({ createAdapter: () => adapter, idleGraceMs: 0 });
+  const lease = pool.acquireLease();
+  const pending = lease.connectServer("fixture", { type: "stdio", command: "fixture" });
+  const checked = expect(pending).rejects.toThrow();
+  await lease.close();
+  await checked;
+  connecting.resolve({ status: "connected", transport: "stdio", toolCount: 0, updatedAt: "now" });
+  await expect(
+    lease.connectServer("fixture", { type: "stdio", command: "fixture" }),
+  ).rejects.toThrow();
+  await pool.close();
+});
+
+function createSnapshotAdapter(serverName: string, gate?: Promise<void>): McpPort {
+  let status: McpServerStatus | undefined;
+  const connected = (): McpServerStatus => ({
+    status: "connected",
+    toolCount: 1,
+    transport: "stdio",
+    updatedAt: new Date(0).toISOString(),
+  });
+  const adapter = createFakeAdapter(serverName);
+  return {
+    ...adapter,
+    connectServer: vi.fn(async () => {
+      status = { ...connected(), status: "connecting", toolCount: 0 };
+      await gate;
+      status = connected();
+      return status;
+    }),
+    getToolSnapshot: () =>
+      status
+        ? {
+            [serverName]: {
+              status,
+              ...(status.status === "connected"
+                ? { tools: [{ name: "echo", serverName } as never], toolsVersion: "1" }
+                : {}),
+            },
+          }
+        : {},
   };
 }

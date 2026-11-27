@@ -3,7 +3,6 @@ interface CustomAboutDialogHtmlInput {
   appVersion: string;
   copyright: string;
   optimizationLine: string;
-  auditNotice: string;
   versionLabel: string;
   okButtonLabel: string;
 }
@@ -60,7 +59,7 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
       .about-window {
         width: 100%;
         max-width: 256px;
-        height: 328px;
+        height: 280px;
         display: grid;
         place-items: stretch;
         padding: 0;
@@ -128,11 +127,6 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         color: #303033;
       }
 
-      .audit-notice {
-        font-size: 11px;
-        line-height: 1.35;
-        color: #6b7280;
-      }
 
       .ok-button {
         width: 100%;
@@ -169,10 +163,6 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
         .meta {
           color: #e2e2e2;
         }
-
-        .audit-notice {
-          color: #9ca3af;
-        }
       }
     </style>
   </head>
@@ -186,31 +176,18 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
               width="118"
               height="100"
               fill="none"
-              viewBox="176 224 712 608"
+              viewBox="0 0 256 218"
               class="app-logo"
               focusable="false"
             >
-              <defs>
-                <linearGradient
-                  id="zcode-brand-z-gradient"
-                  x1="712"
-                  y1="224"
-                  x2="300"
-                  y2="800"
-                  gradientUnits="userSpaceOnUse"
-                >
-                  <stop offset="0" stop-color="#38bdf8" />
-                  <stop offset="1" stop-color="#818cf8" />
-                </linearGradient>
-              </defs>
               <path
-                fill="url(#zcode-brand-z-gradient)"
-                d="M184 224H512L453 308Q439 328 415 328H184Z"
+                fill="currentColor"
+                d="M134.4 0.130152L116.48 25.6022C113.665 29.5699 109.054 32.0019 104.064 32.0019H6.3999V0C6.3999 0.130149 134.4 0.130152 134.4 0.130152Z"
               />
-              <path fill="url(#zcode-brand-z-gradient)" d="M584 224H832L424 800H176Z" />
+              <path fill="currentColor" d="M256 0.130127L102.401 217.732H0L153.599 0.130127H256Z" />
               <path
-                fill="url(#zcode-brand-z-gradient)"
-                d="M536 720L600 656L648 704L824 528L888 592L648 832Z"
+                fill="currentColor"
+                d="M121.601 217.732L139.65 192.134C142.465 188.166 147.076 185.734 152.067 185.734H249.604V217.736H121.601V217.732Z"
               />
             </svg>
           </div>
@@ -221,7 +198,6 @@ export function createCustomAboutDialogHtml(input: CustomAboutDialogHtmlInput): 
           <div class="meta">
             ${input.optimizationLine ? `<div>${escapeHtml(input.optimizationLine)}</div>` : ""}
             <div>${escapeHtml(input.copyright)}</div>
-            <div class="audit-notice">${escapeHtml(input.auditNotice)}</div>
           </div>
         </div>
         <div class="spacer"></div>

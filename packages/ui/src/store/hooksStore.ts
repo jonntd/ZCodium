@@ -7,8 +7,6 @@ interface HooksStoreState {
   workspacePath: string | null;
   workspaceIdentity: string | null;
   authorityKey: string | null;
-  /** 当前目标的读取视图：user = 用户目录钩子，workspace = 项目钩子。参与投影 key。 */
-  scope: "user" | "workspace" | null;
   loadedWorkspaceKey: string | null;
   hooks: Hook[];
   loading: boolean;
@@ -19,7 +17,6 @@ interface HooksStoreState {
     workspaceIdentity: string | undefined,
     hooksService: IHooksService,
     authorityKey?: string,
-    scope?: "user" | "workspace",
   ) => Promise<void>;
   /**
    * refresh 必须显式传入发起时的 target（path/identity/service 三元组）。
@@ -33,7 +30,6 @@ interface HooksStoreState {
       workspacePath?: string | null;
       workspaceIdentity?: string | null;
       authorityKey?: string | null;
-      scope?: "user" | "workspace" | null;
     },
   ) => Promise<void>;
   addHook: (config: HookConfig, hooksService: IHooksService) => Promise<void>;
@@ -48,34 +44,25 @@ type StoreGet = () => HooksStoreState;
 
 const inflightLoads = new Map<string, Promise<void>>();
 
-/**
- * 投影 key = [authority\0]scope\0(identity|path)。
- * Bug 原因：本机「用户」视图的锚点与同路径项目的 {path, identity, authority} 完全相同，
- * 但两者走不同的 service 合同（user 视图强制 scope:"user"，项目视图读全部）。inflight
- * 去重只按 path/identity/authority 时，并发窗口内后发起的项目加载会 await 用户视图的
- * user-scope 结果并直接返回，项目分区持续显示用户钩子。scope 必须参与 key。
- * 导出给调用方（HooksSection 的 Trust 提示 key 比对）复用同一格式，避免第二套拼法。
- */
 export function getHooksCacheKey(
   workspacePath: string,
   workspaceIdentity?: string | null,
   authorityKey?: string | null,
-  scope?: "user" | "workspace" | null,
 ): string {
-  const targetKey = getWorkspaceKey(workspacePath, workspaceIdentity);
-  const authority = authorityKey?.trim();
-  const scopeKey = scope === "user" ? "user" : "workspace";
-  return `${authority ? `${authority}\0` : ""}${scopeKey}\0${targetKey}`;
+  const workspaceKey = getWorkspaceKey(workspacePath, workspaceIdentity);
+  // 受管 worktree 审核时 identity 是项目 key、发现路径是 worktree（D23）。只用 key 会让
+  // 项目与 worktree 两份投影共用缓存和 in-flight 去重，切换后读到另一份；路径不同就并入 key。
+  const targetKey =
+    workspaceKey === workspacePath ? workspaceKey : `${workspaceKey}\0${workspacePath}`;
+  return authorityKey?.trim() ? `${authorityKey.trim()}\0${targetKey}` : targetKey;
 }
 
 // Bugfix：store 是单例，切换 workspace 后先发起的加载可能后到。任何异步结果写回 store 之前
 // 都要比对发起时的 target key，否则旧 workspace 的 hooks 会覆盖当前投影，并被后续写操作落盘
 // 到当前 workspace。
 function currentWorkspaceKey(get: StoreGet): string | null {
-  const { workspacePath, workspaceIdentity, authorityKey, scope } = get();
-  return workspacePath
-    ? getHooksCacheKey(workspacePath, workspaceIdentity, authorityKey, scope)
-    : null;
+  const { workspacePath, workspaceIdentity, authorityKey } = get();
+  return workspacePath ? getHooksCacheKey(workspacePath, workspaceIdentity, authorityKey) : null;
 }
 
 function errorMessage(error: unknown): string {
@@ -203,34 +190,25 @@ export const useHooksStore = create<HooksStoreState>((set, get) => ({
   workspacePath: null,
   workspaceIdentity: null,
   authorityKey: null,
-  scope: null,
   loadedWorkspaceKey: null,
   hooks: [],
   loading: false,
   error: null,
   operatingHookId: null,
 
-  initialize: async (workspacePath, workspaceIdentity, hooksService, authorityKey, scope) => {
+  initialize: async (workspacePath, workspaceIdentity, hooksService, authorityKey) => {
     const normalizedIdentity = workspaceIdentity?.trim() || null;
     const normalizedAuthorityKey = authorityKey?.trim() || null;
-    // 缺省按项目视图处理，保持旧调用方（未传 scope）的语义不变。
-    const normalizedScope = scope === "user" ? "user" : "workspace";
     set({
       workspacePath: workspacePath ?? null,
       workspaceIdentity: normalizedIdentity,
       authorityKey: normalizedAuthorityKey,
-      scope: normalizedScope,
     });
     if (!workspacePath) {
       set({ hooks: [], loading: false, loadedWorkspaceKey: null });
       return;
     }
-    const key = getHooksCacheKey(
-      workspacePath,
-      normalizedIdentity,
-      normalizedAuthorityKey,
-      normalizedScope,
-    );
+    const key = getHooksCacheKey(workspacePath, normalizedIdentity, normalizedAuthorityKey);
     // Bugfix：切到另一个 workspace 时立即丢弃上一份投影，避免新数据到达前展示并操作别人的 hooks。
     if (get().loadedWorkspaceKey !== key) {
       set({ hooks: [], loadedWorkspaceKey: null });
@@ -261,13 +239,12 @@ export const useHooksStore = create<HooksStoreState>((set, get) => ({
   },
 
   refresh: async (hooksService, target) => {
-    // 四元组在调用点原子捕获：service 与 path/identity/authority/scope 必须来自同一时刻的同一目标。
+    // 三元组在调用点原子捕获：service 与 path/identity 必须来自同一时刻的同一 target。
     const targetPath = target.workspacePath ?? null;
     const targetIdentity = target.workspaceIdentity?.trim() || null;
     const targetAuthorityKey = target.authorityKey?.trim() || null;
-    const targetScope = target.scope === "user" ? "user" : "workspace";
     if (!targetPath) return;
-    const key = getHooksCacheKey(targetPath, targetIdentity, targetAuthorityKey, targetScope);
+    const key = getHooksCacheKey(targetPath, targetIdentity, targetAuthorityKey);
     // Bugfix：发起前 target 已不是当前 workspace（Trust 等待期间用户已切走）时必须直接
     // 放弃——loading/error 是全局单一字段，若仍 set({loading:true}) 会在结果因 key 不匹配
     // 被丢弃后，把当前 workspace 永久留在 loading=true。

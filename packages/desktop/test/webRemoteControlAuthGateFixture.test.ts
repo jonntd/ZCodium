@@ -22,6 +22,11 @@ it("keeps cached-account business requests inside the auth-gate fixture and rest
     });
     expect(close).not.toBeNull();
     expect(process.env.ZAI_BUSINESS_BASE_URL).toBe(process.env.ZCODE_E2E_REMOTE_AUTH_GATE_URL);
+    const scenes = await (
+      await fetch(`${process.env.ZCODE_E2E_REMOTE_AUTH_GATE_URL}/api/v1/client/scenes`)
+    ).json();
+    expect(scenes.data).toEqual([]);
+    expect(mapClientScenesToDraftSuggestedPromptItems(scenes.data)).toEqual([]);
     await close!();
     close = null;
     expect(process.env.ZAI_BUSINESS_BASE_URL).toBe("https://business.example.invalid");
@@ -33,10 +38,52 @@ it("keeps cached-account business requests inside the auth-gate fixture and rest
   }
 });
 
+it("seeds a last-enabled target that the startup-restore case does not reopen", async () => {
+  const root = await mkdtemp(join(tmpdir(), "remote-startup-restore-fixture-"));
+  const credentialsFile = join(root, "credentials.json");
+  const settingsFile = join(root, "setting.json");
+  const workspacePath = join(root, "ZCodeProject");
+  let close: (() => Promise<void>) | null = null;
+  try {
+    await writeFile(settingsFile, "{}");
+    close = await prepareWebRemoteControlAuthGateFixture({
+      specs: ["web-remote-control-startup-restore.test.ts"],
+      credentialsFile,
+      settingsFile,
+      workspacePath,
+    });
+    expect(close).not.toBeNull();
+    const settings = JSON.parse(await readFile(settingsFile, "utf8"));
+    expect(settings.webRemoteControlLastEnabledContext).toEqual({
+      workspacePath: `${workspacePath}-previous`,
+    });
+    const credentials = JSON.parse(await readFile(credentialsFile, "utf8"));
+    expect(credentials["oauth:active_provider"]).toBe("zai");
+  } finally {
+    await close?.();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 it.each([
+  "command-center-history-search.test.ts",
   "conversation-session-virtual-project-mobile.test.ts",
+  "conversation-session-project-new-order-mobile.test.ts",
+  "conversation-session-fork-cold-start-membership.test.ts",
+  "conversation-session-composer-settlement.test.ts",
+  "conversation-session-new-task-missing-root-mobile.test.ts",
+  "conversation-session-draft-model-migration-mobile.test.ts",
   "conversation-session-web-remote-project-directory.test.ts",
+  "conversation-session-remote-draft-prewarm.test.ts",
   "conversation-session-web-remote-unread.test.ts",
+  "conversation-session-web-remote-terminal.test.ts",
+  "conversation-session-workspace-mcp-trust.test.ts",
+  "conversation-session-id-compatibility.test.ts",
+  "conversation-session-status-panel-inline-layout.test.ts",
+  "conversation-session-background-history-layout.test.ts",
+  "conversation-session-r3-mobile-startup-restore.test.ts",
+  "conversation-session-project-management.test.ts",
+  "conversation-session-highspeed-card.test.ts",
 ])(
   "provides %s with an isolated authenticated relay and the current Web frontend",
   async (spec) => {
@@ -55,9 +102,13 @@ it.each([
         credentialsFile,
         settingsFile,
         workspacePath: root,
+        webUrl: "http://127.0.0.1:0/remote/v4",
       });
       expect(close).not.toBeNull();
-      expect(process.env.ZCODE_WEB_REMOTE_CONTROL_URL).toBe("http://127.0.0.1:5173/remote/v4");
+      const webUrl = new URL(process.env.ZCODE_WEB_REMOTE_CONTROL_URL!);
+      expect(webUrl.hostname).toBe("127.0.0.1");
+      expect(Number(webUrl.port)).toBeGreaterThan(0);
+      expect(webUrl.pathname).toBe("/remote/v4");
       const origin = process.env.ZCODE_E2E_REMOTE_AUTH_GATE_URL!;
       expect(new URL(origin).hostname).toBe("127.0.0.1");
       expect(process.env.ZAI_BUSINESS_BASE_URL).toBe(origin);
@@ -73,6 +124,17 @@ it.each([
       });
       expect(token.status).toBe(200);
       expect((await token.json()).data.token).toEqual(expect.any(String));
+      if (spec === "conversation-session-highspeed-card.test.ts") {
+        const highspeedToken = await fetch(new URL("/api/v1/remote/token", origin), {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer e2e-highspeed-zcode-jwt",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ role: "terminal" }),
+        });
+        expect(highspeedToken.status).toBe(200);
+      }
       const scenes = await (await fetch(new URL("/api/v1/client/scenes", origin))).json();
       expect(mapClientScenesToDraftSuggestedPromptItems(scenes.data)).toEqual([]);
       await close!();

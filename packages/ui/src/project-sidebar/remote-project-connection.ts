@@ -6,7 +6,12 @@ import {
 import type { SourceServerManagementSnapshot } from "@zcode/shared";
 import type { RemoteConnectionOpenPreference } from "@/app-shell/types.js";
 import { getWorkspaceSourceServerId } from "@/conversation-workspace-target/sourceIdentity.js";
+import {
+  buildRemoteTargetFromProfile,
+  findPreferredSourceConnectionProfile,
+} from "@/lib/remoteConnectionWizard.js";
 import { resolveRemoteConnectionPresentation } from "@/lib/remoteConnectionPresentation.js";
+import { requestRemoteProjectConnection } from "@/remote-connection-flow/contract.js";
 
 /** 最近目录不是新建请求；连接前固定已有入口，避免连接完成后误入创建器。 */
 export function resolveRecentRemoteProjectPreference(
@@ -83,48 +88,35 @@ export async function requestRetainedRemoteProjectConnection(input: {
     { workspaceHistory: snapshot?.workspaceHistory },
   );
   // 展示聚合会优先选失败/待处理线路，不能据此替换 Host 的默认操作线路。
-  const server = snapshot?.servers.find((candidate) => candidate.sourceServerId === sourceId);
-  const profiles =
-    snapshot?.profiles.filter(
-      (candidate) =>
-        candidate.sourceServerId === sourceId && candidate.lifecycleState !== "retired",
-    ) ?? [];
   const profile =
-    profiles.find((candidate) => candidate.profileId === server?.preferredProfileId) ?? profiles[0];
+    snapshot && sourceId ? findPreferredSourceConnectionProfile(snapshot, sourceId) : undefined;
   const state = snapshot?.states.find((candidate) => candidate.profileId === profile?.profileId);
-  const preference: RemoteConnectionOpenPreference = {
-    preferredDirectoryPath: path,
-    preferredProjectEntryId: entry.id,
-    preferredProfileId: profile?.profileId,
-    preferredTarget: profile?.target ?? host.target ?? undefined,
-  };
-  const presentation = resolveRemoteConnectionPresentation({
-    ...state,
-    installState: server?.installState,
-    // Host 错误也是设备聚合；已确定操作线路时只能使用该线路的错误。
-    projectError: profile ? undefined : host.lastConnectionError,
+  const server = snapshot?.servers.find((candidate) => candidate.sourceServerId === sourceId);
+  let pendingWizard: RemoteConnectionOpenPreference | undefined;
+  await requestRemoteProjectConnection({
+    preference: {
+      preferredDirectoryPath: path,
+      preferredProjectEntryId: entry.id,
+      preferredProfileId: profile?.profileId,
+      preferredTarget: profile ? buildRemoteTargetFromProfile(profile) : (host.target ?? undefined),
+    },
+    presentation: resolveRemoteConnectionPresentation({
+      ...state,
+      installState: server?.installState,
+      // Host 错误也是设备聚合；已确定操作线路时只能使用该线路的错误。
+      projectError: profile ? undefined : host.lastConnectionError,
+    }),
+    failure: {
+      code: state?.errorCode,
+      message: state?.error ?? (profile ? "" : (host.lastConnectionError ?? "")),
+    },
+    reconnect: async () => {
+      await input.service.connectHost(host.id);
+    },
+    openWizard: (preference) => {
+      pendingWizard = preference;
+    },
   });
-  const failure = {
-    code: state?.errorCode,
-    message: state?.error ?? (profile ? "" : (host.lastConnectionError ?? "")),
-  };
-  // Root/SSH 仍是唯一交互 owner：展示态只决定是否移交，不启动另一份连接 flow。
-  if (presentation.status === "failed" || presentation.status === "pending") {
-    if (await stillRetained()) input.openWizard({ ...preference, initialFailure: failure });
-    return;
-  }
-  try {
-    await input.service.connectHost(host.id);
-  } catch (cause) {
-    if (await stillRetained())
-      input.openWizard({
-        ...preference,
-        initialFailure: {
-          message: String(cause),
-          ...(cause && typeof cause === "object" && "code" in cause
-            ? { code: String(cause.code) }
-            : {}),
-        },
-      });
-  }
+  // 凭据/更新结果可能晚于成员移除；引用和旧快照都不能授权复活已移除的项目。
+  if (pendingWizard && (await stillRetained())) input.openWizard(pendingWizard);
 }

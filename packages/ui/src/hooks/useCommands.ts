@@ -36,18 +36,10 @@ export function useCommands(options: UseCommandsOptions) {
   const capability = useCommandsStore((state) => state.capability);
   const loading = useCommandsStore((state) => state.loading);
   const error = useCommandsStore((state) => state.error);
-  const operatingCommandId = useCommandsStore(
-    (state) => state.operatingCommandId,
-  );
-  const loadedWorkspacePath = useCommandsStore(
-    (state) => state.loadedWorkspacePath,
-  );
-  const loadedWorkspaceIdentity = useCommandsStore(
-    (state) => state.loadedWorkspaceIdentity,
-  );
-  const loadedAuthorityKey = useCommandsStore(
-    (state) => state.loadedAuthorityKey,
-  );
+  const operatingCommandId = useCommandsStore((state) => state.operatingCommandId);
+  const loadedWorkspacePath = useCommandsStore((state) => state.loadedWorkspacePath);
+  const loadedWorkspaceIdentity = useCommandsStore((state) => state.loadedWorkspaceIdentity);
+  const loadedAuthorityKey = useCommandsStore((state) => state.loadedAuthorityKey);
   // commandsStore 是单例，Scope 可在同一页面切 target。投影尚未对齐当前 target 时
   // 不能把上一个 host 的命令交给调用方渲染——那些行的 filePath 属于别的主机，一旦被
   // delete/toggle 就会拿着旧路径在当前 target 的 host 上执行。同 home 的两台远端「用户」
@@ -67,25 +59,10 @@ export function useCommands(options: UseCommandsOptions) {
     if (!enabled) {
       return;
     }
-    void initialize(
-      workspacePath,
-      commandsService,
-      workspaceIdentity,
-      cacheAuthorityKey,
-    );
-  }, [
-    enabled,
-    workspacePath,
-    workspaceIdentity,
-    cacheAuthorityKey,
-    commandsService,
-    initialize,
-  ]);
+    void initialize(workspacePath, commandsService, workspaceIdentity, cacheAuthorityKey);
+  }, [enabled, workspacePath, workspaceIdentity, cacheAuthorityKey, commandsService, initialize]);
 
-  const refresh = useCallback(
-    () => refreshStore(commandsService),
-    [commandsService, refreshStore],
-  );
+  const refresh = useCallback(() => refreshStore(commandsService), [commandsService, refreshStore]);
 
   const createCommand = useCallback(
     (

@@ -31,14 +31,8 @@ export interface IMcpSyncService extends IDataSyncCategoryService<McpDataSyncPay
     mcpServers?: ZCodeAgentMcpServer[];
     mode?: ZCodeMcpListMode;
   }): Promise<ZCodeMcpListResult>;
-  setWorkspaceMcpTrust?(
-    params: WorkspaceMcpTrustDecision,
-  ): Promise<ZCodeWorkspaceMcpTrustResult>;
-  saveMcpToUserDirectory(
-    payload: SaveCliMcpToUserDirectoryRequest,
-  ): Promise<void>;
+  setWorkspaceMcpTrust?(params: WorkspaceMcpTrustDecision): Promise<ZCodeWorkspaceMcpTrustResult>;
+  saveMcpToUserDirectory(payload: SaveCliMcpToUserDirectoryRequest): Promise<void>;
 }
 
-export const IMcpSyncService = createServiceDescriptor<IMcpSyncService>(
-  ServiceChannels.McpSync,
-);
+export const IMcpSyncService = createServiceDescriptor<IMcpSyncService>(ServiceChannels.McpSync);

@@ -1,4 +1,6 @@
 import { parseRemoteWorkspaceIdentity } from "@zcode/shared";
+import type { V4SessionDeletionPreviewBatchItem } from "@zcode/shared/zcode-protocol-v4";
+import { isArchivedTaskDeletionBatchUnsupported } from "@/project-sidebar/contract.js";
 import type {
   ProjectTaskRef,
   IZCodeTaskService,
@@ -24,42 +26,15 @@ function taskAddress(task: ProjectTaskRef, remoteSessionId?: string | null): Win
     ...(identity?.kind === "server" ? { sourceServerId: identity.sourceServerId } : {}),
   };
 }
-
-/**
- * 纯本地任务判定：无 workspace identity、无远端 session、非 Source Server。
- * 修复原因（应用反馈「归档任务失败/删除不了任务」）：controller 代理恒为真值对象
- * （RemoteServiceAccess 无条件构造频道代理），而插件 host 的 ServiceCollection 不注册
- * IWindowControllerService——`ports.controller` 分支把本地任务的写操作发到不存在的
- * 频道，约 1s 后拒绝，表现成 toast「归档任务失败」且 host 侧零日志（CDP 自动化实测）。
- * 桌面 controller 对本地地址的解析终点同样是本机 task service，直连语义等价；
- * 远端/跨 Source 任务保持 controller 路由不变。
- */
-function isLocalDirectTask(
-  address: WindowHostTaskAddress,
-  remoteSessionId?: string | null,
-): boolean {
-  return (
-    !address.workspaceIdentity?.trim() &&
-    !address.sourceServerId &&
-    !remoteSessionId
-  );
-}
-
 /** 已查看事件读取唯一 owner 的 marker；不借用 UI 行缓存，也不跨 Source 使用本机服务。 */
 export function readProjectTaskMeta(
   ports: ProjectTaskPorts,
   task: ProjectTaskRef,
-  remoteSessionId?: string,
+  remoteSessionId?: string | null,
 ) {
-  const address = taskAddress(task, remoteSessionId);
-  if (ports.controller && !isLocalDirectTask(address, remoteSessionId)) {
-    return ports.controller.getTaskMeta({ address });
-  }
-  return ports.service.getTaskMeta({
-    workspacePath: task.workspacePath,
-    workspaceIdentity: task.workspaceIdentity,
-    taskId: task.taskId,
-  });
+  return ports.controller
+    ? ports.controller.getTaskMeta({ address: taskAddress(task, remoteSessionId) })
+    : ports.service.getTaskMeta(task);
 }
 /** 两个列表入口共用完整地址与命令路由；组织态和 CLI 事实仍各自只由原 owner 写入。 */
 export async function mutateProjectTask(
@@ -73,10 +48,11 @@ export async function mutateProjectTask(
     workspaceIdentity: task.workspaceIdentity,
     taskId: task.taskId,
   };
-  const address = taskAddress(task, remoteSessionId);
-  if (ports.controller && !isLocalDirectTask(address, remoteSessionId)) {
-    return ports.controller.mutateTask({ address, mutation });
-  }
+  if (ports.controller)
+    return ports.controller.mutateTask({
+      address: taskAddress(task, remoteSessionId),
+      mutation,
+    });
   switch (mutation.kind) {
     case "archive":
       return mutation.archived
@@ -98,4 +74,66 @@ export async function mutateProjectTask(
     case "mark-unread":
       return ports.service.setTaskUnread({ ...target, unread: true });
   }
+}
+
+/** 单项预检：批量方法不可用（旧 Host）时逐项回退使用。 */
+function previewProjectTaskDeletion(
+  ports: ProjectTaskPorts,
+  task: ProjectTaskRef,
+  remoteSessionId?: string | null,
+) {
+  return ports.controller
+    ? ports.controller.previewArchivedTaskDeletion({ address: taskAddress(task, remoteSessionId) })
+    : ports.service.previewArchivedTaskDeletion(task);
+}
+/** 归档永久删除独立于旧软删除命令；预检与执行使用同一 Source 身份。
+ * 预检按批进行，结果按入参顺序；每项沿用各自的 Source 身份。 */
+export async function previewProjectTaskDeletions(
+  ports: ProjectTaskPorts,
+  targets: Array<{ task: ProjectTaskRef; remoteSessionId?: string | null }>,
+): Promise<{ results: V4SessionDeletionPreviewBatchItem[] }> {
+  try {
+    return ports.controller
+      ? await ports.controller.previewArchivedTaskDeletions({
+          addresses: targets.map(({ task, remoteSessionId }) => taskAddress(task, remoteSessionId)),
+        })
+      : await ports.service.previewArchivedTaskDeletions({
+          tasks: targets.map(({ task }) => ({
+            taskId: task.taskId,
+            workspacePath: task.workspacePath,
+            ...(task.workspaceIdentity ? { workspaceIdentity: task.workspaceIdentity } : {}),
+          })),
+        });
+  } catch (error) {
+    if (!isArchivedTaskDeletionBatchUnsupported(error)) throw error;
+    // 兼容旧 Host：它不认识批量方法，逐项调用单项预检，拼成同样的按序结果。
+    const results: V4SessionDeletionPreviewBatchItem[] = [];
+    for (const { task, remoteSessionId } of targets)
+      results.push(
+        await previewProjectTaskDeletion(ports, task, remoteSessionId).then(
+          (preview) => ({ preview }),
+          (itemError: unknown) => ({
+            error: {
+              code: (itemError instanceof Error && itemError.message) || "session-data.unavailable",
+            },
+          }),
+        ),
+      );
+    return { results };
+  }
+}
+export function permanentlyDeleteProjectTask(
+  ports: ProjectTaskPorts,
+  task: ProjectTaskRef,
+  revision: string,
+  operationId: string,
+  remoteSessionId?: string | null,
+) {
+  return ports.controller
+    ? ports.controller.permanentlyDeleteArchivedTask({
+        address: taskAddress(task, remoteSessionId),
+        revision,
+        operationId,
+      })
+    : ports.service.permanentlyDeleteArchivedTask({ ...task, revision, operationId });
 }

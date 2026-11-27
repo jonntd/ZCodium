@@ -77,6 +77,7 @@ export { runZCodeProtocolAgent } from "./zcode-protocol-entrypoint.js";
 // Exposed for the CLI's --output-format stream-json: it needs the same event
 // shape the protocol server emits, rather than inventing a second one.
 export { mapSessionEvent } from "./zcode-protocol/session-mapper.js";
+export { prepareZCodeTelemetryEnv, shutdownZCodeTelemetry } from "./telemetry-bootstrap.js";
 export type { SessionTranscriptMessage, SessionTranscriptPart } from "./session-transcript.js";
 export { listZCodeSessions, resolveLatestSession } from "./sessions.js";
 export { inspectZCodeSkill, listZCodeSkills } from "./skills.js";
@@ -100,3 +101,10 @@ export type {
   WorkspaceHookTrustCliStatus,
   WorkspaceHookTrustCliTarget,
 } from "./workspace-hook-trust-cli.js";
+
+export {
+  createOfficialPluginPreparation,
+  type OfficialPluginPreparation,
+} from "./app/bundled-plugins.js";
+// 嵌入式调用复用产品请求装配，避免来源头与网络配置漂移。
+export { createRuntimeAiSdkModelExecutionConfig } from "./model-config.js";

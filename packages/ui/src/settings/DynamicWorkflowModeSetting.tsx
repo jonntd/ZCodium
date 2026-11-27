@@ -5,10 +5,10 @@ import {
   readDynamicWorkflowOfferedMode,
   TID_SETTINGS_DYNAMIC_WORKFLOW_MODE_ITEM,
   TID_SETTINGS_DYNAMIC_WORKFLOW_MODE_TRIGGER,
-  testId,
   type AppSettings,
   type DynamicWorkflowMode,
 } from "@zcode/shared";
+import { testId } from "@zcode/shared/test-ids";
 import {
   DynamicWorkflowAlwaysOnIcon,
   DynamicWorkflowOffIcon,
@@ -92,6 +92,7 @@ export function DynamicWorkflowModeSetting() {
   // 不包外层元素：SettingsRow 靠 first:border-t-0 画行间分隔线，包一层会让它变成首行而丢掉上边框。
   return (
     <SettingsRow
+      searchId="settings.dynamicWorkflow"
       label={label}
       description={intl.formatMessage({ id: "settings.dynamicWorkflowDescription" })}
       // Bugfix：默认控件列只有 192px，flex 会把 260px 的触发器压到 192px，跟随触发器宽度的列表也随之过窄；

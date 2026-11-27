@@ -1,3 +1,4 @@
+import { createSystemCredentialCipher } from "@zcode/shared/credential-security";
 /* eslint-disable max-lines -- 测试相关的代码，忽略 */
 import { execFileSync } from "node:child_process";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
@@ -15,10 +16,16 @@ import {
 import { ZAI_PROVIDER_ID } from "@zcode/shared";
 import {
   TID_COMPOSER_WORKSPACE_TRIGGER,
+  TID_SETTINGS_BACK_BUTTON,
+  TID_SETTINGS_PAGE,
+  TID_SETTINGS_REPLY_LANGUAGE_INPUT,
+  TID_SETTINGS_SECTION_NAV,
+  TID_TASK_SETTINGS_BUTTON,
   TID_V4_SESSION_PANE,
   TID_WORKSPACE_PATH,
+  testId as composeTestId,
 } from "@zcode/shared/test-ids";
-import { ZCODE_DATA_ROOT_DIR_NAME, type AppSettings } from "@zcode/shared";
+import type { AppSettings } from "@zcode/shared";
 import { collectWindowsE2EProcessTreePids } from "./e2e-process-cleanup.js";
 import {
   collectE2EWebDriverPageHandleCandidates,
@@ -292,6 +299,37 @@ export async function clickTestIdByWebDriver(
   await element.click();
 }
 
+/**
+ * 从任务页打开设置 → 行为与工具 → 写入回复语言（失焦保存）→ 等落盘 → 返回。
+ * 空串表示清除：setting.json 里不再有 replyLanguage。
+ */
+export async function setReplyLanguageInSettings(value: string) {
+  await clickTestIdByDom(TID_TASK_SETTINGS_BUTTON, {
+    timeout: 15000,
+    timeoutMsg: "没有找到设置入口按钮",
+  });
+  await $(sel(TID_SETTINGS_PAGE)).waitForDisplayed({ timeout: 15000 });
+  await clickTestIdByDom(composeTestId(TID_SETTINGS_SECTION_NAV, "agentBehavior"), {
+    timeout: 15000,
+    timeoutMsg: "设置页没有出现行为与工具分区入口",
+  });
+  // 原生 setter 写值（不触发失焦），再真实 blur：走输入框的失焦保存路径。
+  await setInputValueByTestIdDom(TID_SETTINGS_REPLY_LANGUAGE_INPUT, value, {
+    timeout: 15000,
+    timeoutMsg: "回复语言输入框没有出现",
+  });
+  await browser.execute(() => (document.activeElement as HTMLElement | null)?.blur());
+  const expected = value.trim() || undefined;
+  await browser.waitUntil(async () => (await readSettings()).replyLanguage === expected, {
+    timeout: 15000,
+    timeoutMsg: `回复语言没有写入 setting.json: ${JSON.stringify(value)}`,
+  });
+  await clickTestIdByDom(TID_SETTINGS_BACK_BUTTON, {
+    timeout: 15000,
+    timeoutMsg: "设置页没有返回按钮",
+  });
+}
+
 export async function hoverTestIdByWebDriver(
   testId: string,
   { timeout = 10000, timeoutMsg = `页面没有可悬停的 test id: ${testId}` }: DomTestIdOptions = {},
@@ -335,6 +373,11 @@ export async function setInputValueByTestIdDom(
           !(element instanceof HTMLTextAreaElement) &&
           (element.isContentEditable || element.hasAttribute("data-e2e-lexical-bridge"))
         ) {
+          // 原因：冷恢复时 bridge 已挂载但编辑器仍禁用，越权 setText 会与草稿恢复竞争。
+          // 只在真实 DOM 开放输入后写入，不能靠延时或再次写入补偿被覆盖的文字。
+          if (!element.isContentEditable) {
+            return { ok: false, reason: "not-editable", tagName: element.tagName };
+          }
           const bridge = (
             element as HTMLElement & {
               __zcodeLexicalInputE2E?: {
@@ -414,7 +457,8 @@ export async function setInputValueByTestIdDom(
         // missing 不是“选择器指向非输入框”的终态，必须和 bridge 初始化一起重试。
         return (
           current.ok ||
-          (current.reason !== "lexical-bridge-not-ready" &&
+          (current.reason !== "not-editable" &&
+            current.reason !== "lexical-bridge-not-ready" &&
             current.reason !== "lexical-pending" &&
             !(current.reason === "not-input" && current.tagName === null))
         );
@@ -528,9 +572,17 @@ export function getE2EAppDataPaths() {
     configFile: CONFIG_FILE,
     credentialsFile: CREDENTIALS_FILE,
     homeDir: E2E_HOME_DIR,
-    storageRoot: E2E_DESKTOP_DATA_ROOT,
+    storageRoot: E2E_STORAGE_ROOT,
     workspace: DEFAULT_WORKSPACE,
   };
+}
+
+/** 行为断言读取解密值；磁盘格式与损坏值断言继续直接读取原始文件。 */
+export async function readE2ECredentialValue(key: string): Promise<string | undefined> {
+  const record = JSON.parse(await readFile(CREDENTIALS_FILE, "utf8")) as Record<string, string>;
+  const value = record[key];
+  if (value === undefined) return undefined;
+  return createSystemCredentialCipher({ filePath: CREDENTIALS_FILE }).decrypt(value);
 }
 
 export async function clearAppData() {
@@ -830,11 +882,45 @@ export async function readModelProvider(
 }
 
 export async function seedSettings(partial: Partial<AppSettings>): Promise<Partial<AppSettings>> {
-  const current = await readSettings();
+  const current: Record<string, unknown> = await readSettings();
+  // setting.json 的真实界面语言优先存在 uiLocale/uiLocalePreference（旧字段只存中英以兼容降级）。
+  // 用例只种旧字段时要清掉上一个用例残留的新字段，否则 app 会按新字段优先读到旧语言。
+  if ("locale" in partial && !("uiLocale" in partial)) delete current.uiLocale;
+  if ("localePreference" in partial && !("uiLocalePreference" in partial)) {
+    delete current.uiLocalePreference;
+  }
   const next = { ...current, ...partial };
   await ensureAppDataDir();
   await writeFile(SETTINGS_FILE, JSON.stringify(next), "utf-8");
   return next;
+}
+
+type E2ELocale = "zh-CN" | "en-US";
+type LocaleTestActions = { getLocale(): E2ELocale; setLocale(locale: E2ELocale): void };
+
+/**
+ * 运行中把界面语言固定为 locale，并等 renderer 生效。
+ * 首帧跟随宿主系统语言：容器、英文系统下是英文，断言中文文案的 spec 必须自己固定语言。
+ * 走真实的 setLocale（写进设置文件）；clearAppData 会清掉它，之后的 case 要重新调用。
+ */
+export async function pinE2ELocale(locale: E2ELocale): Promise<void> {
+  const readLocale = () =>
+    browser.execute(
+      () =>
+        (window as Window & { __testActions?: LocaleTestActions }).__testActions?.getLocale() ??
+        null,
+    );
+  await browser.waitUntil(async () => (await readLocale()) !== null, {
+    timeout: 30000,
+    timeoutMsg: "renderer 没有注册 __testActions，无法固定界面语言",
+  });
+  await browser.execute((next) => {
+    (window as Window & { __testActions?: LocaleTestActions }).__testActions?.setLocale(next);
+  }, locale);
+  await browser.waitUntil(async () => (await readLocale()) === locale, {
+    timeout: 15000,
+    timeoutMsg: `界面语言没有切到 ${locale}`,
+  });
 }
 
 export async function seedCliConfig(
@@ -1167,6 +1253,7 @@ export async function setCurrentElectronRendererContentSize(
         ok: true as const,
         appliedHeight,
         appliedWidth,
+        scaleFactor: electron.screen.getDisplayMatching(target.getBounds()).scaleFactor,
         zoomFactor: target.webContents.getZoomFactor(),
         snapshot: {
           height: originalHeight,
@@ -1185,9 +1272,12 @@ export async function setCurrentElectronRendererContentSize(
       `当前 WebDriver URL 没有精确匹配 Electron renderer 窗口: ${currentUrl}; candidates=${JSON.stringify(result.candidateUrls)}`,
     );
   }
+  // 根因：Windows 125% 等小数缩放下，窗口尺寸取整后内容区可差 2 像素（实测请求 760x641 得到 642）；
+  // 这不是窗口尺寸没有应用，整数缩放仍按 1 像素核对。
+  const sizeTolerance = Number.isInteger(result.scaleFactor) ? 1 : 2;
   if (
-    Math.abs(result.appliedWidth - width) > 1 ||
-    (height !== undefined && Math.abs(result.appliedHeight - height) > 1)
+    Math.abs(result.appliedWidth - width) > sizeTolerance ||
+    (height !== undefined && Math.abs(result.appliedHeight - height) > sizeTolerance)
   ) {
     await restoreElectronRendererContentSize(result.snapshot);
     throw new Error(

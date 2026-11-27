@@ -1,11 +1,8 @@
 // 全局工作流组的纯逻辑。与组件分文件以守住 max-lines 400，
 // 也便于单测这些无 React 的判定。
-import { type ZCodeSavedWorkflowRun } from "@zcode/shared";
+import { resolveWorkspaceKey, type ZCodeSavedWorkflowRun } from "@zcode/shared";
 import type { ZCodeAgentSavedWorkflowTarget } from "@zcode/services";
-import {
-  resolveAutomationWorkspaceSelectionKey,
-  type AutomationWorkspaceOption,
-} from "@/settings/automationWorkspaceOptions.js";
+import type { AutomationWorkspaceOption } from "@/settings/automationWorkspaceOptions.js";
 import type { SavedWorkflowProjectTarget } from "@/settings/saved-workflows/savedWorkflowContract.js";
 import type { SavedWorkflowRunProject } from "@/settings/saved-workflows/SavedWorkflowRunHistoryPanel.js";
 
@@ -28,14 +25,11 @@ export function resolveGlobalActionTarget(
   localProjects: readonly AutomationWorkspaceOption[],
   activeProjectKey: string | null,
 ): SavedWorkflowProjectTarget | null {
-  const active = localProjects.find(
-    (project) => resolveAutomationWorkspaceSelectionKey(project) === activeProjectKey,
-  );
+  const active = localProjects.find((project) => resolveWorkspaceKey(project) === activeProjectKey);
   const target = active ?? localProjects[0];
   if (!target) return null;
   return {
-    ...(target.projectId !== undefined ? { projectId: target.projectId } : {}),
-    ...(target.hostId ? { hostId: target.hostId } : {}),
+    projectId: target.projectId, hostId: target.hostId,
     workspacePath: target.workspacePath,
     ...(target.workspaceIdentity ? { workspaceIdentity: target.workspaceIdentity } : {}),
   };

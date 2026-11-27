@@ -24,7 +24,7 @@ import {
 import { PermissionService, defaultPermissionConfig } from "../src/permission/service.js";
 import { createToolExecutor } from "../src/tool/executor.js";
 import { writeHandler, writeToolEntry } from "../src/tool/handlers/write.js";
-import { createReadFileStateKey } from "../src/tool/read-file-state.js";
+import { createReadFileStatePathKey } from "../src/tool/read-file-state.js";
 import { createToolRegistry } from "../src/tool/registry.js";
 import type { ReadFileStateMap, ToolExecutionContext } from "../src/tool/types.js";
 
@@ -33,6 +33,9 @@ const describeWriteStrictContract = RUN_WRITE_STRICT_CONTRACT ? describe : descr
 const WRITE_STORAGE_SUFFIX =
   " (file state is current in your context \u2014 no need to Read it back)";
 const WRITE_USER_MODIFIED_NOTE = " The user modified your proposed content before accepting it.";
+const WRITE_NOT_READ_MESSAGE = "File has not been read yet. Read it first before writing to it.";
+const WRITE_STALE_MESSAGE =
+  "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.";
 
 let tmpDir: string;
 
@@ -153,7 +156,7 @@ describe("Write model-result harness", () => {
     const revision = revisionFor(file, "old line\n");
     const readFileState: ReadFileStateMap = new Map([
       [
-        createReadFileStateKey(file, 1, undefined),
+        createReadFileStatePathKey(file),
         {
           path: `${tmpDir}/nested/../existing-normalized-key.txt`,
           content: "old line\n",
@@ -253,16 +256,17 @@ describe("Write model-result harness", () => {
     fs.setMtime(file, 1000.8);
 
     await expect(
-      writeForModel(
+      writeHandler(
         {
           file_path: file,
           content: "replacement",
         },
         context,
       ),
-    ).rejects.toMatchObject({
-      message:
-        "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.",
+    ).resolves.toEqual({
+      result: false,
+      errorCode: 3,
+      message: WRITE_STALE_MESSAGE,
     });
   });
 
@@ -273,7 +277,7 @@ describe("Write model-result harness", () => {
     });
 
     await expect(
-      writeForModel(
+      writeHandler(
         {
           file_path: file,
           content: "replacement\n",
@@ -285,9 +289,77 @@ describe("Write model-result harness", () => {
           }),
         }),
       ),
-    ).rejects.toMatchObject({
-      message: "File has not been read yet. Read it first before writing to it.",
+    ).resolves.toEqual({
+      result: false,
+      errorCode: 2,
+      message: WRITE_NOT_READ_MESSAGE,
     });
+  });
+
+  // 截断注入的 MEMORY.md 也用“没读过”：Edit 同样要求先完整读过，不能提示“改用 Edit”（02-write.md）。
+  it("treats a truncated MEMORY.md seeded from context as not read", async () => {
+    const file = join(tmpDir, "MEMORY.md");
+    const fs = createMemoryFileSystem({
+      [file]: "full index\n",
+    });
+    const readFileState = createReadFileState(file, "full index\n", { isPartialView: true });
+    const entry = readFileState.get(createReadFileStatePathKey(file));
+    if (entry) entry.seededFromContext = true;
+
+    await expect(
+      writeHandler(
+        { file_path: file, content: "replacement\n" },
+        contextWith(fs, { readFileState }),
+      ),
+    ).resolves.toEqual({
+      result: false,
+      errorCode: 2,
+      message: WRITE_NOT_READ_MESSAGE,
+    });
+    expect(fs.files.get(file)).toBe("full index\n");
+  });
+
+  it("wraps an unread-file failure for the model and keeps the raw message for the UI", async () => {
+    const file = join(tmpDir, "unread-executor.txt");
+    const fs = createMemoryFileSystem({
+      [file]: "existing",
+    });
+
+    const result = await executeWrite({ file_path: file, content: "replacement" }, fs);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toBe(WRITE_NOT_READ_MESSAGE);
+    expect(result.error?.code).toBe("2");
+    expect(result.modelContent).toBe(`<tool_use_error>${WRITE_NOT_READ_MESSAGE}</tool_use_error>`);
+    expect(fs.files.get(file)).toBe("existing");
+  });
+
+  it.each([
+    [
+      "is_directory",
+      17,
+      (path: string) =>
+        `${path} is a directory, not a file. To create a file inside it, include the file name in file_path.`,
+    ],
+    [
+      "not_file",
+      18,
+      (path: string) =>
+        `${path} exists but is not a regular file (a device, FIFO or socket). Write only creates or overwrites regular files.`,
+    ],
+  ] as const)("names a %s target in the model's file_path", async (code, errorCode, message) => {
+    const fs = createMemoryFileSystem({});
+    fs.readTextFile = async (request) => {
+      throw createFileSystemError({ code, path: request.path, message: `fs: ${request.path}` });
+    };
+
+    await expect(
+      writeHandler(
+        { file_path: "target", content: "x" },
+        contextWith(fs, { workingDirectory: tmpDir, workspaceRoot: tmpDir }),
+      ),
+    ).resolves.toEqual({ result: false, errorCode, message: message("target") });
+    expect(fs.lastWrite).toBeUndefined();
   });
 
   it("documents existing-empty-file behavior as create", async () => {
@@ -464,16 +536,14 @@ describeWriteStrictContract("Write strict model-result contract", () => {
     });
 
     await expect(
-      writeForModel(
+      writeHandler(
         {
           file_path: file,
           content: "replacement",
         },
         contextWith(fs),
       ),
-    ).rejects.toMatchObject({
-      message: "File has not been read yet. Read it first before writing to it.",
-    });
+    ).resolves.toEqual({ result: false, errorCode: 2, message: WRITE_NOT_READ_MESSAGE });
   });
 
   it("rejects writes when the file has changed since the cached read", async () => {
@@ -487,17 +557,14 @@ describeWriteStrictContract("Write strict model-result contract", () => {
     fs.files.set(file, "after");
 
     await expect(
-      writeForModel(
+      writeHandler(
         {
           file_path: file,
           content: "replacement",
         },
         context,
       ),
-    ).rejects.toMatchObject({
-      message:
-        "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.",
-    });
+    ).resolves.toEqual({ result: false, errorCode: 3, message: WRITE_STALE_MESSAGE });
   });
 
   it("allows writes when unchanged content only drifts inside the same millisecond", async () => {
@@ -653,11 +720,7 @@ function createReadFileState(
   const revision = revisionFor(filePath, revisionContent, options.mtimeMs ?? 1);
   return new Map([
     [
-      [
-        filePath,
-        String(options.offset ?? 1),
-        options.limit === undefined ? "" : String(options.limit),
-      ].join("\0"),
+      createReadFileStatePathKey(filePath),
       {
         path: filePath,
         content: normalizeLineEndings(content),

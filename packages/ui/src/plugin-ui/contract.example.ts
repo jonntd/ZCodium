@@ -3,10 +3,7 @@ import type {
   PluginUiPresentation,
   PluginUiSidePaneTab,
 } from "./contract.js";
-import {
-  buildPluginUiSidePaneTabId,
-  readPluginUiScopeRef,
-} from "./contract.js";
+import { buildPluginUiSidePaneTabId, readPluginUiScopeRef } from "./contract.js";
 
 export const examplePresentation: PluginUiPresentation = {
   serverName: "plugin:example-plugin:widget",
@@ -17,9 +14,7 @@ export const examplePresentation: PluginUiPresentation = {
 };
 
 /** 内联卡片 / 面板入口请求打开侧栏时的载荷，以及据此创建的 tab。 */
-export function exampleOpenSideTab(
-  request: OpenPluginUiSideTabRequest,
-): PluginUiSidePaneTab {
+export function exampleOpenSideTab(request: OpenPluginUiSideTabRequest): PluginUiSidePaneTab {
   const scope = readPluginUiScopeRef(request);
   if (!scope) throw new Error("request needs toolCallId or surfaceId");
   return {

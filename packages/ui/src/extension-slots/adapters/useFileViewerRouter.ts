@@ -23,10 +23,7 @@ export function useFileViewerRouter({
   workspaceIdentity?: string;
 }): FileViewerRouter {
   const service = useExtensionsService();
-  const entry = useMemo(
-    () => (service ? getExtensionSlotsStore(service) : null),
-    [service],
-  );
+  const entry = useMemo(() => (service ? getExtensionSlotsStore(service) : null), [service]);
   useEffect(() => entry?.retain(), [entry]);
   return useCallback(
     (path: string) => {

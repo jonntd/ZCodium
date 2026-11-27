@@ -51,7 +51,7 @@ export function usePendingCommandRecovery({
     ).catch((error) => {
       logger.warn("[v4-pending-command] 重连对账失败，保留账本等待下次连接", error);
     });
-  }, [layer, sessionId, status, subscriptionId, workspaceIdentity, workspacePath]);
+  }, [layer, sessionId, status, subscriptionId, workspacePath, workspaceIdentity]);
 
   // version 是 registry 的窄订阅信号；不把整份账本复制进 React state。
   void version;

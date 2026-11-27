@@ -5,7 +5,8 @@ import {
   SlidersHorizontalIcon,
   SquareIcon,
 } from "lucide-react";
-import { TID_CHAT_WORKFLOW_RUN_DIGEST, testId } from "@zcode/shared";
+import { TID_CHAT_WORKFLOW_RUN_DIGEST } from "@zcode/shared";
+import { testId } from "@zcode/shared/test-ids";
 import type { WorkflowRunState } from "@zcode/shared/zcode-protocol-v4";
 import { cn } from "@/components/lib/utils.js";
 import { Button } from "@/components/ui/button.js";
@@ -151,7 +152,7 @@ export function WorkflowRunDigest({
   const questions =
     questionsLabel === undefined ? undefined : onOpenRun === undefined ? (
       <span
-        className="wf-arrive flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--color-warning)_12%,transparent)] py-0.5 ps-1.5 pe-2 text-ui-xs font-medium text-warning"
+        className="wf-arrive flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--color-warning)_12%,transparent)] py-0.5 pl-1.5 pr-2 text-ui-xs font-medium text-warning"
         data-testid="workflow-digest-questions"
       >
         <MessageCircleQuestionIcon aria-hidden className="size-3" />
@@ -159,7 +160,7 @@ export function WorkflowRunDigest({
       </span>
     ) : (
       <button
-        className="wf-arrive flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--color-warning)_12%,transparent)] py-0.5 ps-1.5 pe-2 text-ui-xs font-medium text-warning outline-none transition-colors hover:bg-[color-mix(in_oklab,var(--color-warning)_20%,transparent)] focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="wf-arrive flex shrink-0 cursor-pointer items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--color-warning)_12%,transparent)] py-0.5 pl-1.5 pr-2 text-ui-xs font-medium text-warning outline-none transition-colors hover:bg-[color-mix(in_oklab,var(--color-warning)_20%,transparent)] focus-visible:ring-2 focus-visible:ring-ring/40"
         data-testid="workflow-digest-questions"
         onClick={() => onOpenRun()}
         type="button"

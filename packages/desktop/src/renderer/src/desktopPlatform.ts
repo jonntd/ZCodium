@@ -1,12 +1,33 @@
-import { DesktopCommandIds, buildLocalMediaPreviewUrl, type IPlatformService } from "@zcode/shared";
+import { recordArmsCustomEventForE2E } from "@zcode/ui";
+import {
+  DesktopCommandIds,
+  buildLocalMediaPreviewUrl,
+  resolveLocaleFromLanguageTag,
+  unwrapRemoteWorkspaceBindResult,
+  type IPlatformService,
+} from "@zcode/shared";
 
 import { desktopBrowserPlatformBridge } from "./desktopBrowserPlatformBridge.js";
+import { registerAppControlNavigationHandler } from "#src/app-control-navigation/renderer.js";
 import { createDesktopPluginSandboxPlatform } from "./plugin-sandbox/desktopPluginSandboxPlatform.js";
 
 export function createDesktopPlatform(options: {
   isLocalDevelopmentRuntime: boolean;
 }): IPlatformService {
   return {
+    onAppControlNavigation: (handler) =>
+      registerAppControlNavigationHandler(
+        {
+          subscribe: (listener) => window.zcode.onAppControlNavigationMessage(listener),
+          register: (generation) =>
+            window.zcode.sendAppControlNavigation({ type: "register", generation }),
+          unregister: (generation) =>
+            window.zcode.sendAppControlNavigation({ type: "unregister", generation }),
+          reply: (message) => window.zcode.sendAppControlNavigation({ type: "result", ...message }),
+        },
+        handler,
+        crypto.randomUUID(),
+      ),
     canSelectFilePath: true,
     canOpenLocalFiles: true,
     pluginSandbox: createDesktopPluginSandboxPlatform(),
@@ -18,18 +39,10 @@ export function createDesktopPlatform(options: {
     selectFiles: () => window.zcode.selectFiles?.() ?? Promise.resolve([]),
     openDataRootImport: () => window.zcode.openDataRootImport?.(),
     createTempTextAttachment: (payload) => window.zcode.createTempTextAttachment(payload),
-    modelhubFetchModels: (payload) =>
-      window.zcode.modelhubFetchModels?.(payload) ??
-      Promise.resolve({ ok: false, error: "modelhub requires a desktop host" }),
-    modelhubProbeVision: (payload) =>
-      window.zcode.modelhubProbeVision?.(payload) ??
-      Promise.resolve({ ok: false, error: "modelhub requires a desktop host" }),
     materializeWorkflowArtifactFile: (payload) =>
       window.zcode.materializeWorkflowArtifactFile(payload),
     onRemoteConnectionLog: (handler) => window.zcode.onRemoteConnectionLog(handler),
     onRemoteSessionClosed: (handler) => window.zcode.onRemoteSessionClosed(handler),
-    onBotRemoteWorkspaceReconnected: (handler) =>
-      window.zcode.onBotRemoteWorkspaceReconnected(handler),
     // Source 自动重连会替换 logical session；统一由 preload bridge 转发换代事件。
     onRemoteSessionReconnected: (handler) =>
       window.zcode.onRemoteSessionReconnected?.(handler) ?? (() => {}),
@@ -92,6 +105,9 @@ export function createDesktopPlatform(options: {
     onPaymentCallback: (callback) => window.zcode.onPaymentCallback(callback),
     notifyRendererReady: () => window.zcode.notifyRendererReady(),
     showTaskNotification: (payload) => window.zcode.showTaskNotification(payload),
+    // 扩展的系统通知（§18.1 H8）：只有桌面实现；Web 与手机远控没有这两个方法，Renderer 按 unsupported 处理。
+    showExtensionNotification: (payload) => window.zcode.showExtensionNotification(payload),
+    onExtensionNotificationClick: (handler) => window.zcode.onExtensionNotificationClick(handler),
     syncWindowTabs: (paths) => window.zcode.syncWindowTabs(paths),
     syncWebRemoteControlWorkspaces: (workspaces) =>
       window.zcode.syncWebRemoteControlWorkspaces?.(workspaces),
@@ -176,6 +192,11 @@ export function createDesktopPlatform(options: {
     getZCodeStdioTapDevState: () =>
       window.zcode.getZCodeStdioTapDevState?.() ??
       Promise.resolve({ enabled: false, visible: false, logDir: "", statePath: "" }),
+    executePreinstalledToolsCommand: (command) =>
+      window.zcode.executePreinstalledToolsCommand!(command),
+    getPreinstalledToolsState: () => window.zcode.getPreinstalledToolsState!(),
+    onPreinstalledToolsState: (callback) =>
+      window.zcode.onPreinstalledToolsState?.(callback) ?? (() => {}),
     onSettingsChanged: (callback) => window.zcode.onSettingsChanged?.(callback) ?? (() => {}),
     onApplicationLocaleChanged: (callback) =>
       window.zcode.onApplicationLocaleChanged?.(callback) ?? (() => {}),
@@ -185,22 +206,19 @@ export function createDesktopPlatform(options: {
     skipUpdateVersion: (version) => window.zcode.skipUpdateVersion?.(version) ?? Promise.resolve(),
     quitAndInstallUpdate: () => window.zcode.quitAndInstallUpdate(),
     getInstalledEditors: (filePath) => window.zcode.getInstalledEditors(filePath),
+    getFileApplications: (target) => window.zcode.getFileApplications(target),
+    openFileWithApplication: (applicationId, target) =>
+      window.zcode.openFileWithApplication(applicationId, target),
     getApplicationIcon: (bundleId) =>
       window.zcode.getApplicationIcon?.(bundleId) ?? Promise.resolve(null),
     openInEditor: (editorId, path, editorOptions) =>
       window.zcode.openInEditor(editorId, path, editorOptions),
     executeDesktopCommand: (command) => window.zcode.executeDesktopCommand(command),
     setApplicationLocale: (locale) => window.zcode.setApplicationLocale(locale),
+    setReplyLanguage: (language) => window.zcode.setReplyLanguage(language),
     getSystemLocale: () =>
       window.zcode.getSystemLocale?.() ??
-      Promise.resolve(
-        (() => {
-          const normalized = navigator.language.toLowerCase();
-          if (normalized.startsWith("zh")) return "zh-CN" as const;
-          if (normalized.startsWith("fa")) return "fa-IR" as const;
-          return "en-US" as const;
-        })(),
-      ),
+      Promise.resolve(resolveLocaleFromLanguageTag(navigator.language)),
     setTitleBarTheme: (theme) => window.zcode.setTitleBarTheme(theme),
     getDeviceId: () =>
       (window as Window & { __ZCODE_DEVICE_ID__?: string }).__ZCODE_DEVICE_ID__ ?? "",

@@ -14,9 +14,7 @@ export function PluginUiBackgroundHost() {
     if (!platform || !services) return;
     return attachPluginUiToolResults(services, platform, () => ({
       locale: latestLocale.current,
-      theme: document.documentElement.classList.contains("dark")
-        ? "dark"
-        : "light",
+      theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
     }));
   }, [platform, services]);
   return null;

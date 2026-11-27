@@ -14,9 +14,7 @@ export interface WorkbenchReporter {
 
 const reporters = new WeakMap<IExtensionsService, WorkbenchReporter>();
 
-export function getWorkbenchReporter(
-  service: IExtensionsService,
-): WorkbenchReporter {
+export function getWorkbenchReporter(service: IExtensionsService): WorkbenchReporter {
   const existing = reporters.get(service);
   if (existing) return existing;
   const panes = new Map<string, WorkbenchPaneReport>();

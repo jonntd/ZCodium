@@ -1,3 +1,5 @@
+import { resolveEffectiveMcpConfiguration } from "../src/mcp-config.js";
+import type { McpServerConfig } from "@zcode/contracts";
 import { describe, expect, it } from "vitest";
 import { createConfig } from "@zcode/adapters/config";
 import { ZCODE_CUA_OFFICIAL_PLUGIN_ID, ZCODE_PLUGIN_ID_ENV_KEY } from "@zcode/shared";
@@ -13,17 +15,34 @@ const testModelSelection = {
   modelId: "test-model",
 } as const;
 
-function resolveAppRuntimeConfig(input: Parameters<typeof resolveProductionAppRuntimeConfig>[0]) {
-  return resolveProductionAppRuntimeConfig({
-    ...input,
-    options: {
-      ...input.options,
-      runtimeConfig: {
-        modelSelection: testModelSelection,
-        ...input.options.runtimeConfig,
-      },
-    },
+function resolveAppRuntimeConfig(
+  input: Omit<Parameters<typeof resolveProductionAppRuntimeConfig>[0], "mcpConfiguration"> & {
+    pluginMcpServers?: Record<string, McpServerConfig>;
+    builtInMcpServers?: Record<string, McpServerConfig>;
+  },
+) {
+  const effective = resolveEffectiveMcpConfiguration({
+    enabled: input.configResult.config.features.mcp,
+    servers: input.configResult.config.mcp.servers,
+    pluginServers: input.pluginMcpServers,
+    builtInServers: input.builtInMcpServers,
+    explicit: input.options.runtimeConfig?.mcp,
+    computerUse: input.pluginRuntimeFeatures?.computerUse === true,
   });
+  return {
+    configuredMcpServers: effective.configuredServers,
+    ...resolveProductionAppRuntimeConfig({
+      mcpConfiguration: effective.mcp,
+      ...input,
+      options: {
+        ...input.options,
+        runtimeConfig: {
+          modelSelection: testModelSelection,
+          ...input.options.runtimeConfig,
+        },
+      },
+    }),
+  };
 }
 
 function createConfigResult() {
@@ -211,6 +230,48 @@ describe("resolveAppRuntimeConfig", () => {
     expect(runtimeConfigLogContext(resolved.runtimeConfig, workingDirectory)).toMatchObject({
       memoryExtractionEnabled: true,
     });
+  });
+
+  it.each([
+    { value: "abc", expected: undefined },
+    { value: "0", expected: undefined },
+    { value: "60000ms", expected: undefined },
+    { value: "1", expected: 10_000 },
+    { value: "60000", expected: 60_000 },
+    // 超过 setTimeout 上限的大值照样生效（相当于很久才提醒）：停滞钟分段等待，不会忙循环。
+    { value: "3000000000", expected: 3_000_000_000 },
+  ])(
+    "reads ZCODE_SUBAGENT_STALL_NOTIFY_MS=$value as a stall threshold of $expected ms",
+    ({ value, expected }) => {
+      // 非法值不覆盖（core 用默认 15 分钟）；低于 10 秒按 10 秒，避免每秒唤起父会话（!3563 评审 SG-03）。
+      const resolved = resolveAppRuntimeConfig({
+        cliStorageRoot: "/tmp/zcode-cli",
+        configResult: createConfigResult(),
+        options: { env: { ZCODE_SUBAGENT_STALL_NOTIFY_MS: value } },
+        subagentOutputRootDir: "/tmp/zcode-cli/agents",
+        subagentProfiles: [],
+        workingDirectory,
+      });
+      expect(resolved.runtimeConfig.subagents?.backgroundStallNotifyMs).toBe(expected);
+      const logContext = runtimeConfigLogContext(resolved.runtimeConfig, workingDirectory);
+      if (expected === undefined) expect(logContext).not.toHaveProperty("subagentStallNotifyMs");
+      else expect(logContext).toMatchObject({ subagentStallNotifyMs: expected });
+    },
+  );
+
+  it("lets an explicit runtimeConfig stall threshold win over ZCODE_SUBAGENT_STALL_NOTIFY_MS", () => {
+    const resolved = resolveAppRuntimeConfig({
+      cliStorageRoot: "/tmp/zcode-cli",
+      configResult: createConfigResult(),
+      options: {
+        env: { ZCODE_SUBAGENT_STALL_NOTIFY_MS: "60000" },
+        runtimeConfig: { subagents: { backgroundStallNotifyMs: 30 } },
+      },
+      subagentOutputRootDir: "/tmp/zcode-cli/agents",
+      subagentProfiles: [],
+      workingDirectory,
+    });
+    expect(resolved.runtimeConfig.subagents?.backgroundStallNotifyMs).toBe(30);
   });
 
   it("preserves an explicit disabled memory Extraction gate and logs it", () => {

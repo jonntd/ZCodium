@@ -70,6 +70,22 @@ const sessionMutationCapability: PermissionToolCapability = {
   sideEffectScope: "session",
 };
 
+const automationSelfPauseCapability: PermissionToolCapability = {
+  destructive: false,
+  needsApproval: false,
+  permission: {
+    denyPriority: "beforeAsk",
+    needsApproval: false,
+    permission: "automation.pause",
+    reason: "Pause only the automation that triggered this run",
+    riskLevel: "low",
+    sideEffectScope: "workspace",
+  },
+  readOnly: false,
+  riskLevel: "low",
+  sideEffectScope: "workspace",
+};
+
 const planModeSessionControlCapability: PermissionToolCapability = {
   allowedInPlanMode: true,
   destructive: false,
@@ -458,6 +474,7 @@ describe("PermissionService mode policy", () => {
       ["Edit", editCapability],
       ["WebFetch", webFetchCapability],
       ["TodoWrite", sessionMutationCapability],
+      ["CronPauseSelf", automationSelfPauseCapability],
       ["RespondToCoordinator", planModeSessionControlCapability],
       ["mcp__external__write", mcpCapability],
       ["mcp__external__lookup", { ...mcpCapability, readOnly: true }],
@@ -801,6 +818,50 @@ describe("PermissionService mode policy", () => {
       allowed: true,
       decision: "allow",
       ruleId: "mode.build.sessionState",
+    });
+  });
+
+  it("allows CronPauseSelf in build mode without approval", () => {
+    const service = new PermissionService();
+
+    const decision = service.checkPermission(
+      {
+        input: {},
+        mode: "build",
+        riskLevel: "low",
+        toolName: "CronPauseSelf",
+      },
+      automationSelfPauseCapability,
+    );
+
+    expect(decision).toMatchObject({
+      allowed: true,
+      decision: "allow",
+      ruleId: "tool.automationPauseSelf.preapproved",
+    });
+  });
+
+  it("lets project ask rules override CronPauseSelf auto-approval", () => {
+    const service = new PermissionService();
+
+    const decision = service.checkPermission(
+      {
+        input: {},
+        mode: "build",
+        riskLevel: "low",
+        toolName: "CronPauseSelf",
+      },
+      automationSelfPauseCapability,
+      {
+        version: 1,
+        ask: [{ toolName: "CronPauseSelf" }],
+      },
+    );
+
+    expect(decision).toMatchObject({
+      allowed: false,
+      decision: "ask",
+      ruleId: "rule.project.ask",
     });
   });
 
@@ -1232,6 +1293,7 @@ describe("PermissionService alwaysAsk", () => {
     expect(check("yolo", service)).toMatchObject({
       allowed: false,
       decision: "deny",
+      reason: "Permission to use CreateWorkflow has been denied.",
       ruleId: "rule.disallowedTools",
     });
   });

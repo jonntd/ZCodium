@@ -39,18 +39,14 @@ export function buildPluginUiHostCapabilities(
     ...(input.canSample ? { sampling: {} } : {}),
     ...(input.canDownloadFile ? { downloadFile: {} } : {}),
     // image 随 text 一起声明（png / jpeg / webp，单张 ≤ 4 MiB）。
-    ...(input.canSendFollowUpMessage
-      ? { message: { text: {}, image: {} } }
-      : {}),
+    ...(input.canSendFollowUpMessage ? { message: { text: {}, image: {} } } : {}),
     ...(input.canUpdateModelContext
       ? { updateModelContext: { text: {}, structuredContent: {}, image: {} } }
       : {}),
     experimental: {
       ...buildMcpAppsCspExperimentalCapability(),
       [MCP_APPS_NESTED_FRAMES_EXPERIMENTAL_KEY]: {},
-      ...(input.canSetWidgetState
-        ? { [MCP_APPS_WIDGET_STATE_EXPERIMENTAL_KEY]: {} }
-        : {}),
+      ...(input.canSetWidgetState ? { [MCP_APPS_WIDGET_STATE_EXPERIMENTAL_KEY]: {} } : {}),
       ...(input.canSubscribeResources
         ? { [MCP_APPS_RESOURCE_SUBSCRIBE_EXPERIMENTAL_KEY]: {} }
         : {}),

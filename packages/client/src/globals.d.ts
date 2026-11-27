@@ -14,6 +14,7 @@ import type {
   BrowserViewViewportChangedPayload,
   BrowserViewCloseTabNotification,
   BrowserViewCloseTabRequest,
+  BrowserViewPromoteDraftTabsRequest,
   BrowserViewResidencyReportPayload,
   BrowserViewResidencyTransitionPayload,
   BrowserViewRestoredTabShell,
@@ -85,12 +86,16 @@ declare global {
       requestSourceSettingsAttachment?(sourceServerId: string): Promise<{ attachmentId: string }>;
       /** 取消当前窗口尚未建立完成的远程连接 */
       cancelPendingRemoteConnection?(requestId?: string): Promise<void>;
-      /** 绑定远程 logical session 的 canonical workspace context */
+      /**
+       * 绑定远程 logical session 的 canonical workspace context。
+       * 失败时不 reject，而是返回 `{ success: false, reasonCode }`：preload 抛出的 Error 跨
+       * contextBridge 会丢失 code/retryable。调用方必须用 `unwrapRemoteWorkspaceBindResult` 还原。
+       */
       bindRemoteWorkspaceSessionContext?(context: {
         remoteSessionId: string;
         workspacePath: string;
         workspaceIdentity?: string;
-      }): Promise<import("@zcode/shared").BindRemoteWorkspaceSessionContextResult>;
+      }): Promise<import("@zcode/shared").BindRemoteWorkspaceSessionContextIpcResult>;
       /** 为当前 workspace 开启 Web 远程控制 */
       startWebRemoteControl(
         context: WebRemoteControlContext,
@@ -131,20 +136,12 @@ declare global {
       ): Promise<import("@zcode/shared").SaveFileResult>;
       /** 将当前页面的 print 媒体版面导出为 PDF（Chromium 打印引擎，矢量文本） */
       printPageToPdf?(): Promise<import("@zcode/shared").PrintPageToPdfResult>;
+      /** 在 main 截取内置浏览器 guest 当前视口为 PNG（renderer 侧 <webview>.capturePage 会崩溃） */
+      captureBrowserGuestPage?(
+        payload: import("@zcode/shared").CaptureBrowserGuestPageRequest,
+      ): Promise<import("@zcode/shared").CaptureBrowserGuestPageResult>;
       /** 从系统拖拽/文件输入得到的 Web File 解析真实本地路径 */
       getPathForFile?(file: File): string | null;
-      /** 长文本粘贴落盘为宿主本地附件（desktopPlatform.createTempTextAttachment） */
-      createTempTextAttachment?(
-        payload: import("@zcode/shared").CreateTempTextAttachmentRequest,
-      ): Promise<import("@zcode/shared").CreateTempTextAttachmentResult>;
-      /** 拉取自定义渠道端点的模型列表（modelhub，main 侧绕过 CORS） */
-      modelhubFetchModels?(
-        payload: import("@zcode/shared").ModelhubFetchModelsRequest,
-      ): Promise<import("@zcode/shared").ModelhubFetchModelsResult>;
-      /** 探测模型视觉能力（modelhub） */
-      modelhubProbeVision?(
-        payload: import("@zcode/shared").ModelhubProbeVisionRequest,
-      ): Promise<import("@zcode/shared").ModelhubProbeVisionResult>;
       /** dwf 产物「作为文件打开」：把某一版的字节落成本机副本，返回其路径 */
       materializeWorkflowArtifactFile(
         payload: import("@zcode/shared").MaterializeWorkflowArtifactFileRequest,
@@ -312,6 +309,7 @@ declare global {
       browserViewDetachGuest?(payload: { key: string; webContentsId: number }): Promise<boolean>;
       browserViewCloseTab?(payload: BrowserViewCloseTabRequest): Promise<void>;
       browserViewReportResidency?(payload: BrowserViewResidencyReportPayload): Promise<void>;
+      browserViewPromoteDraftTabs?(payload: BrowserViewPromoteDraftTabsRequest): Promise<string[]>;
       browserViewSuspendReady?(payload: { tabId: string; generation: number }): Promise<void>;
       browserViewEnsureResident?(payload: BrowserViewCloseTabRequest): Promise<void>;
       browserViewRestoreTabs?(
@@ -382,6 +380,8 @@ declare global {
       executeDesktopCommand(command: DesktopCommandId): Promise<void>;
       /** 同步应用菜单语言 */
       setApplicationLocale(locale: Locale): Promise<void>;
+      /** 保存 Agent 回复语言（空串清除） */
+      setReplyLanguage(language: string): Promise<void>;
       /** 读取宿主系统语言 */
       getSystemLocale?(): Promise<Locale>;
       /** 同步标题栏亮暗色 */

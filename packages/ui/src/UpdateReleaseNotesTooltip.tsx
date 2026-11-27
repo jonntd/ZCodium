@@ -24,14 +24,18 @@ export function UpdateReleaseNotesTooltip({
   releaseNotesTitle: string;
 }) {
   return (
-    <TooltipProvider>
+    <TooltipProvider
+      // Bugfix：更新日志浮层需要允许鼠标从按钮移入内容；不能继承侧栏提示的不可悬停配置。
+      alwaysDelay={false}
+      disableHoverableContent={false}
+    >
       <Tooltip key={`${locale}:${releaseNotesTitle}`}>
         <TooltipTrigger asChild>{children}</TooltipTrigger>
         <TooltipContent
           side="bottom"
           align="start"
           sideOffset={4}
-          className="w-96 max-w-[calc(100vw-2rem)] flex-col items-start gap-2 rounded-xl border-popover-border bg-popover px-4 py-3 text-start text-popover-foreground shadow-md"
+          className="w-96 max-w-[calc(100vw-2rem)] flex-col items-start gap-2 rounded-xl border-popover-border bg-popover px-4 py-3 text-left text-popover-foreground shadow-md"
         >
           <div className="flex w-full min-w-0 items-start justify-between gap-3">
             <div className="min-w-0">

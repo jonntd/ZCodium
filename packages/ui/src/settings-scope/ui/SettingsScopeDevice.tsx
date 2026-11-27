@@ -1,4 +1,4 @@
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 import type { SettingsScopeDevice } from "@/settings-scope/contract.js";
 
 interface SettingsScopeDeviceContextValue {
@@ -7,11 +7,10 @@ interface SettingsScopeDeviceContextValue {
   userAvailable: boolean;
 }
 
-const SettingsScopeDeviceContext =
-  createContext<SettingsScopeDeviceContextValue>({
-    device: { kind: "local" },
-    userAvailable: true,
-  });
+const SettingsScopeDeviceContext = createContext<SettingsScopeDeviceContextValue>({
+  device: { kind: "local" },
+  userAvailable: true,
+});
 
 /**
  * 编辑表单内的作用域菜单只列出所在分区当前设备的「用户」和项目：
@@ -26,14 +25,8 @@ export function SettingsScopeDeviceProvider({
   userAvailable?: boolean;
   children?: ReactNode;
 }) {
-  // context value 必须 useMemo（reactStableReferences 守卫）：内联对象让每次渲染的
-  // value 都是新引用，全部消费者被无谓重渲染。
-  const value = useMemo<SettingsScopeDeviceContextValue>(
-    () => ({ device, userAvailable }),
-    [device, userAvailable],
-  );
   return (
-    <SettingsScopeDeviceContext.Provider value={value}>
+    <SettingsScopeDeviceContext.Provider value={{ device, userAvailable }}>
       {children}
     </SettingsScopeDeviceContext.Provider>
   );

@@ -1,3 +1,4 @@
+import { SidebarNativeTooltip, ControlHintTooltip } from "@/ControlHintTooltip.js";
 /* eslint-disable max-lines -- WorkspaceFileTree 需要集中编排数据、虚拟列表、吸顶和入口操作状态。 */
 import {
   useCallback,
@@ -29,13 +30,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import { toast } from "@/components/ui/toast.js";
-import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
+import { useSettings } from "@/hooks/useSettingService.js";
+import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
   TID_WORKSPACE_FILE_TREE_PANEL,
   TID_WORKSPACE_FILE_TREE_REFRESH_BUTTON,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import {
   areWorkspaceFilePathsEqual,
   createCodeViewerSourceForWorkspaceFile,
@@ -74,7 +76,6 @@ import {
   getWorkspaceFileSearchDirectoryRevealPaths,
 } from "@/workspace-file-tree/searchRows.js";
 import type {
-  WorkspaceFileTreeOpenPreviewOptions,
   WorkspaceFileTreeProps,
   WorkspaceFileTreeStickyFolderItem,
 } from "@/workspace-file-tree/types.js";
@@ -95,14 +96,13 @@ export function WorkspaceFileTree({
   temporaryExternalDirectory = false,
   canOpenLocalFileManager = false,
   activePreviewPath,
-  hideBackButton = false,
   onClose,
   onOpenBrowserUrl,
   onOpenPreview,
-  compareBaseline,
-  onCompareWithBaseline,
 }: WorkspaceFileTreeProps) {
   const { intl } = useZCodeIntl();
+  // HTML 单击打开方式是本机界面偏好；远端 workspace 下也读本机设置。
+  const { settings: localSettings } = useSettings({ services: useBaseWorkspaceServices() });
   const platform = usePlatform();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -263,7 +263,6 @@ export function WorkspaceFileTree({
       openFailed: intl.formatMessage({ id: "workspaceFileTree.openFailed" }),
       openWith: intl.formatMessage({ id: "workspaceFileTree.openWith" }),
       reveal: fileManagerLabel,
-      compareWithCurrent: intl.formatMessage({ id: "workspaceFileTree.compareWithCurrent" }),
     }),
     [fileManagerLabel, intl],
   );
@@ -473,10 +472,13 @@ export function WorkspaceFileTree({
       if (row.type !== "directory") {
         return;
       }
+      const representedPaths = row.compactedPaths ?? [row.path];
       treeData.setExpandedPaths((current) => {
         const next = new Set(current);
-        if (next.has(row.path)) {
-          for (const path of row.compactedPaths ?? [row.path]) {
+        // 懒加载合并后可能只有前段路径已展开；只查末段会让首次折叠变成补加展开标记。
+        // 与行展示使用相同的组成路径，并在更新函数内读取最新集合，避免旧渲染状态干扰切换。
+        if (representedPaths.some((path) => current.has(path))) {
+          for (const path of representedPaths) {
             next.delete(path);
           }
           return next;
@@ -541,7 +543,7 @@ export function WorkspaceFileTree({
     [handleRevealSearchDirectory, handleToggleDirectory, hasFileSearchQuery],
   );
   const handleOpenPreview = useCallback(
-    (row: WorkspaceFileTreeRow, options?: WorkspaceFileTreeOpenPreviewOptions) => {
+    (row: WorkspaceFileTreeRow) => {
       if (row.type === "directory") {
         handleDirectoryAction(row);
         return;
@@ -556,7 +558,7 @@ export function WorkspaceFileTree({
         // 即使未来有其它入口直接调用预览，也要在父级兜底阻止打开。
         return;
       }
-      onOpenPreview?.(createCodeViewerSourceForWorkspaceFile(row.path), options);
+      onOpenPreview?.(createCodeViewerSourceForWorkspaceFile(row.path));
     },
     [handleDirectoryAction, onOpenPreview, treeData.gitStatusByPath],
   );
@@ -602,10 +604,12 @@ export function WorkspaceFileTree({
     getPathLeaf(workspacePath) ||
     intl.formatMessage({ id: "workspaceFileTree.title" });
   const editorState = {
+    workspaceRemoteSessionId,
     canOpenLocalFileManager,
     installedEditors: availableEditors,
     isRemoteWorkspaceFileTree,
     remoteTarget,
+    htmlClickOpensBrowser: localSettings?.fileTreeHtmlClickOpensBrowser === true,
   };
 
   return (
@@ -613,14 +617,13 @@ export function WorkspaceFileTree({
       className="flex h-full min-h-0 flex-col text-foreground"
       data-testid={TID_WORKSPACE_FILE_TREE_PANEL}
     >
-      {hideBackButton ? null : (
+      {onClose ? (
         <div className="px-2 pb-3 pt-3">
           <Button
             type="button"
             variant="ghost"
             size="lg"
             className="w-full justify-start gap-2 rounded-xl px-2.5 text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
-            data-testid="workspace-file-tree-back"
             onClick={onClose}
           >
             <ArrowLeft className="size-4 shrink-0" />
@@ -629,15 +632,17 @@ export function WorkspaceFileTree({
             </span>
           </Button>
         </div>
+      ) : (
+        <div className="h-2 shrink-0" />
       )}
-      <div className="flex shrink-0 items-center px-2 pb-2">
+      <div className="flex shrink-0 items-center gap-1 px-2 pb-2">
         <div className="relative min-w-0 flex-1">
-          <Search className="pointer-events-none absolute start-2 top-1/2 size-3.5 -translate-y-1/2 text-foreground-subtlest" />
+          <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-foreground-subtlest" />
           <Input
             type="text"
             size="default"
             value={fileSearchQuery}
-            className="h-7 bg-transparent ps-7 pe-7 focus-visible:bg-input-focused"
+            className="h-7 bg-transparent pl-7 pr-7 focus-visible:bg-input-focused"
             placeholder={intl.formatMessage({
               id: "workspaceFileTree.searchPlaceholder",
             })}
@@ -647,42 +652,46 @@ export function WorkspaceFileTree({
             onChange={(event) => setFileSearchQuery(event.currentTarget.value)}
           />
           {fileSearchQuery.length > 0 ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-xs"
-              className="absolute end-1 top-1/2 -translate-y-1/2 text-foreground-subtlest hover:bg-surface-hover hover:text-foreground"
-              aria-label={intl.formatMessage({
-                id: "workspaceFileTree.clearSearch",
-              })}
-              title={intl.formatMessage({
-                id: "workspaceFileTree.clearSearch",
-              })}
-              onClick={() => setFileSearchQuery("")}
-            >
-              <X className="size-3" />
-            </Button>
+            <SidebarNativeTooltip>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="absolute right-1 top-1/2 -translate-y-1/2 text-foreground-subtlest hover:bg-surface-hover hover:text-foreground"
+                aria-label={intl.formatMessage({
+                  id: "workspaceFileTree.clearSearch",
+                })}
+                title={intl.formatMessage({
+                  id: "workspaceFileTree.clearSearch",
+                })}
+                onClick={() => setFileSearchQuery("")}
+              >
+                <X className="size-3" />
+              </Button>
+            </SidebarNativeTooltip>
           ) : null}
         </div>
       </div>
       <div className="flex shrink-0 items-center px-2 pb-2">
         <div className="flex min-w-0 flex-1 items-center gap-1">
-          <h3 className="min-w-0 truncate py-1 pe-0.5 ps-2.5 text-ui-base font-medium text-foreground-subtlest">
+          <h3 className="min-w-0 truncate py-1 pr-0.5 pl-2.5 text-ui-base font-medium text-foreground-subtlest">
             {workspaceTitle}
           </h3>
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
-              aria-label={intl.formatMessage({ id: "common.more" })}
-              title={intl.formatMessage({ id: "common.more" })}
-            >
-              <Ellipsis className="size-3.5" />
-            </Button>
+            <SidebarNativeTooltip>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-foreground-subtle hover:bg-surface-hover hover:text-foreground"
+                aria-label={intl.formatMessage({ id: "common.more" })}
+                title={intl.formatMessage({ id: "common.more" })}
+              >
+                <Ellipsis className="size-3.5" />
+              </Button>
+            </SidebarNativeTooltip>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem
@@ -761,9 +770,6 @@ export function WorkspaceFileTree({
             onToggleDirectory={handleToggleDirectory}
             onRevealRow={handleRevealStickyFolderRow}
             onOpenPreview={handleOpenPreview}
-            compareBaseline={compareBaseline}
-            onCompareWithBaseline={onCompareWithBaseline}
-            workspaceRemoteSessionId={workspaceRemoteSessionId}
             onOpenBrowserUrl={onOpenBrowserUrl}
             onKeyDown={handleRowKeyDown}
           />
@@ -794,9 +800,6 @@ export function WorkspaceFileTree({
             onSelect={setSelectedPath}
             onToggleDirectory={handleDirectoryAction}
             onOpenPreview={handleOpenPreview}
-            compareBaseline={compareBaseline}
-            onCompareWithBaseline={onCompareWithBaseline}
-            workspaceRemoteSessionId={workspaceRemoteSessionId}
             onOpenBrowserUrl={onOpenBrowserUrl}
             onKeyDown={handleRowKeyDown}
           />

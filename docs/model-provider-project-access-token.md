@@ -10,7 +10,7 @@
 - 返回的 apiKey 是非 Secret 的 Key ID，作为签发路径参数。组织、项目和 Key ID 分别编码，不跨项目挑选 Key。
 - POST /api/biz/v1/organization/{org}/projects/{project}/api_keys/{id}/access_tokens，使用 Bearer 登录 JWT，body 包含 clientType=zcode 与真实 clientVersion。
 - 所有原先使用 API Key 的业务接口可使用 Token；通过逐接口测试表复测，不继续把兼容性作为实施前置阻塞。
-- 新客户端只走 Token；没有旧 Key 回退。明确 enable=false、无可用 PAT 时签发失败或畸形响应时记录脱敏日志并失败；已有未过期 PAT 的提前刷新仅按下文的临时故障规则容错；省略 enable 时按默认开启处理，但仍严格校验 Token 和有效期。
+- 新客户端只走 Token；没有旧 Key 回退。明确 enable=false 或畸形响应时记录脱敏日志并失败。无可用 PAT 时，签发请求按下述一次临时故障重试规则处理，耗尽后失败；已有未过期 PAT 的提前刷新仅按下文的临时故障规则容错；省略 enable 时按默认开启处理，但仍严格校验 Token 和有效期。
 - Project Access Token 由平台签发，仍遵守官方版本的请求安全校验准入规则，不能因使用 Token 而跳过；用户手工 Key 的既有安全校验行为保留。
 - CLI 有明确 manual 来源标记的手工 Key 保持独立语义；旧记录无来源标记且无 OAuth 时无法判定是否为旧派生 Key，须重新登录或重新选择手工 Key，不猜测来源而回退。第三方 Provider Key 保持原契约；Start Plan、官方 MCP、reset 既有 JWT 身份通道保持。
 - 不再读取/存储 OAuth 派生的长期 Secret，不删除旧客户端共享的登录态；手工 Key 不被清理。旧版本使用原服务端接口的能力不由新客户端改写。
@@ -58,6 +58,66 @@ Token 不写 Provider Config、Registry、Session、UI 快照、日志或 creden
 
 账号身份不能取短期 Token 的哈希。桌面 continuous、手机 replayable 和 workspaceIdentity 隔离保持。
 
+### 换证失败错误码
+
+公共换证客户端只向调用方和 observe 事件传播固定错误码，不保留上游 message、cause、URL、响应体或 Token。I/O adapter（Host `readApiJson`、CLI HttpClientPort）负责把请求失败归类为结构化类别，客户端按类别映射：
+
+| 失败类别                                                                                       | 错误码                                                                                 | 是否属于临时故障 |
+| ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ---------------- |
+| 无 HTTP 响应的传输失败（连接、DNS、TLS 等）                                                    | `project_token_network_error`                                                          | 是               |
+| 内部请求超时                                                                                   | `project_token_timeout`                                                                | 是               |
+| HTTP 状态非 2xx（404 除外）                                                                    | `project_token_http_<status>`，例如 `project_token_http_401`、`project_token_http_503` | 仅 429/5xx       |
+| HTTP 404（签发端会先清除 Key ID 位置）；2xx 响应但正文不是 JSON，或 envelope/数据不满足 schema | `project_token_invalid_response`                                                       | 否               |
+| 其他未分类异常                                                                                 | `project_token_request_failed`                                                         | 否               |
+
+是否允许提前刷新复用旧 PAT 仍只看“临时故障”类别，与错误码细分无关；错误码分类继续服务日志与 runtime headers 失败文本；不按错误文案猜测重试，不新增 Key 回退或 UI 分支。唯一例外是 `project_token_network_error` 与 `project_token_timeout`：Host 在 runtime headers 应答中把它们改用结构化 RPC 错误码交给 Agent 的模型重试预算，见下文「网络与超时签发失败进入模型重试（2026-11-19）」。
+
+### PAT 签发的一次临时故障重试（2026-10-28）
+
+已解析出组织、项目及 Key ID 后，每次 PAT 签发最多发送两次 HTTP 请求。第一次由 I/O adapter 明确归类为网络错误、内部超时、HTTP 429 或 5xx 时，先由原缓存 owner 判断失败时是否仍有未过期、未被拒绝的 PAT：有则立即沿用原提前刷新降级规则，不增加第二次签发等待；没有才在同一共享操作内重试一次。其他错误、HTTP 401/403/404、业务拒绝、响应解析失败以及未分类异常均不重试。第二次失败后沿用原固定错误码，不放宽有效期校验。
+
+HTTP 429 不立即重试。Host 与 CLI 只传递安全的 `Retry-After` 相对等待量（支持秒数与 HTTP 日期），共享 owner 在 1 秒等待上限内加抖动后重试；无有效响应头时等待 250–1000 毫秒。若服务端要求等待超过 1 秒，本次操作直接保留 429 错误，不提前重试，也不新增后台任务或第二套模型重试预算。等待结束后重新检查登录代次；旧 PAT 若在首次请求期间已经过期，不能因为请求开始时有效就继续返回它。
+
+重试仅包住 `POST .../api_keys/{id}/access_tokens`。组织/项目查询、Key 查询和创建、OAuth 和业务 JWT 换证均不进入此重试；一次 Key 创建成功后签发重试仍使用相同 ID，不重复创建 Key。
+
+共享 `ProjectAccessTokenClient` 仍是 Host 与 Standalone 的唯一 owner。两次签发共用原 cache pending；并发调用共享结果。失败后、重试前和结果提交前均核对原登录代次；clear 或切账号后旧操作不再重试，也不能写入新账号缓存。取消仍按现行边界：取消单个等待者不取消其他等待者持有的共享请求；全部等待者取消后，owner 的有界请求可结束，但不会恢复已取消调用。
+
+```text
+同一 owner + Key ID + pending
+  -> 签发 1 -> 成功 -> 原有效期校验 -> 共享结果
+           -> 已归类临时失败 -> 原 owner 仍有有效 PAT -> 提前刷新降级
+                            -> 无有效 PAT -> 429 有界等待（其他临时失败不等待）
+                                         -> 复核代次 -> 签发 2 -> 成功或最终失败
+           -> 其他失败 -> 立即失败
+clear / 账号变化 -> 旧代次作废 -> 禁止继续重试或提交
+```
+
+每次实际重试只记录固定事件 `project_token_request_retry`；Host 对应文案为“项目 Token 签发临时失败，准备重试”，与最终失败区分。不记录 URL、Token、响应体或异常原文。验收覆盖首签临时失败后成功、两次失败停止、有效 PAT 刷新不增加一次等待、429 的等待/超限/等待期间退出、非临时拒绝、Key 创建不重试、并发单飞、取消等待者及切账号的迟到失败/成功。桌面保留原登录并可自动恢复签发；不改变手机 replayable、桌面 continuous、模型选择或已输出 SSE 的处理。
+
+2026-10-28 定向验证（早于 2026-10-29 增加的 429 退避及有效 PAT 直接降级，只证明当时的范围）：CLI 4 文件共 68 项通过；真实本地 HTTP 的 Host/CLI 25 个场景通过，首次超时后成功约 15 秒，两次超时后在约 30 秒停止，401/403 各一次、Key 创建失败一次。Electron 原位置恢复与新增冷缓存 503 恢复两项通过，产物 `packages/desktop/.e2e-artifacts/desktop-e2e-20261028-144449-869`。未使用生产凭据，未验证真实平台、Windows/Linux 或实体手机。
+
+### 网络与超时签发失败进入模型重试（2026-11-19）
+
+背景：3.17.1 起 `project_token_network_error` 反馈每天 30–40 条，覆盖 Windows、macOS、Linux。现场是应用刚启动、睡眠唤醒或线路瞬断时没有可用 PAT，签发的两次请求在几毫秒到约 30 秒内都失败。Host 原先以 `{headersApplied:false, errorMessage}` 应答 `interaction/requestProviderRuntimeHeaders`，Agent 把它当作不可重试，整轮在第一次模型尝试前结束，界面显示 `reason=unknown retryable=false`。
+
+规则：
+
+- 仅当无交互账号鉴权（`respondAccountRequestAuthWithoutInteraction`）最终失败码是 `project_token_network_error` 或 `project_token_timeout` 时，Host 改用 JSON-RPC error `-32033`（`ZCODE_PROVIDER_PROJECT_TOKEN_NETWORK_ERROR`）应答，message 仍为原固定错误码。其余失败码（含 429/5xx、401/403、invalid_response、scope_invalidated、凭据缺失）、Start Plan 交互验证路径和应答形态都不变。
+- Agent 只按该结构化错误码判定可重试，不按文案判断。归类为普通 `network_error`，与模型断网共用同一预算、退避和取消规则；每次模型尝试前重新请求 runtime headers，Host 重新换证。不新增计时器、队列或第二套预算。
+- 界面沿用通用重连状态（“重新连接中… n/m”），不使用请求校验配置的文案。预算耗尽后仍以原错误码结束本轮。
+- 401 恢复的重新签发同样适用：断网、超时进入 network_error 预算，而非立即失败；下一次尝试不带失败指纹和 `expectedAccountScope`，与普通重试一致，401 恢复预算不重置。
+- PAT 签发层的一次立即重试、有效 PAT 提前刷新降级及其它调用方（用量、套餐可用性）不变。
+- 新旧版本组合：旧 Agent 不认识 `-32033`，仍立即失败；旧 Host 仍回 `headersApplied:false`，新 Agent 也立即失败，与改动前一致。独立 CLI（无 Host）的 runtime headers 端口不在本次范围内，仍立即失败。
+
+```text
+模型尝试 n → interaction/requestProviderRuntimeHeaders → Host 换证（最多 2 次 HTTP）
+  ├ 成功 → 模型请求
+  ├ network_error / timeout → RPC error -32033 → Agent network_error 退避 → 尝试 n+1
+  └ 其它失败 → {headersApplied:false} → 立即失败（不变）
+```
+
+验收：CLI 定向测试覆盖 stream/generate 两种请求，覆盖恢复后成功、耗尽后报原码、其它失败码不重试、旧应答形态不重试、取消优先、401 恢复换证断网后按普通请求重新签发，并确认重试原因是 `network_error` 而不是配置读取。桌面 E2E 在冷缓存下断开换证连接：发送后显示通用重连状态，恢复后原消息完成且只出现一条用户消息。
+
 ## 长任务与业务登录凭据刷新
 
 闲时模型每个物理 HTTP attempt 必须通过现有 Provider Runtime Headers 私有通道向 Host 换取当前 PAT。派发时仅冻结票据和账号作用域约束，不把派发时 PAT 当作整轮有效凭据。`requestAuth.accountScope` 是 Host 生成的不可逆作用域校验值（登录生命周期、family、个人/团队、组织/项目/产品），不作为账号身份、不包含短期 PAT、不持久化或写日志。后续请求带 `expectedAccountScope`；账号/套餐变化或换证期间作用域变化立即失败，不把原票据套到新账号。Mock 无真实 PAT，原静态注入保持。
@@ -93,7 +153,7 @@ Standalone 的 PAT、Key ID 定位与 Z.AI 业务 JWT 单飞请求由 resolver/c
 会话 B ─ 独立等待 ─────────────────┘                       → 缓存结果 → B
 ```
 
-普通模型 HTTP 401 允许一次 PAT 恢复：仅个人/团队套餐及闲时的 OAuth PAT 请求生效，手填 Key、Start Plan 和加速卡不参与。模型调用持有一次恢复预算，复用现有 `auth_refresh` 重试状态与物理请求循环；重新签发失败或再次 401 立即失败，不回退 Key。401 是尝试恢复的触发条件，不被当作已确认的 Token 过期原因。`VERIFY_APIKEY_EXPIRED` / `VERIFY_SIGNATURE_INVALID` 属于官方版本请求安全校验自身的错误恢复，保持原有独立处理。
+普通模型 HTTP 401 允许一次 PAT 恢复：仅个人/团队套餐及闲时的 OAuth PAT 请求生效，手填 Key、Start Plan 和加速卡不参与。模型调用持有一次恢复预算，复用现有 `auth_refresh` 重试状态与物理请求循环；再次 401 或重新签发失败立即失败，不回退 Key。例外：重新签发最终失败码为 `project_token_network_error` / `project_token_timeout` 时，按下文「网络与超时签发失败进入模型重试」并入 network_error 预算；恢复预算已用掉，下一次尝试按普通请求换证，不再携带失败指纹。换证失败时 Host 已删除该缓存条目，被拒 PAT 不会被复用。401 是尝试恢复的触发条件，不被当作已确认的 Token 过期原因。`VERIFY_APIKEY_EXPIRED` / `VERIFY_SIGNATURE_INVALID` 属于官方版本请求安全校验自身的错误恢复，保持原有独立处理。
 
 ```text
 模型 HTTP 401（未提交输出）→ 私有请求携带原账号作用域 + 失败 PAT 的 SHA-256 指纹
@@ -105,7 +165,7 @@ Standalone 的 PAT、Key ID 定位与 Z.AI 业务 JWT 单飞请求由 resolver/c
 
 验收：闲时同一轮跨 TTL 后新请求使用新 PAT且票据不变；切账号/项目和换证中途变化失败；无 owner 时不能沿用过期快照；Z.ai 业务 JWT 跨 TTL 与并发刷新、单次 401 恢复、403/网络不重试、退出竞态均覆盖。已建立 SSE 不重放。
 
-模型 PAT 恢复验收：首次 401 后实际使用新 PAT；普通请求预算为 1 时仍有一次恢复机会；二次 401 / 换证失败终止；SSE 首个错误块可恢复、文本或工具输出后不可重放；并发和迟到 401 不重复签发或清除新 PAT；取消、手工 Key、Start Plan、安全校验错误不触发 PAT 恢复；SSH 私有协议与子会话路由保留原作用域和失败指纹。
+模型 PAT 恢复验收：首次 401 后实际使用新 PAT；普通请求预算为 1 时仍有一次恢复机会；二次 401 / 换证失败终止（断网、超时按 network_error 预算重试后重新签发）；SSE 首个错误块可恢复、文本或工具输出后不可重放；并发和迟到 401 不重复签发或清除新 PAT；取消、手工 Key、Start Plan、安全校验错误不触发 PAT 恢复；SSH 私有协议与子会话路由保留原作用域和失败指纹。
 
 ## 订阅查询与用途
 
@@ -198,3 +258,13 @@ ID 仅随请求期鉴权材料传递，不写入模型静态配置、不添加�
 验收：个人/团队及 BigModel/Z.AI 返回 ID 与 PAT 配对；独立 CLI OAuth 返回 ID、手工登录无 ID；协议往返保留 ID；配置请求仅含真实 ID，模型请求仍含 PAT 且没有 ID Header；手工 Provider 的路由配置请求不泄露 Key，安全校验逻辑不再请求配置开关；换证/切换账号后的新请求使用对应 ID。
 
 本次验证：服务/Host 回归 76 项、CLI 专项 201 项、协议 ID 透传 1 项通过（共 278 项，含本地 HTTP 实际 Header 验证）。根 typecheck、lint、architecture 检查及 CLI contracts/adapters/bootstrap 独立类型检查通过。CLI 总入口缺少 turbo；三个包的完整 lint 有 50 个既有 max-lines 错误，变更文件排除该存量规则后通过。扩大执行时另有 3 个旧安全校验测试、2 个旧协议测试失败，已用 HEAD 测试/实现复现对应失败，不计入本次通过数。真实平台及 SSH 环境尚未联调；需使用包含 apiKeyId 私有协议的配套 Host/Server 与 Agent。
+
+## Retry-After 的可重复验收
+
+Host 的真实 HTTP 响应必须先经过 `readApiJson` 的诊断响应头白名单，再由 `createAccountProjectTokenClient` 解析为相对等待量，最后交给共享 owner。响应头大小写由 Headers 处理，不得在白名单中丢弃 `retry-after`。
+
+MR 自动检查通过 `pnpm --filter @zcode/desktop test:project-token-retry-after-smoke` 执行该链路。修改响应头读取、Host adapter、共享 PAT owner、脚本或相关依赖/CI 配置时，`test:project-token-retry-after` 必须自动运行；正常模式必须通过，移除响应头的隔离变异必须在“60 秒不得提前重试”断言失败。仅运行解析器单测不能替代 Host 透传回归。该 job 不启动应用、不连接生产接口、不打包或部署；日志与结果按流水线 artifact 保留。
+
+运行 `node packages/desktop/scripts/project-token-retry-after-smoke.mjs` 覆盖真实 HTTP 的 60 秒超预算（一次请求并保留 429）、1 秒、小数秒、HTTP 日期、非法及缺失响应头。变异命令加 `--omit-retry-after-header` 只改变隔离探针构建，应在超预算用例失败，证明该测试覆盖 Host 透传链路。另在隔离签名完整包验证实际 Host 的请求次数、时间间隔、日志与登录保留；使用合成凭据，不能视为生产账户验收。App 业务单测已退役，此处使用可重复运行时验收，不新增 shared/services 业务单测。
+
+2026-11-02 新增验证：CLI 2 个文件 59 项通过，包含 9 个 Retry-After 解析边界；真实 HTTP 的 Host 透传链路 6 个场景通过，删除诊断头透传的变异探针按预期失败。签名完整包 3.17.111 的 5 个场景通过：1 秒等待、HTTP 日期、长等待不进入自动重试、有效旧 PAT 刷新失败降级、原 PAT 过期后重新签发；登录及独立凭据未改写，PAT 未持久化。长等待的单次 owner 调用在 HTTP 探针中只发 1 次；完整 App 启动有多个独立调用，本次观测共 5 次请求、0 个自动重试事件，不把它误写为全应用总共 1 次请求。本轮不引入全局限流冷却策略。使用隔离合成账号，不代表生产限流或原机网络验收。

@@ -2,6 +2,18 @@
 
 ## 交互
 
+2026-11-13 验收：Popover、Provider 悬停展开和胶囊搜索框的浏览器场景 8/8 通过（macOS Electron / 390px 手机模拟、深浅主题、中英文）。桌面 Composer 集成回归 16/16 通过，产物为 `packages/desktop/.e2e-artifacts/desktop-e2e-20261113-072002-565/`。真实开发窗口验证了搜索、清除、hover 保留焦点、键盘选模和思考档位操作。全量类型检查、E2E 类型检查、Lint、架构和变更文件格式检查通过；未做 Windows/Linux 原生界面或手机真机验收。
+
+合并面板由 `Popover` 承载，使用 dialog 语义；标题、搜索框和思考滑杆均为普通控件，不再是 Dropdown 菜单项。模型列表使用 listbox/option 语义，焦点移动限定在列表内：上下键与 Home/End 移动，Enter/空格确认，Tab 进入或离开列表。搜索框默认背景和边框透明，hover 和聚焦均使用 `border-border` 显示边框，聚焦背景保持透明。搜索框使用胶囊圆角，保留现有高度、搜索图标和三级颜色圆形清除按钮。搜索框右边缘与模型行 hover 背景右边缘对齐，复用面板的 4px 内边距；清除图标在输入框内保留约 6–8px 右间距。搜索框方向下键进入第一个可用结果；输入、清除及鼠标 hover 不移动焦点。打开面板默认聚焦面板容器，不自动拉起手机键盘。Escape 与一次外部点击关闭，现有 Composer picker 互斥及关闭焦点恢复保留。
+
+Provider 标题行的 hover 与展开态、Provider 选项和模型行统一使用 `bg-menu-hover`，不叠加透明度。桌面 Provider 支持悬停展开独立 Popover，悬停打开/关闭不改变搜索焦点；鼠标可跨越面板间隙进入子面板，离开标题、子面板和连接区域后关闭。点击或 ArrowRight 打开后可使用键盘操作；窄屏沿用点击进入和返回。Provider 列表同样使用 listbox/option，切换仍走已有 owner。删除模型行、搜索标题和滑杆中为 Dropdown 抢焦点添加的 pointermove/pointerleave、stopPropagation 和转发焦点补丁；保留 pending 禁用门禁、输入法组合保护及原生滑杆业务约束。
+
+```text
+Popover 开关 → 现有 Composer picker owner
+搜索词 → 本地筛选 → 列表焦点导航 → 点击/Enter/空格 → 原有选模回调
+滑杆原生输入 → 原有档位回调；鼠标 hover 只改变 CSS 背景
+```
+
 普通输入框的模型与 Think 使用一个入口。入口不显示 Provider 前缀：
 
 ```text
@@ -9,6 +21,25 @@
 ```
 
 菜单显示 Models（中文「模型」）分区标题，使用 text-ui-sm 和次要文字色；模型名称保持基础字号，能力标签保持原样。
+
+标题右侧提供「搜索模型」输入框。仅在当前 Provider 内按模型显示名称进行不区分大小写的子串匹配，忽略首尾空格；空搜索展示全部模型，未命中显示本地化空态。筛选保留目录顺序、锁定状态、能力标签和选中态，不改变已选模型或思考档位。关闭菜单或切换 Provider 清空搜索，手机打开菜单时不自动聚焦输入框。
+
+搜索行使用轻量菜单样式：左侧标题为常规字重的小号次要文字，右侧带搜索图标；输入区高 24px，桌面使用小号文字，手机保留安全输入字号。默认背景和边框透明，聚焦时仅显示弱边框；整行不显示菜单项选中底色。输入非空时显示三级灰色实心圆内镂空 × 的清除按钮，悬停略加深；禁用浏览器原生搜索清除样式。点击清除后保持输入焦点和菜单展开，恢复完整列表，不改变模型选择。
+
+2026-11-13 样式验收：通过 CDP 检查实际运行的桌面菜单，输入模型名关键词后检查聚焦、清除圆钮及悬停态，点击清除后完整列表恢复且输入仍聚焦；默认背景／边框透明、聚焦为主题弱边框；既有浏览器场景在 Electron／390px 手机模拟、深浅主题及中英文下 8/8 通过。未做手机真机和 Windows/Linux 原生视觉验收。
+
+搜索词仅由当前菜单实例持有，结果从当前目录派生，不持久化、不请求远端。模型行的鼠标悬停背景独立于键盘焦点：搜索框聚焦时仍显示悬停背景，移开后恢复，且不打断输入、不改变当前模型；鼠标点击与方向键选模沿用原路径，不新增悬停状态副本。输入文字、空格和光标键不触发菜单 typeahead；方向下键进入可用结果，Escape 关闭菜单，中文输入法确认不触发选模。选中结果仍使用已有选模回调。
+
+```text
+搜索输入 → ComposerModelMenu 本地搜索词 → 当前 Provider 目录过滤 → 现有模型行
+点击结果 → 现有 onSelectModel / renderItems 回调 → Composer 选择 owner
+```
+
+验收：桌面和 390px 手机布局、深浅主题、中英文；验证大小写与空格、空态、清空、锁定项、键盘选择、关闭重开及 Provider 切换后的搜索重置。浏览器场景在 `composer-menu-dismiss.test.mjs`，桌面集成断言在 `conversation-session-v4-composer-toolbar.test.ts`；浏览器夹具不代表真实远端传输验收。
+
+2026-11-11：上述浏览器场景在 macOS Electron 与手机模拟布局中 8/8 通过，产物位于 `packages/desktop/.e2e-artifacts/composer-menu-dismiss/`。搜索重排不改变输入焦点；Tab 从 Provider 按钮进入搜索框，方向下键进入结果。
+
+桌面 Composer 集成回归 16/16 通过（`packages/desktop/.e2e-artifacts/desktop-e2e-20261111-093827-824/`），包含搜索空态、空白查询恢复列表及既有选模、档位、picker 互斥和远控配置门禁。全量 typecheck、E2E typecheck、lint、架构及变更文件格式检查通过；未做 Windows/Linux 原生界面和手机真机输入法验收。
 
 High 使用次要文字色。绿条始终是同一按钮内的展示，不单独响应点击；按模型声明的档位显示强度，关闭或无效选择为空槽。
 
@@ -30,16 +61,17 @@ Provider 行左侧依次为当前供应商图标、名称、接入方式标识�
 
 子菜单使用 Portal 避免父菜单裁切。窄屏侧向空间不足时，子菜单允许覆盖父菜单并避开 Provider 触发器行，保持高于父菜单的层级；不改变 Provider 选择和模型切换逻辑。
 
-切换 Provider 立即选择该分组按目录顺序的第一个未锁定模型，沿用已有 onSelectModel 更新 Composer，Think 由既有模型切换逻辑同步为有效档位，弹层保持打开。重复选择当前 Provider 保留其当前可用模型。没有可用模型的 Provider 仍可浏览和配置，但不覆盖当前模型，Think 禁用。滑杆按 Option Spec 的原始顺序逐格选择，不排序、不转换成 Token Budget。仅 Off 单档隐藏整个 Effort 区域及分割线；其他单档禁用滑杆但显示档位；无模型／无有效档位不制造默认选择。选择档位保持弹层打开，点击外部或 Escape 收起。桌面关闭后恢复输入焦点；手机不主动弹出软键盘。
+切换 Provider 立即选择该分组按目录顺序的第一个未锁定模型，沿用已有 onSelectModel 更新 Composer，Think 由既有模型切换逻辑同步为有效档位；未绑定草稿和已有会话均保持模型弹层打开。重复选择当前 Provider 保留其当前可用模型。没有可用模型的 Provider 仍可浏览和配置，但不覆盖当前模型，Think 禁用。滑杆按 Option Spec 的原始顺序逐格选择，不排序、不转换成 Token Budget。仅 Off 单档隐藏整个 Effort 区域及分割线；其他单档禁用滑杆但显示档位；无模型／无有效档位不制造默认选择。选择档位保持模型弹层打开；已有会话等待 ACK 时禁用模型项、Provider 和滑杆，ACK 后在原面板恢复操作。点击外部或 Escape 收起。桌面关闭后恢复输入焦点；手机不主动弹出软键盘。
 
 ### 模型菜单关闭
 
-- 点击或键盘确认可用模型后保持菜单打开，包括重复选择当前模型，便于继续调整思考档位；锁定模型不提交、不关闭。切换 Provider 和调档仍保持菜单打开。
+- 草稿和已有会话点击或键盘确认模型后均保持菜单打开，便于继续调档；已有会话在 ACK 前禁用配置控件、入口及快捷键，但不改变模型菜单打开状态。锁定模型不提交。Provider 目录刷新阶段沿用原菜单行为，进入会话配置提交后遵循 ACK 门禁。
 - 普通输入框、全屏插件中的浮动输入框共用同一个菜单打开状态。点击菜单外侧一次即关闭，包括插件 webview 所占区域；该次点击只关闭菜单，不触发底下插件操作。Escape 保持关闭行为。
-- 菜单关闭后沿用现有焦点规则：桌面恢复输入框，手机不主动弹出软键盘。不改变模型选择 owner、提交和协议。
+- 菜单关闭后沿用现有焦点规则：桌面恢复输入框，手机不主动弹出软键盘。配置仍通过原 Session 命令入口提交。
 
 ```text
-确认可用模型 → 既有模型选择回调 → 菜单保持打开
+未绑定草稿选择 → 更新草稿 → 菜单保持打开
+已有会话选择 → 保留模型面板并禁用配置控件/发送 → 配置 ACK → 原面板恢复操作/发送
 菜单外侧指针 → 宿主菜单外部交互 → 菜单 open=false
 Provider / Effort 操作 → 原有选择链路 → 菜单保持打开
 ```
@@ -60,13 +92,80 @@ Provider / Effort 操作 → 原有选择链路 → 菜单保持打开
 
 不存在隐藏绿条、仅模型名、截断模型名的中间阶段。未渲染的控件跳过，宽度恢复时逆序展开；按钮不因压缩重新挂载，打开的菜单、焦点和选择不丢失。Highspeed 锁定模型的既有专用指示器与独立思考控制保持现有行为。
 
+Highspeed 卡只锁定 Provider/Model 身份，不锁定同模型的思考档位。已有会话通过独立档位下拉和 Ctrl+T 提交完整配置，继续由 CLI 确认；不能被选模身份锁提前吞掉。配置 ACK 在途时独立档位入口关闭并禁用，快捷键与发送沿用同一门禁。桌面宽窄窗口和手机 shared-host 使用相同规则。配置只改变后续输入，不改写运行轮或已接纳队列的冻结 Selection。
+
 ## 状态与边界
+
+### Provider 连接切换期间的发送门禁
+
+Provider 连接切换从点击开始，覆盖账号设置持久化、目标 Host 配置刷新、完整模型选择提交及
+目标展示确认。`useComposerConnectionSwitch` 是该 pending 的唯一 owner，Composer 只接收
+它的投影用于发送门禁，不另建超时或请求队列。菜单关闭不能结束 pending。
+
+切换期间，发送按钮、Enter、立即发送和新消息入队入口均不得提交旧 provider；正文和附件保持
+可编辑且不清空，不自动补发。成功后用户再次发送，固定新 provider/model/options；失败结束
+门禁，保留既有错误提示、回滚与重试行为。任务/工作区切换或组件卸载释放该输入框门禁，旧结果不得锁住
+新输入框或改写新任务。桌面和手机 Web 共用同一发送门禁。
+
+正在执行的 Active Model 和已经接纳/排队消息的 modelSelection 快照不变，停止、队列消费与
+既有消息恢复不受门禁影响。门禁只阻止尚未接纳的新输入。
+
+```text
+点击 Provider → pending=true → 刷新目标配置 → 确认模型与展示 → pending=false
+                   └→ 新提交被阻止，保留草稿                    └→ 可提交新选择
+运行中 / 已入队 → 各自已冻结的模型快照继续执行
+```
+
+回归场景：同名模型跨 Provider，受控挂起真实目录读取，立即点击发送并按 Enter，验证没有
+sendText/新入队、草稿保留；放行后发送，消息快照与实际请求为目标 Provider。覆盖宽/窄视口、
+失败/卸载释放，以及既有运行中和已排队消息不改写。实机快速切套餐场景需记录刷新与发送时序。
+
+### 已有会话选模立即生效
+
+已有会话中，切换 Provider 自动选择的模型与手动选模统一提交 `switchModelConfig`，携带完整
+Provider、Model、reasoningLevel。CLI/runtime 是会话模型的唯一 owner。成功 ACK 后才将该选择
+确认为已生效并更新 Composer；失败保留旧选择并显示错误。切换期间显示 pending，禁止重复
+提交和发送；切换任务后的旧回执不得更新新任务。新建未绑定会话仍只编辑草稿，不创建额外会话。
+
+配置命令等待 ACK 时，当前会话保留合并模型菜单，禁用其中模型项、Provider、滑杆及 Ctrl+M、Ctrl+T；独立档位下拉沿用选中关闭行为，
+保留 pending 展示与发送门禁。用户需在确认后再次选择；不接纳后再静默丢弃。
+pending 按 workspace/session 和请求身份归属：切到 B 不等待 A 的配置屏障，返回 A
+时仍展示 A 的在途状态；A 的回执只能释放 A 对应请求，不能确认 B 草稿或解除 B 门禁。
+运行轮和已接纳队列仍使用冻结 Selection，不取消旧会话已提交的配置命令。
+
+已有会话恢复时，正文、编辑器和附件继续读取原草稿；模型选择从当前 Session 快照恢复，不能因为草稿已有 mode 而沿用旧模型/档位。A 的配置在离开期间成功后，返回 A 的首次快照即采用已确认选择；若返回时命令仍在途，继续保留 A 的门禁，由当前 owner 接收 ACK。新任务和消息编辑 scope 保留原有配置初始化语义，不重写运行轮或已接纳队列。
+
+同一模型仅切换思考档位（包括快捷键）也遵循此提交路径：已有会话复用模型配置命令及
+顺序屏障，传入当前 Provider/Model 与目标档位，成功 ACK 后确认草稿。不能只改草稿而让
+后续飞书输入继续读取旧 Session 档位。档位修改不改写正在执行轮次或已接纳队列的快照。
+回归在不从桌面发送的前提下核对 Session 持久选择，并由飞书发送确认实际请求档位；
+桌面与手机使用同一入口，新建未绑定会话仍只修改草稿。
+
+```text
+已有会话选模 → 配置屏障 → CLI CommandInbox 串行接纳 → 保存 Session Selection → ACK / 投影
+                                                        ├→ Composer 确认
+                                                        └→ 后续飞书输入固定新选择
+已运行 / 已接纳队列 → 各自冻结的 Submission / Active Model（不被配置命令改写）
+```
+
+模型配置只影响之后的新输入。正在执行的请求及后续工具轮沿用自己的 Active Model；已接纳队列
+沿用各自 Submission，消费旧队列不得倒写较新的会话选择。Bot 随输入携带 `modelSelectionBasis`（读取时的原 Session Selection），CLI 在接纳时核对 Provider、Model 和 reasoningLevel。依据相同时保留 Host 已解析的有效选择，变化时固定当前 Session Selection；该依据不写入已接纳队列。
+不能用切换前异步读取的选择覆盖已经确认的新会话模型。桌面 continuous 与手机 replayable
+复用同一命令和 owner，不增加 Bot 模型缓存、输入队列或超时同步。
+
+验收：Start → BigModel（同名模型）后不再点模型、不从桌面发送，直接飞书发送，实际请求为
+BigModel；运行中 A、已排队 A、切换 B 后新输入 B 的请求身份分别保持 A/A/B。覆盖失败不改值、
+同值 noop、跨任务旧回执、桌面/手机路径。真实飞书验证与替身 E2E 证据分别记录。
+
+2026-11-03 验证：真实飞书 Start → BigModel 同名 GLM-5.3 续聊通过，实际网络请求身份为
+`bigmodel-standard-api / GLM-5.3`；队列 E2E 的 auto drain 与立即发送均保持原提交模型。
+CLI 模型配置、输入接纳、网关和执行隔离回归通过；手机真机与 Windows/Linux 未实测。
 
 ```text
 ModelSelectionView（支持的模型与档位）
                  ↓
 选择 Provider → 当前可用模型或首个可用模型 → 现有 onSelectModel → Composer 草稿
-合并弹层 → 现有 onSelectModel / onSelectThought → Composer 草稿（唯一选择 owner）
+合并弹层 → 已有会话选模提交并确认 / 新建会话编辑 Composer 草稿
                                                      ↓ 发送
                                                冻结 Submission
 ```
@@ -206,6 +305,8 @@ CR-01 验证：新增测试先复现空 Effort；修复后 51 项组件测试、
 失败 → 恢复原设置并同步 → 保留原模型并显示可重试错误
 ```
 
+例外：重新选择已经生效的连接时，不保存、不同步，见下文「重选已生效的套餐连接」。
+
 共享设置为套餐身份唯一来源，Composer 仍持有模型选择。团队多行是目录投影，不创建 Provider 或额外 runtime。同步时禁用供应商、模型和 Effort 重复操作，保持主菜单打开；完整同步后才采用新菜单身份。异步结果绑定 Host 与 workspaceIdentity.trim() || workspacePath；远端须比对根/目标 Provider connectionKey，避免旧团队同名模型误判成功。API 选择不写套餐设置。关闭菜单及窄屏返回不修改模型；使用现有窄屏返回导航、主题 token 和国际化。桌面 continuous 与手机 replayable 消息链路不变。
 
 验收覆盖个人/多个团队行及标签、团队身份去重、API 顺序不变、切换同名模型、失败回滚、重复选择、过期 Host 结果和窄屏导航；桌面 E2E 验证个人→团队→个人、持久化身份、勾选与标题。真实账号鉴权及其他平台实机验证单独报告。
@@ -290,3 +391,93 @@ FlashX 验证：新增 GLM FlashX 大小写用例先复现 12 气泡；修复后
 展示读取消费者隔离（MR review）：显式 refresh 返回 ready 或 superseded 回执；已被同 owner 新请求或新 input 取代的读取，其成功和失败均不得决定连接终态。当前请求失败仍拒绝并发布失败回执。Composer 仅在重读结束后按当前展示 state 与目标 revision/选择结算。OAuth session 成功后，连接域初始化属于独立辅助步骤；CAS 冲突保留并发新设置、单独记录初始化失败，继续 Provider 刷新及登录成功标记，不自动重试初始化。
 
 OAuth 连接初始化冲突后不再执行自动连接校正：该登录操作失去自动写入资格，只读取最新 App settings 快照并刷新 Provider 事实，随后完成登录成功标记。不得重读新版本为旧登录操作重新取得 CAS 写入资格；正常初始化仍执行已有自动选择流程。
+
+### 重选已生效的套餐连接（2026-11-05）
+
+问题：在 SSH 工作区里，执行“个人套餐 → 普通 API → 同一个人套餐”，每次切回要 1.5～8 秒（ZCT-2118278184274395136）。普通 API 不写套餐设置，所以切回时共享设置仍是这个连接。原流程仍然无条件保存：
+
+1. 值相同也要递增操作版本。
+2. 这次写入用 `account-settings` 触发器向所有在线远端推送一轮 Provisioning。
+3. 保存后要等这一轮推送在远端完成，再刷新目标 Host 并核对（见下节「保存后等待远端下发结果」）。
+
+用户日志里，5 次切回各触发一轮远端同步，每轮 1.4～5.5 秒。
+
+规则：点击套餐行后，连接 owner `useComposerConnectionSwitch` 先判断这个连接是否已生效。以下三项都满足才算已生效：
+
+1. 共享设置的 `providerFamilyDomain` 等于该行品牌，并且该品牌已保存的连接身份与该行相同（用 `composerConnectionKey` 比较）。
+2. 根 Host 先 refresh ProviderSettings，得到按当前共享设置解析的 `connectionKey`。远程工作区：目标 Host 当前 ProviderSettings（只读，不 refresh）里该 Provider 的 `connectionKey` 与它相同。本地工作区的目标就是根 Host，refresh 后的目录已经对应当前设置，不再比较。
+3. 目标 Host 当前模型目录里，该 Provider 有可用模型。
+
+已生效时，不保存设置，不触发 Provisioning，不刷新目标 Host，直接用目标 Host 当前目录选模型。选模型前重读一次 Renderer 的共享设置快照。之后的选模、展示回执和发送门禁与原流程相同。只要有一项不满足，就按原流程执行“保存 → 同步 → 核对”。远端还没同步时，这次保存也同时负责重新推送。
+
+根 Host 必须 refresh，不能只读缓存（CR-01）：根 Host 的账号快照不一定按当前设置解析。
+
+- 同一窗口写入设置后，根 Host 的账号刷新是异步的，含权益查询。
+- 每个窗口有自己的 Window Host。另一个窗口写入设置时，本窗口 Host 收不到设置更新事件，账号快照不会刷新。
+
+这时根、目标两份缓存可能都停在旧团队。两者相等，但都不是当前设置。两个团队共用 Provider ID，旧团队目录也有模型。只比两份缓存会把“没切换”当成“已生效”，选模用旧团队目录，界面也不报错。refresh 返回请求之后才开始的一轮，所以根 Host 的身份一定来自当前设置。目标 Host 仍只读缓存：慢的部分是等待远端 Provisioning，不是根 Host 刷新。
+
+Renderer 共享设置快照也要重读：原流程靠保存时的 `update` 刷新它，快路径不保存。Composer 的勾选和连接标签读这份快照。另一个窗口写入设置时，它仍是旧值，不重读就会显示旧团队。
+
+```text
+点击套餐行
+  ├ 设置身份相同
+  │     → 根 Host refresh（按当前设置）
+  │     ├ 目标 connectionKey 与根一致（本地不比较）+ 有可用模型
+  │     │     → 重读共享设置快照 → 目标 Host 当前目录 → 选模型 → 展示回执
+  │     └ 否则 ↓
+  └ 其他情况
+        → 保存设置（CAS）→ 根 refresh → 远程：等 Provisioning lane 结果 → 目标 refresh → 核对
+        → 选模型 → 展示回执
+```
+
+已接受的行为变化：
+
+- 重选已生效的连接时，只刷新根 Host（账号源、权益和 Builtin 配置，与原流程中根 Host 的 refresh 相同），不刷新目标 Host，也不等远端 Provisioning。如果目标 Host 的权益刚好失效，由目标 Environment 在发送时校验并报错，这与普通 API 以及“不切换直接发送”一致。根 Host 刷新失败时，本次切换报可重试错误，与原流程相同。
+- 重选时也不再顺带重推个人 Provider 配置和凭据。它们仍由 `personal-config` / `credential` 触发器和数据同步页的重试负责。
+
+不变的部分：真正更换身份（个人 ↔ 团队、团队之间）的同步成本不变。设置页切换连接不经过这个 owner，不受影响。两个窗口同时切换同一品牌时，最终身份仍以共享设置为准。另一个窗口已切到某个团队时，在本窗口点击该团队行，也按共享设置生效。
+
+验收：CTP-32（`docs/testing/coding-plan-team-e2e-cases.md`）。执行“个人 → 普通 API → 个人”和“团队 → 普通 API → 同一团队”，切回后 `providerFamilyDomainUpdatedAt` 与连接映射都不变，模型回到套餐 Provider，思考档位完整，没有错误。CTP-33：模拟另一个窗口把团队 A 改成团队 B，本窗口 Host 未刷新；在 Composer 点击团队 B 行，根 Host 的 `connectionKey` 变为团队 B，连接标签显示团队 B，设置版本不变，没有错误。CTP-28/29/31 的同连接重试、CTP-22 的跨身份切换按原断言回归。远程工作区由 RPR-01（`docs/conversation-session-case-catalog.md`）覆盖：切回已生效连接时没有 `account-settings` 同步；远端未同步时回退原流程，重新推送一次。
+
+### 保存后等待远端下发结果（2026-11-16）
+
+问题：SSH 工作区里，在 Composer 切换套餐连接（例如团队 → 个人）时，偶发或连续报“切换连接失败”，并回滚到原连接（ZCT-2121942668678008832）。
+
+根因：保存后的核对依赖时机，不依赖结果。
+
+1. 保存设置只让根 Host 向 Main 发一个 `account-settings` 通知。Main 的 Provisioning lane 异步执行下发。lane 正在执行上一轮时，本次只排成尾随轮。
+2. 连接 owner 不等下发，马上 refresh 目标 Host。目标 Host 的 refresh 只读远端当前的设置文件。它不知道有一轮下发还在路上，不会等它。
+3. 远端还是旧连接时，`connectionKey` 比对失败，抛出 `Target connection has not synchronized`，然后回滚。回滚又排一轮下发。用户马上重试时，lane 还在执行回滚轮，本次又排在后面，所以会连续失败。
+
+规则：远程工作区保存连接后，先等 Main lane 的执行结果，再 refresh 目标 Host 并核对。
+
+- 等待用根 Host 的 `providerProvisioningStatusService.getStatus({ sourceServerId, waitForIdle: true })`。数据同步页使用同一个接口。它只读，不推进 generation，也不触发下发。
+- 顺序有保证：设置写入后，根 Host 先同步发出 `account-settings` 通知，`update` 才返回。等待请求在这之后从同一个 Host 经同一条消息通道发给 Main，所以 Main 一定先推进 generation，再处理等待。`waitForIdle` 会等到当前 drain 结束，包括尾随轮。
+- 结果为 `failed` 时，按切换失败处理，走原有回滚。错误带上 lane 的 `errorCode`，用于区分“下发失败”和“下发成功但身份不一致”。
+- 结果为成功时，远端 apply 返回前已经刷新过账号源和 registry。这时 refresh 目标 Host，读到的就是本次下发的连接。`connectionKey` 比对保留：另一个窗口可能在这期间又改了设置。
+- 下列情况不等待，保持原行为：没有 lane 服务（Web、手机远控），工作区身份里没有 `sourceServerId`（旧格式、Direct URL Server），lane 返回“无 lane”，回滚时的恢复同步（`restoring`）。
+- 不加超时。远端 apply 挂住时，loading 一直持续，直到连接关闭（`ConnectionClosed`）或组件卸载。这与数据同步页“同步中”的语义一致。
+
+```text
+修复前：update ─▶ Host 通知 Main（异步下发）
+        base.refresh ─▶ target.refresh ─▶ 远端读文件：下发可能未到 ✗ → 回滚
+修复后：update ─▶ Host 通知 Main：generation+1，开始 drain
+        base.refresh ─▶ getStatus(waitForIdle) ─▶ drain 结束（含尾随轮）
+          ├ failed  → 切换失败（带 errorCode）→ 原有回滚
+          └ success → target.refresh ─▶ 远端已是新连接 → 核对 ✓
+```
+
+已接受的行为变化：
+
+- 跨身份切换的 loading 包含整轮下发的时间。lane 正忙时，还包含尾随轮。
+- 远端返回 `rollback_failed` 等失败，但远端设置碰巧已是新连接时，原来可能判为成功，现在判为失败并回滚。
+- 切换时连接断开或重连：等待随 drain 结束而返回，再由 `connectionKey` 比对或 lane 失败结果报错。
+
+验收：RPR-02（`docs/conversation-session-case-catalog.md`）。远端访问账号 mock 的请求经延迟代理变慢：设置页把连接改为团队，远端写入团队后仍在慢速刷新，此时在 Composer 点个人。修复前报“切换连接失败”并回滚；修复后没有错误，本机和远端都是个人，最后一轮 `account-settings` 下发为 `applied`。RPR-01、CTP-22/28/29/31/32/33 按原断言回归。
+
+验证（2026-11-16）：RPR-02 修复前失败、修复后连续 2 次通过，RPR-01 回归通过（证据见 case 目录）。本机 Electron 上 CTP-22 双向、CTP-28、CTP-32 双向、CTP-33 通过（`packages/desktop/.e2e-artifacts/zct2121-ctp-regression/`）。CTP-29/31 在准备阶段失败（`chat-model-select-trigger: not-started`），换回修复前的 hook 后失败特征相同（`packages/desktop/.e2e-artifacts/zct2121-ctp-baseline/`），属既有问题，未处理。
+
+### 旧 CLI 附件输入兼容
+
+Bot 附件输入走 legacy `session/send` 时，`modelSelectionBasis` 是接纳时的并发保护，不能作为可选兼容字段剥离。旧 CLI 以结构化 `unrecognized_keys` 拒绝该字段时，Host 返回稳定的 `ModelSelectionBasisUnsupportedError`，Bot 显示目标 CLI 需要升级的中英文提示。即使同时拒绝其他可选字段，也不降级重试；未知字段之外的错误沿用原处理。保留附件、选择和执行约束，不自动重发或重启 Worker，不修改运行轮或已接纳队列。升级后由用户手动重试。

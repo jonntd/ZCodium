@@ -73,7 +73,7 @@ async function fixture() {
         modelStreaming: "off",
         titleGeneration: { enabled: false },
         workspacePath: root,
-        toolAllowlist: ["ToolSearch", "Read", "WebFetch", "TodoWrite"],
+        toolAllowlist: ["ToolSearch", "Read", "TaskOutput", "TodoRead"],
       },
       {
         sessionStore: store,
@@ -134,18 +134,18 @@ it("restores ordered add/remove/readd facts and forks only the selected prefix",
     },
   });
   const registry = f.internal.getToolRegistry();
-  const webFetch = registry.get("WebFetch")!;
-  registry.unregister("WebFetch");
+  const taskOutput = registry.get("TaskOutput")!;
+  registry.unregister("TaskOutput");
   f.internal.invalidateToolCache();
   await f.runtime.executeTurn("tool removed");
-  registry.register(webFetch);
+  registry.register(taskOutput);
   f.internal.invalidateToolCache();
   await f.runtime.executeTurn("tool restored");
   const original = announcements(f.internal);
   expect(original.map((entry) => entry.metadata?.toolSearchAnnouncement)).toEqual([
-    { addedNames: ["TodoWrite", "WebFetch"], removedNames: [], readdedNames: [] },
-    { addedNames: [], removedNames: ["WebFetch"], readdedNames: [] },
-    { addedNames: ["WebFetch"], removedNames: [], readdedNames: ["WebFetch"] },
+    { addedNames: ["TaskOutput", "TodoRead"], removedNames: [], readdedNames: [] },
+    { addedNames: [], removedNames: ["TaskOutput"], readdedNames: [] },
+    { addedNames: ["TaskOutput"], removedNames: [], readdedNames: ["TaskOutput"] },
   ]);
 
   const childId = createSessionId("announcement-fork");
@@ -188,8 +188,8 @@ it("restores ordered add/remove/readd facts and forks only the selected prefix",
 it("restores retained incremental announcements and rebuilt names in their original order", async () => {
   const f = await fixture();
   const registry = f.internal.getToolRegistry();
-  const todo = registry.get("TodoWrite")!;
-  registry.unregister("TodoWrite");
+  const todo = registry.get("TodoRead")!;
+  registry.unregister("TodoRead");
   f.internal.invalidateToolCache();
   await f.runtime.executeTurn("first turn");
   await f.runtime.executeTurn("second turn");
@@ -199,8 +199,8 @@ it("restores retained incremental announcements and rebuilt names in their origi
   await f.runtime.executeTurn("expanded catalog then reactive compact");
   const original = announcements(f.internal);
   expect(original.map((entry) => entry.metadata?.toolSearchAnnouncement)).toEqual([
-    { addedNames: ["TodoWrite"], removedNames: [], readdedNames: [] },
-    { addedNames: ["WebFetch"], removedNames: [], readdedNames: [] },
+    { addedNames: ["TodoRead"], removedNames: [], readdedNames: [] },
+    { addedNames: ["TaskOutput"], removedNames: [], readdedNames: [] },
   ]);
   const cold = await f.reopen();
   expect(announcements(cold.internal)).toEqual(original);
@@ -243,15 +243,25 @@ it("rolls back compact summary when its rebuilt announcement cannot be saved", a
   await f.runtime.executeTurn("more context");
   const before = f.internal.messageHistory.toRuntimeEntries();
   const rowsBefore = await f.store.messages({ sessionID: f.sessionId });
-  const savePart = f.store.savePart.bind(f.store);
-  const spy = vi.spyOn(f.store, "savePart").mockImplementation(async (part) => {
-    if (part.type === "text" && part.text.includes(ANNOUNCEMENT))
-      throw new Error("announcement write failed");
-    return savePart(part);
-  });
+  const commit = f.store.commitMessageBundle!.bind(f.store);
+  const spy = vi.spyOn(f.store, "commitMessageBundle").mockImplementation(async (bundle) =>
+    // 在真实事务内让公告记录写入失败（BigInt 无法序列化），summary 已写入后整组回滚。
+    commit({
+      ...bundle,
+      messages: bundle.messages.map((message) => ({
+        ...message,
+        parts: message.parts.map((part) =>
+          part.type === "text" && part.text.includes(ANNOUNCEMENT)
+            ? { ...part, metadata: { ...part.metadata, unserializable: 1n } }
+            : part,
+        ),
+      })),
+    }),
+  );
   await expect(
     f.internal.compactActiveConversation(undefined, createRootTraceContext(), [], {}),
-  ).rejects.toThrow();
+  ).rejects.toThrow(/BigInt/);
+  expect(spy).toHaveBeenCalledTimes(1);
   spy.mockRestore();
   expect(f.internal.messageHistory.toRuntimeEntries()).toEqual(before);
   const rows = await f.store.messages({ sessionID: f.sessionId });
@@ -289,7 +299,12 @@ it("does not commit an announcement or send a request when normal reminder persi
   expect(f.requests).toHaveLength(0);
   expect(announcements(f.internal)).toHaveLength(0);
   const rows = await f.store.messages({ sessionID: f.sessionId });
-  expect(rows.some((row) => row.info.semantics?.kind === "system_reminder")).toBe(false);
+  // 环境、模型等输入附件排在 ToolSearch 公告之前并已落盘；这里只断言公告本身没有提交。
+  expect(
+    rows.some((row) =>
+      row.parts.some((part) => part.type === "text" && part.text.includes(ANNOUNCEMENT)),
+    ),
+  ).toBe(false);
   const cold = await f.reopen();
   expect(announcements(cold.internal)).toHaveLength(0);
   await cold.runtime.executeTurn("retry");

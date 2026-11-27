@@ -13,12 +13,7 @@ import {
  * 推送模式下：source = 本机，target = 远端。
  */
 
-export type DataSyncRowStatus =
-  | "push"
-  | "update"
-  | "difference"
-  | "synced"
-  | "blocked";
+export type DataSyncRowStatus = "push" | "update" | "difference" | "synced" | "blocked";
 
 export type DataSyncRowNote =
   | { kind: "metadata" }
@@ -64,30 +59,18 @@ const STATUS_ORDER: Record<DataSyncRowStatus, number> = {
 };
 
 function signatureKey(item: DataSyncListItem): string {
-  return item.signature
-    ? `${item.signature.fileCount}:${item.signature.totalBytes}`
-    : "";
+  return item.signature ? `${item.signature.fileCount}:${item.signature.totalBytes}` : "";
 }
 
 /** 两端都有版本号时比较；返回 null 表示版本不能决定结果（缺失、相同或不能解析）。 */
-function compareVersions(
-  source: DataSyncListItem,
-  target: DataSyncListItem,
-): number | null {
+function compareVersions(source: DataSyncListItem, target: DataSyncListItem): number | null {
   if (!source.version || !target.version) return null;
   const result = compareSemverVersions(source.version, target.version);
   return result === null || result === 0 ? null : result;
 }
 
-function isComparable(
-  source: DataSyncListItem,
-  target: DataSyncListItem | undefined,
-): boolean {
-  return (
-    Boolean(target) &&
-    !source.exportBlockedReason &&
-    !target!.overwriteBlockedReason
-  );
+function isComparable(source: DataSyncListItem, target: DataSyncListItem | undefined): boolean {
+  return Boolean(target) && !source.exportBlockedReason && !target!.overwriteBlockedReason;
 }
 
 /**
@@ -108,8 +91,7 @@ export function selectDataSyncHashRequests(
   for (const source of sourceItems) {
     const target = targetByKey.get(source.key);
     // 只按版本比较的条目（marketplace 插件）不计算哈希。
-    if (!target || source.versionOnly || !isComparable(source, target))
-      continue;
+    if (!target || source.versionOnly || !isComparable(source, target)) continue;
     if (!target.contentHash) targetKeys.push(source.key);
     if (
       !source.contentHash &&
@@ -139,9 +121,7 @@ function compareRow(
   | "builtInModelOverride"
 > {
   const blockedReason =
-    targetBlockedReason ??
-    source.exportBlockedReason ??
-    target?.overwriteBlockedReason;
+    targetBlockedReason ?? source.exportBlockedReason ?? target?.overwriteBlockedReason;
   if (blockedReason) {
     return {
       status: "blocked",
@@ -189,12 +169,7 @@ function compareRow(
     Boolean(sourceHash) &&
     sourceHash === expectedTargetHash;
   return sameContent
-    ? {
-        status: "synced",
-        note: { kind: "metadata" },
-        selectable: false,
-        defaultSelected: false,
-      }
+    ? { status: "synced", note: { kind: "metadata" }, selectable: false, defaultSelected: false }
     : {
         status: "difference",
         note: { kind: "contentDiffers" },
@@ -259,9 +234,7 @@ export function compareDataSyncItems(params: {
   targetHashes: Readonly<Record<string, string>>;
   targetBlockedReason?: DataSyncBlockedReason;
 }): DataSyncRow[] {
-  const targetByKey = new Map(
-    params.targetItems.map((item) => [item.key, item]),
-  );
+  const targetByKey = new Map(params.targetItems.map((item) => [item.key, item]));
   return params.sourceItems
     .map((source) => {
       const target = targetByKey.get(source.key);
@@ -272,8 +245,7 @@ export function compareDataSyncItems(params: {
         params.targetHashes,
         params.targetBlockedReason,
       );
-      const targetOverride =
-        row.status === "difference" ? target?.builtInModelOverride : undefined;
+      const targetOverride = row.status === "difference" ? target?.builtInModelOverride : undefined;
       return {
         key: source.key,
         name: source.name,
@@ -344,9 +316,7 @@ export function findMissingDataSyncDependencies(
     mcpServers: missing(dependencies.mcpServers, categoryKeys.mcp),
     skills: missing(dependencies.skills, categoryKeys.skills),
   };
-  return result.mcpServers.length > 0 || result.skills.length > 0
-    ? result
-    : undefined;
+  return result.mcpServers.length > 0 || result.skills.length > 0 ? result : undefined;
 }
 
 export type DataSyncCheckState = boolean | "indeterminate";
@@ -372,10 +342,7 @@ function groupRowsByTopSelectedAncestor(
 ): Array<{ rows: DataSyncRow[]; totalBytes: number }> {
   const parentByKey = new Map(allRows.map((row) => [row.key, row.parentKey]));
   const selectedByKey = new Map(rows.map((row) => [row.key, row]));
-  const groups = new Map<
-    string,
-    { head: DataSyncRow; members: Array<[DataSyncRow, number]> }
-  >();
+  const groups = new Map<string, { head: DataSyncRow; members: Array<[DataSyncRow, number]> }>();
   for (const row of rows) {
     let head = row;
     let depth = 0;
@@ -402,9 +369,7 @@ function groupRowsByTopSelectedAncestor(
     group.members.push([row, depthToHead]);
   }
   return [...groups.values()].map(({ head, members }) => ({
-    rows: members
-      .sort((left, right) => left[1] - right[1])
-      .map(([member]) => member),
+    rows: members.sort((left, right) => left[1] - right[1]).map(([member]) => member),
     totalBytes: head.totalBytes,
   }));
 }
@@ -422,8 +387,7 @@ export function chunkDataSyncRows(
   allRows: readonly DataSyncRow[] = rows,
 ): DataSyncRow[][] {
   const groups = groupRowsByTopSelectedAncestor(rows, allRows);
-  if (!maxBatchBytes)
-    return rows.length > 0 ? [groups.flatMap((group) => group.rows)] : [];
+  if (!maxBatchBytes) return rows.length > 0 ? [groups.flatMap((group) => group.rows)] : [];
   const batches: DataSyncRow[][] = [];
   let current: DataSyncRow[] = [];
   let currentBytes = 0;
@@ -444,10 +408,7 @@ export function chunkDataSyncRows(
 export function aggregateDeviceSyncResult(
   outcomes: ReadonlyArray<{ succeeded: number; failed: number }>,
 ): DeviceSyncResult {
-  const succeeded = outcomes.reduce(
-    (total, outcome) => total + outcome.succeeded,
-    0,
-  );
+  const succeeded = outcomes.reduce((total, outcome) => total + outcome.succeeded, 0);
   const failed = outcomes.reduce((total, outcome) => total + outcome.failed, 0);
   if (failed === 0) return "success";
   return succeeded === 0 ? "failed" : "partial";

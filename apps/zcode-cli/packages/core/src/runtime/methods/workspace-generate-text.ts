@@ -20,21 +20,14 @@ import { recordModelUsageFact } from "./usage-observability.js";
 import { createRuntimeModel } from "./runtime-model.js";
 import { normalizeStreamError } from "../helpers/index.js";
 import { auxiliaryModelOptions } from "../../model/auxiliary-model-options.js";
+import { INPUT_PREDICTION_QUERY_SOURCE } from "./input-prediction-sidecar.js";
 
 const WORKSPACE_GENERATE_TEXT_TIMEOUT_MS = 60_000;
-const CONNECTIVITY_PROBE_MAX_OUTPUT_TOKENS = 1;
+const CONNECTIVITY_PROBE_MAX_OUTPUT_TOKENS = 512;
 // 探测请求使用固定最小 prompt，避免多余推理开销；不可改写角色、文本或混入会话历史。
 const CONNECTIVITY_PROBE_SYSTEM = "You are ZCode connectivity probe.";
 const CONNECTIVITY_PROBE_USER = "hi";
 const GIT_COMMIT_MESSAGE_QUERY_SOURCE = "git_commit_message";
-// 提示词增强与 Git 提交消息同属辅助调用：不需要深度推理，共用最低公开档位与输出预算。
-const PROMPT_ENHANCE_QUERY_SOURCE = "prompt_enhance";
-
-function isAuxiliaryQuerySource(querySource: string): boolean {
-  return (
-    querySource === GIT_COMMIT_MESSAGE_QUERY_SOURCE || querySource === PROMPT_ENHANCE_QUERY_SOURCE
-  );
-}
 
 export interface WorkspaceGenerateTextInput {
   selection: ModelSelection;
@@ -63,11 +56,14 @@ export async function testModelConnectivity(
   options?: { abortSignal?: AbortSignal; traceContext?: TraceContext },
 ): Promise<void> {
   const baseModel = createRuntimeModel(this, { selection: input.selection, scope: "workspace" });
-  // 连接探测不需要生成正文；复用辅助生成的 5,000 预算会等待多余推理和输出。
-  // 独立限制为 1 Token，仍使用最低公开档位，不改变其他辅助调用的预算。
+  // 1 Token 会被部分上游的输出下限校验拒绝；连接测试以独立的 512 预算为目标。
+  // 预算不能超过模型上限，否则合法的小容量模型会在本地 bind 时失败，无法发出请求。
   const model = baseModel.bind({
     reasoningLevel: baseModel.optionSpecs.reasoningLevel.values[0]!,
-    maxOutputTokens: CONNECTIVITY_PROBE_MAX_OUTPUT_TOKENS,
+    maxOutputTokens: Math.min(
+      CONNECTIVITY_PROBE_MAX_OUTPUT_TOKENS,
+      baseModel.optionSpecs.maxOutputTokens.max,
+    ),
   });
   const traceContext = createChildTraceContext(options?.traceContext ?? this.rootTraceContext, {
     attributes: {
@@ -85,12 +81,13 @@ export async function testModelConnectivity(
       { role: "user", content: CONNECTIVITY_PROBE_USER },
     ],
   };
+  using statusSink = this.createModelStatusSink(traceContext, []);
   let finished = false;
   await runWithModelInvocationContext(
     {
       metadata: traceContextToLogContext(traceContext),
       modelCall: { operation: "workspace_generate_text" },
-      statusSink: this.createModelStatusSink(traceContext, []),
+      statusSink,
       traceContext,
       refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(this, {
         abortSignal,
@@ -121,9 +118,7 @@ export async function generateWorkspaceText(
     operation:
       querySource === GIT_COMMIT_MESSAGE_QUERY_SOURCE
         ? "workspace_git_commit_message"
-        : querySource === PROMPT_ENHANCE_QUERY_SOURCE
-          ? "workspace_prompt_enhance"
-          : "workspace_generate_text",
+        : "workspace_generate_text",
     targetKind: "workspace",
     trigger: "user",
     traceContext,
@@ -155,9 +150,11 @@ async function generateWorkspaceTextImpl(
   const querySource = input.querySource.trim() || "workspace_generate_text";
   const baseModel = createRuntimeModel(this, { selection: requestedSelection, scope: "workspace" });
   // 辅助请求需要的是最低公开档位，不是扫描 off/nothink 等名称后强制关闭。
-  const model = isAuxiliaryQuerySource(querySource)
-    ? baseModel.bind(auxiliaryModelOptions(baseModel))
-    : baseModel;
+  // 输入预测按键触发、要求低延迟，同样走最低档位。
+  const model =
+    querySource === GIT_COMMIT_MESSAGE_QUERY_SOURCE || querySource === INPUT_PREDICTION_QUERY_SOURCE
+      ? baseModel.bind(auxiliaryModelOptions(baseModel))
+      : baseModel;
   const baseTraceContext = options?.traceContext ?? this.rootTraceContext;
   const modelTraceContext = createChildTraceContext(baseTraceContext, {
     attributes: {
@@ -190,10 +187,9 @@ async function generateWorkspaceTextImpl(
   const abortSignal =
     options?.abortSignal ?? AbortSignal.timeout(WORKSPACE_GENERATE_TEXT_TIMEOUT_MS);
   // Git Commit 调用方曾传入固定 256，Core 又按 querySource 丢弃，形成虚假接口。
-  // 通用生成入口只处理调用方真实提供的预算；辅助调用不再由上游伪造固定上限。
-  const requestMaxOutputTokens = isAuxiliaryQuerySource(querySource)
-    ? undefined
-    : input.maxOutputTokens;
+  // 通用生成入口只处理调用方真实提供的预算；Git 辅助调用不再由上游伪造固定上限。
+  const requestMaxOutputTokens =
+    querySource === GIT_COMMIT_MESSAGE_QUERY_SOURCE ? undefined : input.maxOutputTokens;
 
   const modelRequest = {
     abortSignal,
@@ -204,20 +200,20 @@ async function generateWorkspaceTextImpl(
       : { options: { maxOutputTokens: requestMaxOutputTokens } }),
   };
 
+  using statusSink = this.createModelStatusSink(modelTraceContext, events);
   const result = await runWithModelInvocationContext(
     {
       metadata: traceContextToLogContext(modelTraceContext),
       modelCall: {
-        operation: isAuxiliaryQuerySource(querySource)
-          ? querySource === GIT_COMMIT_MESSAGE_QUERY_SOURCE
+        operation:
+          querySource === GIT_COMMIT_MESSAGE_QUERY_SOURCE
             ? "workspace_git_commit_message"
-            : "workspace_prompt_enhance"
-          : "workspace_generate_text",
-        ...(isAuxiliaryQuerySource(querySource) && model.options.reasoningLevel
+            : "workspace_generate_text",
+        ...(querySource === GIT_COMMIT_MESSAGE_QUERY_SOURCE && model.options.reasoningLevel
           ? { reasoning: { requestedLevel: model.options.reasoningLevel } }
           : {}),
       },
-      statusSink: this.createModelStatusSink(modelTraceContext, events),
+      statusSink,
       traceContext: modelTraceContext,
       refreshRuntimeHeadersBeforeAttempt: createRefreshRuntimeHeadersBeforeModelAttempt(this, {
         abortSignal,

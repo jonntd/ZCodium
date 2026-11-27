@@ -24,17 +24,29 @@ export function RootStartupLoading({ label, children, busy = true }: RootStartup
   );
 }
 
-/**
- * 初始化与引导共用品牌图标，保持底色、描边、圆角和标志比例一致。
- *
- * ⚠ `packages/web/index.html` 的 `.zcode-boot-loading` 壳是**同一套视觉的手抄副本**
- * （HTML 壳要在 JS 入口执行前渲染，无法复用本组件）。改这里的 viewBox / 渐变 /
- * path / 动画参数，必须同步改那边，否则「中继页首屏」与「桌面 App 首屏」会不一致。
- */
-export function ZCodeStartupLogoBadge({ animated = true }: { animated?: boolean }) {
+/** 初始化与引导共用品牌图标，保持底色、描边、圆角和标志比例一致。 */
+export function ZCodeStartupLogoBadge({
+  animated = true,
+  size = "default",
+}: {
+  animated?: boolean;
+  size?: "default" | "titlebar";
+}) {
   return (
-    <div className="relative flex size-24 items-center justify-center rounded-3xl bg-[linear-gradient(180deg,#000000_0%,#151718_100%)] text-[#ffffff] shadow-xl/20 before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:border before:border-[rgba(255,255,255,0.1)] before:content-['']">
-      <ZCodeStartupLogo className="h-auto w-14" animated={animated} />
+    <div
+      data-desktop-logo-badge={size === "titlebar" ? "true" : undefined}
+      className={cn(
+        "relative flex items-center justify-center bg-[linear-gradient(180deg,#000000_0%,#151718_100%)] text-[#ffffff] before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:border before:border-[rgba(255,255,255,0.1)] before:content-['']",
+        size === "titlebar"
+          ? "size-5 rounded shadow-sm/20 before:border-white/20"
+          : "size-24 rounded-3xl shadow-xl/20",
+      )}
+    >
+      {/* Button 会给 SVG 默认尺寸；紧凑 Logo 显式恢复自动高度，保持标志原始比例。 */}
+      <ZCodeStartupLogo
+        className={size === "titlebar" ? "size-auto w-3.25" : "h-auto w-14"}
+        animated={animated}
+      />
     </div>
   );
 }
@@ -52,7 +64,7 @@ export function ZCodeStartupLogo({
       width="118"
       height="100"
       fill="none"
-      viewBox="176 224 712 608"
+      viewBox="0 0 256 218"
       className={cn("shrink-0 text-current", className)}
       aria-hidden="true"
       focusable="false"
@@ -66,25 +78,14 @@ export function ZCodeStartupLogo({
           values="1;0.4;1"
         />
       ) : null}
-      {/* 品牌 Z 使用图标同款对角渐变，避免在深色启动底上呈现为纯白。 */}
-      <defs>
-        <linearGradient
-          id="zcode-brand-z-gradient"
-          x1="712"
-          y1="224"
-          x2="300"
-          y2="800"
-          gradientUnits="userSpaceOnUse"
-        >
-          <stop offset="0" stopColor="#38bdf8" />
-          <stop offset="1" stopColor="#818cf8" />
-        </linearGradient>
-      </defs>
-      <path fill="url(#zcode-brand-z-gradient)" d="M184 224H512L453 308Q439 328 415 328H184Z" />
-      <path fill="url(#zcode-brand-z-gradient)" d="M584 224H832L424 800H176Z" />
       <path
-        fill="url(#zcode-brand-z-gradient)"
-        d="M536 720L600 656L648 704L824 528L888 592L648 832Z"
+        fill="currentColor"
+        d="M134.4 0.130152L116.48 25.6022C113.665 29.5699 109.054 32.0019 104.064 32.0019H6.3999V0C6.3999 0.130149 134.4 0.130152 134.4 0.130152Z"
+      />
+      <path fill="currentColor" d="M256 0.130127L102.401 217.732H0L153.599 0.130127H256Z" />
+      <path
+        fill="currentColor"
+        d="M121.601 217.732L139.65 192.134C142.465 188.166 147.076 185.734 152.067 185.734H249.604V217.736H121.601V217.732Z"
       />
     </svg>
   );

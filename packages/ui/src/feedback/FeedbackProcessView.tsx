@@ -21,11 +21,7 @@ export function FeedbackProcessView({
 }) {
   const { intl } = useZCodeIntl();
   const formatMessage = intl.formatMessage;
-  const timelineItems = getFeedbackTimelineItems(
-    ticket.events ?? [],
-    ticket.comments,
-    formatMessage,
-  );
+  const timelineItems = getFeedbackTimelineItems(ticket.events ?? [], ticket.comments, formatMessage);
   const latestItem = timelineItems.at(-1);
 
   return (

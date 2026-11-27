@@ -13,8 +13,7 @@
 - 选中设备离线（以管理快照为准）时 fail-closed：不提供任何服务，不回退本机，不显示旧快照；attachment 仍在注册表中也不使用。
 - 显式项目目标尚未解析或等待回退时显示加载状态，不临时展示用户配置的可写列表。
 - 迟到结果只属于原目标：home 目录结果绑定发起请求的那组服务，切换设备或 attachment 换代后丢弃。
-- 选中的目标是一组绑定 {authority（远端「用户」为 `cacheAuthorityKey`）、路径、identity、服务}。页面把整组交给单例 store（MCP、命令、钩子）；store 的读取、在途请求键、迟到判定、写入只用这一组，不从当前 tab 推断，也不读全局服务。本机「用户」没有 authority，与本机项目一样走本机平台路径。在途请求键必须含读取视图维度（钩子页 user / workspace 同锚点共存，见 `hooksStore.getHooksCacheKey`）。
-- 插件贡献行（技能 / 命令 / 钩子 / MCP 的插件分组）只取插件管理 store 绑定与页面目标一致时的投影：`authority\0identity|path` 同格式比较（`settings/settingsSourceWorkspace.buildSourceSettingsProjectionKey`），configScope 也要匹配；不一致时分组显示为空，不借用其他设备的投影。远端「用户」没有 identity，两台设备 home 同串时裸路径比较会互串，禁止回退到裸路径比较。
+- 选中的目标是一组绑定 {authority（远端「用户」为 `cacheAuthorityKey`）、路径、identity、服务}。页面把整组交给单例 store（MCP、命令）；store 的读取、在途请求键、迟到判定、写入只用这一组，不从当前 tab 推断，也不读全局服务。本机「用户」没有 authority，与本机项目一样走本机平台路径。
 - 只有平台提供 `requestSourceSettingsAttachment`（桌面端）时才有远端「用户」；Web / 手机不能借此申请 attachment，远程 tab 默认选中当前远程项目。
 - 用户选中的项目关闭后回退到同一设备的「用户」；当前 Host 目录尚未读取完成时保留显式导航目标，不把加载中的空列表当作项目关闭。默认 key 指向的项目尚未出现在目录表时只按回退目标解析，不改写选择。
 - 表单归属打开它的设备（owner 取设备级：本机为 `"local"`，远端为 `device.id`；`missing` 帧按 `fallbackKey` 所在设备判断）。同一设备内切换「用户」/ 项目、设备离线后恢复都保留表单；owner 不是当前设备时在渲染期清掉（不用 effect），不带到新设备。

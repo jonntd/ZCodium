@@ -10,9 +10,7 @@ const retention = new PluginUiBackgroundRetention<Page>(
 );
 if (typeof document !== "undefined") {
   retention.setWindowVisible(!document.hidden);
-  document.addEventListener("visibilitychange", () =>
-    retention.setWindowVisible(!document.hidden),
-  );
+  document.addEventListener("visibilitychange", () => retention.setWindowVisible(!document.hidden));
 }
 export const pluginUiPages = {
   get(key: string): Page | undefined {
@@ -68,11 +66,7 @@ export function subscribePage(key: string, listener: () => void): () => void {
     if (!set.size) pageSubscribers.delete(key);
   };
 }
-export function bindPluginUiPage(
-  key: string,
-  node: HTMLElement,
-  sidebar: boolean,
-): () => void {
+export function bindPluginUiPage(key: string, node: HTMLElement, sidebar: boolean): () => void {
   let off: (() => void) | undefined;
   let bound: Page | undefined;
   const connect = () => {
@@ -94,10 +88,7 @@ export function notifyPluginUiPageCreated(key: string): void {
 }
 
 const creating = new Map<string, Promise<Page>>();
-export function acquirePluginUiPage(
-  key: string,
-  create: () => Page,
-): Promise<Page> {
+export function acquirePluginUiPage(key: string, create: () => Page): Promise<Page> {
   const current = pluginUiPages.get(key);
   if (current) return Promise.resolve(current);
   const existing = creating.get(key);

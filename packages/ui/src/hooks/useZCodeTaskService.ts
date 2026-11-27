@@ -183,7 +183,11 @@ function readPersistedSnapshotEntry(key: string) {
   return { etag: entry.etag, snapshot: entry.snapshot };
 }
 
-function writePersistedSnapshotEntry(key: string, etag: string, snapshot: ZCodeTaskSnapshot): void {
+function writePersistedSnapshotEntry(
+  key: string,
+  etag: string,
+  snapshot: ZCodeTaskSnapshot,
+): void {
   ensurePersistedSnapshotCacheLoaded();
   const serializedSnapshot = JSON.stringify(snapshot);
   const sizeBytes = new TextEncoder().encode(serializedSnapshot).byteLength;
@@ -259,7 +263,11 @@ function createZCodeTaskServiceProxy(service: IZCodeTaskService): IZCodeTaskServ
                 snapshot: fallbackResult.snapshot,
               };
               snapshotCache.set(requestKey, nextEntry);
-              writePersistedSnapshotEntry(requestKey, fallbackResult.etag, fallbackResult.snapshot);
+              writePersistedSnapshotEntry(
+                requestKey,
+                fallbackResult.etag,
+                fallbackResult.snapshot,
+              );
             }
             return fallbackResult.snapshot;
           }
@@ -269,7 +277,11 @@ function createZCodeTaskServiceProxy(service: IZCodeTaskService): IZCodeTaskServ
               snapshot: firstResult.snapshot,
             };
             snapshotCache.set(requestKey, nextEntry);
-            writePersistedSnapshotEntry(requestKey, firstResult.etag, firstResult.snapshot);
+            writePersistedSnapshotEntry(
+              requestKey,
+              firstResult.etag,
+              firstResult.snapshot,
+            );
           } else if (!firstResult.snapshot) {
             snapshotCache.delete(requestKey);
             deletePersistedSnapshotEntry(requestKey);
@@ -294,16 +306,9 @@ export function useZCodeTaskService(
   workspaceIdentity?: string | null,
 ): IZCodeTaskService {
   // ZCode task 服务按 workspace 身份解析，保证所有 task RPC 都落到对应的 host。
-  // 修复原因：与 useZCodeSessionService 同型——按 workspacePath 真值条件调用 hooks，
-  // workspacePath 跨渲染翻转时 hook 顺序错位（React deps 比较器读 undefined.length 崩溃）。
-  // 两个 hook 无条件调用、按条件选择结果，顺序恒定，语义不变。
-  const contextServices = useServices();
-  const scopedServices = useWorkspaceServices(
-    workspacePath,
-    preferredRemoteSessionId,
-    workspaceIdentity,
-  );
-  const services = workspacePath ? scopedServices : contextServices;
+  const services = workspacePath
+    ? useWorkspaceServices(workspacePath, preferredRemoteSessionId, workspaceIdentity)
+    : useServices();
   const rawService = services.zcodeTaskService;
   if (!rawService || typeof rawService !== "object") {
     return rawService;

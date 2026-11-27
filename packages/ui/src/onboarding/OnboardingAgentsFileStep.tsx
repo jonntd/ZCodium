@@ -2,7 +2,7 @@ import {
   AlertTriangleIcon,
   CheckIcon,
   FileTextIcon,
-  Loader2Icon,
+  LoaderCircle,
   RefreshCwIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
@@ -26,7 +26,7 @@ export function OnboardingAgentsFileStep(props: { migration: OnboardingAgentsFil
           onClick={() => void props.migration.refresh()}
         >
           {props.migration.loading ? (
-            <Loader2Icon className="size-3.5 animate-spin" />
+            <LoaderCircle className="size-3.5 animate-spin" />
           ) : (
             <RefreshCwIcon className="size-3.5" />
           )}
@@ -47,7 +47,7 @@ export function OnboardingAgentsFileStep(props: { migration: OnboardingAgentsFil
         type="button"
         disabled={!supported}
         onClick={() => props.migration.setSelected(!selected)}
-        className="flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-background p-4 text-start transition-colors enabled:hover:bg-surface-hover/50 disabled:cursor-not-allowed disabled:opacity-70"
+        className="flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-background p-4 text-left transition-colors enabled:hover:bg-surface-hover/50 disabled:cursor-not-allowed disabled:opacity-70"
       >
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex size-5 shrink-0 items-center justify-center">

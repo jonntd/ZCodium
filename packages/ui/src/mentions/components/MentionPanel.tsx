@@ -1,12 +1,5 @@
 /* oxlint-disable eslint(max-lines) -- 提示面板集中承载虚拟列表和 E2E 定位属性，暂不为少量测试属性拆组件。 */
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   TID_PROMPT_SUGGESTION_OPTION,
@@ -59,6 +52,8 @@ interface MentionPanelProps {
   sections: MentionPanelSection[];
   emptyText: string;
   selectedIndex: number;
+  /** 当前触发符与查询；变化时即使选中项不变也重新定位（重新输入关键字回到开头）。 */
+  selectionScope?: string | null;
   hasActiveQuery: boolean;
   onSelect: (index: number) => void;
 }
@@ -92,18 +87,13 @@ export const SECTION_HEADER_ROW_HEIGHT = 34;
 export const SECTION_HEADER_CLASS_NAME =
   "flex h-8 items-center px-3 text-ui-base font-semibold uppercase tracking-wide text-foreground-subtle";
 
-export function buildVirtualRows(
-  sections: MentionPanelSection[],
-): VirtualRow[] {
+export function buildVirtualRows(sections: MentionPanelSection[]): VirtualRow[] {
   const rows: VirtualRow[] = [];
   let flatOptionIndex = 0;
   const shouldRenderSectionHeader = sections.length > 1;
 
   for (const section of sections) {
-    if (
-      (shouldRenderSectionHeader || section.showHeader) &&
-      section.title.trim().length > 0
-    ) {
+    if ((shouldRenderSectionHeader || section.showHeader) && section.title.trim().length > 0) {
       rows.push({
         kind: "section_header",
         sectionId: section.id,
@@ -163,17 +153,14 @@ export function MentionPanel({
   sections,
   emptyText,
   selectedIndex,
+  selectionScope,
   hasActiveQuery,
   onSelect,
   trigger,
 }: MentionPanelProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  const [hoveredOptionIndex, setHoveredOptionIndex] = useState<number | null>(
-    null,
-  );
-  const [scrollMaskState, setScrollMaskState] = useState<ScrollMaskState>(
-    EMPTY_SCROLL_MASK_STATE,
-  );
+  const [hoveredOptionIndex, setHoveredOptionIndex] = useState<number | null>(null);
+  const [scrollMaskState, setScrollMaskState] = useState<ScrollMaskState>(EMPTY_SCROLL_MASK_STATE);
 
   const virtualRows = useMemo(() => buildVirtualRows(sections), [sections]);
 
@@ -182,13 +169,8 @@ export function MentionPanel({
     (index: number) => {
       const row = virtualRows[index];
       if (!row) return index;
-      if (row.kind === "option")
-        return JSON.stringify([row.sectionId, row.kind, row.option.id]);
-      return JSON.stringify([
-        row.sectionId,
-        row.kind,
-        row.kind === "status" ? row.content : "",
-      ]);
+      if (row.kind === "option") return JSON.stringify([row.sectionId, row.kind, row.option.id]);
+      return JSON.stringify([row.sectionId, row.kind, row.kind === "status" ? row.content : ""]);
     },
     [virtualRows],
   );
@@ -202,8 +184,7 @@ export function MentionPanel({
         ? OPTION_ROW_HEIGHT
         : virtualRows[index]?.kind === "section_header"
           ? SECTION_HEADER_ROW_HEIGHT
-          : virtualRows[index]?.kind === "status" &&
-              virtualRows[index].content === "loading"
+          : virtualRows[index]?.kind === "status" && virtualRows[index].content === "loading"
             ? OPTION_ROW_HEIGHT * LOADING_ROW_COUNT
             : STATUS_ROW_HEIGHT,
     overscan: 8,
@@ -224,8 +205,7 @@ export function MentionPanel({
     });
 
     setScrollMaskState((current) =>
-      current.showTop === nextState.showTop &&
-      current.showBottom === nextState.showBottom
+      current.showTop === nextState.showTop && current.showBottom === nextState.showBottom
         ? current
         : nextState,
     );
@@ -244,20 +224,37 @@ export function MentionPanel({
       ),
     [virtualRows, selectedIndex],
   );
+  const selectedOptionKey = selectedVirtualIndex >= 0 ? getItemKey(selectedVirtualIndex) : null;
+  const revealedSelectionRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (selectedVirtualIndex >= 0) {
-      // 前置分组可能仍在加载，首项不一定在列表顶部；只定位到该选项紧邻的标题。
-      if (
-        selectedIndex === 0 &&
-        virtualRows[selectedVirtualIndex - 1]?.kind === "section_header"
-      ) {
-        virtualizer.scrollToIndex(selectedVirtualIndex - 1, { align: "start" });
-      } else {
-        virtualizer.scrollToIndex(selectedVirtualIndex, { align: "auto" });
-      }
+    if (selectedVirtualIndex < 0 || selectedOptionKey === null) return;
+    // Bug 根因（ZCT-2122356778527907840）：这里曾在每次 virtualRows 换引用时都滚回选中项。
+    // 候选刷新（后台任务状态变化触发 state:projects）会重建 virtualRows，而滚轮不改变选中项，
+    // 默认选中首项，于是用户滚到中段的列表被拉回开头。
+    // 修法：只在“选中项身份”变化时定位，身份 = 查询 + 选中序号 + 该选项的行 key。
+    // 键盘移动、换查询、前置分组加载完使首项换人都会改变身份；同一结果的刷新不会。
+    const selectionIdentity = JSON.stringify([
+      selectionScope ?? null,
+      selectedIndex,
+      selectedOptionKey,
+    ]);
+    if (revealedSelectionRef.current === selectionIdentity) return;
+    revealedSelectionRef.current = selectionIdentity;
+    // 前置分组可能仍在加载，首项不一定在列表顶部；只定位到该选项紧邻的标题。
+    if (selectedIndex === 0 && virtualRows[selectedVirtualIndex - 1]?.kind === "section_header") {
+      virtualizer.scrollToIndex(selectedVirtualIndex - 1, { align: "start" });
+    } else {
+      virtualizer.scrollToIndex(selectedVirtualIndex, { align: "auto" });
     }
-  }, [selectedIndex, selectedVirtualIndex, virtualRows, virtualizer]);
+  }, [
+    selectedIndex,
+    selectedOptionKey,
+    selectedVirtualIndex,
+    selectionScope,
+    virtualRows,
+    virtualizer,
+  ]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -319,10 +316,7 @@ export function MentionPanel({
           role="listbox"
           aria-label={title}
           onMouseLeave={() => setHoveredOptionIndex(null)}
-          style={{
-            ...scrollMaskStyle,
-            ...(listMaxHeight ? { maxHeight: listMaxHeight } : {}),
-          }}
+          style={{ ...scrollMaskStyle, ...(listMaxHeight ? { maxHeight: listMaxHeight } : {}) }}
         >
           <div
             style={{
@@ -381,11 +375,7 @@ export function MentionPanel({
   );
 }
 
-function SectionHeaderRow({
-  row,
-}: {
-  row: Extract<VirtualRow, { kind: "section_header" }>;
-}) {
+function SectionHeaderRow({ row }: { row: Extract<VirtualRow, { kind: "section_header" }> }) {
   return (
     <div
       className={SECTION_HEADER_CLASS_NAME}
@@ -519,15 +509,11 @@ function OptionRow({
                 {option.label}
               </span>
               {option.meta ? (
-                <span className="shrink-0 text-ui-xs text-foreground-subtlest">
-                  {option.meta}
-                </span>
+                <span className="shrink-0 text-ui-xs text-foreground-subtlest">{option.meta}</span>
               ) : null}
             </span>
             <span className="mt-1 block truncate text-ui-xs text-foreground-subtlest">
-              {isDisabled && option.disabledReason
-                ? option.disabledReason
-                : option.description}
+              {isDisabled && option.disabledReason ? option.disabledReason : option.description}
             </span>
           </span>
         )}

@@ -22,9 +22,7 @@ interface WorkspaceServiceTargetTab {
 
 function createDisconnectedRemoteServices(): IServiceAccessor {
   const createDisconnectedError = () => {
-    const error = new Error(
-      REMOTE_WORKSPACE_DISCONNECTED_ERROR_CODE,
-    ) as Error & {
+    const error = new Error(REMOTE_WORKSPACE_DISCONNECTED_ERROR_CODE) as Error & {
       code: string;
     };
     error.code = REMOTE_WORKSPACE_DISCONNECTED_ERROR_CODE;
@@ -82,13 +80,9 @@ export function resolveBaseWorkspaceServices(
   return registeredBaseServices ?? contextServices;
 }
 
-function hasRemoteWorkspaceMetadata(
-  tab: WorkspaceServiceTargetTab | null | undefined,
-): boolean {
+function hasRemoteWorkspaceMetadata(tab: WorkspaceServiceTargetTab | null | undefined): boolean {
   return Boolean(
-    tab?.workspaceIdentity?.trim() ||
-    tab?.remoteSessionId?.trim() ||
-    tab?.remoteTarget,
+    tab?.workspaceIdentity?.trim() || tab?.remoteSessionId?.trim() || tab?.remoteTarget,
   );
 }
 
@@ -101,10 +95,7 @@ export function resolveWorkspaceServiceIsRemoteTarget(params: {
   activeTab?: WorkspaceServiceTargetTab | null;
   workspaceTabs?: readonly WorkspaceServiceTargetTab[];
 }): boolean {
-  if (
-    params.workspaceIdentity?.trim() ||
-    params.preferredRemoteSessionId?.trim()
-  ) {
+  if (params.workspaceIdentity?.trim() || params.preferredRemoteSessionId?.trim()) {
     return true;
   }
 
@@ -132,16 +123,12 @@ export function resolveWorkspaceServiceIsRemoteTarget(params: {
   const matchingTabs = (params.workspaceTabs ?? []).filter(
     (tab) => tab.workspacePath === params.workspacePath,
   );
-  return (
-    matchingTabs.length === 1 && hasRemoteWorkspaceMetadata(matchingTabs[0])
-  );
+  return matchingTabs.length === 1 && hasRemoteWorkspaceMetadata(matchingTabs[0]);
 }
 
 export function useBaseWorkspaceServices(): IServiceAccessor {
   const contextServices = useServices();
-  const registeredBaseServices = useRemoteWorkspaceSessionStore(
-    (state) => state.baseServices,
-  );
+  const registeredBaseServices = useRemoteWorkspaceSessionStore((state) => state.baseServices);
 
   // App 会在当前激活 workspace 外层再套一层 ServiceProvider。
   // 激活远端 tab 后，useServices() 读到的是远端 host；但 timeline/search/workspace
@@ -152,9 +139,7 @@ export function useBaseWorkspaceServices(): IServiceAccessor {
 
 export function useOptionalBaseWorkspaceServices(): IServiceAccessor | null {
   const contextServices = useOptionalServices();
-  const registeredBaseServices = useRemoteWorkspaceSessionStore(
-    (state) => state.baseServices,
-  );
+  const registeredBaseServices = useRemoteWorkspaceSessionStore((state) => state.baseServices);
 
   // usage entitlement 等 app-global 能力曾从当前 workspace ServiceProvider
   // 取服务；远端 tab 在 attachment ready 前会得到断连代理并产生无效 RPC。base host 才是
@@ -201,9 +186,7 @@ export function useWorkspaceServicesResolution(
     }),
   );
   const isRemoteTarget = options?.forceUnscoped ? false : inferredRemoteTarget;
-  const effectiveRemoteSessionId = options?.forceUnscoped
-    ? null
-    : resolvedRemoteSessionId;
+  const effectiveRemoteSessionId = options?.forceUnscoped ? null : resolvedRemoteSessionId;
   const resolvedServices = useRemoteWorkspaceSessionStore((state) =>
     resolveWorkspaceServicesForTarget({
       currentContextServices,
@@ -233,12 +216,7 @@ export function useWorkspaceServicesResolution(
       connectionKind,
       rpcReady: connectionKind !== "remote-waiting",
     }),
-    [
-      connectionKind,
-      effectiveRemoteSessionId,
-      isRemoteTarget,
-      resolvedServices,
-    ],
+    [connectionKind, effectiveRemoteSessionId, isRemoteTarget, resolvedServices],
   );
 }
 

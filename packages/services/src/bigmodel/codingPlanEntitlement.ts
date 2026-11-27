@@ -1,4 +1,3 @@
-import { assertOfficialServiceRemoved } from "@zcode/shared";
 import type { ApiClient } from "@zcode/shared";
 import { z } from "zod";
 import { readApiJson } from "#src/providers/api/apiJson.js";
@@ -75,9 +74,6 @@ export async function fetchPersonalCodingPlanEntitlement(params: {
   url: string;
   timeoutMs: number;
 }): Promise<CodingPlanEntitlement<PersonalCodingPlanSubscription>> {
-  // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-  assertOfficialServiceRemoved("codingPlan");
-
   if (!params.authorization.trim()) return { kind: "unknown" };
   const payload = await readApiJson<unknown>(params.apiClient, params.url, {
     method: "GET",
@@ -106,9 +102,6 @@ export async function fetchTeamCodingPlanEntitlement(params: {
   teamContext: BigModelTeamPlanBizContext;
   timeoutMs: number;
 }): Promise<CodingPlanEntitlement<TeamCodingPlanSubscription>> {
-  // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-  assertOfficialServiceRemoved("codingPlan");
-
   if (!params.authorization.trim()) return { kind: "unknown" };
   const payload = await readApiJson<unknown>(
     params.apiClient,

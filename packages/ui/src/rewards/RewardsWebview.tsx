@@ -5,6 +5,7 @@ import {
   isTrustedRewardsUrl,
   REWARDS_PARTITION,
   resolveRewardsOrigin,
+  toZhOrEnLocale,
   ZCODE_ENV,
   type RewardsContext,
 } from "@zcode/shared";
@@ -12,23 +13,17 @@ import { useServices } from "@/hooks/useServices.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
-import type { Locale } from "@zcode/shared";
 import { resolveTheme } from "@/useTheme.js";
 import { logger } from "@/logger.js";
 import { Button } from "@/components/ui/button.js";
 import { EmbeddedWebsiteHeader } from "@/components/EmbeddedWebsiteHeader.js";
 
-// rewards 官网嵌入页契约只认三语（rewardsEmbedded zod enum）：五语 Locale 归一化，其余回 en-US。
-const toRewardsLocale = (locale: Locale): "zh-CN" | "en-US" | "fa-IR" => {
-  if (locale === "zh-CN") return "zh-CN";
-  if (locale === "fa-IR") return "fa-IR";
-  return "en-US";
-};
-
 export function RewardsWebview({ onClose }: { onClose: () => void }) {
-  const { credentialService, oauthService } = useServices();
+  const { oauthService } = useServices();
   const platform = usePlatform();
-  const { intl, locale } = useZCodeIntl();
+  const { intl, locale: uiLocale } = useZCodeIntl();
+  // 奖励页是外部网页，只有中英两套；非中文界面语言打开英文页。
+  const locale = toZhOrEnLocale(uiLocale);
   const themePreference = useZCodeStore((s) => s.theme);
   const userId = useZCodeStore((s) => s.user?.id ?? null);
   const [systemDark, setSystemDark] = useState(
@@ -57,7 +52,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
             ? env.VITE_REWARDS_WEBVIEW_ORIGIN
             : undefined,
       }),
-      toRewardsLocale(locale),
+      locale,
       theme,
     ),
   );
@@ -86,7 +81,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
           createRewardsInjectionScript(
             {
               theme: latest.current.theme,
-              locale: toRewardsLocale(latest.current.locale),
+              locale: latest.current.locale,
               auth: {
                 status: "anonymous",
                 provider: null,
@@ -99,15 +94,19 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
         );
         injectedIdentity.current = identity;
       }
-      const rawProvider = identity ? await oauthService.getActiveProvider() : null;
-      const provider =
-        rawProvider === "zai" ? "zai" : rawProvider === "bigmodel" ? "bigmodel" : null;
-      const [oauth, jwt] = provider
-        ? await Promise.all([
-            credentialService.load(`oauth:${provider}:access_token`),
-            credentialService.load("zcodejwttoken"),
-          ])
-        : [null, null];
+      const session = identity ? await oauthService.getWebsiteSession() : null;
+      const rawProvider = session?.loginProvider;
+      const provider: RewardsContext["auth"]["provider"] =
+        rawProvider === "zai"
+          ? "zai"
+          : rawProvider === "zai_cn"
+            ? "zai_cn"
+            : rawProvider === "bigmodel"
+              ? "bigmodel"
+              : null;
+      const oauth = session?.legacyOAuthToken ?? null;
+      const jwt = session?.zcodeJwtToken ?? null;
+      const current = await oauthService.getAccountAvailability();
       if (
         view.current !== element ||
         epoch !== generation.current ||
@@ -116,17 +115,30 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
         element.getURL() !== href
       )
         return;
-      const fingerprint = JSON.stringify([identity, provider, oauth, jwt]);
+      if (
+        current.userId !== (session?.userId ?? null) ||
+        current.loginProvider !== (session?.loginProvider ?? null) ||
+        (session && current.sessionRevision !== session.sessionRevision)
+      ) {
+        throw new Error("OAuth session changed during rewards handoff");
+      }
+      const fingerprint = JSON.stringify([
+        identity,
+        provider,
+        session?.sessionRevision,
+        oauth,
+        jwt,
+      ]);
       if (authSnapshot.current.fingerprint !== fingerprint) {
         authSnapshot.current.fingerprint = fingerprint;
         ++authSnapshot.current.revision;
       }
       const snapshot: RewardsContext = {
         theme: latest.current.theme,
-        locale: toRewardsLocale(latest.current.locale),
+        locale: latest.current.locale,
         auth: {
           provider,
-          status: identity && (oauth || jwt) ? "ready" : "anonymous",
+          status: identity && provider && (oauth || jwt) ? "ready" : "anonymous",
           revision: authSnapshot.current.revision,
         },
       };
@@ -138,9 +150,16 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
         logger.warn("[rewards] context injection failed");
       }
     }
-  }, [credentialService, oauthService, policy.dev, policy.e2e]);
+  }, [oauthService, policy.dev, policy.e2e]);
   const injectRef = useRef(inject);
   injectRef.current = inject;
+  useEffect(() => {
+    const subscription = oauthService.onDidChangeSession(() => {
+      injectedIdentity.current = undefined;
+      void injectRef.current();
+    });
+    return () => subscription.dispose();
+  }, [oauthService]);
   useEffect(() => {
     void inject();
   }, [inject, locale, theme, userId]);
@@ -187,7 +206,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
               createRewardsInjectionScript(
                 {
                   theme: latest.current.theme,
-                  locale: toRewardsLocale(latest.current.locale),
+                  locale: latest.current.locale,
                   auth: {
                     status: "anonymous",
                     provider: null,
@@ -226,7 +245,7 @@ export function RewardsWebview({ onClose }: { onClose: () => void }) {
           createRewardsInjectionScript(
             {
               theme,
-              locale: toRewardsLocale(locale),
+              locale,
               auth: { status: "anonymous", provider: null, revision: generation.current },
             },
             {},

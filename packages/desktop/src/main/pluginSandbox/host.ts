@@ -1,16 +1,17 @@
-import type { Locale } from "@zcode/shared";
+import { resolveLocaleFromLanguageTag, toZhOrEnLocale, type Locale } from "@zcode/shared";
 import { PlatformChannels } from "@zcode/shared";
 import type { PluginSandboxHandle, PluginSandboxRegisterInput } from "@zcode/shared/mcp-apps";
 import {
   BrowserWindow,
   clipboard,
-  nativeImage,
+  ClipboardItem,
   MessageChannelMain,
   app,
   dialog,
   session as electronSession,
   webContents as electronWebContents,
   ipcMain,
+  nativeTheme,
   systemPreferences,
   type WebContents,
 } from "electron";
@@ -47,8 +48,7 @@ export function getPluginSandboxHost(): PluginSandboxHost | null {
 }
 
 /**
- * 在 app ready 后安装一次：同一注册表开放 owner / dispose / 手势 / 截图 / 执行租约 IPC。
- * 登记和操作复用同一 owner、sender 与 initId 校验，入口不能只安装其中一条 handler。
+ * 在 app ready 后安装一次：创建注册表、注册 renderer 可调的两条 IPC（dispose / 手势消费，按 sender 归属校验）。
  * scheme 的 privileged 注册必须在 app ready 前、与 zcode-media 同一次调用完成，不在这里。
  */
 export function installPluginSandboxHost(input: {
@@ -61,6 +61,8 @@ export function installPluginSandboxHost(input: {
   registry?: PluginSandboxRegistryPort;
   /** 注册表容量（缺省 64）；e2e L05 用 1 验证配额拒绝。 */
   registryMaxEntries?: number;
+  /** 当前界面语言；权限确认框跟随界面语言而不是系统语言（未注入时才回退系统语言）。 */
+  getApplicationLocale?: () => Locale;
 }): PluginSandboxHost {
   if (installedHost) return installedHost;
   const detachByKey = new Map<string, () => void>();
@@ -155,8 +157,9 @@ export function installPluginSandboxHost(input: {
     });
 
   // 页面浏览器权限闸门：确认框由 main 原生弹出，父窗口是登记该沙箱的宿主窗口，页面无法伪造。
+  // 确认框文案只有中英两套：中文界面用中文，其它界面语言用英文。
   const resolveLocale = (): Locale =>
-    app.getLocale().toLowerCase().startsWith("zh") ? "zh-CN" : "en-US";
+    toZhOrEnLocale(input.getApplicationLocale?.() ?? resolveLocaleFromLanguageTag(app.getLocale()));
   const permissions = createPluginSandboxPermissionGate({
     registry,
     async prompt({ record, permissions: pending }) {
@@ -236,6 +239,8 @@ export function installPluginSandboxHost(input: {
         registry,
         assets,
         permissions,
+        // 应用主题经 setTitleBarTheme 同步到 nativeTheme（跟随系统时为 system），这里读到的就是当前生效主题。
+        resolveInitialTheme: () => (nativeTheme.shouldUseDarkColors ? "dark" : "light"),
         logger: input.logger,
       });
       // 每个沙箱登记一次一条，供排 renderer / host / main 三段握手用。
@@ -339,11 +344,12 @@ export function installPluginSandboxHost(input: {
     // 截图期间页面可能释放或换代；旧请求不得把错误页面的图像写入剪贴板。
     if (!isCurrent()) throw new Error("Sandbox capture is no longer available");
     const cropped = captured.crop(scaleCaptureRect(request, captured.getSize()));
-    clipboard.writeImage(
-      process.platform === "win32"
-        ? nativeImage.createFromBitmap(cropped.toBitmap(), cropped.getSize())
-        : cropped,
-    );
+    // Electron 44 移除同步 writeImage；以 PNG 保留图像编码，等待原生写入后才确认复制成功。
+    await clipboard.write([
+      new ClipboardItem({
+        "image/png": new Blob([Uint8Array.from(cropped.toPNG())], { type: "image/png" }),
+      }),
+    ]);
   });
   ipcMain.handle(
     PlatformChannels.PluginSandboxDispose,

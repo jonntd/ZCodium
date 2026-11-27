@@ -20,14 +20,17 @@ import {
   type OpenInEditorOptions,
   type SaveCliMcpToUserDirectoryRequest,
   type CreateTempTextAttachmentRequest,
-  type ModelhubFetchModelsRequest,
-  type ModelhubProbeVisionRequest,
   type MaterializeWorkflowArtifactFileRequest,
   type UpdateStatePayload,
   type WebRemoteControlWorkspaceTarget,
   type WindowControlsOverlayReadyPayload,
 } from "@zcode/shared";
-import { getInstalledEditors } from "./editors.js";
+import { getAppIconDataUrl, getInstalledEditors } from "./editors.js";
+import {
+  createFileApplicationService,
+  type ConfirmExecutableFileOpen,
+} from "@desktop/main/file-open-apps/index.js";
+import type { FileApplicationTarget } from "@zcode/shared";
 import { getApplicationIcon } from "./applicationIcons.js";
 import { exportLogs } from "./exportLogs.js";
 import { resolveCommunityUrl } from "./desktopCommandHandlers.js";
@@ -59,10 +62,10 @@ import {
   saveCliMcpToUserDirectory,
 } from "./mcpUserDirectory/index.js";
 import { createTempTextAttachment } from "./tempTextAttachment.js";
-import { modelhubFetchModels, modelhubProbeVision } from "./modelhubService.js";
 import { materializeWorkflowArtifactFile } from "./workflowArtifactFile.js";
 import { registerDesktopSaveFileIpcHandler } from "./desktopSaveFile.js";
 import { registerDesktopPrintToPdfIpcHandler } from "./desktopPrintToPdf.js";
+import { registerDesktopCaptureBrowserGuestPageIpcHandler } from "./desktopCaptureBrowserGuestPage.js";
 import { registerDesktopCommandIpcHandler } from "./desktopCommandIpc.js";
 import { registerCuaPipActiveSessionIpc } from "./desktopCuaPipIpc.js";
 
@@ -73,6 +76,10 @@ export function registerPlatformIpcHandlers(options: {
     warn: (...args: unknown[]) => void;
   };
   applyApplicationLocale: (locale: Locale) => Promise<void>;
+  /** 系统关联应用打开可执行类文件前的用户确认（见 file-open-apps/executableOpenGuard）。 */
+  confirmExecutableFileOpen: ConfirmExecutableFileOpen;
+  /** 保存 Agent 回复语言并推送给各窗口 Host；写盘失败时抛出。 */
+  applyReplyLanguage: (language: string) => Promise<void>;
   resolveSystemLocale: () => Locale;
   focusWorkspaceInExistingWindow: (
     path: string,
@@ -156,6 +163,7 @@ export function registerPlatformIpcHandlers(options: {
 
   registerDesktopSaveFileIpcHandler(options.logger);
   registerDesktopPrintToPdfIpcHandler(options.logger);
+  registerDesktopCaptureBrowserGuestPageIpcHandler(options.logger);
 
   ipcMain.handle(
     PlatformChannels.CreateTempTextAttachment,
@@ -164,18 +172,6 @@ export function registerPlatformIpcHandlers(options: {
     },
   );
 
-  ipcMain.handle(
-    PlatformChannels.ModelhubFetchModels,
-    async (_event, payload: ModelhubFetchModelsRequest) => {
-      return modelhubFetchModels(payload);
-    },
-  );
-  ipcMain.handle(
-    PlatformChannels.ModelhubProbeVision,
-    async (_event, payload: ModelhubProbeVisionRequest) => {
-      return modelhubProbeVision(payload);
-    },
-  );
   ipcMain.handle(
     PlatformChannels.MaterializeWorkflowArtifactFile,
     async (_event, payload: MaterializeWorkflowArtifactFileRequest) => {
@@ -282,6 +278,12 @@ export function registerPlatformIpcHandlers(options: {
     }
 
     return options.applyApplicationLocale(result.data);
+  });
+
+  ipcMain.handle(PlatformChannels.SetReplyLanguage, (_event, language: unknown) => {
+    // 空串表示清除；长度由 applyReplyLanguage 按 schema 校验。非法值要让设置页收到失败并恢复原值。
+    if (typeof language !== "string") throw new Error("Invalid reply language");
+    return options.applyReplyLanguage(language);
   });
 
   ipcMain.handle(PlatformChannels.GetSystemLocale, () => options.resolveSystemLocale());
@@ -450,6 +452,19 @@ export function registerPlatformIpcHandlers(options: {
   });
   ipcMain.handle(PlatformChannels.GetInstalledEditors, (_event, filePath?: string) =>
     getInstalledEditors(typeof filePath === "string" ? filePath : undefined),
+  );
+  const fileApplications = createFileApplicationService({
+    confirmExecutableOpen: options.confirmExecutableFileOpen,
+    getIcon: (id, path) => getAppIconDataUrl(id, path),
+    logger: options.logger,
+  });
+  ipcMain.handle(PlatformChannels.GetFileApplications, (_event, target: FileApplicationTarget) =>
+    fileApplications.getFileApplications(target),
+  );
+  ipcMain.handle(
+    PlatformChannels.OpenFileWithApplication,
+    (_event, payload: { applicationId: string; target: FileApplicationTarget }) =>
+      fileApplications.openFileWithApplication(payload?.applicationId, payload?.target),
   );
   ipcMain.handle(
     PlatformChannels.GetApplicationIcon,

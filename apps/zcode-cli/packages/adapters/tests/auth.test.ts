@@ -11,7 +11,8 @@ import {
   createCliOAuthClient,
   createCodingPlanApiKeyResolver,
   createSharedZCodeCredentialStore,
-  loadSharedZCodeCredentialSync,
+  loadSharedZCodeCredential,
+  resolveSharedZCodeCredentialsPath,
 } from "../src/auth/index.js";
 
 const TEST_ENV = {
@@ -23,6 +24,159 @@ afterEach(() => {
 });
 
 describe("shared ZCode credentials", () => {
+  it("clears the associated account when the current global login is cleared", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-auth-clear-associated-"));
+    const store = createSharedZCodeCredentialStore({ baseDir: dir, env: TEST_ENV });
+    try {
+      await store.saveMany({
+        "oauth:active_provider": "zai",
+        "oauth:zai:access_token": "login",
+        "oauth:linked_bigmodel": "associated",
+      });
+      await store.clearZaiLoginCredentials();
+      expect(await store.load("oauth:linked_bigmodel")).toBeNull();
+      expect(await store.load("oauth:active_provider")).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("replaces China-region credentials and associated account when starting a new global login", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-auth-cn-replace-"));
+    const store = createSharedZCodeCredentialStore({ baseDir: dir, env: TEST_ENV });
+    try {
+      await store.saveMany({
+        "oauth:active_provider": "zai_cn",
+        "oauth:zai_cn:access_token": "cn-token",
+        "oauth:linked_bigmodel": JSON.stringify({
+          customerId: "linked",
+          accessToken: "linked-token",
+        }),
+      });
+      await store.saveZaiLoginCredentials({
+        accessToken: "global",
+        jwtToken: "global-jwt",
+        user: { user_id: "global-user" },
+      });
+      expect(await store.load("oauth:zai_cn:access_token")).toBeNull();
+      expect(await store.load("oauth:linked_bigmodel")).toBeNull();
+      expect(await store.load("oauth:active_provider")).toBe("zai");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an old snapshot after the same account logs in again with identical tokens", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-auth-repeat-"));
+    const store = createSharedZCodeCredentialStore({ baseDir: dir, env: TEST_ENV });
+    const login = {
+      accessToken: "same-token",
+      jwtToken: "same-jwt",
+      user: { user_id: "same-user" },
+    };
+    try {
+      await store.saveZaiLoginCredentials(login);
+      const expected = await store.loadOAuthSessionSnapshot();
+      await store.saveZaiLoginCredentials(login);
+      expect(await store.updateMany({ zcodejwttoken: null }, { expected })).toBe(false);
+      expect(await store.load("zcodejwttoken")).toBe("same-jwt");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not decrypt inactive provider leftovers when reading the active session", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-auth-inactive-broken-"));
+    const store = createSharedZCodeCredentialStore({ baseDir: dir, env: TEST_ENV });
+    try {
+      await store.saveMany({
+        "oauth:active_provider": "bigmodel",
+        zcodejwttoken: "valid-jwt",
+        "oauth:bigmodel:access_token": "valid-token",
+      });
+      const raw = JSON.parse(await readFile(store.filePath, "utf8"));
+      raw["oauth:zai:access_token"] = "enc:v1:broken-unused-token";
+      await writeFile(store.filePath, JSON.stringify(raw));
+      const snapshot = await store.loadOAuthSessionSnapshot();
+      expect(snapshot["oauth:active_provider"]).toBe("bigmodel");
+      expect(snapshot["oauth:zai:access_token"]).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a stale whole-session update without deleting unchanged sibling fields", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-auth-group-cas-"));
+    const store = createSharedZCodeCredentialStore({ baseDir: dir, env: TEST_ENV });
+    try {
+      await store.saveMany({
+        "oauth:active_provider": "zai",
+        zcodejwttoken: "old",
+        "oauth:zai:user_info": "same-user",
+      });
+      const expected = await store.loadMany([
+        "oauth:active_provider",
+        "zcodejwttoken",
+        "oauth:zai:user_info",
+        "oauth:zai:refresh_token",
+      ]);
+      await store.save("zcodejwttoken", "new");
+      expect(
+        await store.updateMany(
+          { "oauth:active_provider": null, zcodejwttoken: null, "oauth:zai:user_info": null },
+          { expected },
+        ),
+      ).toBe(false);
+      expect(await store.loadMany(Object.keys(expected))).toEqual({
+        ...expected,
+        zcodejwttoken: "new",
+      });
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("clears a previous account and stale refresh token when committing a ZAI login", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-auth-switch-"));
+    const store = createSharedZCodeCredentialStore({ baseDir: dir, env: TEST_ENV });
+    try {
+      await store.saveMany({
+        "oauth:active_provider": "bigmodel",
+        "oauth:bigmodel:access_token": "old-account",
+        "oauth:zai:refresh_token": "old-refresh",
+        "bot:independent": "keep",
+      });
+      await store.saveZaiLoginCredentials({
+        accessToken: "new-account",
+        jwtToken: "new-jwt",
+        user: { user_id: "new-user" },
+      });
+      expect(await store.load("oauth:bigmodel:access_token")).toBeNull();
+      expect(await store.load("oauth:zai:refresh_token")).toBeNull();
+      expect(await store.load("bot:independent")).toBe("keep");
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not clear the active BigModel JWT when removing inactive ZAI credentials", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-auth-inactive-clear-"));
+    const store = createSharedZCodeCredentialStore({ baseDir: dir, env: TEST_ENV });
+    try {
+      await store.saveMany({
+        "oauth:active_provider": "bigmodel",
+        zcodejwttoken: "bigmodel-jwt",
+        "oauth:zai:access_token": "old-zai",
+      });
+      await store.clearZaiLoginCredentials();
+      expect(await store.load("oauth:active_provider")).toBe("bigmodel");
+      expect(await store.load("zcodejwttoken")).toBe("bigmodel-jwt");
+      expect(await store.load("oauth:zai:access_token")).toBeNull();
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+
   it("stores ZAI login credentials with z-code compatible encrypted keys", async () => {
     const dir = await mkdtemp(join(tmpdir(), "zcode-auth-"));
 
@@ -44,14 +198,14 @@ describe("shared ZCode credentials", () => {
 
       const raw = JSON.parse(await readFile(store.filePath, "utf-8")) as Record<string, string>;
       expect(store.filePath).toBe(join(dir, ".zcode", "v2", "credentials.json"));
-      expect(raw[SHARED_ZCODE_CREDENTIAL_KEYS.zaiAccessToken]?.startsWith("enc:v1:")).toBe(true);
+      expect(raw[SHARED_ZCODE_CREDENTIAL_KEYS.zaiAccessToken]?.startsWith("enc:v2:")).toBe(true);
       expect(await store.load(SHARED_ZCODE_CREDENTIAL_KEYS.activeProvider)).toBe("zai");
       expect(await store.load(SHARED_ZCODE_CREDENTIAL_KEYS.zaiAccessToken)).toBe(
         "zai-access-token",
       );
       expect(await store.load(SHARED_ZCODE_CREDENTIAL_KEYS.zcodeJwtToken)).toBe("zcode-jwt-token");
       expect(
-        loadSharedZCodeCredentialSync(SHARED_ZCODE_CREDENTIAL_KEYS.zaiAccessToken, {
+        await loadSharedZCodeCredential(SHARED_ZCODE_CREDENTIAL_KEYS.zaiAccessToken, {
           baseDir: dir,
           env: TEST_ENV,
         }),
@@ -230,6 +384,70 @@ describe("shared ZCode credentials", () => {
   });
 });
 
+// ZCT-2120452663971209216：同机 Desktop 把共享库固定为系统库来源时，Source Server Core
+// 改用自有凭据库，并通过 ZCODE_CREDENTIALS_FILE 让其拉起的 Agent 读写同一文件。
+describe("shared ZCode credentials path", () => {
+  const credentialsFileEnv = "ZCODE_CREDENTIALS_FILE";
+
+  it("uses the host-assigned credentials file before the data base dir", () => {
+    const assigned = join(tmpdir(), "zcode-server-root", "credentials", "credentials.json");
+    expect(
+      resolveSharedZCodeCredentialsPath({
+        env: { [credentialsFileEnv]: assigned, ZCODE_DATA_BASE_DIR: join(tmpdir(), "other") },
+      }),
+    ).toBe(assigned);
+  });
+
+  it("keeps explicit caller paths ahead of the host-assigned file", () => {
+    const assigned = join(tmpdir(), "assigned", "credentials.json");
+    const baseDir = join(tmpdir(), "explicit-base");
+    const filePath = join(tmpdir(), "explicit", "credentials.json");
+    const env = { [credentialsFileEnv]: assigned };
+    expect(resolveSharedZCodeCredentialsPath({ baseDir, env })).toBe(
+      join(baseDir, ".zcode", "v2", "credentials.json"),
+    );
+    expect(resolveSharedZCodeCredentialsPath({ baseDir, env, filePath })).toBe(filePath);
+  });
+
+  it("treats an empty host-assigned file as unset", () => {
+    const dataBaseDir = join(tmpdir(), "zcode-data-base");
+    expect(
+      resolveSharedZCodeCredentialsPath({
+        env: { [credentialsFileEnv]: "  ", ZCODE_DATA_BASE_DIR: dataBaseDir },
+      }),
+    ).toBe(join(dataBaseDir, ".zcode", "v2", "credentials.json"));
+  });
+
+  it("rejects a relative host-assigned file instead of resolving it against cwd", () => {
+    const env = { [credentialsFileEnv]: join("relative", "credentials.json") };
+    expect(() => resolveSharedZCodeCredentialsPath({ env })).toThrow(credentialsFileEnv);
+    expect(() => createSharedZCodeCredentialStore({ env })).toThrow(credentialsFileEnv);
+  });
+
+  it("reads and writes only the host-assigned file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "zcode-auth-assigned-file-"));
+    const assigned = join(dir, "server", "credentials", "credentials.json");
+    const dataBaseDir = join(dir, "home");
+    const env = { ...TEST_ENV, [credentialsFileEnv]: assigned, ZCODE_DATA_BASE_DIR: dataBaseDir };
+    try {
+      await mkdir(join(dir, "server", "credentials"), { recursive: true });
+      const store = createSharedZCodeCredentialStore({ env });
+      expect(store.filePath).toBe(assigned);
+      await store.save("zcodejwttoken", "server-owned-token");
+
+      expect(await createSharedZCodeCredentialStore({ env }).load("zcodejwttoken")).toBe(
+        "server-owned-token",
+      );
+      expect(JSON.parse(await readFile(assigned, "utf-8"))).toHaveProperty("zcodejwttoken");
+      await expect(
+        stat(join(dataBaseDir, ".zcode", "v2", "credentials.json")),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await rm(dir, { force: true, recursive: true });
+    }
+  });
+});
+
 async function runConcurrentCredentialWorkers(
   filePath: string,
   processCount: number,
@@ -305,6 +523,7 @@ describe("CLI OAuth client", () => {
           poll_token: "poll-token",
           authorize_url: "https://chat.z.ai/oauth/authorize?state=state",
           expires_at: 1735000000,
+          server_time: 1734999700,
           poll_interval_sec: 2,
         },
       }),
@@ -332,6 +551,8 @@ describe("CLI OAuth client", () => {
     });
 
     const init = await client.init({ pollToken: "poll-token" });
+    // server_time 原样透出，登录入口用它与 expires_at 计算与本机时钟无关的剩余寿命。
+    expect(init).toMatchObject({ expires_at: 1735000000, server_time: 1734999700 });
     const poll = await client.poll({
       flowId: init.flow_id,
       pollToken: "poll-token",

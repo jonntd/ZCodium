@@ -1,6 +1,7 @@
 import { retainPluginUiSession } from "@/plugin-ui/adapters/pluginUiPaneSession.js";
 import { clearPluginUiModelContexts } from "@/plugin-ui/adapters/pluginUiModelContextEvents.js";
 import { pluginUiStateKey } from "@/plugin-ui/adapters/pluginUiStateKey.js";
+import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";
 import { getPluginUiSessionActions } from "./pluginUiSessionActions.js";
 import { logger } from "@/logger.js";
 import { createPluginUiMessagePortTransport } from "@/plugin-ui/adapters/messagePortTransport.js";
@@ -39,11 +40,7 @@ import { acquireWorkspaceConnection } from "@/v4/workspaceConnectionRegistry.js"
 import type { IServiceAccessor } from "@zcode/services";
 import type { IPlatformService } from "@zcode/shared";
 import { buildPluginUiSessionKey } from "../contract.js";
-import type {
-  Page,
-  UsePluginUiHostInput,
-  UsePluginUiHostResult,
-} from "./pluginUiHostTypes.js";
+import type { Page, UsePluginUiHostInput, UsePluginUiHostResult } from "./pluginUiHostTypes.js";
 import { createPluginUiPagePlane } from "./pluginUiPagePlane.js";
 import { pluginUiPages } from "./pluginUiPageRegistry.js";
 import { attachPluginUiResourceDeltaFeed } from "./pluginUiResourceDeltaFeed.js";
@@ -55,9 +52,25 @@ export function createPage(
   platform: Platform,
   services: Services,
 ): Page {
-  // 遥测已按 fork 决策移除（见 packages/ui/specs/telemetry-removal-report.md）；保留调用点为直通。
-  const reportUsage = (_action: string, _failed = false) => {};
-
+  const reportUsage = (action: string, failed = false) => {
+    void reportAppTelemetryEvent(
+      platform,
+      {
+        elementName: failed ? "plugin_runtime_error" : "plugin_usage",
+        eventRegion: "app",
+        eventType: "result",
+        eventExtraDetail: {
+          schema_version: "1",
+          action,
+          plugin_id: input.presentation.pluginId,
+          plugin_component: "ui",
+          client_kind: "desktop",
+          ...(failed ? { error_category: "unknown", result: "failure" } : {}),
+        },
+      },
+      "plugin-ui",
+    );
+  };
   const bridge = services.pluginUiBridgeService!;
   const sandboxPlatform = platform.pluginSandbox!;
   const surfaceKey = key;
@@ -101,26 +114,18 @@ export function createPage(
   };
   const setPhase = (phase: PluginUiHostPhase) => patch({ phase });
   const setHandle = (handle: PluginSandboxHandle) => {
-    if (appIdentity && appIdentity !== handle.instance.appIdentity)
-      clearPluginUiWidgetState(key);
+    if (appIdentity && appIdentity !== handle.instance.appIdentity) clearPluginUiWidgetState(key);
     appIdentity = handle.instance.appIdentity;
     const fresh =
-      snapshot.handle?.sandboxId !== handle.sandboxId ||
-      snapshot.handle?.initId !== handle.initId;
+      snapshot.handle?.sandboxId !== handle.sandboxId || snapshot.handle?.initId !== handle.initId;
     patch({ handle });
-    if (fresh)
-      pluginUiPages.prepared(
-        page,
-        handle.resourceMeta?.backgroundRetention === true,
-      );
+    if (fresh) pluginUiPages.prepared(page, handle.resourceMeta?.backgroundRetention === true);
     plane.mount(handle);
     syncExecution();
   };
   const setHeight = (height: number) => patch({ height });
   const setError = (error: string) => patch({ error });
-  const syncDisplayModes = (
-    appCapabilities: McpUiAppCapabilities | undefined,
-  ) => {
+  const syncDisplayModes = (appCapabilities: McpUiAppCapabilities | undefined) => {
     // 能力只有握手后才可知；之前在后台加载，避免 fullscreen-only 页面先闪现 inline。
     plane.setAllowedDisplayModes(
       appCapabilities === undefined
@@ -134,19 +139,14 @@ export function createPage(
           ),
     );
   };
-  const setAppCapabilities = (
-    appCapabilities: McpUiAppCapabilities | undefined,
-  ) => {
+  const setAppCapabilities = (appCapabilities: McpUiAppCapabilities | undefined) => {
     syncDisplayModes(appCapabilities);
     patch({ appCapabilities });
     if (appCapabilities)
       logger.lifecycle.info("[plugin-ui] display modes registered", {
         pluginId: latest.current.presentation.pluginId,
         scopeId: buildPluginSandboxScopeId(latest.current.scope.scope),
-        availableDisplayModes: appCapabilities.availableDisplayModes ?? [
-          "inline",
-          "fullscreen",
-        ],
+        availableDisplayModes: appCapabilities.availableDisplayModes ?? ["inline", "fullscreen"],
         preferredDisplayMode: latest.current.presentation.preferredDisplayMode,
       });
   };
@@ -164,13 +164,10 @@ export function createPage(
   function syncExecution() {
     // 过去对所有页面强制维持后台帧，隐藏页也持续消耗 CPU；只有资源显式申请才启用。
     const active =
-      controller !== null &&
-      snapshot.handle?.resourceMeta?.backgroundRetention === true;
+      controller !== null && snapshot.handle?.resourceMeta?.backgroundRetention === true;
     // 无锚点的冷启动也要完成握手；display:none 会让 Electron guest 无法首次挂载。
     // 仅启动阶段提供不可交互的承载面，握手后未声明的页面立即恢复普通隐藏策略。
-    plane.setExecutionActive(
-      active || (controller !== null && snapshot.phase !== "running"),
-    );
+    plane.setExecutionActive(active || (controller !== null && snapshot.phase !== "running"));
     const handle = snapshot.handle;
     if (!handle || !sandboxPlatform.setExecutionActive) return;
     const background = active && (!page.visible || document.hidden);
@@ -186,9 +183,7 @@ export function createPage(
       .setExecutionActive(handle.sandboxId, handle.initId, background)
       .catch((error: unknown) => {
         if (snapshot.handle !== handle || disposed) return;
-        logger.warn("[plugin-ui] background execution failed", {
-          error: String(error),
-        });
+        logger.warn("[plugin-ui] background execution failed", { error: String(error) });
       });
   }
   function onWindowVisibility() {
@@ -196,8 +191,7 @@ export function createPage(
     syncExecution();
   }
   async function ensure() {
-    if (disposed || controller || starting || snapshot.phase === "error")
-      return;
+    if (disposed || controller || starting || snapshot.phase === "error") return;
     starting = true;
     const epoch = ++incarnation;
     try {
@@ -230,27 +224,19 @@ export function createPage(
         releaseDraft = undefined;
         // 页面失效不等于 session 失效，已附加的各插件上下文仍属于待发送输入。
         void page.suspend(true);
-        patch({
-          phase: "error",
-          error: "MCP App runtime is no longer available",
-        });
+        patch({ phase: "error", error: "MCP App runtime is no longer available" });
       };
       const offRestart = connection.transport.onRuntimeRestart(runtimeStopped);
-      const offLifecycle = connection.transport.onRuntimeLifecycle?.(
-        (state) => {
-          if (state === "unavailable") runtimeStopped();
-        },
-      );
+      const offLifecycle = connection.transport.onRuntimeLifecycle?.((state) => {
+        if (state === "unavailable") runtimeStopped();
+      });
       releaseLease = () => {
         offRestart();
         offLifecycle?.();
         lease.release();
         connection.release();
       };
-      releaseFeed = attachPluginUiResourceDeltaFeed(
-        lease.store,
-        latest.current.scope,
-      );
+      releaseFeed = attachPluginUiResourceDeltaFeed(lease.store, latest.current.scope);
       patch({ phase: "preparing", error: null, handle: null });
       createController();
     } catch (error) {
@@ -287,9 +273,7 @@ export function createPage(
     const nextController = createPluginUiHostController({
       bridge,
       sampling: services?.pluginUiSamplingService,
-      ...(services?.pluginUiAppToolsService
-        ? { appTools: services.pluginUiAppToolsService }
-        : {}),
+      ...(services?.pluginUiAppToolsService ? { appTools: services.pluginUiAppToolsService } : {}),
       createTransport: createPluginUiMessagePortTransport,
       platform: sandboxPlatform,
       scope,
@@ -300,16 +284,11 @@ export function createPage(
         presentation.serverName,
       ),
       initialHostContext,
-      getPreferredDisplayMode: () =>
-        latest.current.presentation.preferredDisplayMode,
+      getPreferredDisplayMode: () => latest.current.presentation.preferredDisplayMode,
       hostVersion: latest.current.hostVersion,
       getToolFeed: () => ({
-        ...(latest.current.toolInput
-          ? { toolInput: { arguments: latest.current.toolInput } }
-          : {}),
-        ...(latest.current.toolResult
-          ? { toolResult: latest.current.toolResult }
-          : {}),
+        ...(latest.current.toolInput ? { toolInput: { arguments: latest.current.toolInput } } : {}),
+        ...(latest.current.toolResult ? { toolResult: latest.current.toolResult } : {}),
         ...(latest.current.toolCancelled ? { toolCancelled: true } : {}),
       }),
       // widgetState 初值直接读宿主内存 store（唯一 owner），不经 props 再缓存一份；
@@ -317,17 +296,10 @@ export function createPage(
       getWidgetState: () => getPluginUiWidgetState(surfaceKey),
       getHostCapabilities: () =>
         buildPluginUiHostCapabilities({
-          canSendFollowUpMessage: Boolean(
-            latest.current.interactions?.onSendFollowUpMessage,
-          ),
-          canUpdateModelContext: Boolean(
-            latest.current.interactions?.onUpdateModelContext,
-          ),
+          canSendFollowUpMessage: Boolean(latest.current.interactions?.onSendFollowUpMessage),
+          canUpdateModelContext: Boolean(latest.current.interactions?.onUpdateModelContext),
           canSetWidgetState: true,
-          canSample: Boolean(
-            services?.pluginUiSamplingService &&
-            getPluginUiSessionActions(scope),
-          ),
+          canSample: Boolean(services?.pluginUiSamplingService && getPluginUiSessionActions(scope)),
           canSubscribeResources: true,
           canDownloadFile: Boolean(platformInteractions?.onDownloadFile),
           ...(scope.scope.kind === "surface"
@@ -339,24 +311,18 @@ export function createPage(
       onSendFollowUpMessage: (payload, context) =>
         latest.current.interactions?.onSendFollowUpMessage
           ? latest.current.interactions.onSendFollowUpMessage(payload, context)
-          : Promise.reject(
-              Object.assign(new Error("Not supported"), { code: -32601 }),
-            ),
+          : Promise.reject(Object.assign(new Error("Not supported"), { code: -32601 })),
       onUpdateModelContext: (payload) =>
         latest.current.interactions?.onUpdateModelContext
           ? latest.current.interactions.onUpdateModelContext(payload)
-          : Promise.reject(
-              Object.assign(new Error("Not supported"), { code: -32601 }),
-            ),
+          : Promise.reject(Object.assign(new Error("Not supported"), { code: -32601 })),
       onUpdateWidgetState: async (widgetState) => {
         setPluginUiWidgetState(surfaceKey, widgetState);
       },
       onPhase: (next, detail) => {
         if (controller !== nextController) return;
-        if (next === "running" && snapshot.phase !== "running")
-          reportUsage("ui_ready");
-        if (next === "error" && snapshot.phase !== "error")
-          reportUsage("ui_open_request", true);
+        if (next === "running" && snapshot.phase !== "running") reportUsage("ui_ready");
+        if (next === "error" && snapshot.phase !== "error") reportUsage("ui_open_request", true);
         // 生命周期事件每个沙箱只有几条，走 lifecycle 才能进主日志（排查用户现场用）。
         logger.lifecycle.info("[plugin-ui] lifecycle", {
           phase: next,
@@ -375,15 +341,12 @@ export function createPage(
           setHandle(detail.handle);
           // 资源声明的初始高度替代固定 240；仍受 min / max clamp。
           const hint = detail.handle.resourceMeta?.heightHint;
-          if (hint !== undefined)
-            setHeight(clampCardHeight(hint, detail.handle));
+          if (hint !== undefined) setHeight(clampCardHeight(hint, detail.handle));
           // 资源声明的浏览器权限随句柄到达（早于端口），进 hostContext 让页面 feature detect（规范草案 `permissions`）。
           const permissions = detail.handle.resourceMeta?.permissions;
           if (permissions?.length) {
             nextController.updateHostContext({
-              permissions: Object.fromEntries(
-                permissions.map((item) => [item, {}]),
-              ),
+              permissions: Object.fromEntries(permissions.map((item) => [item, {}])),
             });
           }
         }
@@ -395,10 +358,7 @@ export function createPage(
         // 页面失效不等于 session 失效，已附加的各插件上下文仍属于待发送输入。
         void page.suspend(true);
         clearPluginUiWidgetState(key);
-        patch({
-          phase: "error",
-          error: "MCP App connection is no longer available",
-        });
+        patch({ phase: "error", error: "MCP App connection is no longer available" });
       },
       onActivity: () => {
         if (controller === nextController) pluginUiPages.activity(page);
@@ -408,8 +368,7 @@ export function createPage(
       },
       onAppCapabilities: setAppCapabilities,
       onHeight: (next) => setHeight(clampCardHeight(next, snapshot.handle)),
-      onDisplayModeRequest: (mode) =>
-        latest.current.onDisplayModeRequest?.(mode) ?? mode,
+      onDisplayModeRequest: (mode) => latest.current.onDisplayModeRequest?.(mode) ?? mode,
       onOpenExternal: (url) => latest.current.onOpenExternal?.(url),
       log: (message, detail) => logger.warn(message, detail),
     });
@@ -448,22 +407,17 @@ export function createPage(
     busy: () => controller?.isBusy() ?? false,
     running: () => controller !== null || starting,
     callPanelTool(toolName: string, args?: Record<string, unknown>) {
-      if (!controller)
-        return Promise.reject(new Error("MCP App page is not running"));
+      if (!controller) return Promise.reject(new Error("MCP App page is not running"));
       return controller.callPanelTool(toolName, args);
     },
-    notifyPanelToolResult(
-      result: import("@zcode/shared/mcp-apps").McpAppsToolResultPayload,
-    ) {
+    notifyPanelToolResult(result: import("@zcode/shared/mcp-apps").McpAppsToolResultPayload) {
       controller?.notifyToolResult(result);
     },
     bind(node, sidebar) {
       const off = plane.bind({
         node,
         kind: sidebar ? "sidebar" : "inline",
-        container:
-          node.closest<HTMLElement>("[data-sandbox-page-container]") ??
-          undefined,
+        container: node.closest<HTMLElement>("[data-sandbox-page-container]") ?? undefined,
       });
       ensure();
       return off;
@@ -529,8 +483,7 @@ export function createPage(
       ]);
       if (feed !== lastFeed) {
         lastFeed = feed;
-        if (next.toolInput)
-          controller?.notifyToolInput({ arguments: next.toolInput });
+        if (next.toolInput) controller?.notifyToolInput({ arguments: next.toolInput });
         if (next.toolResult) controller?.notifyToolResult(next.toolResult);
         if (next.toolCancelled) controller?.notifyToolCancelled();
       }
@@ -541,14 +494,12 @@ export function createPage(
         if (starting || !pluginUiPages.claimRecycle(page)) return false;
         const candidate = controller;
         const attempt = (async () => {
-          if (candidate && !(await candidate.tryRecycle().catch(() => false)))
-            return false;
+          if (candidate && !(await candidate.tryRecycle().catch(() => false))) return false;
           // Agent 原子裁决 busy/审批；等待期间被重载或删除的旧 controller 不得释放新实例。
           if (candidate !== controller || disposed) return false;
           await page.suspend(true);
           // 裁决期间用户可能重新打开；旧凭证已撤销，必须从同一 owner 重建。
-          if (!document.hidden && !disposed && plane.hasVisibleAnchor())
-            void ensure();
+          if (!document.hidden && !disposed && plane.hasVisibleAnchor()) void ensure();
           return true;
         })();
         recycling = attempt;
@@ -614,13 +565,7 @@ export function createPage(
 }
 
 /** 卡片高度 clamp：下限取资源 `minFrameHeight` 与宿主最小值的较大者，上限固定。 */
-function clampCardHeight(
-  next: number,
-  handle: PluginSandboxHandle | null,
-): number {
-  const min = Math.max(
-    PLUGIN_UI_CARD_MIN_HEIGHT_PX,
-    handle?.resourceMeta?.minFrameHeight ?? 0,
-  );
+function clampCardHeight(next: number, handle: PluginSandboxHandle | null): number {
+  const min = Math.max(PLUGIN_UI_CARD_MIN_HEIGHT_PX, handle?.resourceMeta?.minFrameHeight ?? 0);
   return Math.min(PLUGIN_UI_CARD_MAX_HEIGHT_PX, Math.max(min, next));
 }

@@ -1,6 +1,9 @@
-import { assertOfficialServiceRemoved } from "@zcode/shared";
 /* eslint-disable max-lines -- quota、entitlement 与 monitor 请求共用同一套 provider 鉴权逻辑，拆文件会让 Coding Plan strict key 边界更难追踪。 */
 import { z } from "zod";
+import {
+  isSameOAuthAccountMaterial,
+  type OAuthAccountMaterial,
+} from "#src/oauth/repo/oauthCredentialRepo.js";
 import type {
   ApiClient,
   ApiRequestInit,
@@ -33,7 +36,6 @@ import {
 } from "@zcode/shared";
 import type { ProviderFamilyDomain } from "@zcode/shared";
 import { createServiceLogger } from "#src/logger/serviceLogger.js";
-import type { ICredentialService } from "../../credential/credential.js";
 import type { IAccountRequestAuthService } from "../../model-provider/accountRequestAuthService.js";
 import { readApiJson } from "../../providers/api/apiJson.js";
 import { readEnv } from "../../oauth/providers/configUtils.js";
@@ -73,9 +75,6 @@ import { normalizeLimits, pickPrimaryLimit } from "./bigmodelUsageQuotaMapper.js
 
 const BIGMODEL_QUOTA_PATH = "/api/monitor/usage/quota/limit";
 const CODING_PLAN_RESET_BASE_PATH = "/api/v1/coding-plan/reset";
-const ZCODE_JWT_TOKEN_KEY = "zcodejwttoken";
-const ZAI_OAUTH_ACCESS_TOKEN_KEY = "oauth:zai:access_token";
-const BIGMODEL_OAUTH_ACCESS_TOKEN_KEY = "oauth:bigmodel:access_token";
 const REQUEST_TIMEOUT_MS = 15_000;
 const log = createServiceLogger("usage-stats");
 const EMPTY_MODEL_USAGE_PAYLOAD = {} satisfies BigModelUsageModelUsagePayload;
@@ -126,14 +125,14 @@ export interface UsageApiAuthorization {
 
 interface BigModelUsageQuotaProviderOptions {
   apiClient: ApiClient;
+  loadOAuthAccountMaterial(family: "zai" | "bigmodel"): Promise<OAuthAccountMaterial | null>;
   accountRequestAuthService: Pick<
     IAccountRequestAuthService,
-    "resolveAccessCurrent" | "resolveCurrent" | "assertCurrent"
+    "resolveAccessCurrent" | "resolveCurrent"
   >;
   resolveApiAuthorization?: (
     request: UsageApiAuthorizationRequest,
   ) => Promise<UsageApiAuthorization | null>;
-  credentialService?: Pick<ICredentialService, "load">;
   env?: NodeJS.ProcessEnv;
   /**
    * 官方 Server MCP 的凭证来源。缺省时 entitlement 快照的 mcpQuota 恒为 null，
@@ -174,20 +173,20 @@ type ZaiStartPlanBalance = NonNullable<
 
 export class BigModelUsageQuotaProvider {
   private readonly apiClient: ApiClient;
+  private readonly loadOAuthAccountMaterial: BigModelUsageQuotaProviderOptions["loadOAuthAccountMaterial"];
   private readonly accountRequestAuthService: Pick<
     IAccountRequestAuthService,
-    "resolveAccessCurrent" | "resolveCurrent" | "assertCurrent"
+    "resolveAccessCurrent" | "resolveCurrent"
   >;
   private readonly resolveApiAuthorization?: BigModelUsageQuotaProviderOptions["resolveApiAuthorization"];
-  private readonly credentialService?: Pick<ICredentialService, "load">;
   private readonly env: NodeJS.ProcessEnv;
   private readonly officialMcpCredentialSource?: OfficialMcpCredentialSource;
 
   constructor(options: BigModelUsageQuotaProviderOptions) {
     this.apiClient = options.apiClient;
+    this.loadOAuthAccountMaterial = options.loadOAuthAccountMaterial;
     this.accountRequestAuthService = options.accountRequestAuthService;
     this.resolveApiAuthorization = options.resolveApiAuthorization;
-    this.credentialService = options.credentialService;
     this.env = options.env ?? process.env;
     this.officialMcpCredentialSource = options.officialMcpCredentialSource;
   }
@@ -217,6 +216,10 @@ export class BigModelUsageQuotaProvider {
     const generatedAt = Date.now();
     const teamContext = accountAccess ? resolveTeamPlanContext(accountAccess) : null;
     const providerId = request.preferredProviderId?.trim() ?? "";
+    const account = accountAccess
+      ? await this.loadOAuthAccountMaterial(accountAccess.family)
+      : null;
+    if (teamContext && !account) throw new Error("coding_plan_account_required");
     // 团队权益不以调用 Key 为前置条件；即使 Key 创建/复制失败也保留已确认的订阅。
     const teamEntitlement = teamContext
       ? await fetchBigModelSubscriptionSummary({
@@ -228,9 +231,7 @@ export class BigModelUsageQuotaProvider {
               ? buildZaiQuotaUrl(this.env)
               : buildBigModelQuotaUrl(this.env)),
           teamContext,
-          businessToken: await this.credentialService?.load(
-            `oauth:${teamContext.family}:access_token`,
-          ),
+          businessToken: account?.accessToken,
           timeoutMs: REQUEST_TIMEOUT_MS,
         })
       : null;
@@ -276,11 +277,13 @@ export class BigModelUsageQuotaProvider {
     const limits = normalizeLimits(quotaData?.limits);
     const primaryLimit = pickPrimaryLimit(limits);
     if (accountAccess && providerId) {
-      await this.accountRequestAuthService.assertCurrent({
-        providerId,
-        accountAccess,
-      });
+      await this.assertUnchangedRequestAccess(request.accountAccess, accountAccess);
     }
+    if (
+      account &&
+      !isSameOAuthAccountMaterial(account, await this.loadOAuthAccountMaterial(account.family))
+    )
+      throw new Error("coding_plan_account_changed");
     return {
       generatedAt,
       authenticated: true,
@@ -321,6 +324,27 @@ export class BigModelUsageQuotaProvider {
     if (!accountAccess) return undefined;
     if (!("mode" in accountAccess)) return accountAccess;
     return (await this.accountRequestAuthService.resolveAccessCurrent(accountAccess)) ?? undefined;
+  }
+
+  private async assertUnchangedRequestAccess(
+    requested: UsageEntitlementRequest["accountAccess"],
+    expected: ZCodeAccountAccess,
+  ): Promise<void> {
+    // 静态请求表示当前连接，须重解析原请求；具体 access 是浏览指定套餐，不能强绑当前选择。
+    if (!requested || !("mode" in requested)) return;
+    const current = await this.resolveRequestAccountAccess(requested);
+    const scope = (access: ZCodeAccountAccess | undefined) =>
+      access
+        ? [
+            access.family,
+            access.planKind,
+            access.planKind === "team-coding-plan"
+              ? [access.organizationId, access.projectId, access.productId]
+              : null,
+          ]
+        : null;
+    if (JSON.stringify(scope(current)) !== JSON.stringify(scope(expected)))
+      throw new Error("coding_plan_account_changed");
   }
 
   /**
@@ -654,26 +678,22 @@ export class BigModelUsageQuotaProvider {
     if (!accountAccess) {
       throw new Error("coding_plan_reset_account_access_required");
     }
-    await this.accountRequestAuthService.assertCurrent({
-      providerId: request.preferredProviderId,
-      accountAccess,
-    });
-    const zcodeJwt = (await this.credentialService?.load(ZCODE_JWT_TOKEN_KEY))?.trim() ?? "";
-    if (!zcodeJwt) {
-      throw new Error("coding_plan_reset_zcode_jwt_required");
-    }
-    // reset 同时支持 Z.ai 与 BigModel Coding Plan。固定读取 oauth:bigmodel:access_token
-    // 会让只登录 Z.ai 的用户在请求发出前失败；业务 JWT 必须跟随当前 provider family
-    // 精确选择，禁止跨 family 回退。Header 仍按后端契约直传且不套 Bearer。
-    const codingPlanJwtKey =
-      accountAccess.family === "zai" ? ZAI_OAUTH_ACCESS_TOKEN_KEY : BIGMODEL_OAUTH_ACCESS_TOKEN_KEY;
-    const codingPlanJwt = (await this.credentialService?.load(codingPlanJwtKey))?.trim() ?? "";
-    if (!codingPlanJwt) {
-      throw new Error("coding_plan_reset_maas_jwt_required");
-    }
+    const account = await this.loadOAuthAccountMaterial(accountAccess.family);
+    if (!account?.zcodeJwtToken) throw new Error("coding_plan_reset_zcode_jwt_required");
+    if (!account.accessToken.trim()) throw new Error("coding_plan_reset_maas_jwt_required");
+    await this.assertUnchangedRequestAccess(request.accountAccess, accountAccess);
+    // 关联套餐未必与主登录渠道同名。两种 JWT 必须来自同一会话快照，防止换号时拼接。
+    if (
+      !isSameOAuthAccountMaterial(
+        account,
+        await this.loadOAuthAccountMaterial(accountAccess.family),
+      )
+    )
+      throw new Error("coding_plan_reset_account_changed");
+    const zcodeJwt = account.zcodeJwtToken;
     return {
       zcodeAuthorization: /^Bearer\s/i.test(zcodeJwt) ? zcodeJwt : `Bearer ${zcodeJwt}`,
-      codingPlanAuthorization: codingPlanJwt,
+      codingPlanAuthorization: account.accessToken.trim(),
       teamContext: resolveTeamPlanContext(accountAccess),
     };
   }
@@ -886,8 +906,6 @@ export class BigModelUsageQuotaProvider {
   private async fetchQuota(
     resolved: ResolvedQuotaAuthorization,
   ): Promise<BigModelUsageQuotaEnvelope> {
-    // 审计版不连接官方套餐服务。
-    assertOfficialServiceRemoved("codingPlan");
     return readApiJson<BigModelUsageQuotaEnvelope>(this.apiClient, buildQuotaLimitUrl(resolved), {
       method: "GET",
       timeoutMs: REQUEST_TIMEOUT_MS,
@@ -900,8 +918,6 @@ export class BigModelUsageQuotaProvider {
     startTime: string,
     endTime: string,
   ): Promise<BigModelUsageModelUsageEnvelope> {
-    // 审计版不连接官方套餐服务。
-    assertOfficialServiceRemoved("codingPlan");
     return readApiJson<BigModelUsageModelUsageEnvelope>(
       this.apiClient,
       buildUsageMonitorUrl(resolved, "model-usage", startTime, endTime),
@@ -918,8 +934,6 @@ export class BigModelUsageQuotaProvider {
     startTime: string,
     endTime: string,
   ): Promise<BigModelUsageToolUsageEnvelope> {
-    // 审计版不连接官方套餐服务。
-    assertOfficialServiceRemoved("codingPlan");
     return readApiJson<BigModelUsageToolUsageEnvelope>(
       this.apiClient,
       buildUsageMonitorUrl(resolved, "tool-usage", startTime, endTime),
@@ -936,8 +950,6 @@ export class BigModelUsageQuotaProvider {
     timeZone: string | undefined,
   ): Promise<BigModelCreditUsageActivityEnvelope> {
     const range = resolveCreditUsageActivityTimeRange(timeZone);
-    // 审计版不连接官方套餐服务。
-    assertOfficialServiceRemoved("codingPlan");
     return readApiJson<BigModelCreditUsageActivityEnvelope>(
       this.apiClient,
       buildCreditUsageMonitorUrl(resolved, "activity", range.startTime, range.endTime),
@@ -955,8 +967,6 @@ export class BigModelUsageQuotaProvider {
     endTime: string,
     usageType: "MODEL" | "MCP",
   ): Promise<BigModelCreditUsageDetailEnvelope> {
-    // 审计版不连接官方套餐服务。
-    assertOfficialServiceRemoved("codingPlan");
     return readApiJson<BigModelCreditUsageDetailEnvelope>(
       this.apiClient,
       buildCreditUsageMonitorUrl(resolved, "usage-detail", startTime, endTime, usageType),
@@ -974,8 +984,6 @@ export class BigModelUsageQuotaProvider {
     range: "7d" | "30d",
   ): Promise<BigModelUsageModelPerformanceEnvelope> {
     const timeRange = resolveModelPerformanceTimeRange(timeZone, range);
-    // 审计版不连接官方套餐服务。
-    assertOfficialServiceRemoved("codingPlan");
     return readApiJson<BigModelUsageModelPerformanceEnvelope>(
       this.apiClient,
       buildModelPerformanceMonitorUrl(resolved, timeRange.startTime, timeRange.endTime),
@@ -1046,7 +1054,6 @@ async function readCodingPlanResetApiJson(
   init: ApiRequestInit,
   options: { acceptedBusinessCodes?: readonly number[] } = {},
 ): Promise<unknown> {
-  assertOfficialServiceRemoved("codingPlan");
   const response = await apiClient.request(input, init);
   let payload: unknown;
   let parseError: unknown;

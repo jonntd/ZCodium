@@ -1,8 +1,5 @@
 import { useEffect, useMemo } from "react";
-import type {
-  DeviceSyncResult,
-  SourceServerWorkspaceHistoryEntry,
-} from "@zcode/shared";
+import type { DeviceSyncResult, SourceServerWorkspaceHistoryEntry } from "@zcode/shared";
 import {
   formatRemoteConnectionDescription,
   formatRemoteDeviceName,
@@ -33,19 +30,14 @@ export function toDataSyncDeviceSummary(
 ): DataSyncDeviceSummary {
   return {
     sourceServerId,
-    name:
-      formatRemoteDeviceName(input.target, input.displayName) ??
-      fallbackName ??
-      sourceServerId,
+    name: formatRemoteDeviceName(input.target, input.displayName) ?? fallbackName ?? sourceServerId,
     description: formatRemoteConnectionDescription(input.target),
     ...(input.target ? { remoteKind: input.target.kind } : {}),
   };
 }
 
 /** 设备是否在线：与设备行的「已连接」判断一致，只取自管理快照。 */
-export function isDataSyncDeviceOnline(
-  input: RemoteConnectionPresentationInput,
-): boolean {
+export function isDataSyncDeviceOnline(input: RemoteConnectionPresentationInput): boolean {
   return resolveRemoteConnectionPresentation(input).status === "online";
 }
 
@@ -75,9 +67,7 @@ export function DataSyncDialogContainer(props: {
   online: boolean;
   workspaceHistory?: readonly SourceServerWorkspaceHistoryEntry[];
   sourceServices: IServiceAccessor;
-  requestSourceSettingsAttachment?: (
-    sourceServerId: string,
-  ) => Promise<{ attachmentId: string }>;
+  requestSourceSettingsAttachment?: (sourceServerId: string) => Promise<{ attachmentId: string }>;
   initialCategory?: DataSyncCategoryId;
   workspace?: DataSyncWorkspaceMapping;
   minimized: boolean;
@@ -94,12 +84,11 @@ export function DataSyncDialogContainer(props: {
 
   useEffect(() => {
     if (!online || targetServices || !request) return;
-    ensureSourceSettingsServices(sourceServerId, request).catch(
-      (error: unknown) =>
-        logger.warn("[DataSync] 申请设备配置连接失败", {
-          sourceServerId,
-          error: error instanceof Error ? error.message : String(error),
-        }),
+    ensureSourceSettingsServices(sourceServerId, request).catch((error: unknown) =>
+      logger.warn("[DataSync] 申请设备配置连接失败", {
+        sourceServerId,
+        error: error instanceof Error ? error.message : String(error),
+      }),
     );
   }, [online, request, sourceServerId, targetServices]);
 

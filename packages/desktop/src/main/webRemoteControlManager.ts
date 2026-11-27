@@ -1,3 +1,4 @@
+import type { RendererTelemetryEventPayload } from "@zcode/shared";
 /* eslint-disable max-lines -- Web 远程控制 manager 承担外部 relay app payload 路由与 workspace bridge 编排。 */
 import type { MessagePortMain, UtilityProcess as ElectronUtilityProcess } from "electron";
 import { randomUUID } from "node:crypto";
@@ -9,10 +10,15 @@ import {
 } from "@zcode/client";
 import {
   buildWebRemoteControlExternalQrUrl,
+  buildWebRemoteControlBridgeResultTelemetry,
+  buildWebRemoteControlPairResultTelemetry,
+  classifyRemoteUsageError,
+  parseRemoteWorkspaceIdentity,
   WEB_REMOTE_CONTROL_OUTBOUND_PAYLOAD_BUFFER_TIMEOUT_MS,
   type ZCodeEndpointUrls,
   type HostPreparedProjectWorkspace,
   type HostProjectWorkspaceNavigationInput,
+  resolveUnrecognizedWebRemoteControlRequest,
   resolveWebRemoteControlWorkspaceKey,
   type WebRemoteControlAppPayload,
   type WebRemoteControlAuthStateChange,
@@ -21,6 +27,7 @@ import {
   type WebRemoteControlFailure,
   type WebRemoteControlFailureReason,
   type WebRemoteControlMobileDeviceInfo,
+  type WebRemoteControlMobileLogPayload,
   type WebRemoteControlMobileViewState,
   type WebRemoteControlMobileTaskViewUpdatePayload,
   type WebRemoteControlPlatformMethod,
@@ -35,28 +42,45 @@ import {
   type WebRemoteControlWorkspaceBridgeOpenPayload,
   type WebRemoteControlWorkspaceListResult,
   type WebRemoteControlWorkspaceTarget,
+  type RemoteUsageRemoteKind,
+  type TelemetryEventPayload,
   measureWebRemoteControlRpcRelayEnvelopeBytes,
 } from "@zcode/shared";
 import { WebRemoteControlV2ConnectionError } from "@zcode/shared/web-remote-relay";
 import {
   WebRemoteControlDeviceTransport,
+  MobilePushConnection,
   type WebRemoteControlDeviceTransportOptions,
   type WebRemoteControlDeviceTransportState,
+  buildWebRemoteControlClientLanguageHeader,
   createWebRemoteControlV2Http,
   type WebRemoteControlLogin,
+  createMobileLogPullCoordinator,
+  MobileLogPullError,
+  type MobileLogPullQuery,
+  type MobileLogPullShard,
+  type MobileLogPullSummary,
+  type MobileLogSink,
 } from "#src/main/web-remote-relay/index.js";
 import type { WebRemoteControlDeviceStorage } from "#src/main/web-remote-relay/index.js";
 
 import type { WebRemoteControlFeatureGate } from "./webRemoteControlFeatureGate.js";
+import {
+  respondToWebRemoteControlActionRequest,
+  type RunWebRemoteControlRendererAction,
+  type WebRemoteControlActionRequestPayload,
+} from "#src/main/web-remote-relay/index.js";
 
 interface WebRemoteControlHostAttachmentHandle {
   entryId: string;
   attachmentId: string;
   process: ElectronUtilityProcess;
   port: MessagePortMain;
+  remoteKind?: RemoteUsageRemoteKind;
 }
 
 interface WorkspaceBridgeRuntime {
+  terminalOwnerId?: string;
   bridgeSessionId: string;
   bridgeGeneration?: number;
   recoveryId?: string;
@@ -105,6 +129,7 @@ interface WindowControlLifecycle {
 }
 
 interface WindowControlRuntime {
+  terminalOwner?: { clientSessionId: string; id: string };
   windowId: number;
   workspacePath: string;
   workspaceIdentity?: string;
@@ -147,6 +172,8 @@ interface WindowControlRuntime {
 }
 
 interface WebRemoteControlManagerDependencies {
+  /** 当前界面语言（Main 的 currentApplicationLocale），用于 ZCode endpoint 请求的 X-Client-Language。 */
+  getClientLanguage?: () => string | undefined;
   getEndpointUrls?: () => Promise<ZCodeEndpointUrls> | ZCodeEndpointUrls;
   relayWsUrl: string;
   mobileRemoteControlUrl: string;
@@ -175,17 +202,22 @@ interface WebRemoteControlManagerDependencies {
     ) => Promise<WebRemoteControlPlatformMethodResultMap[K]>;
   };
   reconnectWorkspace: (windowId: number, workspaceKey: string) => Promise<void>;
+  /** 手机置顶/归档/新建本地项目交给目标窗口 Renderer 执行；缺省时三类请求回 success:false。 */
+  runRendererAction?: RunWebRemoteControlRendererAction;
   prepareProjectWorkspace?: (
     windowId: number,
     project: HostProjectWorkspaceNavigationInput,
     requestId: string,
   ) => Promise<HostPreparedProjectWorkspace>;
   cancelProjectPreparation?: (windowId: number, requestId: string) => void;
+  reportRemoteUsageEvent?: (windowId: number, event: TelemetryEventPayload) => void;
+  reportRendererTelemetryEvent?: (event: RendererTelemetryEventPayload) => void;
   onStatusChanged?: (windowId: number, status: WebRemoteControlStatus) => void;
   attachWorkspaceHost: (
     windowId: number,
-    context: WebRemoteControlContext & { kind: "local" | "remote" },
+    context: WebRemoteControlContext & { kind: "local" | "remote"; terminalOwnerId?: string },
   ) => Promise<WebRemoteControlHostAttachmentHandle>;
+  setTerminalOwner: (windowId: number, ownerId: string | null) => void;
   releaseWorkspaceHostAttachment: (attachmentId: string) => void;
   disposeWorkspaceHostAttachmentsForWindow: (windowId: number, reason: string) => void;
   disposeWorkspaceHostAttachmentsForRemoteSession: (
@@ -195,6 +227,16 @@ interface WebRemoteControlManagerDependencies {
   createDeviceTransport?: (
     options: WebRemoteControlDeviceTransportOptions,
   ) => WebRemoteControlDeviceTransportLike;
+  /** 手机实时日志（mobile-log）落盘；未注入时直接丢弃。 */
+  mobileLogSink?: Pick<MobileLogSink, "append">;
+  /** 手机日志拉取单片超时（单测注入）。 */
+  mobileLogPullShardTimeoutMs?: number;
+}
+
+/** 可拉取手机日志的目标连接。 */
+export interface WebRemoteControlMobileLogPullTarget {
+  windowId: number;
+  deviceLabel: string;
 }
 
 // Bugfix: 外部 relay 首次鉴权会受边缘层冷启动和网络抖动影响，实测可能略超 15s。
@@ -264,6 +306,7 @@ function toExternalBridge(
   runtime: WorkspaceBridgeRuntime,
 ): WebRemoteControlExternalWorkspaceBridge {
   const base = {
+    ...(runtime.terminalOwnerId ? { terminalOwnerId: runtime.terminalOwnerId } : {}),
     bridgeSessionId: runtime.bridgeSessionId,
     ...(runtime.bridgeGeneration !== undefined
       ? { bridgeGeneration: runtime.bridgeGeneration }
@@ -301,7 +344,190 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
   let registrationQueue: Promise<unknown> = Promise.resolve();
   const startAuthorizations = new Map<string, WebRemoteControlStartAuthorization>();
   const availableWorkspacesByWindowId = new Map<number, WebRemoteControlWorkspaceTarget[]>();
+  const mobileLogPulls = createMobileLogPullCoordinator({
+    shardTimeoutMs: dependencies.mobileLogPullShardTimeoutMs,
+  });
 
+  function reportRemoteUsageEvent(windowId: number, event: TelemetryEventPayload): void {
+    try {
+      dependencies.reportRemoteUsageEvent?.(windowId, event);
+    } catch (error) {
+      // 埋点是旁路能力，任何异常都不能改变远控配对和 bridge 的业务结果。
+      dependencies.logger.warn("[web-remote-control] remote usage telemetry failed", {
+        elementName: event.elementName,
+        error,
+      });
+    }
+  }
+
+  function resolveRemoteKind(
+    target: WebRemoteControlWorkspaceTarget,
+    acquired?: WebRemoteControlHostAttachmentHandle,
+  ): RemoteUsageRemoteKind | undefined {
+    if (target.kind !== "remote") {
+      return undefined;
+    }
+    return (
+      acquired?.remoteKind ??
+      (target.workspaceIdentity
+        ? parseRemoteWorkspaceIdentity(target.workspaceIdentity)?.kind
+        : undefined)
+    );
+  }
+
+  function resolveRuntimeWorkspaceDimensions(runtime: WindowControlRuntime): {
+    workspaceKind: "local" | "remote";
+    remoteKind?: RemoteUsageRemoteKind;
+  } {
+    const remoteKind = runtime.workspaceIdentity
+      ? parseRemoteWorkspaceIdentity(runtime.workspaceIdentity)?.kind
+      : undefined;
+    return {
+      workspaceKind:
+        runtime.workspaceIdentity?.trim() || runtime.remoteSessionId ? "remote" : "local",
+      remoteKind,
+    };
+  }
+  /**
+   * Bugfix: 401 只否定发起请求时用的 JWT。旧实现直接把在途旧 JWT 的 401 当成当前登录失效，
+   * 同账号刚重新登录（signed-in 已处理完）后旧请求才返回，远控就停在 auth-required，需要第二次登录通知。
+   * 这里由凭据读取方 currentLogin 核对：JWT 已被替换时转为可重试，transport 退避后用新 JWT 重新申请；
+   * 账号或 endpoint 变化仍由 currentLogin 抛出 auth-required，JWT 未变才保留原 401。
+   */
+  async function retryIfJwtReplaced<T>(
+    currentLogin: () => Promise<WebRemoteControlLogin>,
+    used: WebRemoteControlLogin,
+    request: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await request();
+    } catch (error) {
+      if (!(error instanceof WebRemoteControlV2ConnectionError) || error.reason !== "auth-required")
+        throw error;
+      if ((await currentLogin()).jwt !== used.jwt)
+        throw new WebRemoteControlV2ConnectionError("relay-unavailable", true);
+      throw error;
+    }
+  }
+  function resolveRegistration(
+    currentLogin: () => Promise<WebRemoteControlLogin>,
+    origin: string,
+    force: boolean,
+    registrationSignal: AbortSignal,
+  ) {
+    const http = createWebRemoteControlV2Http(origin, fetch, dependencies.getClientLanguage);
+    // 同一 manager 串行读取/更新身份，避免多窗口首次启动各自覆盖持久化 SID。
+    const operation = registrationQueue.then(async () => {
+      const current = await currentLogin();
+      const stored = await dependencies.deviceStorage.load();
+      registrationSignal.throwIfAborted();
+      if (!force && stored?.userId === current.userId && stored.endpointOrigin === origin)
+        return stored.deviceSid;
+      if (stored?.endpointOrigin === origin) {
+        try {
+          await http.delete(stored.deviceSid, current.jwt, registrationSignal);
+        } catch {
+          dependencies.logger.warn("[web-remote-control] V2 old device cleanup failed");
+        }
+      }
+      registrationSignal.throwIfAborted();
+      const deviceSid = await retryIfJwtReplaced(currentLogin, current, () =>
+        http.register(dependencies.deviceMid, current.jwt, registrationSignal),
+      );
+      await currentLogin();
+      registrationSignal.throwIfAborted();
+      try {
+        await dependencies.deviceStorage.save({
+          deviceSid,
+          userId: current.userId,
+          endpointOrigin: origin,
+        });
+      } catch (error) {
+        // 保存失败不是网络故障；裸错误会让 transport 每次退避都注册新 SID，留下孤儿设备。
+        // 新 SID 尚未建连，先尽力撤销远端注册，再以不可重试错误结束本次启动。
+        dependencies.logger.error(
+          "[web-remote-control] V2 device identity persistence failed",
+          error,
+        );
+        try {
+          await http.delete(deviceSid, current.jwt, registrationSignal);
+        } catch {
+          dependencies.logger.warn("[web-remote-control] V2 new device cleanup failed");
+        }
+        throw new WebRemoteControlV2ConnectionError("relay-unavailable");
+      }
+      registrationSignal.throwIfAborted();
+      dependencies.logger.info("[web-remote-control] V2 device registered");
+      return deviceSid;
+    });
+    registrationQueue = operation.catch(() => {});
+    return operation;
+  }
+  const notificationConnection = new MobilePushConnection(async (signal) => {
+    const login = await dependencies.getLogin();
+    const endpoint = await dependencies.getEndpointUrls?.();
+    signal.throwIfAborted();
+    if (!login?.jwt || !login.userId || !dependencies.featureGate.isEnabled()) return null;
+    const origin = new URL(endpoint?.origin ?? dependencies.mobileRemoteControlUrl).origin;
+    const http = createWebRemoteControlV2Http(origin, fetch, dependencies.getClientLanguage);
+    let supported = false,
+      status: "available" | "unavailable" | "unknown" = "unknown";
+    try {
+      const response = await fetch(new URL("/api/v1/remote/notification/status", origin), {
+        // 这里直接 fetch，绕过了 NodeApiClient 的来源头；以前完全不带 X-Client-Language。
+        headers: {
+          Authorization: `Bearer ${login.jwt}`,
+          ...buildWebRemoteControlClientLanguageHeader(dependencies.getClientLanguage),
+        },
+        signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]),
+        redirect: "error",
+      });
+      if (response.ok) {
+        const body = (await response.json()) as {
+          code?: number;
+          data?: { protocol_version?: number; event_transport?: string; status?: string };
+        };
+        supported =
+          body.code === 0 &&
+          body.data?.protocol_version === 1 &&
+          body.data?.event_transport === "http";
+        if (
+          supported &&
+          (body.data?.status === "available" ||
+            body.data?.status === "unavailable" ||
+            body.data?.status === "unknown")
+        )
+          status = body.data.status;
+      }
+    } catch {
+      signal.throwIfAborted();
+    }
+    const currentLogin = async () => {
+      const current = await dependencies.getLogin();
+      const endpointNow = await dependencies.getEndpointUrls?.();
+      signal.throwIfAborted();
+      if (
+        !current?.jwt ||
+        current.userId !== login.userId ||
+        new URL(endpointNow?.origin ?? dependencies.mobileRemoteControlUrl).origin !== origin
+      )
+        throw new WebRemoteControlV2ConnectionError("auth-required");
+      return current;
+    };
+    return {
+      identity: `${origin}:${login.userId}`,
+      report: async (event, reportSignal) => {
+        // 总预算覆盖设备注册与同步推送，不能在注册后重新开始计时。
+        const requestSignal = AbortSignal.any([signal, reportSignal, AbortSignal.timeout(20_000)]);
+        const sid = await resolveRegistration(currentLogin, origin, false, requestSignal);
+        const current = await currentLogin();
+        requestSignal.throwIfAborted();
+        return http.reportNotification(sid, event, current.jwt, requestSignal);
+      },
+      supported,
+      status,
+    };
+  }, dependencies.logger);
   const pushedWorkspaceListSignaturesByWindowId = new Map<number, string>();
   let startupRestoreClaimed = false;
   let lifecycleRevision = 0;
@@ -388,6 +614,42 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     }
 
     runtime.currentBridge = undefined;
+  }
+
+  function endTerminalOwner(runtime: WindowControlRuntime): void {
+    const hadOwner = runtime.terminalOwner !== undefined;
+    runtime.terminalOwner = undefined;
+    // 旧客户端没有页面 owner，但确认断线仍必须结束 attachment，才能回收其独立终端 scope。
+    // 同时撤销在途 open，让晚到的 attachment 只释放而不能重新挂回。
+    // 结束 owner 先撤销在途导航，不能让晚到的 attachment 把已回收的 PTY 再挂回。
+    cancelBridgeOpen(runtime);
+    const bridge = runtime.currentBridge;
+    if (bridge) {
+      runtime.pendingBridgeInvalidation = {
+        zcode_type: "bridge-degraded",
+        bridgeSessionId: bridge.bridgeSessionId,
+        bridgeGeneration: bridge.bridgeGeneration,
+        recoveryId: bridge.recoveryId,
+        reason: "terminal-owner-ended",
+      };
+    }
+    disposeRuntimeBridgeResources(runtime);
+    if (hadOwner) dependencies.setTerminalOwner(runtime.windowId, null);
+    sendPendingBridgeInvalidation(runtime);
+  }
+
+  function ensureTerminalOwner(runtime: WindowControlRuntime, clientSessionId?: string): void {
+    if (!clientSessionId) {
+      // 旧页面没有认领协议，不能继承上一页面的 owner；回退到 attachment 回收。
+      // bootstrap 是认领/读取，不是断线事件；旧客户端重复 bootstrap 不应销毁其活跃 bridge。
+      if (runtime.terminalOwner) endTerminalOwner(runtime);
+      return;
+    }
+    if (runtime.terminalOwner?.clientSessionId === clientSessionId) return;
+    endTerminalOwner(runtime);
+    const id = randomUUID();
+    runtime.terminalOwner = { clientSessionId, id };
+    dependencies.setTerminalOwner(runtime.windowId, id);
   }
 
   function isCurrentBridgeRuntime(
@@ -497,6 +759,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       if (runtimes.get(runtime.windowId) !== runtime || runtime.status === "error") {
         return;
       }
+      endTerminalOwner(runtime);
       runtime.status = "running";
       runtime.mobileConnected = false;
       emitRuntimeStatus(runtime);
@@ -628,12 +891,14 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       reason: failure.reason,
       error: failure.message ?? failure.reason,
     });
+    endTerminalOwner(runtime);
     cancelBridgeOpen(runtime);
     disposeRuntimeBridgeResources(runtime);
     clearPendingOutboundPayloadTimer(runtime);
     clearMobileDisconnectGraceTimer(runtime);
     runtime.pendingOutboundPayloads.length = 0;
     runtime.transport.dispose();
+    mobileLogPulls.cancelOwner(runtime, `remote control closed: ${failure.reason}`);
     runtime.status = "error";
     runtime.mobileConnected = false;
     runtime.error = failure.message;
@@ -660,12 +925,14 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     });
     runtimes.delete(windowId);
     pushedWorkspaceListSignaturesByWindowId.delete(windowId);
+    endTerminalOwner(runtime);
     cancelBridgeOpen(runtime);
     disposeRuntimeBridgeResources(runtime);
     clearPendingOutboundPayloadTimer(runtime);
     clearMobileDisconnectGraceTimer(runtime);
     runtime.pendingOutboundPayloads.length = 0;
     runtime.transport.dispose();
+    mobileLogPulls.cancelOwner(runtime, `remote control stopped: ${reason}`);
     dependencies.disposeWorkspaceHostAttachmentsForWindow(windowId, reason);
 
     dependencies.logger.info(
@@ -702,6 +969,21 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       label: getPathLabel(runtime.workspacePath),
       kind: runtime.remoteSessionId || runtime.workspaceIdentity ? "remote" : "local",
     };
+  }
+
+  // Bugfix：远控可能以未连接的远端目标启动（重启恢复时远端还没重连）。runtime 的 remoteSessionId
+  // 以前只在 start 时写一次，远端之后连上也不更新：桌面弹窗按“不同目标”重启 device relay，
+  // initialViewState 也因目标不可 bridge 丢掉 initialTaskId。窗口快照是 workspace 连接身份的唯一来源，
+  // 目标在快照里时 runtime 跟随快照；目标不在快照里时没有新事实，保留原值。
+  function syncRuntimeRemoteSession(runtime: WindowControlRuntime): boolean {
+    if (!runtime.workspaceIdentity) return false;
+    const workspaceKey = resolveWebRemoteControlWorkspaceKey(runtime);
+    const workspace = availableWorkspacesByWindowId
+      .get(runtime.windowId)
+      ?.find((candidate) => resolveWebRemoteControlWorkspaceKey(candidate) === workspaceKey);
+    if (!workspace || workspace.remoteSessionId === runtime.remoteSessionId) return false;
+    runtime.remoteSessionId = workspace.remoteSessionId;
+    return true;
   }
 
   function getRuntimeStatusTarget(runtime: WindowControlRuntime): WebRemoteControlWorkspaceTarget {
@@ -807,10 +1089,11 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     return JSON.stringify(workspaceSignatureEntries);
   }
 
-  function pushWorkspaceListUpdated(runtime: WindowControlRuntime): void {
+  function pushWorkspaceListUpdated(runtime: WindowControlRuntime, force = false): void {
     const result = buildWorkspaceListResult(runtime);
     const signature = buildWorkspaceListPushSignature(result);
-    if (pushedWorkspaceListSignaturesByWindowId.get(runtime.windowId) === signature) {
+    // force：手机新建项目后列表可能未变（项目不一定在 tab 里），仍需一次推送驱动手机重读项目树。
+    if (!force && pushedWorkspaceListSignaturesByWindowId.get(runtime.windowId) === signature) {
       return;
     }
 
@@ -864,7 +1147,15 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     runtime: WindowControlRuntime,
     request: WebRemoteControlWorkspaceBridgeOpenPayload,
   ): Promise<WebRemoteControlExternalWorkspaceBridge> {
+    // 只有 bootstrap 建立页面 owner；旧页面迟到的 open 不得重新认领已结束的会话。
+    if (
+      request.terminalClientSessionId &&
+      runtime.terminalOwner?.clientSessionId !== request.terminalClientSessionId
+    ) {
+      return Promise.reject(new Error("Terminal page session has ended; bootstrap is required."));
+    }
     const intentKey = JSON.stringify([
+      request.terminalClientSessionId,
       request.workspaceKey,
       request.taskId ?? null,
       request.project?.projectId,
@@ -973,6 +1264,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     emitRuntimeStatus(runtime);
 
     const bridgeRuntime: WorkspaceBridgeRuntime = {
+      terminalOwnerId: request.terminalClientSessionId ? runtime.terminalOwner?.id : undefined,
       bridgeSessionId: request.bridgeSessionId,
       bridgeGeneration: request.bridgeGeneration,
       recoveryId: request.recoveryId,
@@ -1001,6 +1293,9 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
         remoteSessionId: target.remoteSessionId,
         initialTaskId: request.taskId,
         kind: target.kind,
+        ...(bridgeRuntime.terminalOwnerId
+          ? { terminalOwnerId: bridgeRuntime.terminalOwnerId }
+          : {}),
       });
       if (!isCurrentBridgeRuntime(runtime, bridgeRuntime) || runtime.bridgeOpen !== pending) {
         dependencies.releaseWorkspaceHostAttachment(acquired.attachmentId);
@@ -1063,9 +1358,28 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       dependencies.logger.info(
         `[web-remote-control] workspace bridge active window=${runtime.windowId} session=${runtime.deviceSid} bridgeSession=${request.bridgeSessionId}`,
       );
+      reportRemoteUsageEvent(
+        runtime.windowId,
+        buildWebRemoteControlBridgeResultTelemetry({
+          result: "success",
+          workspaceKind: target.kind,
+          remoteKind: resolveRemoteKind(target, acquired),
+          entryKind: request.taskId ? "task" : "home",
+        }),
+      );
 
       return toExternalBridge(bridgeRuntime);
     } catch (error) {
+      reportRemoteUsageEvent(
+        runtime.windowId,
+        buildWebRemoteControlBridgeResultTelemetry({
+          result: "failure",
+          workspaceKind: target.kind,
+          remoteKind: resolveRemoteKind(target, acquired),
+          entryKind: request.taskId ? "task" : "home",
+          errorCategory: classifyRemoteUsageError(error),
+        }),
+      );
       if (acquired) {
         dependencies.releaseWorkspaceHostAttachment(acquired.attachmentId);
       }
@@ -1143,6 +1457,34 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  async function respondToActionRequest(
+    runtime: WindowControlRuntime,
+    request: WebRemoteControlActionRequestPayload,
+  ): Promise<void> {
+    const response = await respondToWebRemoteControlActionRequest(
+      runtime.windowId,
+      request,
+      dependencies.runRendererAction,
+    );
+    if (runtimes.get(runtime.windowId) !== runtime) return;
+    sendAppPayload(runtime, response);
+    if (response.zcode_type === "workspace-create-response" && response.success) {
+      pushWorkspaceListUpdated(runtime, true);
+    }
+  }
+
+  /** 不认识的请求型 payload 回 app-error，让新手机连旧桌面时能立即降级而不是等超时。 */
+  function respondToUnrecognizedPayload(runtime: WindowControlRuntime, value: unknown): void {
+    const request = resolveUnrecognizedWebRemoteControlRequest(value);
+    if (!request) return;
+    sendAppPayload(runtime, {
+      zcode_type: "app-error",
+      requestId: request.requestId,
+      reason: "unsupported-action",
+      error: `Desktop does not recognize app payload type: ${request.zcodeType}`,
+    });
   }
 
   function applyMobileViewStateUpdate(
@@ -1236,6 +1578,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
   function routePayload(runtime: WindowControlRuntime, payload: WebRemoteControlAppPayload): void {
     switch (payload.zcode_type) {
       case "bootstrap-request":
+        ensureTerminalOwner(runtime, payload.terminalClientSessionId);
         sendAppPayload(runtime, {
           zcode_type: "bootstrap-response",
           requestId: payload.requestId,
@@ -1270,12 +1613,77 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       case "rpc-frame-ack":
         routeRpcTransportPayload(runtime, payload);
         break;
+      case "telemetry-report":
+        // 手机已在创建边界构造事件；Main 只转发，不维护会话事实或干预 replayable 链路。
+        dependencies.reportRendererTelemetryEvent?.(payload.event);
+        break;
       case "mobile-diagnostic":
         logMobileDiagnostic(runtime, payload);
         break;
+      case "task-pin-request":
+      case "task-archive-request":
+      case "workspace-create-request":
+        void respondToActionRequest(runtime, payload);
+        break;
+      case "mobile-log":
+        appendMobileLog(runtime, payload);
+        break;
+      case "mobile-log-pull-response":
+        if (!mobileLogPulls.handleResponse(payload)) {
+          dependencies.logger.info("[web-remote-control] dropped stale mobile log pull response", {
+            requestId: payload.requestId,
+          });
+        }
+        break;
+      case "app-error":
+        // 手机对桌面请求的报错：目前只有日志拉取会按 requestId 认领（unsupported-action 降级）。
+        mobileLogPulls.handleAppError(payload);
+        break;
       default:
+        // 已能解析但本端不处理的请求型 payload 同样回 unsupported-action。
+        respondToUnrecognizedPayload(runtime, payload);
         break;
     }
+  }
+
+  function resolveMobileLogDeviceLabel(runtime: WindowControlRuntime): string {
+    const info = runtime.mobileDeviceInfo;
+    return info ? [info.name, info.platform].filter(Boolean).join("-") : "";
+  }
+
+  function appendMobileLog(
+    runtime: WindowControlRuntime,
+    payload: WebRemoteControlMobileLogPayload,
+  ): void {
+    if (!dependencies.mobileLogSink) return;
+    const info = runtime.mobileDeviceInfo;
+    dependencies.mobileLogSink.append(
+      {
+        deviceKey: payload.device?.id ?? (resolveMobileLogDeviceLabel(runtime) || "unknown-device"),
+        sessionKey: payload.sessionId ?? runtime.deviceSid,
+        header: {
+          device:
+            payload.device ??
+            (info
+              ? { name: info.name, platform: info.platform, appVersion: info.version }
+              : undefined),
+          mobileSessionId: payload.sessionId,
+          desktopSession: runtime.deviceSid,
+          windowId: runtime.windowId,
+        },
+      },
+      payload.events,
+    );
+  }
+
+  function findMobileLogPullRuntime(
+    windowId: number | undefined,
+  ): WindowControlRuntime | undefined {
+    const isPaired = (runtime: WindowControlRuntime | undefined) =>
+      runtime?.transportState === "paired" && runtime.mobileConnected;
+    const preferred = windowId === undefined ? undefined : runtimes.get(windowId);
+    if (isPaired(preferred)) return preferred;
+    return [...runtimes.values()].find((runtime) => isPaired(runtime));
   }
 
   function mapTransportState(
@@ -1328,6 +1736,17 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       return;
     }
     if (state === "paired") {
+      if (previousTransportState !== "paired") {
+        const workspaceDimensions = resolveRuntimeWorkspaceDimensions(runtime);
+        reportRemoteUsageEvent(
+          runtime.windowId,
+          buildWebRemoteControlPairResultTelemetry({
+            result: "success",
+            pairKind: runtime.hasEverPaired ? "reconnect" : "initial",
+            ...workspaceDimensions,
+          }),
+        );
+      }
       runtime.hasEverPaired = true;
       clearMobileDisconnectGraceTimer(runtime);
       runtime.status = "active";
@@ -1341,6 +1760,18 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       return;
     }
     if (state === "kicked") {
+      if (previousTransportState !== "kicked") {
+        const workspaceDimensions = resolveRuntimeWorkspaceDimensions(runtime);
+        reportRemoteUsageEvent(
+          runtime.windowId,
+          buildWebRemoteControlPairResultTelemetry({
+            result: "failure",
+            pairKind: runtime.hasEverPaired ? "reconnect" : "initial",
+            ...workspaceDimensions,
+            errorCategory: "relay",
+          }),
+        );
+      }
       preserveWindowRuntimeFailure(
         runtime.windowId,
         runtime,
@@ -1350,6 +1781,18 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       return;
     }
     if (state === "error") {
+      if (previousTransportState !== "error") {
+        const workspaceDimensions = resolveRuntimeWorkspaceDimensions(runtime);
+        reportRemoteUsageEvent(
+          runtime.windowId,
+          buildWebRemoteControlPairResultTelemetry({
+            result: "failure",
+            pairKind: runtime.hasEverPaired ? "reconnect" : "initial",
+            ...workspaceDimensions,
+            errorCategory: "relay",
+          }),
+        );
+      }
       runtime.status = "error";
       emitRuntimeStatus(runtime);
     }
@@ -1366,6 +1809,14 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
   }
 
   return {
+    startNotifications: () => notificationConnection.start(),
+    refreshNotifications: () => notificationConnection.refresh(),
+    observeNotificationRun: (run: unknown) => notificationConnection.observeRun(run),
+    sendNotification: (
+      event: unknown,
+      resolveLocale: Parameters<MobilePushConnection["send"]>[1],
+    ) => notificationConnection.send(event, resolveLocale),
+    disposeNotifications: () => notificationConnection.dispose(),
     authorizeStart,
     async startAuthorized(
       windowId: number,
@@ -1414,7 +1865,11 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
         authRequiredWindows.delete(windowId);
         await dependencies.deviceStorage.clearLegacy();
         assertActive();
-        const http = createWebRemoteControlV2Http(endpointOrigin);
+        const http = createWebRemoteControlV2Http(
+          endpointOrigin,
+          fetch,
+          dependencies.getClientLanguage,
+        );
         const currentLogin = async () => {
           const current = await dependencies.getLogin();
           const endpoint = await dependencies.getEndpointUrls?.();
@@ -1428,61 +1883,13 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
           }
           return current;
         };
-        const register = (force: boolean, transportSignal: AbortSignal) => {
-          const registrationSignal = AbortSignal.any([signal, transportSignal]);
-          // 同一 manager 串行读取/更新身份，避免多窗口首次启动各自覆盖持久化 SID。
-          const operation = registrationQueue.then(async () => {
-            const current = await currentLogin();
-            const stored = await dependencies.deviceStorage.load();
-            registrationSignal.throwIfAborted();
-            if (
-              !force &&
-              stored?.userId === current.userId &&
-              stored.endpointOrigin === endpointOrigin
-            )
-              return stored.deviceSid;
-            if (stored?.endpointOrigin === endpointOrigin) {
-              try {
-                await http.delete(stored.deviceSid, current.jwt, registrationSignal);
-              } catch {
-                dependencies.logger.warn("[web-remote-control] V2 old device cleanup failed");
-              }
-            }
-            registrationSignal.throwIfAborted();
-            const deviceSid = await http.register(
-              dependencies.deviceMid,
-              current.jwt,
-              registrationSignal,
-            );
-            await currentLogin();
-            registrationSignal.throwIfAborted();
-            try {
-              await dependencies.deviceStorage.save({
-                deviceSid,
-                userId: current.userId,
-                endpointOrigin,
-              });
-            } catch (error) {
-              // 保存失败不是网络故障；裸错误会让 transport 每次退避都注册新 SID，留下孤儿设备。
-              // 新 SID 尚未建连，先尽力撤销远端注册，再以不可重试错误结束本次启动。
-              dependencies.logger.error(
-                "[web-remote-control] V2 device identity persistence failed",
-                error,
-              );
-              try {
-                await http.delete(deviceSid, current.jwt, registrationSignal);
-              } catch {
-                dependencies.logger.warn("[web-remote-control] V2 new device cleanup failed");
-              }
-              throw new WebRemoteControlV2ConnectionError("relay-unavailable");
-            }
-            registrationSignal.throwIfAborted();
-            dependencies.logger.info("[web-remote-control] V2 device registered");
-            return deviceSid;
-          });
-          registrationQueue = operation.catch(() => {});
-          return operation;
-        };
+        const register = (force: boolean, transportSignal: AbortSignal) =>
+          resolveRegistration(
+            currentLogin,
+            endpointOrigin,
+            force,
+            AbortSignal.any([signal, transportSignal]),
+          );
         let deviceSid = "";
         let runtime: WindowControlRuntime;
         let readySettled = false;
@@ -1515,9 +1922,8 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
             },
             getToken: async (transportSignal) => {
               const current = await currentLogin();
-              const token = await http.token(
-                current.jwt,
-                AbortSignal.any([signal, transportSignal]),
+              const token = await retryIfJwtReplaced(currentLogin, current, () =>
+                http.token(current.jwt, AbortSignal.any([signal, transportSignal])),
               );
               await currentLogin();
               dependencies.logger.info("[web-remote-control] V2 device token acquired");
@@ -1557,17 +1963,18 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
               if (state === "kicked") finish(new Error("session-conflict"));
             },
             onPayload: (payload) => routePayload(runtime, payload),
+            onUnrecognizedPayload: (value) => respondToUnrecognizedPayload(runtime, value),
             onRawTransportPayload: (payload) => routeRawTransportCandidate(runtime, payload),
             onRawTransportFault: (reasonCode) =>
               runtime.currentBridge?.relayProtocol?.markDegraded(reasonCode),
             onSendReady: (event) => {
               flushPendingOutboundPayloads(runtime);
+              // 后台可能丢弃首次失效通知；沿已有心跳重送直到新 bridge identity 接管。
+              // Web 按 bridge 幂等消费，重复通知不会重置恢复或退避预算。
+              sendPendingBridgeInvalidation(runtime);
               const isFirstSendReadyForPairing = !runtime.hasObservedSendReadyForPairing;
               runtime.hasObservedSendReadyForPairing = true;
               if (event.kind === "reconnected-socket" || isFirstSendReadyForPairing) {
-                // Bug 原因：same-socket 心跳 ACK 每约 10 秒都会触发 send-ready；若每次都补发
-                // degraded latch，Web 会反复重建同一恢复 generation，破坏 1s/2s/5s 有界退避。
-                sendPendingBridgeInvalidation(runtime);
                 requestMobileTaskView(runtime);
               }
               const relayProtocol = runtime.currentBridge?.relayProtocol;
@@ -1607,6 +2014,8 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
             pendingOutboundPayloads: [],
           };
           runtimes.set(windowId, runtime);
+          // 启动前的 await 期间远端可能已连上，那次窗口同步还找不到 runtime，这里补读最新快照。
+          syncRuntimeRemoteSession(runtime);
           emitRuntimeStatus(runtime);
           transport.start();
         });
@@ -1649,7 +2058,9 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
 
     async suspend(windowId: number, reason: string): Promise<void> {
       clearStartAuthorizationsForWindow(windowId);
+      if (reason === "endpoint-changed") notificationConnection.invalidate();
       await stopWindowRuntime(windowId, reason);
+      if (reason === "endpoint-changed") void notificationConnection.refresh();
     },
 
     async notifyAuthStateChanged(
@@ -1665,6 +2076,8 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
           requireAuthentication(windowId);
           return;
         }
+        // 只刷新通知资格；身份是否变化由 MobilePushConnection 判定，同账号重复通知不清 owner。
+        void notificationConnection.refresh({ restart: true });
         const endpointOrigin = new URL(endpointUrls?.origin ?? dependencies.mobileRemoteControlUrl)
           .origin;
         const staleWindows = [...windowLifecycles].filter(
@@ -1694,6 +2107,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
         }
         return;
       }
+      notificationConnection.invalidate();
       lifecycleRevision += 1;
       startupRestoreClaimed = false;
       const windowIds = new Set([
@@ -1741,29 +2155,38 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       }
 
       const persistedWorkspaceKey = resolveWebRemoteControlWorkspaceKey(persistedContext);
+      const isPersistedTarget = (candidate: WebRemoteControlWorkspaceTarget) =>
+        resolveWebRemoteControlWorkspaceKey(candidate) === persistedWorkspaceKey;
       // 磁盘读取期间可能发生 tab 关闭或远端重连，只能消费最新完整快照。
-      const currentContext = availableWorkspacesByWindowId
-        .get(windowId)
-        ?.find(
-          (candidate) => resolveWebRemoteControlWorkspaceKey(candidate) === persistedWorkspaceKey,
-        );
-      if (
-        !currentContext ||
-        (currentContext.kind === "remote" && !currentContext.remoteSessionId)
-      ) {
+      const windowWorkspaces = availableWorkspacesByWindowId.get(windowId) ?? [];
+      const persistedTarget = windowWorkspaces.find(isPersistedTarget);
+      // Bugfix：启动只恢复上次激活的工作区，上次启用目标常不在窗口里，远端目标也可能还没重连。
+      // 旧逻辑把“目标在窗口里且已连接”当作恢复门槛，不满足就静默跳过，设备一直离线。
+      // 上次启用目标只用于手机初始定位：在本窗口就用它，否则用本窗口首个可 bridge 的工作区。
+      // 目标在其他窗口时交给那个窗口，保持原窗口归属；窗口没有工作区时等待下一次同步。
+      const ownedByOtherWindow = [...availableWorkspacesByWindowId].some(
+        ([id, workspaces]) => id !== windowId && workspaces.some(isPersistedTarget),
+      );
+      const currentContext =
+        persistedTarget ??
+        (ownedByOtherWindow
+          ? undefined
+          : (windowWorkspaces.find(isBridgeableRemoteTarget) ?? windowWorkspaces[0]));
+      if (!currentContext) {
         return false;
       }
 
       startupRestoreClaimed = true;
       dependencies.logger.info(
-        `[web-remote-control] restoring previous enabled state window=${windowId} workspace=${currentContext.workspacePath} remoteSession=${currentContext.remoteSessionId ?? "none"}`,
+        `[web-remote-control] restoring previous enabled state window=${windowId} target=${persistedTarget ? "saved" : "window"} workspace=${currentContext.workspacePath} remoteSession=${currentContext.remoteSessionId ?? "none"}`,
       );
       try {
         await this.start(windowId, {
           workspacePath: currentContext.workspacePath,
           workspaceIdentity: currentContext.workspaceIdentity,
           remoteSessionId: currentContext.remoteSessionId,
-          initialTaskId: persistedContext.initialTaskId,
+          // 任务只属于上次启用目标；换成窗口里的其他工作区时不能带过去。
+          initialTaskId: persistedTarget ? persistedContext.initialTaskId : undefined,
         });
         return true;
       } catch (error) {
@@ -1774,6 +2197,38 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
         );
         return false;
       }
+    },
+
+    /** 找到可拉日志的已配对连接：优先指定窗口，否则任一已配对窗口。 */
+    findMobileLogPullTarget(
+      windowId: number | undefined,
+    ): WebRemoteControlMobileLogPullTarget | undefined {
+      const runtime = findMobileLogPullRuntime(windowId);
+      if (!runtime) return undefined;
+      return {
+        windowId: runtime.windowId,
+        deviceLabel: resolveMobileLogDeviceLabel(runtime) || "mobile",
+      };
+    },
+
+    /** 向已配对手机拉取日志；分片逐片交给 onShard 落盘，全部完成后返回汇总。 */
+    pullMobileLogs(
+      windowId: number,
+      query: MobileLogPullQuery,
+      onShard: (shard: MobileLogPullShard) => Promise<void>,
+    ): Promise<MobileLogPullSummary> {
+      const runtime = findMobileLogPullRuntime(windowId);
+      if (!runtime || runtime.windowId !== windowId) {
+        return Promise.reject(
+          new MobileLogPullError("not-paired", "no paired mobile for this window"),
+        );
+      }
+      return mobileLogPulls.start({
+        owner: runtime,
+        query,
+        send: (payload) => sendAppPayload(runtime, payload),
+        onShard,
+      });
     },
 
     getStatus(windowId: number): WebRemoteControlStatus {
@@ -1802,6 +2257,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       if (!runtime) {
         return;
       }
+      if (syncRuntimeRemoteSession(runtime)) emitRuntimeStatus(runtime);
       pushWorkspaceListUpdated(runtime);
     },
 

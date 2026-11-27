@@ -65,14 +65,6 @@ export function resolveDailyModelTooltipTokenParts(
   };
 }
 
-function shouldShowDailyChartAxisLabel(index: number, total: number): boolean {
-  if (total <= 14) {
-    return true;
-  }
-  const step = total > 45 ? 7 : 5;
-  return index === 0 || index === total - 1 || index % step === 0;
-}
-
 function createEmptyChartRow(label: string, tooltipLabel: string, modelKeys: ModelChartKey[]) {
   const row: DailyModelChartRow = {
     label,
@@ -131,9 +123,7 @@ export function buildAppUsageDailyModelChartViewModel({
   locale: string;
   snapshot: AppUsageSnapshot;
 }) {
-  // 用量页去截断（对齐 zcode-patcher --usage-chart）：不再只画 Top6 模型，
-  // 全部模型都出线；图例颜色在调色板内循环复用。
-  const topModels = snapshot.models;
+  const topModels = snapshot.models.slice(0, 6);
   const modelKeys = topModels.map((model, index) => ({
     modelId: model.modelId,
     key: `model${index}`,
@@ -194,11 +184,6 @@ export function AppUsageDailyModelTrendChart({ snapshot }: { snapshot: AppUsageS
     // 这里稳定派生数组和配置对象，避免父组件重渲染时因引用变化反复触发内部 dispatch。
     () => buildAppUsageDailyModelChartViewModel({ intl, locale, snapshot }),
     [intl, locale, snapshot],
-  );
-  const shouldShowAxisLabel = useCallback(
-    (_value: string, index: number) =>
-      shouldShowDailyChartAxisLabel(index, chartData.length) ? _value : "",
-    [chartData.length],
   );
   const formatTooltipLabel = useCallback(
     (_: unknown, payload: readonly { payload?: unknown }[]) => {
@@ -290,10 +275,12 @@ export function AppUsageDailyModelTrendChart({ snapshot }: { snapshot: AppUsageS
                 dataKey="label"
                 tickLine={false}
                 axisLine={false}
-                interval={0}
-                minTickGap={0}
+                // Bug 原因：interval=0 强制渲染每个日期，再用按天数固定步长的 formatter 清空部分文字，
+                // 刻度是否放得下与实际宽度无关，手机宽度和桌面 480px 窄窗口下 7 个日期都会叠字。
+                // 改为所有平台统一交给 recharts 按实际绘图宽度跳过会重叠的刻度，并保留首尾日期。
+                interval="preserveStartEnd"
+                minTickGap={8}
                 tickMargin={8}
-                tickFormatter={shouldShowAxisLabel}
               />
               <YAxis hide domain={[0, maxTokens]} />
               <ChartTooltip cursor={false} content={tooltipContent} />

@@ -5,14 +5,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
-import {
-  marketingNavigation,
-  finishMarketingNavigation,
-} from "@/lib/marketingNavigation.js";
+import { marketingNavigation, finishMarketingNavigation } from "@/lib/marketingNavigation.js";
 import { ArrowLeft, RefreshCw, Store } from "lucide-react";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
+import { getWorkspaceKey } from "@/lib/workspaceKey.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useServices } from "@/hooks/useServices.js";
 import { usePluginStoreOrder } from "@/hooks/usePluginStoreOrder.js";
@@ -44,12 +42,17 @@ import {
   buildStoreItems,
   canUpdatePluginItem,
   hasInstallableUpdate,
+  isPluginVisibleForLoginRegion,
   isStoreItemInstallBlocked,
   resolveItemDisplayName,
+  resolvePluginLoginRegion,
   resolvePluginDisplayName,
+  type PluginLoginRegion,
   type StorePluginItem,
 } from "@/settings/pluginStoreListing.js";
 import { ZCODE_OFFICIAL_PLUGIN_MARKETPLACE_ID } from "@zcode/shared";
+import { useOAuth } from "@/hooks/useOAuth.js";
+import { useZCodeStore } from "@/store/StoreProvider.js";
 import { PluginUninstallConfirmDialog } from "@/settings/PluginUninstallConfirmDialog.js";
 import { usePluginUninstall } from "@/settings/usePluginUninstall.js";
 import { claimMarketplaceAutoRefresh } from "@/settings/officialMarketplaceAutoRefresh.js";
@@ -74,8 +77,6 @@ interface PluginStorePageProps {
   paneId?: string;
   onOpenDraftUi?: (request: DraftPluginUiOpenRequest) => void;
   onBack?: () => void;
-  /** fork 兼容（app-shell 旧调用）：跳到「管理已安装」视图；上游页面内已有同名入口。 */
-  onManageInstalled?: () => void;
 }
 
 type PluginStoreView = "store" | "detail" | "manage";
@@ -94,15 +95,14 @@ export function PluginStorePage({
   paneId,
   onOpenDraftUi,
   onBack,
-  onManageInstalled,
 }: PluginStorePageProps) {
+  const platform = usePlatform();
   const { intl, locale } = useZCodeIntl();
   const { order: storeOrder, refresh: refreshStoreOrder } =
     usePluginStoreOrder();
   const { pluginManagementService, skillsService } = useServices();
-  const usePluginManagementStore = useScopedPluginManagementStore(
-    pluginManagementService,
-  );
+  const usePluginManagementStore = useScopedPluginManagementStore(pluginManagementService);
+  // 市场卡片读写 User 层；当前项目覆盖禁用导致打不开时，引导到插件管理的当前项目视图处理覆盖。
   const pluginUi = useMarketPluginUi({
     paneId,
     onOpenDraftUi,
@@ -110,6 +110,12 @@ export function PluginStorePage({
     workspaceIdentity,
     sessionId,
     remoteSessionId,
+    onManageWorkspacePlugins: workspacePath
+      ? () => {
+          setManagementScope(getWorkspaceKey(workspacePath, workspaceIdentity));
+          setView("manage");
+        }
+      : undefined,
   });
   const [managementScope, setManagementScope] = useState("user");
   const plugins = usePluginManagementStore((state) => state.plugins);
@@ -137,12 +143,8 @@ export function PluginStorePage({
     (state) => state.workspaceIdentity,
   );
   const error = usePluginManagementStore((state) => state.error);
-  const activeOperations = usePluginManagementStore(
-    (state) => state.activeOperations,
-  );
-  const describeCache = usePluginManagementStore(
-    (state) => state.describeCache,
-  );
+  const activeOperations = usePluginManagementStore((state) => state.activeOperations);
+  const describeCache = usePluginManagementStore((state) => state.describeCache);
   const initialize = usePluginManagementStore((state) => state.initialize);
   const updateMarketplace = usePluginManagementStore(
     (state) => state.updateMarketplace,
@@ -202,7 +204,9 @@ export function PluginStorePage({
     if (!workspacePath) {
       return;
     }
-    // 安装仍属于 Host User inventory；卡片启停展示当前项目的实际生效配置。
+    // Bug 根因：市场启停曾写当前工作区覆盖，而“不指定项目”的对话每次都用新的草稿目录，
+    // 关闭只作用于当前草稿，新对话仍继承全局开启。市场改为读写同一层 User 配置，
+    // 项目覆盖只在插件管理中维护；若仍读生效视图，项目已有覆盖时开关会被刷新弹回。
     void initialize({
       workspacePath,
       workspaceIdentity,
@@ -236,6 +240,9 @@ export function PluginStorePage({
     updateMarketplace,
   ]);
 
+  const { region: loginRegion, pending: loginRegionPending } = usePluginLoginRegion();
+  // 商店浏览（分段、Featured、分类、UI 专区、搜索、详情定位）只看当前登录区域可见的条目；
+  // 已安装条目在 isPluginVisibleForLoginRegion 里保留，管理已安装视图用自己的全集不受影响。
   const items = useMemo(
     () =>
       buildStoreItems({
@@ -245,27 +252,20 @@ export function PluginStorePage({
         installedPlugins,
         plugins,
         restorableBuiltins,
-      }),
+      }).filter((item) => isPluginVisibleForLoginRegion(item, loginRegion)),
     [
       availablePlugins,
       installedPlugins,
+      loginRegion,
       marketplaceAvailabilityKnown,
       marketplaces,
       plugins,
       restorableBuiltins,
     ],
   );
-  const itemById = useMemo(
-    () => new Map(items.map((item) => [item.id, item])),
-    [items],
-  );
-  const detailItem = detailPluginId
-    ? (itemById.get(detailPluginId) ?? null)
-    : null;
-  const marketingRequest = useStore(
-    marketingNavigation,
-    (state) => state.request,
-  );
+  const itemById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+  const detailItem = detailPluginId ? (itemById.get(detailPluginId) ?? null) : null;
+  const marketingRequest = useStore(marketingNavigation, (state) => state.request);
   const isMarketingDestinationVisible = useOptionalTabStore((state) => {
     const tab = state.tabs.find((tab) => tab.id === state.activeTabId);
     return Boolean(
@@ -294,15 +294,8 @@ export function PluginStorePage({
     )
       return;
     if (error || (pluginId && !itemById.has(pluginId))) {
-      finishMarketingNavigation(
-        marketingRequest.id,
-        new Error("marketing_plugin_unavailable"),
-      );
-    } else if (
-      pluginId
-        ? view === "detail" && detailPluginId === pluginId
-        : view === "store"
-    ) {
+      finishMarketingNavigation(marketingRequest.id, new Error("marketing_plugin_unavailable"));
+    } else if (pluginId ? view === "detail" && detailPluginId === pluginId : view === "store") {
       finishMarketingNavigation(marketingRequest.id);
     } else {
       setDetailPluginId(pluginId ?? null);
@@ -313,6 +306,7 @@ export function PluginStorePage({
     embedded,
     marketingRequest,
     isMarketingDestinationVisible,
+    loginRegionPending,
     workspacePath,
     loading,
     loadedWorkspacePath,
@@ -448,12 +442,7 @@ export function PluginStorePage({
       if (isStoreItemInstallBlocked(item)) return;
       const succeeded = item.restorable
         ? await restoreBuiltin(item.id, operationService)
-        : await installPlugin(
-            item.name,
-            item.marketplace,
-            operationService,
-            "user",
-          );
+        : await installPlugin(item.name, item.marketplace, operationService, "user");
       // 失败或目标已切换时没有可交付的新能力，不能失效草稿运行时。
       if (!succeeded) return;
       await refreshAfterPluginChange();
@@ -544,12 +533,11 @@ export function PluginStorePage({
                 item.id,
                 item.info?.enabled
                   ? undefined
-                  : () =>
-                      setEnabled(item.id, true, operationService, "workspace"),
+                  : () => setEnabled(item.id, true, operationService, "user"),
               )
           : undefined,
       onSetEnabled: (pluginId, enabled) => {
-        void setEnabled(pluginId, enabled, operationService, "workspace");
+        void setEnabled(pluginId, enabled, operationService, "user");
       },
       onInstall: (item) => void handleInstall(item),
       onUninstall: uninstall.requestUninstall,
@@ -600,11 +588,7 @@ export function PluginStorePage({
         />
       ) : null}
       {view === "detail" ? (
-        <Button
-          variant="ghost"
-          data-testid="plugin-store-detail-back"
-          onClick={backToStore}
-        >
+        <Button variant="ghost" data-testid="plugin-store-detail-back" onClick={backToStore}>
           <ArrowLeft className="size-4" aria-hidden="true" />
           {intl.formatMessage({ id: "settings.plugins.store.back" })}
         </Button>
@@ -696,9 +680,7 @@ export function PluginStorePage({
               data-testid="plugin-store-manage-open"
               onClick={() => setView("manage")}
             >
-              {intl.formatMessage({
-                id: "settings.plugins.store.manageInstalled",
-              })}
+              {intl.formatMessage({ id: "settings.plugins.store.manageInstalled" })}
             </Button>
           </div>
         </div>
@@ -728,9 +710,7 @@ export function PluginStorePage({
               <ArrowLeft className="size-4" aria-hidden="true" />
             </Button>
             <h1 className="text-ui-xl font-semibold">
-              {intl.formatMessage({
-                id: "settings.plugins.store.manageInstalled",
-              })}
+              {intl.formatMessage({ id: "settings.plugins.store.manageInstalled" })}
             </h1>
           </div>
           <PluginsSection
@@ -752,15 +732,10 @@ export function PluginStorePage({
               embedded || onOpenDraftUi
                 ? (item, target, enable) => {
                     if (
-                      (target?.workspaceIdentity?.trim() ||
-                        target?.workspacePath) !==
+                      (target?.workspaceIdentity?.trim() || target?.workspacePath) !==
                       (workspaceIdentity?.trim() || workspacePath)
                     ) {
-                      toast(
-                        intl.formatMessage({
-                          id: "settings.plugins.store.ui.needsSession",
-                        }),
-                      );
+                      toast(intl.formatMessage({ id: "settings.plugins.store.ui.needsSession" }));
                       return;
                     }
                     void pluginUi.open(item.id, enable);
@@ -816,8 +791,7 @@ export function PluginStorePage({
                       variant="outline"
                       size="sm"
                       disabled={activeOperations.some(
-                        (operation) =>
-                          operation.id === `plugin:update:${detailItem.id}`,
+                        (operation) => operation.id === `plugin:update:${detailItem.id}`,
                       )}
                       onClick={() => void handleUpdatePlugin(detailItem.id)}
                     >
@@ -886,9 +860,7 @@ export function PluginStorePage({
       >
         <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
           <DialogTitle>
-            {intl.formatMessage({
-              id: "settings.plugins.store.ui.chooseSurface",
-            })}
+            {intl.formatMessage({ id: "settings.plugins.store.ui.chooseSurface" })}
           </DialogTitle>
           {pluginUi.surfaces.map((surface) => (
             <Button
@@ -922,12 +894,8 @@ export function PluginStorePage({
         open={sourcesOpen}
         onOpenChange={setSourcesOpen}
         marketplaces={marketplaces}
-        onUpdateMarketplace={(marketplace) =>
-          void updateMarketplace(marketplace, operationService)
-        }
-        onRemoveMarketplace={(marketplace) =>
-          void removeMarketplace(marketplace, operationService)
-        }
+        onUpdateMarketplace={(marketplace) => void updateMarketplace(marketplace, operationService)}
+        onRemoveMarketplace={(marketplace) => void removeMarketplace(marketplace, operationService)}
         activeOperations={activeOperations}
       />
       <AddMarketplaceSourceDialog
@@ -939,4 +907,36 @@ export function PluginStorePage({
       />
     </div>
   );
+}
+
+/**
+ * 插件商店的登录区域（docs/plugin-marketplace-ui-ux.md「按登录区域定向展示」）。
+ *
+ * 区域只从 useOAuth 的读取状态（activeProvider、loadingProviders、activeProviderReadFailed）派生，
+ * 不另外缓存；读取中或失败为 unknown。useOAuth 只在挂载时读一次
+ * activeProvider；商店页常驻时用户可能退出、换号或换入口，所以订阅 store 里现成的登录信号
+ * （用户身份与 OAuth 成功序号），变化时重新读取。不用超时或轮询。
+ */
+function usePluginLoginRegion(): { region: PluginLoginRegion; pending: boolean } {
+  const { activeProvider, activeProviderReadFailed, loadingProviders, refreshProviders } =
+    useOAuth();
+  const userId = useZCodeStore((state) => state.user?.id ?? null);
+  const oauthSuccessSeq = useZCodeStore((state) => state.oauthSuccessSeq);
+  // 挂载时 useOAuth 已经读过一次，这里只响应之后的登录状态变化。
+  const observedRef = useRef({ userId, oauthSuccessSeq });
+  useEffect(() => {
+    const observed = observedRef.current;
+    if (observed.userId === userId && observed.oauthSuccessSeq === oauthSuccessSeq) return;
+    observedRef.current = { userId, oauthSuccessSeq };
+    void refreshProviders();
+  }, [oauthSuccessSeq, refreshProviders, userId]);
+  return {
+    region: resolvePluginLoginRegion({
+      activeProvider,
+      loading: loadingProviders,
+      readFailed: activeProviderReadFailed,
+    }),
+    // 只有读取中才让营销跳转等待；读取失败是确定的结果，不等。
+    pending: loadingProviders,
+  };
 }

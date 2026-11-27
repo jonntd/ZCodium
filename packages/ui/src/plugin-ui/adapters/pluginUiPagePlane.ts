@@ -12,14 +12,11 @@ export function isSandboxDocumentNavigation(url: string | undefined): boolean {
 }
 
 function parkingRoot(): HTMLElement {
-  const existing = document.querySelector<HTMLElement>(
-    "[data-sandbox-page-parking]",
-  );
+  const existing = document.querySelector<HTMLElement>("[data-sandbox-page-parking]");
   if (existing) return existing;
   const root = document.createElement("div");
   root.dataset.sandboxPageParking = "true";
-  root.style.cssText =
-    "position:fixed;inset:0;pointer-events:none;overflow:visible";
+  root.style.cssText = "position:fixed;inset:0;pointer-events:none;overflow:visible";
   document.body.append(root);
   return root;
 }
@@ -29,10 +26,7 @@ export function createPluginUiPagePlane(events: {
   onVisibility(visible: boolean): void;
   onCrash(): void;
 }) {
-  const anchors = new Map<
-    symbol,
-    { placement: SandboxPagePlacement; visible: boolean }
-  >();
+  const anchors = new Map<symbol, { placement: SandboxPagePlacement; visible: boolean }>();
   const root = document.createElement("div");
   root.dataset.sandboxPageRoot = "true";
   root.style.display = "none";
@@ -65,9 +59,7 @@ export function createPluginUiPagePlane(events: {
         typeof (frame as HTMLElement & { connectedMoveCallback?: unknown })
           .connectedMoveCallback !== "function"
       )
-        throw new Error(
-          "Sandbox retained moves are unavailable; restart the desktop app",
-        );
+        throw new Error("Sandbox retained moves are unavailable; restart the desktop app");
       parent.moveBefore(root, null);
     }
   };
@@ -76,17 +68,10 @@ export function createPluginUiPagePlane(events: {
     root.style.cssText =
       "display:flow-root;position:relative;width:100%;height:100%;margin:0;border:0;padding:0;overflow:hidden;pointer-events:none";
   };
-  const position = (
-    node: HTMLElement,
-    container: HTMLElement,
-    fixed: boolean,
-    layer: number,
-  ) => {
+  const position = (node: HTMLElement, container: HTMLElement, fixed: boolean, layer: number) => {
     const rect = node.getBoundingClientRect();
     const parent = container.getBoundingClientRect();
-    const zoom =
-      (container as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom ||
-      1;
+    const zoom = (container as HTMLElement & { currentCSSZoom?: number }).currentCSSZoom || 1;
     Object.assign(root.style, {
       position: fixed ? "fixed" : "absolute",
       inset: "auto",
@@ -129,14 +114,11 @@ export function createPluginUiPagePlane(events: {
     // forceMount 的隐藏 tab 仍连接 DOM，但尺寸为零；不能让它夺走后台初始化的承载表面。
     const candidates = [...anchors].filter(([, a]) => {
       return (
-        allowedDisplayModes.includes(
-          a.placement.kind === "sidebar" ? "fullscreen" : "inline",
-        ) && hasVisibleBounds(a.placement.node)
+        allowedDisplayModes.includes(a.placement.kind === "sidebar" ? "fullscreen" : "inline") &&
+        hasVisibleBounds(a.placement.node)
       );
     });
-    const chosen =
-      candidates.find(([, a]) => a.placement.kind === "sidebar") ??
-      candidates.at(-1);
+    const chosen = candidates.find(([, a]) => a.placement.kind === "sidebar") ?? candidates.at(-1);
     visibility(Boolean(chosen && (chosen[1].visible || preview)));
     if (chosen && chosen[0] === current) return;
     const bounds = root.getBoundingClientRect();
@@ -172,11 +154,7 @@ export function createPluginUiPagePlane(events: {
     if (kind !== "flow" && parent !== node)
       stopLayout = track(node, () => {
         const rect = node.getBoundingClientRect();
-        if (
-          !node.checkVisibility({ visibilityProperty: true }) ||
-          !rect.width ||
-          !rect.height
-        ) {
+        if (!node.checkVisibility({ visibilityProperty: true }) || !rect.width || !rect.height) {
           layout();
           return;
         }
@@ -193,21 +171,14 @@ export function createPluginUiPagePlane(events: {
     loaded = true;
   };
   const frameReady = (event: Event) => {
-    if (!(event as Event & { isMainFrame?: boolean }).isMainFrame)
-      pluginLoaded = true;
+    if (!(event as Event & { isMainFrame?: boolean }).isMainFrame) pluginLoaded = true;
   };
   const navigation = (event: Event) => {
-    const nav = event as Event & {
-      isMainFrame?: boolean;
-      isInPlace?: boolean;
-      url?: string;
-    };
+    const nav = event as Event & { isMainFrame?: boolean; isInPlace?: boolean; url?: string };
     if (
       !nav.isInPlace &&
       ((loaded && nav.isMainFrame) ||
-        (pluginLoaded &&
-          !nav.isMainFrame &&
-          isSandboxDocumentNavigation(nav.url)))
+        (pluginLoaded && !nav.isMainFrame && isSandboxDocumentNavigation(nav.url)))
     )
       events.onCrash();
   };
@@ -250,11 +221,7 @@ export function createPluginUiPagePlane(events: {
       layout();
       return () => {
         anchors.delete(token);
-        if (
-          ![...anchors.values()].some(
-            (a) => a.placement.node === placement.node,
-          )
-        )
+        if (![...anchors.values()].some((a) => a.placement.node === placement.node))
           intersection.unobserve(placement.node);
         // 必须同步迁移，再让 React 删除锚点；不能放到 RAF / passive effect。
         layout();

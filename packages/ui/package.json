@@ -4,21 +4,26 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./button": "./src/components/ui/button.tsx",
+    "./dialog": "./src/components/ui/dialog.tsx",
+    "./alert-dialog": "./src/components/ui/alert-dialog.tsx",
+    "./dropdown-menu": "./src/components/ui/dropdown-menu.tsx",
+    "./select": "./src/components/ui/select.tsx",
     "./useTheme": "./src/useTheme.ts",
     "./conversation-share-readonly": "./src/v4/ConversationShareReadonlyTimeline.tsx",
     "./oauth-provider-icon": "./src/lib/oauthProviderIcon.tsx",
+    "./app-logo": "./src/components/mobile-ui/ZCodeAppLogo.tsx",
+    "./bottom-sheet": "./src/components/mobile-ui/bottom-sheet.tsx",
+    "./device-platform-icon": "./src/components/mobile-ui/DevicePlatformIcon.tsx",
     "./message": "./src/components/ai-elements/message.tsx",
     "./e2e-store-bridge": "./src/lib/e2eStoreBridgeBootstrap.ts",
     "./remote-workspace-session-store": "./src/store/remoteWorkspaceSessionStore.ts",
     "./styles.css": "./src/styles.css",
-    "./mentions/mentionMarkdown": "./src/mentions/mentionMarkdown.ts",
-    "./replay": "./src/replay.ts",
-    "./chat-pane": "./src/v4/V4ChatPane.tsx"
+    "./replay": "./src/replay.ts"
   },
   "scripts": {
     "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
-    "test": "node --import ./tests/register-test-hooks.mjs --import tsx --test tests/*.test.mjs && TSX_TSCONFIG_PATH=tsconfig.json node --import ./tests/register-test-hooks.mjs --import tsx --test $(grep -l 'from \"node:test\"' test/*.test.ts)"
+    "lint:fix": "oxlint --fix"
   },
   "dependencies": {
     "@aiden0z/pptx-renderer": "1.2.4",
@@ -36,7 +41,9 @@
     "@modelcontextprotocol/core": "2.0.0",
     "@modelcontextprotocol/ext-apps": "2.0.0",
     "@pierre/diffs": "^1.1.22",
+    "@radix-ui/react-popper": "1.2.8",
     "@radix-ui/react-radio-group": "^1.3.8",
+    "@radix-ui/react-roving-focus": "1.1.11",
     "@radix-ui/react-use-controllable-state": "^1.2.2",
     "@rive-app/react-webgl2": "^4.27.3",
     "@streamdown/cjk": "^1.0.3",
@@ -94,12 +101,9 @@
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-virtual": "^3.13.23",
-    "@testing-library/dom": "^10.4.1",
-    "@testing-library/react": "^16.3.2",
     "@types/qrcode": "^1.5.5",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "jsdom": "^29.1.1",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
     "unified": "^11.0.5"

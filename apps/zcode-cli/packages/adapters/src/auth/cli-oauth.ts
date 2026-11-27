@@ -1,11 +1,12 @@
-import { assertOfficialServiceRemoved } from "@zcode/shared";
 import { randomBytes } from "node:crypto";
 import type { HttpClientPort, HttpClientRunOptions, TraceContext } from "@zcode/contracts";
 
-const DEFAULT_ZCODE_OAUTH_BASE_URL = "";
+const DEFAULT_ZCODE_OAUTH_BASE_URL = "https://zcode.z.ai/api/v1";
 export type CliOAuthProviderId = "zai" | "bigmodel";
 const POLL_TOKEN_BYTES = 32;
 const JSON_CONTENT_TYPE = "application/json";
+/** 服务端 flow 无效、已过期或 poll_token 不匹配；过期后随 HTTP 400 返回。 */
+export const CLI_OAUTH_INVALID_FLOW_CODE = 3004;
 
 export interface CliOAuthClientOptions {
   baseUrl?: string;
@@ -23,6 +24,8 @@ export interface CliOAuthInitData {
   expires_at: number;
   flow_id: string;
   poll_interval_sec: number;
+  /** 服务端当前时间（Unix 秒），与 expires_at 同属服务端时钟；旧服务端未返回时为 undefined。 */
+  server_time?: number;
 }
 
 export interface CliOAuthPollInput {
@@ -82,9 +85,6 @@ export function createCliOAuthClient(options: CliOAuthClientOptions): CliOAuthCl
       input: CliOAuthInitInput,
       runOptions?: HttpClientRunOptions,
     ): Promise<CliOAuthInitData> {
-    // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-    assertOfficialServiceRemoved("account");
-
       const envelope = await requestJsonEnvelope(
         options.httpClient,
         {
@@ -106,9 +106,6 @@ export function createCliOAuthClient(options: CliOAuthClientOptions): CliOAuthCl
       input: CliOAuthPollInput,
       runOptions?: HttpClientRunOptions,
     ): Promise<CliOAuthPollData> {
-    // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-    assertOfficialServiceRemoved("account");
-
       const flowId = encodeURIComponent(input.flowId);
       const envelope = await requestJsonEnvelope(
         options.httpClient,
@@ -148,7 +145,10 @@ async function requestJsonEnvelope(
     options,
   );
   if (response.status < 200 || response.status >= 300) {
+    // 服务端在 flow 过期后返回 HTTP 400 + code 3004；保留业务码，调用方据此区分超时与其他失败。
+    const businessCode = readBusinessCode(response.body);
     throw new CliOAuthError(`OAuth HTTP error ${response.status}`, {
+      ...(businessCode === undefined ? {} : { businessCode }),
       httpStatus: response.status,
     });
   }
@@ -176,6 +176,15 @@ async function requestJsonEnvelope(
   };
 }
 
+function readBusinessCode(body: Uint8Array): number | undefined {
+  try {
+    const code = asRecord(JSON.parse(new TextDecoder().decode(body)))?.code;
+    return typeof code === "number" ? code : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function parseInitData(value: unknown): CliOAuthInitData {
   const data = asRecord(value);
   if (
@@ -201,6 +210,10 @@ function parseInitData(value: unknown): CliOAuthInitData {
     expires_at: data.expires_at,
     flow_id: readString(data.flow_id)!,
     poll_interval_sec: data.poll_interval_sec,
+    // server_time 是可选新增字段：非有限数值按缺失处理，调用方退回本机时间。
+    ...(typeof data.server_time === "number" && Number.isFinite(data.server_time)
+      ? { server_time: data.server_time }
+      : {}),
   };
 }
 

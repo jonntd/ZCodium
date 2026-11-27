@@ -6,31 +6,16 @@ import {
 } from "@/settings-scope/index.js";
 /* eslint-disable max-lines -- 共享能力外壳聚合 Scope，并承载 Plugin tabs 与独立 Commands 入口。 */
 import { PluginAddMenu } from "@/conversation-workspace-target/PluginAddMenu.js";
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Monitor, Plus, UploadCloud } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
+import { invalidateDeferredDraftSessionForRuntimeChange } from "@/lib/zcodeDraftSkillInvalidation.js";
 import { useConfirmExtensionEnable } from "@/extension-slots/index.js";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs.js";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { TID_PLUGIN_STORE_BROWSE } from "@zcode/shared/test-ids";
-import type {
-  ZCodePluginInfo,
-  ZCodePluginScope,
-  ZCodePluginUserConfigOption,
-} from "@zcode/shared";
+import type { ZCodePluginInfo, ZCodePluginScope, ZCodePluginUserConfigOption } from "@zcode/shared";
 import type { CreateTaskRequest } from "@/app-shell/types.js";
 import type { IServiceAccessor } from "@zcode/services";
 import { useConfigWorkspaceServicesResolution as useWorkspaceServicesResolution } from "@/workspace-config-catalog/index.js";
@@ -41,10 +26,7 @@ import { CommandsSection } from "@/settings/CommandsSection.js";
 import { SettingsSearchInput } from "@/settings/SettingsSearchInput.js";
 import { SettingsResourceHeaderActions } from "@/settings/SettingsResourceHeaderActions.js";
 import { PluginUninstallConfirmDialog } from "@/settings/PluginUninstallConfirmDialog.js";
-import {
-  PluginInstallEmptyState,
-  PluginLoadingState,
-} from "@/settings/PluginInstallEmptyState.js";
+import { PluginInstallEmptyState, PluginLoadingState } from "@/settings/PluginInstallEmptyState.js";
 import {
   PluginDetailRow,
   PluginHookDetails,
@@ -92,10 +74,7 @@ import {
   matchesComputerUseSearch,
   resolveComputerUseAvailability,
 } from "@/settings/computerUseAvailability.js";
-import {
-  PluginScopeMenu,
-  getPluginWorkspaceKey,
-} from "@/settings/PluginScopeMenu.js";
+import { PluginScopeMenu, getPluginWorkspaceKey } from "@/settings/PluginScopeMenu.js";
 import {
   formatRemoteSyncTargetLabel,
   shouldShowRemoteSyncActions,
@@ -109,10 +88,7 @@ function normalizePluginTab(tab: PluginTabTarget): PluginTab {
   return tab === "commands" ? "plugins" : tab;
 }
 
-function getPluginTabCountClass(
-  tab: PluginTabTarget,
-  selectedTab: PluginTabTarget,
-): string {
+function getPluginTabCountClass(tab: PluginTabTarget, selectedTab: PluginTabTarget): string {
   return tab === selectedTab
     ? "text-ui-sm text-foreground-subtle"
     : "text-ui-sm text-foreground-subtlest";
@@ -139,10 +115,7 @@ interface PluginsSectionProps {
   workspacePath?: string | null;
   workspaceIdentity?: string;
   onCreateTask?: (request?: CreateTaskRequest) => void;
-  onOpenPluginStore: (
-    returnScopeKey?: string,
-    intent?: "add-marketplace",
-  ) => void;
+  onOpenPluginStore: (returnScopeKey?: string, intent?: "add-marketplace") => void;
   showMarketplaceBreadcrumb?: boolean;
 }
 
@@ -182,10 +155,7 @@ function PluginList({
   onAdd?: () => void;
   onCreateTask?: (request?: CreateTaskRequest) => void;
   onDetailOpenChange?: (open: boolean) => void;
-  onOpenPluginStore: (
-    returnScopeKey?: string,
-    intent?: "add-marketplace",
-  ) => void;
+  onOpenPluginStore: (returnScopeKey?: string, intent?: "add-marketplace") => void;
   showMarketplaceBreadcrumb?: boolean;
   onVisibleCountChange?: (count: number) => void;
   /** Scope 选中在线远端设备的「用户」时为该设备；同步按钮只在此时显示。 */
@@ -201,62 +171,34 @@ function PluginList({
     target?.remoteSessionId,
     target?.workspaceIdentity,
     target?.remoteTarget,
-    {
-      unscopedServices,
-      forceUnscoped: Boolean(cacheAuthorityKey || unscopedServices),
-    },
+    { unscopedServices, forceUnscoped: Boolean(cacheAuthorityKey || unscopedServices) },
   );
   // Scope 可选择非激活 workspace，若继续从当前 ServiceProvider 取服务，
   // 会把 B 的路径发往 A 的 host。插件读写必须和 Scope target 共用同一服务解析结果。
   const { pluginManagementService } = targetServiceResolution.services;
-  const usePluginManagementStore = useScopedPluginManagementStore(
-    pluginManagementService,
-  );
+  const usePluginManagementStore = useScopedPluginManagementStore(pluginManagementService);
   const plugins = usePluginManagementStore((state) => state.plugins);
-  const installedPlugins = usePluginManagementStore(
-    (state) => state.installedPlugins,
-  );
+  const installedPlugins = usePluginManagementStore((state) => state.installedPlugins);
   const marketplaces = usePluginManagementStore((state) => state.marketplaces);
   const marketplaceAvailabilityKnown = usePluginManagementStore(
     (state) => state.marketplaceAvailabilityKnown,
   );
-  const availablePlugins = usePluginManagementStore(
-    (state) => state.availablePlugins,
-  );
-  const restorableBuiltins = usePluginManagementStore(
-    (state) => state.restorableBuiltins,
-  );
+  const availablePlugins = usePluginManagementStore((state) => state.availablePlugins);
+  const restorableBuiltins = usePluginManagementStore((state) => state.restorableBuiltins);
   const loading = usePluginManagementStore((state) => state.loading);
-  const pluginDiagnostics = usePluginManagementStore(
-    (state) => state.diagnostics,
-  );
-  const currentWorkspacePath = usePluginManagementStore(
-    (state) => state.workspacePath,
-  );
-  const currentWorkspaceIdentity = usePluginManagementStore(
-    (state) => state.workspaceIdentity,
-  );
+  const pluginDiagnostics = usePluginManagementStore((state) => state.diagnostics);
+  const currentWorkspacePath = usePluginManagementStore((state) => state.workspacePath);
+  const currentWorkspaceIdentity = usePluginManagementStore((state) => state.workspaceIdentity);
   const initialize = usePluginManagementStore((state) => state.initialize);
   const setEnabled = usePluginManagementStore((state) => state.setEnabled);
+  const trustWorkspacePlugin = usePluginManagementStore((state) => state.trustWorkspacePlugin);
   const updatePlugin = usePluginManagementStore((state) => state.updatePlugin);
-  const configurePlugin = usePluginManagementStore(
-    (state) => state.configurePlugin,
-  );
-  const currentAuthorityKey = usePluginManagementStore(
-    (state) => state.authorityKey,
-  );
-  const currentConfigScope = usePluginManagementStore(
-    (state) => state.configScope,
-  );
-  const resetPluginConfig = usePluginManagementStore(
-    (state) => state.resetPluginConfig,
-  );
-  const togglingPluginId = usePluginManagementStore(
-    (state) => state.togglingPluginId,
-  );
-  const activeOperations = usePluginManagementStore(
-    (state) => state.activeOperations,
-  );
+  const configurePlugin = usePluginManagementStore((state) => state.configurePlugin);
+  const currentAuthorityKey = usePluginManagementStore((state) => state.authorityKey);
+  const currentConfigScope = usePluginManagementStore((state) => state.configScope);
+  const resetPluginConfig = usePluginManagementStore((state) => state.resetPluginConfig);
+  const togglingPluginId = usePluginManagementStore((state) => state.togglingPluginId);
+  const activeOperations = usePluginManagementStore((state) => state.activeOperations);
   const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
   const [pluginOptionsDrafts, setPluginOptionsDrafts] = useState<
     Record<string, Record<string, PluginOptionDraftValue>>
@@ -276,14 +218,10 @@ function PluginList({
   // 设置页重构时只迁移了插件远程同步操作，遗漏了当前远端工作区提示，
   // 用户无法确认插件列表实际对应的是哪个远程目标。
   const remotePluginSyncTargetLabel = connectedRemoteSyncTarget
-    ? formatRemoteSyncTargetLabel(
-        connectedRemoteSyncTarget,
-        target?.workspacePath ?? "",
-      )
+    ? formatRemoteSyncTargetLabel(connectedRemoteSyncTarget, target?.workspacePath ?? "")
     : "";
   const targetKey = target ? workspaceKey(target) : "";
-  const storeKey =
-    currentWorkspaceIdentity?.trim() || currentWorkspacePath || "";
+  const storeKey = currentWorkspaceIdentity?.trim() || currentWorkspacePath || "";
   const storeMatchesTarget =
     storeKey === targetKey &&
     currentAuthorityKey === (cacheAuthorityKey?.trim() || null) &&
@@ -327,19 +265,11 @@ function PluginList({
     storeMatchesTarget,
   ]);
   const scopedPlugins = useMemo(
-    () =>
-      storeMatchesTarget
-        ? selectPluginsForScope(plugins, installedPlugins, configScope)
-        : [],
+    () => (storeMatchesTarget ? selectPluginsForScope(plugins, installedPlugins, configScope) : []),
     [configScope, installedPlugins, plugins, storeMatchesTarget],
   );
   const builtInPluginIds = useMemo(
-    () =>
-      new Set(
-        selectBuiltInPlugins(plugins, installedPlugins).map(
-          (plugin) => plugin.id,
-        ),
-      ),
+    () => new Set(selectBuiltInPlugins(plugins, installedPlugins).map((plugin) => plugin.id)),
     [installedPlugins, plugins],
   );
   const visiblePluginGroups = useMemo(
@@ -376,18 +306,10 @@ function PluginList({
     visibleBuiltInPlugins.length === 0 &&
     !showUnavailableComputerUse,
   );
-  const hideInstalledGroup = Boolean(
-    searchQuery.trim() && visibleInstalledPlugins.length === 0,
-  );
+  const hideInstalledGroup = Boolean(searchQuery.trim() && visibleInstalledPlugins.length === 0);
   useEffect(() => {
-    onVisibleCountChange?.(
-      visibleInstalledPlugins.length + visibleBuiltInPlugins.length,
-    );
-  }, [
-    onVisibleCountChange,
-    visibleBuiltInPlugins.length,
-    visibleInstalledPlugins.length,
-  ]);
+    onVisibleCountChange?.(visibleInstalledPlugins.length + visibleBuiltInPlugins.length);
+  }, [onVisibleCountChange, visibleBuiltInPlugins.length, visibleInstalledPlugins.length]);
   const refreshAfterPluginChange = useCallback(async () => {
     if (!target || !targetServiceResolution.rpcReady) return;
     await initialize({
@@ -428,26 +350,14 @@ function PluginList({
     async (pluginId: string, enabled: boolean) => {
       const plugin = plugins.find((candidate) => candidate.id === pluginId);
       const pluginLabel = plugin
-        ? resolveManagedPluginDisplay(
-            plugin,
-            storeItemById.get(plugin.id),
-            locale,
-          ).name
+        ? resolveManagedPluginDisplay(plugin, storeItemById.get(plugin.id), locale).name
         : pluginId;
       if (enabled && !(await confirmEnable(pluginId, pluginLabel))) return;
-      const succeeded = await setEnabled(
-        pluginId,
-        enabled,
-        pluginManagementService,
-        configScope,
-      );
+      const succeeded = await setEnabled(pluginId, enabled, pluginManagementService, configScope);
       if (!succeeded) {
         toast(
           usePluginManagementStore.getState().error ??
-            intl.formatMessage(
-              { id: "settings.plugins.toggle.failed" },
-              { plugin: pluginLabel },
-            ),
+            intl.formatMessage({ id: "settings.plugins.toggle.failed" }, { plugin: pluginLabel }),
           { variant: "warning" },
         );
         return;
@@ -473,47 +383,57 @@ function PluginList({
       storeItemById,
     ],
   );
+  const handleTrustWorkspacePlugin = useCallback(
+    async (pluginId: string) => {
+      const plugin = plugins.find((candidate) => candidate.id === pluginId);
+      const pluginLabel = plugin
+        ? resolveManagedPluginDisplay(plugin, storeItemById.get(plugin.id), locale).name
+        : pluginId;
+      const outcome = await trustWorkspacePlugin(pluginId, pluginManagementService);
+      if (outcome === "accepted") {
+        // 预热草稿在信任前就已加载插件集；作废后下一个新会话按新信任重新发现插件。
+        await invalidateDeferredDraftSessionForRuntimeChange({
+          logScope: "plugins",
+          reason: "workspace-plugin-trusted",
+          workspacePath: target?.workspacePath,
+          workspaceIdentity: target?.workspaceIdentity,
+        });
+      }
+      toast(
+        intl.formatMessage(
+          {
+            id:
+              outcome === "accepted"
+                ? "settings.plugins.workspaceTrust.trusted"
+                : outcome === "declaration_changed"
+                  ? "settings.plugins.workspaceTrust.changed"
+                  : "settings.plugins.workspaceTrust.failed",
+          },
+          { plugin: pluginLabel },
+        ),
+        outcome === "accepted" ? undefined : { variant: "warning" },
+      );
+    },
+    [intl, locale, pluginManagementService, plugins, storeItemById, target, trustWorkspacePlugin],
+  );
   const handleResetPluginConfig = useCallback(
     async (pluginId: string) => {
       const plugin = plugins.find((candidate) => candidate.id === pluginId);
       const pluginLabel = plugin
-        ? resolveManagedPluginDisplay(
-            plugin,
-            storeItemById.get(plugin.id),
-            locale,
-          ).name
+        ? resolveManagedPluginDisplay(plugin, storeItemById.get(plugin.id), locale).name
         : pluginId;
-      const restored = await resetPluginConfig(
-        pluginId,
-        pluginManagementService,
-        "workspace",
-      );
+      const restored = await resetPluginConfig(pluginId, pluginManagementService, "workspace");
       if (!restored) {
         toast(
           usePluginManagementStore.getState().error ??
-            intl.formatMessage(
-              { id: "settings.plugins.toggle.failed" },
-              { plugin: pluginLabel },
-            ),
+            intl.formatMessage({ id: "settings.plugins.toggle.failed" }, { plugin: pluginLabel }),
           { variant: "warning" },
         );
         return;
       }
-      toast(
-        intl.formatMessage(
-          { id: "settings.plugins.scope.restored" },
-          { plugin: pluginLabel },
-        ),
-      );
+      toast(intl.formatMessage({ id: "settings.plugins.scope.restored" }, { plugin: pluginLabel }));
     },
-    [
-      intl,
-      locale,
-      pluginManagementService,
-      plugins,
-      resetPluginConfig,
-      storeItemById,
-    ],
+    [intl, locale, pluginManagementService, plugins, resetPluginConfig, storeItemById],
   );
   const uninstall = usePluginUninstall({
     store: usePluginManagementStore,
@@ -547,12 +467,10 @@ function PluginList({
   // 「全部更新」与已安装、内置分组的展示顺序一致，且不受搜索过滤影响。
   const updateAllItems = useMemo(
     () =>
-      [...scopedPluginGroups.installed, ...scopedPluginGroups.builtIn].flatMap(
-        (plugin) => {
-          const item = storeItemById.get(plugin.id);
-          return item ? [item] : [];
-        },
-      ),
+      [...scopedPluginGroups.installed, ...scopedPluginGroups.builtIn].flatMap((plugin) => {
+        const item = storeItemById.get(plugin.id);
+        return item ? [item] : [];
+      }),
     [scopedPluginGroups, storeItemById],
   );
   const handleUpdateAll = useCallback(
@@ -560,15 +478,10 @@ function PluginList({
       // 批量期间切换 Scope 时，store 会被新 Scope 重新 initialize；以点击时的 store 上下文为准，
       // 变化即中止。结尾不再调用 refreshAfterPluginChange：每次 updatePlugin 已按当前上下文重载，
       // 旧闭包再 initialize 会把 store 写回旧 Scope，导致列表变空。
-      const contextKey = (
-        state: ReturnType<typeof usePluginManagementStore.getState>,
-      ) =>
-        [
-          state.workspacePath,
-          state.workspaceIdentity,
-          state.authorityKey,
-          state.configScope,
-        ].join("\0");
+      const contextKey = (state: ReturnType<typeof usePluginManagementStore.getState>) =>
+        [state.workspacePath, state.workspaceIdentity, state.authorityKey, state.configScope].join(
+          "\0",
+        );
       const startKey = contextKey(usePluginManagementStore.getState());
       const batch = new AbortController();
       updateAllAbortRef.current = batch;
@@ -579,8 +492,7 @@ function PluginList({
           (pluginId) => updatePlugin(pluginId, pluginManagementService),
           {
             isCurrent: () =>
-              !batch.signal.aborted &&
-              contextKey(usePluginManagementStore.getState()) === startKey,
+              !batch.signal.aborted && contextKey(usePluginManagementStore.getState()) === startKey,
             // 行内已更新或正在更新的插件不再重复调用 plugins/update。
             needsUpdate: (pluginId) =>
               needsPluginUpdate(usePluginManagementStore.getState(), pluginId),
@@ -622,28 +534,17 @@ function PluginList({
         setUpdatingAll(false);
       }
     },
-    [
-      intl,
-      locale,
-      pluginManagementService,
-      storeItemById,
-      updatePlugin,
-      usePluginManagementStore,
-    ],
+    [intl, locale, pluginManagementService, storeItemById, updatePlugin, usePluginManagementStore],
   );
-  const selectedPlugin =
-    plugins.find((plugin) => plugin.id === selectedPluginId) ?? null;
+  const selectedPlugin = plugins.find((plugin) => plugin.id === selectedPluginId) ?? null;
   // 插件自身 warning 诊断（如声明的技能路径扫描为空）：详情高级区展示，避免静默失败。
   const pluginWarningsForSelected = selectedPlugin
     ? pluginDiagnostics.filter(
         (diagnostic) =>
-          diagnostic.pluginId === selectedPlugin.id &&
-          diagnostic.severity === "warning",
+          diagnostic.pluginId === selectedPlugin.id && diagnostic.severity === "warning",
       )
     : [];
-  const selectedStoreItem = selectedPluginId
-    ? storeItemById.get(selectedPluginId)
-    : undefined;
+  const selectedStoreItem = selectedPluginId ? storeItemById.get(selectedPluginId) : undefined;
   const closeDetail = useCallback(() => {
     setSelectedPluginId(null);
     onDetailOpenChange?.(false);
@@ -684,8 +585,7 @@ function PluginList({
       pluginOptionsDrafts[plugin.id] ?? {},
     );
     // 没有显式修改时不写入空的 Workspace 配置，避免无操作保存制造配置足迹。
-    if (Object.keys(options).length === 0 && clearOptionKeys.length === 0)
-      return;
+    if (Object.keys(options).length === 0 && clearOptionKeys.length === 0) return;
     const configured = await configurePlugin(
       plugin.id,
       options,
@@ -715,33 +615,30 @@ function PluginList({
               item.info?.enabled
                 ? undefined
                 : async () =>
-                    (await confirmEnable(
-                      item.id,
-                      resolvePluginDisplayName(item, locale),
-                    )) &&
-                    setEnabled(
-                      item.id,
-                      true,
-                      pluginManagementService,
-                      configScope,
-                    ),
+                    (await confirmEnable(item.id, resolvePluginDisplayName(item, locale))) &&
+                    setEnabled(item.id, true, pluginManagementService, configScope),
             )
         : undefined,
       onInstall: () => onOpenPluginStore(),
       onUninstall: uninstall.requestUninstall,
-      onSetEnabled: (pluginId, enabled) =>
-        void handleSetEnabled(pluginId, enabled),
+      onSetEnabled: (pluginId, enabled) => void handleSetEnabled(pluginId, enabled),
       onResetConfig:
         configScope === "workspace"
           ? (pluginId) => void handleResetPluginConfig(pluginId)
           : undefined,
       onUpdate: (pluginId) => void handleUpdatePlugin(pluginId),
+      // 项目目录插件只在「项目」视图里出现，信任也只在这里提供。
+      onTrustWorkspacePlugin:
+        configScope === "workspace"
+          ? (pluginId) => void handleTrustWorkspacePlugin(pluginId)
+          : undefined,
       activeOperations,
       togglingPluginId,
     }),
     [
       configScope,
       handleResetPluginConfig,
+      handleTrustWorkspacePlugin,
       handleSetEnabled,
       handleUpdatePlugin,
       onDetailOpenChange,
@@ -778,11 +675,7 @@ function PluginList({
   const renderPluginRows = (items: ZCodePluginInfo[]) => (
     <div className="grid grid-cols-1 gap-y-1">
       {items.map((plugin) => (
-        <div
-          key={plugin.id}
-          data-testid="plugin-settings-plugin-row"
-          data-plugin-id={plugin.id}
-        >
+        <div key={plugin.id} data-testid="plugin-settings-plugin-row" data-plugin-id={plugin.id}>
           {/* 共用市场卡片，避免管理列表额外标签行和图标尺寸导致两处行高不一致。 */}
           <PluginStoreCard
             management
@@ -832,22 +725,13 @@ function PluginList({
   );
 
   if (selectedPlugin && selectedStoreItem && targetServiceResolution.rpcReady) {
-    const pluginBreadcrumbLabel = resolvePluginDisplayName(
-      selectedStoreItem,
-      locale,
-    );
-    const pluginsBreadcrumbLabel = intl.formatMessage({
-      id: "settings.plugins.title",
-    });
+    const pluginBreadcrumbLabel = resolvePluginDisplayName(selectedStoreItem, locale);
+    const pluginsBreadcrumbLabel = intl.formatMessage({ id: "settings.plugins.title" });
     // Plugin 不打开仅含管理字段的简化弹窗：那会与插件商店详情形成两套内容模型，
     // 导致介绍、Hero、示例提示词与能力清单缺失。这里直接复用权威商店详情页，只注入已安装态高级配置。
     return (
       <section className="space-y-5">
-        <Button
-          variant="ghost"
-          data-testid="plugin-settings-detail-back"
-          onClick={closeDetail}
-        >
+        <Button variant="ghost" data-testid="plugin-settings-detail-back" onClick={closeDetail}>
           {intl.formatMessage({ id: "common.back" })}
         </Button>
         {!inMarketplace ? (
@@ -860,9 +744,7 @@ function PluginList({
                   ]
                 : [{ label: pluginBreadcrumbLabel }]
             }
-            onSectionSelect={
-              showMarketplaceBreadcrumb ? onOpenPluginStore : closeDetail
-            }
+            onSectionSelect={showMarketplaceBreadcrumb ? onOpenPluginStore : closeDetail}
           />
         ) : null}
         <PluginStoreDetailView
@@ -889,9 +771,7 @@ function PluginList({
                 {pluginWarningsForSelected.length > 0 ? (
                   <div>
                     <div className="mb-2 text-ui-xs font-medium text-foreground">
-                      {intl.formatMessage({
-                        id: "settings.plugins.detail.warnings",
-                      })}
+                      {intl.formatMessage({ id: "settings.plugins.detail.warnings" })}
                     </div>
                     <PluginWarningList warnings={pluginWarningsForSelected} />
                   </div>
@@ -999,9 +879,7 @@ function PluginList({
               pending={updatingAll}
               onUpdateAll={(pluginIds) => void handleUpdateAll(pluginIds)}
             />
-            <SettingsResourceHeaderActions
-              onRefresh={() => void refreshAfterPluginChange()}
-            />
+            <SettingsResourceHeaderActions onRefresh={() => void refreshAfterPluginChange()} />
             {configScope === "user" && onAdd ? (
               <>
                 <Button
@@ -1016,9 +894,7 @@ function PluginList({
                   testId="plugin-settings-add"
                   onCreateTask={onCreateTask}
                   isWebRemoteControl={isWebRemoteControl}
-                  onAddMarketplace={() =>
-                    onOpenPluginStore(undefined, "add-marketplace")
-                  }
+                  onAddMarketplace={() => onOpenPluginStore(undefined, "add-marketplace")}
                 />
               </>
             ) : null}
@@ -1047,13 +923,9 @@ function PluginList({
             })}
           />
         ) : !targetServiceResolution.rpcReady ? (
-          <PluginLoadingState
-            label={intl.formatMessage({ id: "common.connecting" })}
-          />
+          <PluginLoadingState label={intl.formatMessage({ id: "common.connecting" })} />
         ) : loading && visiblePlugins.length === 0 ? (
-          <PluginLoadingState
-            label={intl.formatMessage({ id: "common.loading" })}
-          />
+          <PluginLoadingState label={intl.formatMessage({ id: "common.loading" })} />
         ) : visibleInstalledPlugins.length > 0 ? (
           renderPluginRows(visibleInstalledPlugins)
         ) : installedPluginCount === 0 && !showUnavailableComputerUse ? (
@@ -1066,12 +938,7 @@ function PluginList({
             })}
             actions={
               onAdd ? (
-                <Button
-                  type="button"
-                  variant="default"
-                  size="lg"
-                  onClick={onAdd}
-                >
+                <Button type="button" variant="default" size="lg" onClick={onAdd}>
                   <Plus aria-hidden="true" data-icon="inline-start" />
                   {intl.formatMessage({
                     id: "chat.plugins.browseMarketplace",
@@ -1096,9 +963,7 @@ function PluginList({
       {showUnavailableComputerUse ? (
         <div className="space-y-4">
           <h3 className="flex h-7 items-center text-ui-base font-medium text-foreground">
-            {intl.formatMessage({
-              id: "settings.computerUse.unsupported.group",
-            })}
+            {intl.formatMessage({ id: "settings.computerUse.unsupported.group" })}
           </h3>
           {renderUnavailableComputerUse()}
         </div>
@@ -1149,21 +1014,14 @@ export function PluginsSection({
   showMarketplaceBreadcrumb = false,
 }: PluginsSectionProps) {
   const { intl } = useZCodeIntl();
-  const storeActiveWorkspacePath = useTabStore(
-    (state) => state.activeWorkspacePath,
-  );
-  const storeActiveWorkspaceIdentity = useTabStore(
-    (state) => state.activeWorkspaceIdentity,
-  );
+  const storeActiveWorkspacePath = useTabStore((state) => state.activeWorkspacePath);
+  const storeActiveWorkspaceIdentity = useTabStore((state) => state.activeWorkspaceIdentity);
   const activeWorkspacePath = workspacePath ?? storeActiveWorkspacePath;
-  const activeWorkspaceIdentity =
-    workspaceIdentity ?? storeActiveWorkspaceIdentity ?? undefined;
+  const activeWorkspaceIdentity = workspaceIdentity ?? storeActiveWorkspaceIdentity ?? undefined;
   const handleScopeFallback = useCallback(() => {
     // 市场返回记录的是具体 workspace identity；目标已关闭或断连时，
     // 静默选中 User 会让用户误以为 Workspace 配置仍在展示，因此提示并显式切换。
-    toast(
-      intl.formatMessage({ id: "settings.plugin.scopeUnavailableFallback" }),
-    );
+    toast(intl.formatMessage({ id: "settings.plugin.scopeUnavailableFallback" }));
   }, [intl]);
   // Scope 状态唯一 owner：按设备分组、默认选中当前 workspace 所在设备的「用户」，
   // 远端「用户」经该设备的 source-settings attachment 读写，离线时 fail-closed。
@@ -1181,10 +1039,8 @@ export function PluginsSection({
   const workspaceTabs = scope.deviceTargets;
   const localScopeKey = scope.toLocalScopeKey(selectedScopeKey);
   const userScope = scope.user;
-  const userScopeTarget =
-    userScope.status === "ready" ? userScope.target : null;
-  const userScopeServices =
-    userScope.status === "ready" ? userScope.unscopedServices : undefined;
+  const userScopeTarget = userScope.status === "ready" ? userScope.target : null;
+  const userScopeServices = userScope.status === "ready" ? userScope.unscopedServices : undefined;
   const userScopeAuthorityKey =
     userScope.status === "ready" ? userScope.cacheAuthorityKey : undefined;
   const fixedTab: PluginTabTarget | null =
@@ -1200,22 +1056,15 @@ export function PluginsSection({
   const [interactiveTab, setInteractiveTab] = useState<PluginTab>(() =>
     normalizePluginTab(initialTab),
   );
-  useEffect(
-    () => setInteractiveTab(normalizePluginTab(initialTab)),
-    [initialTab],
-  );
+  useEffect(() => setInteractiveTab(normalizePluginTab(initialTab)), [initialTab]);
   const selectedTab = fixedTab ?? interactiveTab;
-  const [searchQueries, setSearchQueries] = useState<
-    Record<PluginTabTarget, string>
-  >({
+  const [searchQueries, setSearchQueries] = useState<Record<PluginTabTarget, string>>({
     plugins: "",
     mcps: "",
     skills: "",
     commands: "",
   });
-  const [capabilityCounts, setCapabilityCounts] = useState<
-    Record<PluginTabTarget, number>
-  >({
+  const [capabilityCounts, setCapabilityCounts] = useState<Record<PluginTabTarget, number>>({
     plugins: 0,
     mcps: 0,
     skills: 0,
@@ -1226,9 +1075,7 @@ export function PluginsSection({
   const [mcpFormScopeKey, setMcpFormScopeKey] = useState<string | null>(null);
   const [pluginDetailOpen, setPluginDetailOpen] = useState(false);
   const [commandEditorOpen, setCommandEditorOpen] = useState(false);
-  const [commandFormScopeKey, setCommandFormScopeKey] = useState<string | null>(
-    null,
-  );
+  const [commandFormScopeKey, setCommandFormScopeKey] = useState<string | null>(null);
   const activeSearchQuery = searchQueries[selectedTab];
   const selectedScope: PluginScope = useMemo(() => {
     const resolution = scope.resolution;
@@ -1238,8 +1085,7 @@ export function PluginsSection({
   }, [scope.resolution]);
   // 插件商店作用于当前 workspace 的 Host；只有选中当前 workspace 所在设备的「用户」时提供入口，
   // 否则在商店里安装会写到另一台设备。
-  const marketplaceAvailable =
-    selectedScope.kind === "user" && scope.isActiveWorkspaceDevice;
+  const marketplaceAvailable = selectedScope.kind === "user" && scope.isActiveWorkspaceDevice;
   const openPluginStoreForSelectedScope = useCallback(
     (_returnScopeKey?: string, intent?: "add-marketplace") => {
       // Workspace 是已安装 Plugin 的配置视图，不提供 Marketplace 入口；市场只在 User
@@ -1249,28 +1095,19 @@ export function PluginsSection({
     },
     [marketplaceAvailable, onOpenPluginStore],
   );
-  const target =
-    selectedScope.kind === "workspace" ? selectedScope.tab : userScopeTarget;
-  const effectiveMcpScopeKey =
-    mcpEditorOpen && mcpFormScopeKey ? mcpFormScopeKey : localScopeKey;
+  const target = selectedScope.kind === "workspace" ? selectedScope.tab : userScopeTarget;
+  const effectiveMcpScopeKey = mcpEditorOpen && mcpFormScopeKey ? mcpFormScopeKey : localScopeKey;
   const effectiveMcpWorkspace = workspaceTabs.find(
     (tab) => workspaceKey(tab) === effectiveMcpScopeKey,
   );
   // 编辑器锁定的 Workspace 断连后，回退 preferredHost 会把保存请求发到
   // 另一个项目。失效当帧先移除写入目标，随后 effect 关闭编辑器，避免配置写错位置。
   const mcpEditorWorkspaceMissing = Boolean(
-    mcpEditorOpen &&
-    mcpFormScopeKey &&
-    mcpFormScopeKey !== "user" &&
-    !effectiveMcpWorkspace,
+    mcpEditorOpen && mcpFormScopeKey && mcpFormScopeKey !== "user" && !effectiveMcpWorkspace,
   );
-  const mcpTarget = mcpEditorWorkspaceMissing
-    ? null
-    : (effectiveMcpWorkspace ?? userScopeTarget);
+  const mcpTarget = mcpEditorWorkspaceMissing ? null : (effectiveMcpWorkspace ?? userScopeTarget);
   const effectiveCommandScopeKey =
-    commandEditorOpen && commandFormScopeKey
-      ? commandFormScopeKey
-      : localScopeKey;
+    commandEditorOpen && commandFormScopeKey ? commandFormScopeKey : localScopeKey;
   const effectiveCommandWorkspace = workspaceTabs.find(
     (tab) => workspaceKey(tab) === effectiveCommandScopeKey,
   );
@@ -1298,10 +1135,7 @@ export function PluginsSection({
 
   const selectedTargetKey = target ? workspaceKey(target) : "";
   // 选中设备离线或 attachment 未就绪时不渲染任何列表：读写一律失败并提示，不显示旧快照。
-  const scopeBlocked = resolveSettingsScopeBlock(
-    scope,
-    selectedScope.kind === "user",
-  );
+  const scopeBlocked = resolveSettingsScopeBlock(scope, selectedScope.kind === "user");
   const blockedNotice = scopeBlocked ? (
     <SettingsScopeBlockedNotice state={scopeBlocked} device={scope.device} />
   ) : null;
@@ -1386,15 +1220,9 @@ export function PluginsSection({
                   workspaceOptionTestIdPrefix="plugin-settings-scope-option"
                   onScopeKeyChange={scope.setSelectedScopeKey}
                 />
-                <div
-                  className="hidden h-4 w-px bg-border sm:block"
-                  aria-hidden="true"
-                />
+                <div className="hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
                 {mode === "plugin" ? (
-                  <TabsList
-                    variant="line"
-                    className="h-7 max-w-full gap-1 overflow-x-auto p-0"
-                  >
+                  <TabsList variant="line" className="h-7 max-w-full gap-1 overflow-x-auto p-0">
                     <TabsTrigger
                       value="plugins"
                       className="h-7 flex-none rounded-full px-3 hover:bg-hover data-active:!bg-selected data-active:hover:!bg-hover after:hidden"
@@ -1402,12 +1230,7 @@ export function PluginsSection({
                       {intl.formatMessage({
                         id: "settings.plugin.tab.plugins",
                       })}
-                      <span
-                        className={getPluginTabCountClass(
-                          "plugins",
-                          selectedTab,
-                        )}
-                      >
+                      <span className={getPluginTabCountClass("plugins", selectedTab)}>
                         {capabilityCounts.plugins}
                       </span>
                     </TabsTrigger>
@@ -1418,9 +1241,7 @@ export function PluginsSection({
                       {intl.formatMessage({
                         id: "settings.plugin.tab.mcps",
                       })}
-                      <span
-                        className={getPluginTabCountClass("mcps", selectedTab)}
-                      >
+                      <span className={getPluginTabCountClass("mcps", selectedTab)}>
                         {capabilityCounts.mcps}
                       </span>
                     </TabsTrigger>
@@ -1431,12 +1252,7 @@ export function PluginsSection({
                       {intl.formatMessage({
                         id: "settings.plugin.tab.skills",
                       })}
-                      <span
-                        className={getPluginTabCountClass(
-                          "skills",
-                          selectedTab,
-                        )}
-                      >
+                      <span className={getPluginTabCountClass("skills", selectedTab)}>
                         {capabilityCounts.skills}
                       </span>
                     </TabsTrigger>
@@ -1516,34 +1332,22 @@ export function PluginsSection({
                   inMarketplace={mode === "market"}
                   onOpenUi={onOpenUi}
                   target={target}
-                  configScope={
-                    selectedScope.kind === "user" ? "user" : "workspace"
-                  }
+                  configScope={selectedScope.kind === "user" ? "user" : "workspace"}
                   isDesktop={isDesktop}
                   isMacDesktop={isMacDesktop}
                   isWindowsDesktop={isWindowsDesktop}
                   isWebRemoteControl={isWebRemoteControl}
                   searchQuery={searchQueries.plugins}
-                  onAdd={
-                    marketplaceAvailable
-                      ? openPluginStoreForSelectedScope
-                      : undefined
-                  }
+                  onAdd={marketplaceAvailable ? openPluginStoreForSelectedScope : undefined}
                   onCreateTask={onCreateTask}
                   onDetailOpenChange={setPluginDetailOpen}
                   onOpenPluginStore={openPluginStoreForSelectedScope}
                   showMarketplaceBreadcrumb={showMarketplaceBreadcrumb}
                   onVisibleCountChange={updatePluginCount}
                   dataSyncSourceServerId={scope.syncSourceServerId}
-                  unscopedServices={
-                    selectedScope.kind === "user"
-                      ? userScopeServices
-                      : undefined
-                  }
+                  unscopedServices={selectedScope.kind === "user" ? userScopeServices : undefined}
                   cacheAuthorityKey={
-                    selectedScope.kind === "user"
-                      ? userScopeAuthorityKey
-                      : undefined
+                    selectedScope.kind === "user" ? userScopeAuthorityKey : undefined
                   }
                 />
               )}
@@ -1554,9 +1358,7 @@ export function PluginsSection({
               forceMount
               value="mcps"
               className={
-                mcpEditorOpen
-                  ? "data-[state=inactive]:hidden"
-                  : "mt-6 data-[state=inactive]:hidden"
+                mcpEditorOpen ? "data-[state=inactive]:hidden" : "mt-6 data-[state=inactive]:hidden"
               }
             >
               {blockedNotice ??
@@ -1567,9 +1369,7 @@ export function PluginsSection({
                     remoteSessionId={mcpTarget.remoteSessionId}
                     remoteTarget={mcpTarget.remoteTarget}
                     isWebRemoteControl={isWebRemoteControl}
-                    scopeFilter={
-                      effectiveMcpScopeKey === "user" ? "user" : "workspace"
-                    }
+                    scopeFilter={effectiveMcpScopeKey === "user" ? "user" : "workspace"}
                     parentScopeKey={localScopeKey}
                     workspaceTabs={workspaceTabs}
                     searchQuery={searchQueries.mcps}
@@ -1577,25 +1377,17 @@ export function PluginsSection({
                     onEditorOpenChange={handleMcpEditorOpenChange}
                     onFormScopeKeyChange={setMcpFormScopeKey}
                     onOpenPluginStore={
-                      marketplaceAvailable
-                        ? openPluginStoreForSelectedScope
-                        : undefined
+                      marketplaceAvailable ? openPluginStoreForSelectedScope : undefined
                     }
                     showMarketplaceBreadcrumb={showMarketplaceBreadcrumb}
                     dataSyncSourceServerId={
-                      effectiveMcpScopeKey === "user"
-                        ? scope.syncSourceServerId
-                        : null
+                      effectiveMcpScopeKey === "user" ? scope.syncSourceServerId : null
                     }
                     unscopedServices={
-                      effectiveMcpScopeKey === "user"
-                        ? userScopeServices
-                        : undefined
+                      effectiveMcpScopeKey === "user" ? userScopeServices : undefined
                     }
                     cacheAuthorityKey={
-                      effectiveMcpScopeKey === "user"
-                        ? userScopeAuthorityKey
-                        : undefined
+                      effectiveMcpScopeKey === "user" ? userScopeAuthorityKey : undefined
                     }
                   />
                 ) : (
@@ -1608,11 +1400,7 @@ export function PluginsSection({
             </TabsContent>
           ) : null}
           {mode === "plugin" || mode === "skill" ? (
-            <TabsContent
-              forceMount
-              value="skills"
-              className="mt-6 data-[state=inactive]:hidden"
-            >
+            <TabsContent forceMount value="skills" className="mt-6 data-[state=inactive]:hidden">
               {blockedNotice ??
                 (target ? (
                   <SkillsSection
@@ -1621,30 +1409,20 @@ export function PluginsSection({
                     remoteSessionId={target.remoteSessionId}
                     remoteTarget={target.remoteTarget}
                     isWebRemoteControl={isWebRemoteControl}
-                    scopeFilter={
-                      selectedScope.kind === "user" ? "user" : "workspace"
-                    }
+                    scopeFilter={selectedScope.kind === "user" ? "user" : "workspace"}
                     searchQuery={searchQueries.skills}
                     onCreateTask={onCreateTask}
                     onDetailOpenChange={setSkillDetailOpen}
                     onOpenPluginStore={
-                      marketplaceAvailable
-                        ? openPluginStoreForSelectedScope
-                        : undefined
+                      marketplaceAvailable ? openPluginStoreForSelectedScope : undefined
                     }
                     showMarketplaceBreadcrumb={showMarketplaceBreadcrumb}
                     reportDetailBreadcrumb={mode === "plugin"}
                     onVisibleCountChange={updateSkillCount}
                     dataSyncSourceServerId={scope.syncSourceServerId}
-                    unscopedServices={
-                      selectedScope.kind === "user"
-                        ? userScopeServices
-                        : undefined
-                    }
+                    unscopedServices={selectedScope.kind === "user" ? userScopeServices : undefined}
                     cacheAuthorityKey={
-                      selectedScope.kind === "user"
-                        ? userScopeAuthorityKey
-                        : undefined
+                      selectedScope.kind === "user" ? userScopeAuthorityKey : undefined
                     }
                   />
                 ) : (
@@ -1671,9 +1449,7 @@ export function PluginsSection({
                   <CommandsSection
                     workspacePath={commandTarget.workspacePath}
                     workspaceIdentity={commandTarget.workspaceIdentity}
-                    scopeFilter={
-                      effectiveCommandScopeKey === "user" ? "user" : "workspace"
-                    }
+                    scopeFilter={effectiveCommandScopeKey === "user" ? "user" : "workspace"}
                     parentScopeKey={localScopeKey}
                     workspaceTabs={workspaceTabs}
                     searchQuery={searchQueries.commands}
@@ -1681,14 +1457,10 @@ export function PluginsSection({
                     onEditorOpenChange={setCommandEditorOpen}
                     onFormScopeKeyChange={setCommandFormScopeKey}
                     unscopedServices={
-                      effectiveCommandScopeKey === "user"
-                        ? userScopeServices
-                        : undefined
+                      effectiveCommandScopeKey === "user" ? userScopeServices : undefined
                     }
                     cacheAuthorityKey={
-                      effectiveCommandScopeKey === "user"
-                        ? userScopeAuthorityKey
-                        : undefined
+                      effectiveCommandScopeKey === "user" ? userScopeAuthorityKey : undefined
                     }
                   />
                 ) : (

@@ -1,4 +1,3 @@
-import { assertOfficialServiceRemoved } from "@zcode/shared";
 /* eslint-disable max-lines -- Coding Plan 登录、订阅与 Start/Coding 互斥校验需要集中维护，拆散会让系统禁用原因更难追踪。 */
 import {
   ApiError,
@@ -11,6 +10,10 @@ import {
   type ProviderFamilyDomain,
   type ProviderFamilyConnectionSelectionSettings,
 } from "@zcode/shared";
+import type {
+  OAuthAccountMaterial,
+  OAuthStartPlanMaterial,
+} from "#src/oauth/repo/oauthCredentialRepo.js";
 import { type BigModelTeamPlanBizContext } from "#src/bigmodel/teamPlanApiKey.js";
 import {
   fetchPersonalCodingPlanEntitlement,
@@ -54,6 +57,9 @@ interface CodingPlanAvailabilityCredentialService {
 
 interface CodingPlanAvailabilityContext {
   apiClient?: ApiClient;
+  accountMaterial?: OAuthAccountMaterial | null;
+  /** Start 只用共享 ZCode JWT；与付费套餐材料分开，无关联的国内账号也能解析。 */
+  startPlanMaterial?: OAuthStartPlanMaterial | null;
   credentialService?: CodingPlanAvailabilityCredentialService;
   providerFamilyConnectionSelections?: ProviderFamilyConnectionSelectionSettings;
 }
@@ -221,9 +227,6 @@ async function validateSelectedTeamPlanAvailability(
   family: ProviderFamilyDomain,
   context: CodingPlanAvailabilityContext,
 ): Promise<CodingPlanAvailabilityResult> {
-  // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-  assertOfficialServiceRemoved("codingPlan");
-
   if (!context.apiClient) {
     return { kind: "unknown" };
   }
@@ -236,13 +239,17 @@ async function validateSelectedTeamPlanAvailability(
   }
   const { projectId } = selectedTeamContext;
   const oauthProvider = family === "zai" ? ZAI_PROVIDER_ID : BIGMODEL_PROVIDER_ID;
-  const token = (
-    await context.credentialService?.load(`oauth:${oauthProvider}:access_token`)
-  )?.trim();
+  const token =
+    context.accountMaterial !== undefined
+      ? context.accountMaterial?.accessToken
+      : (await context.credentialService?.load(`oauth:${oauthProvider}:access_token`))?.trim();
   if (!token) {
     return { kind: "unavailable", reason: "coding_plan_not_connected" };
   }
-  const zcodeJwtToken = (await context.credentialService?.load(ZCODE_JWT_TOKEN_KEY))?.trim();
+  const zcodeJwtToken =
+    context.accountMaterial !== undefined
+      ? context.accountMaterial?.zcodeJwtToken
+      : (await context.credentialService?.load(ZCODE_JWT_TOKEN_KEY))?.trim();
   // BigModel 旧版本可能把 zcodejwttoken 误写进 oauth access token；
   // 但 Z.ai 的 business JWT 本身就是合法 Bearer token，不能套用这个 stale-token 防御。
   if (family === "bigmodel" && zcodeJwtToken && token === zcodeJwtToken) {
@@ -448,6 +455,10 @@ async function resolveStartPlanAuthorization(
   provider: CodingPlanAvailabilityProvider,
   context: CodingPlanAvailabilityContext,
 ): Promise<StartPlanAuthorization> {
+  if (context.startPlanMaterial !== undefined) {
+    const jwt = context.startPlanMaterial?.zcodeJwtToken;
+    return { value: jwt ? `Bearer ${jwt}` : "", missingReason: "coding_plan_not_authenticated" };
+  }
   if (provider.family === "bigmodel") {
     const zcodeJwtToken = await resolveBigModelStartPlanZcodeJwt({
       credentialService: context.credentialService,

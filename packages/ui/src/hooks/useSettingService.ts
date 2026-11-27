@@ -1,20 +1,11 @@
 /**
  * useSettingService —— 设置服务 hooks
  */
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { APP_RUNTIME_PREFERENCES_CHANGED_BROADCAST_CHANNEL, type AppSettings } from "@zcode/shared";
-import type { ISettingService } from "@zcode/services";
-import {
-  buildAppRuntimePreferenceSnapshot,
-  touchesAppRuntimePreferences,
-} from "@/settings/appRuntimePreferences.js";
+import type { IServiceAccessor, ISettingService } from "@zcode/services";
 import { useServices } from "./useServices.js";
 import { usePlatform } from "./usePlatform.js";
-import {
-  remoteRuntimeAssetSettingsSchema,
-  type OfflineRuntimeImportResult,
-  type RemoteRuntimeAssetSettings,
-} from "@zcode/shared";
 
 type SettingsSnapshot = {
   settings: AppSettings | null;
@@ -22,121 +13,126 @@ type SettingsSnapshot = {
   error: unknown | null;
 };
 
-interface SettingsStore {
-  snapshot: SettingsSnapshot;
-  inflightRefresh: Promise<void> | null;
-  listeners: Set<(snapshot: SettingsSnapshot) => void>;
-}
-
-// SettingsPage 外层与模型配置页内层可能分别绑定 Local/Remote Service；
-// 共享一份 snapshot/inflight 会让一次 Environment 的刷新结果覆盖另一份事实源。
-// 按 Service 实例隔离 store，保持同一 Environment 内的组件共享，同时阻断跨 Environment 串写。
-const stores = new WeakMap<object, SettingsStore>();
-const unavailableSettingsStore: SettingsStore = {
-  snapshot: {
-    settings: null,
-    loading: true,
-    error: null,
-  },
-  inflightRefresh: null,
-  listeners: new Set(),
+const INITIAL_SETTINGS_SNAPSHOT: SettingsSnapshot = {
+  settings: null,
+  loading: true,
+  error: null,
 };
+const snapshots = new Map<string, SettingsSnapshot>();
+const inflightRefreshes = new Map<string, Promise<void>>();
+const listenersByKey = new Map<string, Set<(snapshot: SettingsSnapshot) => void>>();
+const defaultCacheKeyByServices = new WeakMap<object, string>();
+let nextDefaultCacheKey = 0;
 
-function getSettingsStore(settingService: ISettingService | undefined): SettingsStore {
-  if (
-    !settingService ||
-    (typeof settingService !== "object" && typeof settingService !== "function")
-  ) {
-    return unavailableSettingsStore;
-  }
-  const existing = stores.get(settingService);
-  if (existing) {
-    return existing;
-  }
-  const created: SettingsStore = {
-    snapshot: {
-      settings: null,
-      loading: true,
-      error: null,
-    },
-    inflightRefresh: null,
-    listeners: new Set(),
-  };
-  stores.set(settingService, created);
+function resolveSettingsCacheKey(
+  explicitCacheKey: string | undefined,
+  settingService: object | undefined,
+): string {
+  const explicit = explicitCacheKey?.trim();
+  if (explicit) return explicit;
+
+  // 测试/SSR 的最小 ServiceAccessor 可能暂时没有 settingService；不要把 undefined
+  // 作为 WeakMap key 抛出同步异常，真实 Host 服务就绪后仍会使用按服务隔离的缓存键。
+  if (!settingService) return "settings-services:missing";
+
+  const existing = defaultCacheKeyByServices.get(settingService);
+  if (existing) return existing;
+
+  // Bug 原因：默认 cacheKey 曾固定为 "local"。远端 workspace 的 SessionPane 与
+  // Controller SettingsPage 同时挂载时会互相覆盖同一快照，使 Source 选择器消失，
+  // 也可能把本机运行偏好投影到远端。缓存必须跟服务 accessor 的权威边界一致。
+  const created = `settings-services:${++nextDefaultCacheKey}`;
+  defaultCacheKeyByServices.set(settingService, created);
   return created;
 }
 
-function emitSettingsSnapshot(store: SettingsStore) {
-  for (const listener of store.listeners) {
-    listener(store.snapshot);
+function getSettingsSnapshot(cacheKey: string): SettingsSnapshot {
+  return snapshots.get(cacheKey) ?? INITIAL_SETTINGS_SNAPSHOT;
+}
+
+function setSettingsSnapshot(cacheKey: string, snapshot: SettingsSnapshot): void {
+  snapshots.set(cacheKey, snapshot);
+  for (const listener of listenersByKey.get(cacheKey) ?? []) {
+    listener(snapshot);
   }
 }
 
-async function refreshSettingsStore(settingService: ISettingService | undefined) {
-  const store = getSettingsStore(settingService);
-  if (!settingService) {
-    return;
-  }
-  if (store.inflightRefresh) {
-    return store.inflightRefresh;
+async function refreshSharedSettings(cacheKey: string, getSettings: () => Promise<AppSettings>) {
+  const inflight = inflightRefreshes.get(cacheKey);
+  if (inflight) {
+    return inflight;
   }
 
-  store.snapshot = {
-    ...store.snapshot,
+  setSettingsSnapshot(cacheKey, {
+    ...getSettingsSnapshot(cacheKey),
     loading: true,
     error: null,
-  };
-  emitSettingsSnapshot(store);
+  });
 
-  store.inflightRefresh = (async () => {
+  const refreshPromise = (async () => {
     try {
-      const result = await settingService.get();
-      store.snapshot = {
+      const result = await getSettings();
+      setSettingsSnapshot(cacheKey, {
         settings: result,
         loading: false,
         error: null,
-      };
-      emitSettingsSnapshot(store);
+      });
     } catch (error) {
-      store.snapshot = {
-        // 设置读取失败时保留旧快照，避免一次刷新错误把已可用的设置页降级为空状态。
-        settings: store.snapshot.settings,
+      setSettingsSnapshot(cacheKey, {
+        // 修复原因：设置读取失败时保留旧快照，避免一次刷新错误把已可用的设置页降级为空状态。
+        settings: getSettingsSnapshot(cacheKey).settings,
         loading: false,
         error,
-      };
-      emitSettingsSnapshot(store);
+      });
     }
   })().finally(() => {
-    store.inflightRefresh = null;
+    inflightRefreshes.delete(cacheKey);
   });
+  inflightRefreshes.set(cacheKey, refreshPromise);
 
-  return store.inflightRefresh;
+  return refreshPromise;
+}
+
+export async function updateSettingsAndRefreshSnapshot(params: {
+  settingService: Pick<ISettingService, "get" | "update">;
+  patch: Partial<AppSettings>;
+}): Promise<void> {
+  const cacheKey = resolveSettingsCacheKey(undefined, params.settingService);
+  await params.settingService.update(params.patch);
+  await refreshSharedSettings(cacheKey, () => params.settingService.get());
 }
 
 /** 获取和更新应用设置 */
-export function useSettings() {
-  const { botsService, broadcastService, settingService, zcodeAgentService } = useServices();
+export function useSettings(options: { cacheKey?: string; services?: IServiceAccessor } = {}) {
+  const contextualServices = useServices();
+  // Bug 原因：SettingsPage 可在远端 workspace 的 ServiceProvider 下渲染；若继续隐式取当前
+  // context，“记住 Source 选择”会写入远端 setting，Controller 本地快照随后把选择重置为本机。
+  const settingsServices = options.services ?? contextualServices;
+  const { botsService, broadcastService, settingService, zcodeAgentService } = settingsServices;
   const platform = usePlatform();
-  const settingsStore = getSettingsStore(settingService);
-  const [snapshot, setSnapshot] = useState<SettingsSnapshot>(settingsStore.snapshot);
+  const cacheKey = resolveSettingsCacheKey(options.cacheKey, settingService);
+  const [snapshot, setSnapshot] = useState<SettingsSnapshot>(() => getSettingsSnapshot(cacheKey));
 
   const refresh = useCallback(async () => {
-    await refreshSettingsStore(settingService);
-  }, [settingService]);
+    await refreshSharedSettings(cacheKey, () => settingService.get());
+  }, [cacheKey, settingService]);
 
   useEffect(() => {
     const listener = (nextSnapshot: SettingsSnapshot) => {
       setSnapshot(nextSnapshot);
     };
 
-    settingsStore.listeners.add(listener);
-    setSnapshot(settingsStore.snapshot);
+    const listeners = listenersByKey.get(cacheKey) ?? new Set();
+    listeners.add(listener);
+    listenersByKey.set(cacheKey, listeners);
+    setSnapshot(getSettingsSnapshot(cacheKey));
     void refresh();
 
     return () => {
-      settingsStore.listeners.delete(listener);
+      listeners.delete(listener);
+      if (listeners.size === 0) listenersByKey.delete(cacheKey);
     };
-  }, [refresh, settingsStore]);
+  }, [cacheKey, refresh]);
 
   useEffect(() => {
     return (
@@ -152,11 +148,8 @@ export function useSettings() {
       expectedAccountSettings?: Parameters<ISettingService["update"]>[1],
     ) => {
       try {
-        if (expectedAccountSettings) {
-          await settingService.update(patch, expectedAccountSettings);
-        } else {
-          await settingService.update(patch);
-        }
+        if (expectedAccountSettings) await settingService.update(patch, expectedAccountSettings);
+        else await settingService.update(patch);
       } catch (error) {
         // 原因：CAS 失败后页面仍持有旧快照；重读事实后报告失败，下一次用户重试才有新预期。
         if (expectedAccountSettings) await refresh();
@@ -164,14 +157,23 @@ export function useSettings() {
       }
       platform.syncAppSettings?.(patch);
       await refresh();
-      if (touchesAppRuntimePreferences(patch)) {
-        // 快照必须完整（含未在本 patch 里出现的偏好字段）：host 侧每次都用它整体替换
-        // `latestAppRuntimePreferences`，缺字段会让新注册的 CLI client 重放时丢掉已保存值。
-        // 构造点收敛在 settings/appRuntimePreferences.ts，避免多处各写一份而漂移。
-        const preferences = buildAppRuntimePreferenceSnapshot(
-          settingsStore.snapshot.settings,
-          patch,
-        );
+      if (
+        typeof patch.askUserQuestionAutoResolutionEnabled === "boolean" ||
+        typeof patch.modelIoFullRetentionEnabled === "boolean" ||
+        typeof patch.pluginAutoRecommendationEnabled === "boolean"
+      ) {
+        const currentSettings = getSettingsSnapshot(cacheKey).settings;
+        const preferences = {
+          pluginAutoRecommendationEnabled:
+            patch.pluginAutoRecommendationEnabled ??
+            currentSettings?.pluginAutoRecommendationEnabled === true,
+          askUserQuestionAutoResolutionEnabled:
+            patch.askUserQuestionAutoResolutionEnabled ??
+            currentSettings?.askUserQuestionAutoResolutionEnabled !== false,
+          modelIoFullRetentionEnabled:
+            patch.modelIoFullRetentionEnabled ??
+            currentSettings?.modelIoFullRetentionEnabled === true,
+        };
         const syncResults = await Promise.allSettled([
           zcodeAgentService.syncAppRuntimePreferences(preferences),
           botsService.syncAppRuntimePreferences(preferences),
@@ -188,15 +190,7 @@ export function useSettings() {
         }
       }
     },
-    [
-      botsService,
-      broadcastService,
-      settingService,
-      settingsStore,
-      zcodeAgentService,
-      platform,
-      refresh,
-    ],
+    [botsService, broadcastService, cacheKey, settingService, zcodeAgentService, platform, refresh],
   );
 
   return {
@@ -205,63 +199,6 @@ export function useSettings() {
     error: snapshot.error,
     update,
     refresh,
-  };
-}
-
-/** #68：只通过本机 Host RPC 导入，UI 不读文件、不维护第二份部署缓存。 */
-export function useRemoteRuntimeAssetSettings() {
-  const { sourceServerManagementService } = useServices();
-  const platform = usePlatform();
-  const { settings, update } = useSettings();
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [imported, setImported] = useState<OfflineRuntimeImportResult | null>(null);
-  const revision = useRef(0);
-  useEffect(
-    () => () => {
-      revision.current += 1;
-    },
-    [],
-  );
-  const configure = useCallback(
-    async (value: RemoteRuntimeAssetSettings) => {
-      revision.current += 1;
-      setError("");
-      try {
-        await update({ remoteRuntimeAssets: remoteRuntimeAssetSettingsSchema.parse(value) });
-      } catch (failure) {
-        setError(failure instanceof Error ? failure.message : String(failure));
-      }
-    },
-    [update],
-  );
-  const importDirectory = useCallback(async () => {
-    if (!sourceServerManagementService || busy) return;
-    const operation = ++revision.current;
-    setBusy(true);
-    setError("");
-    try {
-      const directory = await platform.selectDirectory();
-      if (!directory || operation !== revision.current) return;
-      const result = await sourceServerManagementService.importOfflineRuntime(directory);
-      if (operation !== revision.current) return;
-      setImported(result);
-      await update({ remoteRuntimeAssets: { mode: "offline" } });
-    } catch (failure) {
-      if (operation === revision.current)
-        setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
-  }, [sourceServerManagementService, busy, platform, update]);
-  return {
-    available: Boolean(sourceServerManagementService),
-    value: settings?.remoteRuntimeAssets,
-    configure,
-    importDirectory,
-    busy,
-    error,
-    imported,
   };
 }
 

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { TID_MODEL_PROVIDER_ADD_PROVIDER_BUTTON } from "@zcode/shared";
+import { TID_MODEL_PROVIDER_ADD_PROVIDER_BUTTON } from "@zcode/shared/test-ids";
 import type { ModelProviderNavGroup } from "@/settings/model-provider-section/constants.js";
 import { ModelProviderSectionNavigation } from "@/settings/model-provider-section/Navigation.js";
 import { ProviderDetailFeedbackBoundary } from "@/settings/model-provider-section/ProviderDetailFeedback.js";
@@ -70,7 +70,7 @@ export function ModelProviderSectionLayout({
           data-model-provider-split-panel="true"
         >
           <div
-            className="min-w-0 border-e border-border"
+            className="min-w-0 border-r border-border"
             data-model-provider-navigation-scroll="true"
           >
             <ModelProviderSectionNavigation

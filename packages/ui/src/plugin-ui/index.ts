@@ -8,10 +8,7 @@ export { createPluginUiMessagePortTransport } from "./adapters/messagePortTransp
 export { createPluginUiPagePlane } from "./adapters/pluginUiPagePlane.js";
 export { readPluginUiStyleVariables } from "./adapters/readPluginUiStyleVariables.js";
 export { getPluginUiSessionActions } from "./adapters/pluginUiSessionActions.js";
-export {
-  PluginUiToolCallBlock,
-  shouldRenderPluginUi,
-} from "./PluginUiToolCallBlock.js";
+export { PluginUiToolCallBlock, shouldRenderPluginUi } from "./PluginUiToolCallBlock.js";
 export { formatPluginDisplayName } from "./domain/pluginDisplayName.js";
 export {
   isPluginUiPinnedToolRow,
@@ -26,7 +23,6 @@ export {
 export {
   getPluginUiManualPin,
   getPluginUiDisclosureSnapshot,
-  getPluginUiDisclosureVersion,
   subscribePluginUiDisclosure,
 } from "./app/pluginUiDisclosureStore.js";
 export { setPluginUiInstanceDerivation } from "./app/pluginUiInstanceStore.js";
@@ -65,8 +61,5 @@ export {
   type OpenScopedPluginUiSideTabRequest,
 } from "./sidePane/pluginUiSidePaneTab.js";
 
-export {
-  useMarketPluginUi,
-  type MarketPluginUiTarget,
-} from "./adapters/useMarketPluginUi.js";
+export { useMarketPluginUi, type MarketPluginUiTarget } from "./adapters/useMarketPluginUi.js";
 export { useUiPluginRecommendations } from "@/plugin-ui/adapters/useUiPluginRecommendations.js";

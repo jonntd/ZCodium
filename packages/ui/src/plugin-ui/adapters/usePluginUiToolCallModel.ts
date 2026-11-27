@@ -35,22 +35,12 @@ import type {
   PluginSandboxHandle,
   PluginUiScopeRef,
 } from "@zcode/shared/mcp-apps";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { resolvePluginUiLogicalScope } from "../domain/pluginUiLogicalScope.js";
 
 import type { PluginUiToolCallViewProps } from "@/plugin-ui/contract.js";
 
-const INLINE_AND_FULLSCREEN: readonly McpAppsDisplayMode[] = [
-  "inline",
-  "fullscreen",
-];
+const INLINE_AND_FULLSCREEN: readonly McpAppsDisplayMode[] = ["inline", "fullscreen"];
 const host_resourceShowInline = (handle: PluginSandboxHandle | null) =>
   handle?.resourceMeta?.showInline === true;
 const INLINE_ONLY: readonly McpAppsDisplayMode[] = ["inline"];
@@ -93,17 +83,13 @@ export function usePluginUiToolCallModel(
   );
   // 面板路由目标：工具声明了 surface 时，"侧栏是否已接管"看面板 tab 而不是工具卡片 tab。
   const routedSurfaceKey = presentation?.surface
-    ? buildPluginUiSurfaceKey(surfaceTarget, {
-        kind: "surface",
-        surfaceId: presentation.surface,
-      })
+    ? buildPluginUiSurfaceKey(surfaceTarget, { kind: "surface", surfaceId: presentation.surface })
     : null;
   const sidePaneActive = useSyncExternalStore(
     subscribePluginUiSurfaces,
     () =>
       getPluginUiSurface(toolSurfaceKey) === "side-pane" ||
-      (routedSurfaceKey !== null &&
-        getPluginUiSurface(routedSurfaceKey) === "side-pane"),
+      (routedSurfaceKey !== null && getPluginUiSurface(routedSurfaceKey) === "side-pane"),
     () => false,
   );
 
@@ -125,10 +111,8 @@ export function usePluginUiToolCallModel(
   );
   const superseded = disposition?.superseded === true;
   const forcedInline =
-    disposition?.forcedInline === true ||
-    host_resourceShowInline(hostHandleRef.current);
-  const pinned =
-    manualPin ?? (forcedInline || disposition?.autoExpand === true);
+    disposition?.forcedInline === true || host_resourceShowInline(hostHandleRef.current);
+  const pinned = manualPin ?? (forcedInline || disposition?.autoExpand === true);
   const togglePin = useCallback(() => {
     setPluginUiManualPin(sessionId, toolCall.toolId, !pinned);
   }, [pinned, sessionId, toolCall.toolId]);
@@ -139,10 +123,7 @@ export function usePluginUiToolCallModel(
     onOpenSidePane?.({
       // surface 工具打开的是面板 tab（结果随后路由进面板），普通工具打开工具卡片 tab。
       ...(presentation.surface
-        ? {
-            surfaceId: presentation.surface,
-            serverName: presentation.serverName,
-          }
+        ? { surfaceId: presentation.surface, serverName: presentation.serverName }
         : { toolCallId: toolCall.toolId, serverName: presentation.serverName }),
       pluginId: presentation.pluginId,
       resourceUri: presentation.resourceUri,
@@ -194,20 +175,13 @@ export function usePluginUiToolCallModel(
   // 侧栏接管时内联撤掉展示锚点，管理器继续持有同一个活页面。
   // 被替代的行只留普通记录；结果未就绪（pending / running）时只占位，沙箱在结果到达后才建。
   const resultReady = toolResult !== undefined;
-  const inlineActive =
-    supportedScope && !sidePaneActive && !superseded && resultReady;
+  const inlineActive = supportedScope && !sidePaneActive && !superseded && resultReady;
   const host = usePluginUiHost({
-    presentation: presentation ?? {
-      serverName: "",
-      pluginId: "",
-      resourceUri: "",
-    },
+    presentation: presentation ?? { serverName: "", pluginId: "", resourceUri: "" },
     scope: {
       workspacePath: scope?.workspacePath ?? context.workspacePath,
       remoteSessionId: scope?.remoteSessionId ?? undefined,
-      ...(scope?.workspaceIdentity
-        ? { workspaceIdentity: scope.workspaceIdentity }
-        : {}),
+      ...(scope?.workspaceIdentity ? { workspaceIdentity: scope.workspaceIdentity } : {}),
       sessionId,
       scope: toolScope,
     },
@@ -241,42 +215,22 @@ export function usePluginUiToolCallModel(
     appAllowsDisplayMode(host.appCapabilities, "fullscreen");
   // 资源级 showInline（随句柄到达）：没有手动记录时写成固定，之后折叠边界据此重算。
   useEffect(() => {
-    if (
-      !supportedScope ||
-      host.handle?.resourceMeta?.showInline !== true ||
-      !sessionId
-    )
-      return;
+    if (!supportedScope || host.handle?.resourceMeta?.showInline !== true || !sessionId) return;
     if (getPluginUiManualPin(sessionId, toolCall.toolId) === undefined) {
       setPluginUiManualPin(sessionId, toolCall.toolId, true);
     }
   }, [host.handle, sessionId, supportedScope, toolCall.toolId]);
 
   useEffect(() => {
-    if (
-      !inlineActive ||
-      !host.supported ||
-      !inlineAllowed ||
-      !capabilitiesReady
-    )
-      return;
+    if (!inlineActive || !host.supported || !inlineAllowed || !capabilitiesReady) return;
     return claimPluginUiSurface(toolSurfaceKey, "inline");
-  }, [
-    inlineActive,
-    host.supported,
-    inlineAllowed,
-    capabilitiesReady,
-    toolSurfaceKey,
-  ]);
+  }, [inlineActive, host.supported, inlineAllowed, capabilitiesReady, toolSurfaceKey]);
 
   // preferredDisplayMode: fullscreen → 工具卡片一出现就自动打开侧栏一次。
   // 必须等能力握手完成，不能让默认偏好先把 inline-only 页面打开到侧栏。
   const autoOpenKey =
     presentation?.preferredDisplayMode === "fullscreen"
-      ? buildPluginUiSurfaceKey(surfaceTarget, {
-          kind: "toolCall",
-          toolCallId: toolCall.toolId,
-        })
+      ? buildPluginUiSurfaceKey(surfaceTarget, { kind: "toolCall", toolCallId: toolCall.toolId })
       : null;
   const sidePaneMemoryKey = buildTaskSidePaneMemoryKey({
     workspacePath: surfaceTarget.workspacePath,
@@ -295,8 +249,7 @@ export function usePluginUiToolCallModel(
       return;
     // 已经在侧栏的调用也要消费；否则关闭后重新挂载会补触发，覆盖用户关闭状态。
     if (!claimPluginUiSidePaneAutoOpen(sidePaneMemoryKey, autoOpenKey)) return;
-    if (getPluginUiSurface(routedSurfaceKey ?? toolSurfaceKey) === "side-pane")
-      return;
+    if (getPluginUiSurface(routedSurfaceKey ?? toolSurfaceKey) === "side-pane") return;
     openInSidePane();
   }, [
     supportedScope,
@@ -311,8 +264,7 @@ export function usePluginUiToolCallModel(
   ]);
 
   return {
-    supported:
-      supportedScope && host.supported && (inlineAllowed || canOpenSidePane),
+    supported: supportedScope && host.supported && (inlineAllowed || canOpenSidePane),
     surface: presentation?.surface,
     preferredDisplayMode: presentation?.preferredDisplayMode ?? "inline",
     sidePaneActive,
@@ -330,14 +282,9 @@ export function usePluginUiToolCallModel(
         : undefined,
     host,
     // 资源级声明优先，工具级兜底，都没有默认画边框。
-    prefersBorder:
-      host.handle?.resourceMeta?.prefersBorder ??
-      presentation?.prefersBorder ??
-      true,
+    prefersBorder: host.handle?.resourceMeta?.prefersBorder ?? presentation?.prefersBorder ?? true,
     superseded,
-    ...(supportedScope && !superseded && inlineAllowed
-      ? { pinned, onTogglePin: togglePin }
-      : {}),
+    ...(supportedScope && !superseded && inlineAllowed ? { pinned, onTogglePin: togglePin } : {}),
     pinLabel: intl.formatMessage({ id: "pluginUi.pin" }),
     unpinLabel: intl.formatMessage({ id: "pluginUi.unpin" }),
     loadingLabel: intl.formatMessage({ id: "pluginUi.loading" }),

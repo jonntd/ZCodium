@@ -1,6 +1,5 @@
-/* oxlint-disable eslint(max-lines) -- Gen UI 源文件过滤（上游）与按文件撤销账本（fork）共用同一份 file-changes 投影状态机，拆分会重复请求键、缓存失效与撤销修订的判定。 */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronRightIcon, Loader2Icon, Undo2Icon } from "lucide-react";
+import { ChevronRightIcon, LoaderCircle, Undo2Icon } from "lucide-react";
 import type {
   CommandAck,
   ConversationRowTarget,
@@ -8,6 +7,7 @@ import type {
   V4ConversationFileChangesResult,
   V4ConversationFileRewindPreviewResult,
 } from "@zcode/shared/zcode-protocol-v4";
+import { TID_V4_FILE_SUMMARY_UNDO_LOCKED } from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import { cn } from "@/components/lib/utils.js";
 import {
@@ -21,18 +21,56 @@ import { toWorkspaceRelativePath } from "@/lib/taskChangeSummary.js";
 import { buildChangeSummaryFilePreviewSource } from "@/messageChangeSummaryPreview.js";
 import { OpenSplitButton } from "@/OpenSplitButton.js";
 import { logger } from "@/logger.js";
-import { openDiff } from "@/v4/conversationFileChangeDiff.js";
 import { collectGenUiSourcePaths, matchesGenUiSourcePath } from "@/gen-ui/contract.js";
-import { ConversationFileRewindDialog } from "@/v4/ConversationFileRewindDialog.js";
+import {
+  ConversationFileRewindDialog,
+  FileRewindLockedHint,
+} from "@/v4/ConversationFileRewindDialog.js";
 import type {
   ConversationFileChangesRequestOptions,
   ConversationRowRenderContext,
 } from "@/v4/conversationRowContext.js";
 
+type FileChangeItem = V4ConversationFileChangesResult["items"][number];
+
 interface ConversationFileSummaryPanelProps {
   header: TurnHeaderRow;
   context: ConversationRowRenderContext;
   assistantText?: string;
+}
+
+function formatPatch(path: string, patches: FileChangeItem["patches"]): string {
+  if (patches.length === 0) return "";
+  const lines = [`--- a/${path}`, `+++ b/${path}`];
+  for (const patch of patches) {
+    lines.push(
+      `@@ -${patch.oldStart},${patch.oldLines} +${patch.newStart},${patch.newLines} @@`,
+      ...patch.lines,
+    );
+  }
+  return lines.join("\n");
+}
+
+function openDiff(
+  item: FileChangeItem,
+  context: Pick<
+    ConversationRowRenderContext,
+    "workspacePath" | "workspaceIdentity" | "workspaceRemoteSessionId" | "onOpenCodeViewer"
+  >,
+) {
+  const patch = formatPatch(item.path, item.patches);
+  const { workspacePath, workspaceIdentity, workspaceRemoteSessionId, onOpenCodeViewer } = context;
+  if (!patch || !onOpenCodeViewer) return;
+  const relativePath = toWorkspaceRelativePath(workspacePath, item.path);
+  onOpenCodeViewer({
+    type: "patch",
+    title: relativePath,
+    path: item.path,
+    patch,
+    workspacePath,
+    ...(workspaceIdentity ? { workspaceIdentity } : {}),
+    ...(workspaceRemoteSessionId ? { workspaceRemoteSessionId } : {}),
+  });
 }
 
 export function ConversationFileSummaryPanel({
@@ -50,9 +88,6 @@ export function ConversationFileSummaryPanel({
   } | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
-  // 按文件撤销（docs/spec/per-file-rewind.md）：null = 整轮撤销入口（缺省全选）；
-  // string = 单文件入口（弹窗仅勾选该文件，仍需确认）。
-  const [singleRevertPath, setSingleRevertPath] = useState<string | null>(null);
   const [preview, setPreview] = useState<V4ConversationFileRewindPreviewResult | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [applying, setApplying] = useState(false);
@@ -97,10 +132,9 @@ export function ConversationFileSummaryPanel({
     { count: String(summary?.files ?? 0) },
   );
   const isReverted = summary?.state === "reverted";
-  const revertedPathSet = useMemo(
-    () => new Set(summary?.revertedPaths ?? []),
-    [summary?.revertedPaths],
-  );
+  // 只有“本轮本来能撤销、只是被 session 锁住”才提示锁定原因；已撤销、运行时未就绪等不提示。
+  const rewindLocked =
+    context.fileRewindLocked === true && header.actions?.canRewindFiles === true && !isReverted;
   const canUndo =
     Boolean(context.applyFileRewind && context.previewFileRewind) &&
     header.actions?.canRewindFiles === true &&
@@ -109,8 +143,6 @@ export function ConversationFileSummaryPanel({
     () => (header.entityId ? { rowId: header.rowId, entityId: header.entityId } : null),
     [header.entityId, header.rowId],
   );
-  // 部分撤销后 state 仍是 active（剩余文件可继续撤销），终端缓存必须随撤销账本失效。
-  const revertedRevision = String(summary?.revertedPaths?.length ?? 0);
   const needsDetails = open || filtersSources;
 
   useEffect(() => {
@@ -125,7 +157,6 @@ export function ConversationFileSummaryPanel({
       .fetchFileChanges(target, {
         cachePolicy,
         fileChangesState,
-        revertedRevision,
       })
       .then(
         (result) => {
@@ -154,62 +185,42 @@ export function ConversationFileSummaryPanel({
     needsDetails,
     open,
     requestKey,
-    revertedRevision,
     target,
   ]);
 
-  const handlePreviewRewind = useCallback(
-    async (singlePath: string | null) => {
-      if (!context.previewFileRewind || !target) return;
-      setSingleRevertPath(singlePath);
-      setDialogOpen(true);
-      setPreviewLoading(true);
-      setError(null);
-      try {
-        setPreview(await context.previewFileRewind(target));
-      } catch {
-        setError(intl.formatMessage({ id: "chat.changeSummary.rewindDialog.error" }));
-      } finally {
-        setPreviewLoading(false);
-      }
-    },
-    [context, intl, target],
-  );
+  const handlePreviewRewind = useCallback(async () => {
+    if (!context.previewFileRewind || !target) return;
+    setDialogOpen(true);
+    setPreviewLoading(true);
+    setError(null);
+    try {
+      setPreview(await context.previewFileRewind(target));
+    } catch {
+      setError(intl.formatMessage({ id: "chat.changeSummary.rewindDialog.error" }));
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [context, intl, target]);
 
-  const handleApply = useCallback(
-    async (paths: string[]) => {
-      if (!context.applyFileRewind || !target || paths.length === 0) return;
-      setApplying(true);
-      setError(null);
-      try {
-        const ack: CommandAck = await context.applyFileRewind(target, paths);
-        if (ack.status === "accepted" || ack.status === "duplicate") {
-          // accepted 不等于还原成功：预检后文件被外部改过时 CLI 回 applied:false，
-          // 必须留在弹窗内给出反馈，避免「看起来撤销了」的静默失败。
-          const applied =
-            ack.result?.type === "applyFileRewind" ? ack.result.applied !== false : true;
-          if (applied) {
-            setDialogOpen(false);
-          } else {
-            setError(
-              (ack.result?.type === "applyFileRewind" ? ack.result.response : undefined) ??
-                ack.message ??
-                intl.formatMessage({ id: "chat.changeSummary.rewindDialog.error" }),
-            );
-          }
-        } else {
-          setError(
-            ack.message ?? intl.formatMessage({ id: "chat.changeSummary.rewindDialog.error" }),
-          );
-        }
-      } catch {
-        setError(intl.formatMessage({ id: "chat.changeSummary.rewindDialog.error" }));
-      } finally {
-        setApplying(false);
+  const handleApply = useCallback(async () => {
+    if (!context.applyFileRewind || !preview?.canApply || !target) return;
+    setApplying(true);
+    setError(null);
+    try {
+      const ack: CommandAck = await context.applyFileRewind(target);
+      if (ack.status === "accepted" || ack.status === "duplicate") {
+        setDialogOpen(false);
+      } else {
+        setError(
+          ack.message ?? intl.formatMessage({ id: "chat.changeSummary.rewindDialog.error" }),
+        );
       }
-    },
-    [context, intl, target],
-  );
+    } catch {
+      setError(intl.formatMessage({ id: "chat.changeSummary.rewindDialog.error" }));
+    } finally {
+      setApplying(false);
+    }
+  }, [context, intl, preview?.canApply, target]);
 
   useEffect(() => {
     if (
@@ -242,7 +253,7 @@ export function ConversationFileSummaryPanel({
           <CollapsibleTrigger asChild>
             <button
               type="button"
-              className="flex h-full min-w-0 flex-1 items-center gap-2 px-1 text-start text-ui-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+              className="flex h-full min-w-0 flex-1 items-center gap-2 px-1 text-left text-ui-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
               aria-label={intl.formatMessage({
                 id: open ? "chat.changeSummary.collapse" : "chat.changeSummary.expand",
               })}
@@ -263,33 +274,35 @@ export function ConversationFileSummaryPanel({
                 <span className="shrink-0 rounded-sm bg-input px-1.5 py-0.5 text-ui-xs text-foreground-subtle">
                   {intl.formatMessage({ id: "chat.changeSummary.reverted" })}
                 </span>
-              ) : summary && revertedPathSet.size > 0 ? (
-                <span className="shrink-0 rounded-sm bg-input px-1.5 py-0.5 text-ui-xs text-foreground-subtle">
-                  {intl.formatMessage(
-                    { id: "chat.changeSummary.revertProgress" },
-                    { rewound: String(revertedPathSet.size), total: String(summary.files) },
-                  )}
-                </span>
               ) : null}
             </button>
           </CollapsibleTrigger>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            disabled={!canUndo || previewLoading || applying}
-            onClick={() => handlePreviewRewind(null)}
-            title={intl.formatMessage({ id: "chat.changeSummary.rewind" })}
+          <FileRewindLockedHint
+            locked={rewindLocked}
+            triggerTestId={TID_V4_FILE_SUMMARY_UNDO_LOCKED}
           >
-            {previewLoading || applying ? <Loader2Icon className="animate-spin" /> : <Undo2Icon />}
-            <span>{intl.formatMessage({ id: "chat.changeSummary.rewind" })}</span>
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={!canUndo || previewLoading || applying}
+              onClick={handlePreviewRewind}
+              title={intl.formatMessage({ id: "chat.changeSummary.rewind" })}
+            >
+              {previewLoading || applying ? (
+                <LoaderCircle className="animate-spin" />
+              ) : (
+                <Undo2Icon />
+              )}
+              <span>{intl.formatMessage({ id: "chat.changeSummary.rewind" })}</span>
+            </Button>
+          </FileRewindLockedHint>
         </div>
         <CollapsibleContent>
           <div className="grid w-full border-t border-border">
             {loadingDetails ? (
               <div className="flex h-8 items-center gap-2 px-2 text-ui-base text-foreground-subtle">
-                <Loader2Icon className="size-3.5 animate-spin" />
+                <LoaderCircle className="size-3.5 animate-spin" />
                 {intl.formatMessage({
                   id: "chat.changeSummary.rewindDialog.loading",
                 })}
@@ -304,9 +317,6 @@ export function ConversationFileSummaryPanel({
               items.map((item) => {
                 const relativePath = toWorkspaceRelativePath(context.workspacePath, item.path);
                 const canReview = item.patches.length > 0 && Boolean(context.onOpenCodeViewer);
-                // 按文件撤销：账本命中 = 该文件改动已在此前撤销，行内标已撤销且不再提供入口。
-                const rowReverted = revertedPathSet.has(item.path);
-                const canRevertRow = canUndo && !rowReverted;
                 const filePreviewSource = buildChangeSummaryFilePreviewSource({
                   path: item.path,
                   relativePath,
@@ -319,7 +329,7 @@ export function ConversationFileSummaryPanel({
                     <div
                       aria-disabled={!canReview}
                       className={cn(
-                        "flex w-full items-center gap-1 px-2 py-2 text-start transition-colors",
+                        "flex w-full items-center gap-1 px-2 py-2 text-left transition-colors",
                         canReview ? "cursor-pointer hover:bg-hover/30" : "cursor-default",
                       )}
                       onClick={() => openDiff(item, context)}
@@ -356,33 +366,8 @@ export function ConversationFileSummaryPanel({
                             <span className="text-diff-removed">-{item.deletions}</span>
                           ) : null}
                         </span>
-                        {rowReverted ? (
-                          <span className="shrink-0 rounded-sm bg-input px-1.5 py-0.5 text-ui-xs text-foreground-subtle">
-                            {intl.formatMessage({ id: "chat.changeSummary.reverted" })}
-                          </span>
-                        ) : null}
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="default"
-                          aria-label={intl.formatMessage({
-                            id: "chat.changeSummary.fileRow.revert",
-                          })}
-                          title={intl.formatMessage({
-                            id: "chat.changeSummary.fileRow.revert",
-                          })}
-                          disabled={!canRevertRow || previewLoading || applying}
-                          className="h-7 gap-1.5 rounded-lg px-2 text-ui-base"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            handlePreviewRewind(item.path);
-                          }}
-                          onPointerDown={(event) => event.stopPropagation()}
-                        >
-                          <Undo2Icon />
-                        </Button>
                         <Button
                           type="button"
                           variant="outline"
@@ -437,7 +422,7 @@ export function ConversationFileSummaryPanel({
         applying={applying}
         error={error}
         onApply={handleApply}
-        initialSelectedPath={singleRevertPath}
+        applyLocked={context.fileRewindLocked === true}
       />
     </>
   );

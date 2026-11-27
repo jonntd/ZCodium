@@ -33,7 +33,7 @@ hook results
 
 | 名称 | 初始值 | 用途 |
 | --- | ---: | --- |
-| summary output reserve | `min(modelMaxOutputTokens, 32_000)` | 给 summary 输出和后续请求留空间；没有模型输出上限时默认按 32k 预留。 |
+| summary output reserve | `min(modelMaxOutputTokens, max(21_000, contextWindow × 8%))` | 给 summary 输出和后续请求留空间，也是 summary 请求的 max_tokens；现行算法见 [模型请求输出上限策略](../../../../../../docs/model-request-output-tokens.md)。 |
 | auto compact buffer | `13_000` | 自动 compact 不等到满窗才触发。 |
 | warning/error buffer | `20_000` | UI/SDK 的 context warning。 |
 | manual compact buffer | `3_000` | 自动 compact 关闭时的阻塞保护。 |
@@ -114,7 +114,7 @@ Core 不直接读写文件、不读 `process.env`、不直接调用 provider SDK
 4. 运行 `PreCompact` hook，合并用户指令和 hook 指令。
 5. 构造 no-tools summary prompt。
 6. 通过 provider adapter 发起单轮 summary 请求。
-7. 清洗 `<analysis>`，只保留 `<summary>`。
+7. 按 README「摘要文本的选取」选出一个文本块，清洗 `<analysis>`，只保留 `<summary>`。
 8. 生成 boundary 和 compact summary。
 9. 追加 post-compact attachments。
 10. 写入 session log / message part。
@@ -133,7 +133,8 @@ Core 不直接读写文件、不读 `process.env`、不直接调用 provider SDK
 
 - 自定义 `/compact 重点保留测试输出` 会进入 summary prompt。
 - hook 指令会被追加，用户指令在前。
-- summary agent 尝试 tool call 时被拒绝，并转为失败或重试。
+- 摘要回复带 tool call 时，工具不执行；选出的块有摘要（成对的 `<summary>` 或行首 `<summary>`）时用它生成摘要。只有 tool call，或只有开场白（例如 "Let me read the file first."）时失败（auto 同一次压缩内重试）。
+- 摘要回复有多个文本块时，用最后一个含 `<summary>` 的块；都不含时用最后一个块。
 - compact 后下一轮 context builder 不再包含旧历史。
 - compact 失败不会写入半截 boundary。
 
@@ -151,7 +152,7 @@ Core 不直接读写文件、不读 `process.env`、不直接调用 provider SDK
 策略：
 
 ```text
-effectiveWindow = contextWindowForModel - min(modelMaxOutputTokens, 32_000)
+effectiveWindow = contextWindowForModel - min(modelMaxOutputTokens, max(21_000, contextWindowForModel × 8%))
 autoThreshold = effectiveWindow - 13_000
 shouldCompact = activeTokenEstimate >= autoThreshold
 ```
@@ -162,6 +163,9 @@ shouldCompact = activeTokenEstimate >= autoThreshold
 - 用户配置关闭 auto compact。
 - `querySource` 是 `compact`、`session_memory`、summary agent、subagent 内部压缩路径。
 - 当前 session 的连续自动 compact 失败数达到 3。
+- 历史不够压缩：入口按全部存储条目判断（至少 2 轮、至少一条 assistant），和 reactive compact 的入口相同；
+  请求投影删除的回复仍然算历史。入口不够时直接跳过，不写 compact 时间线。通过入口后，compact 保留最后一轮，
+  只对其余部分再判断一次，不够时写一条 Skipped 时间线；正常回复的历史也是这样。
 
 测试：
 
@@ -203,6 +207,9 @@ active context 的裁剪、summary 生成、boundary 持久化和 resume/replay 
 - 调用 reactive compact：`CompactTrigger.Reactive`，`CompactReason.ProviderOverflow`。
 - reactive compact 成功后重放本轮 provider 请求。
 - 仍失败才把 context overflow 作为用户可见错误抛出。
+- 入口按全部存储条目判断历史是否够压缩（至少 2 轮、至少一条 assistant），和 auto compact 的入口相同。
+  请求投影删除的回复（没有工具调用、只有思考或空白）仍然算历史；入口不够时直接跳过，不写 compact 时间线。
+  通过入口后，compact 保留最后一轮，只对其余部分再判断一次，不够时写一条 Skipped 时间线，再抛出超窗错误。
 - reactive retry guard 的作用域是当前 model-step 重试链：reactive compact 成功后 guard 保持已使用，
   原地重试仍然 context overflow 时直接抛出 `model_context_exceeded`，避免无限重试；只有同一
   product turn 的完整 sibling tool result batch 全部终态、持久化并完成 guide drain 后，才进入下一个

@@ -13,56 +13,7 @@ import {
   classifyRemoteConnectionError,
   type RemoteConnectionStatus,
 } from "@/lib/remoteConnectionPresentation.js";
-import type { SourceServerOperationLog } from "@zcode/shared";
-
-const PHASES = [
-  ["channel", "remote.phase.channel"],
-  ["identify", "remote.phase.identify"],
-  ["deploy", "remote.phase.deploy"],
-  ["handshake", "remote.phase.handshake"],
-] as const;
-
-/** 只读所属 Host 的结构化阶段，不改旧 SSH 向导或资源安装时序。 */
-export function resolveRemoteOperationProgress(
-  allLogs: readonly Pick<SourceServerOperationLog, "phase" | "progress" | "timestamp" | "level">[],
-) {
-  const tail = allLogs.at(-1);
-  const logs = tail && (tail.phase === "ready" || tail.level === "error") ? [] : allLogs;
-  const normalize = (phase: string) => {
-    if (phase === "probe") return "channel";
-    if (phase === "directory-record") return "identify";
-    if (["publish-online", "daemon", "protocol-handshake", "restart"].includes(phase))
-      return "handshake";
-    if (
-      [
-        "download",
-        "preflight",
-        "upload",
-        "extract",
-        "verify-archive",
-        "verify",
-        "install",
-      ].includes(phase)
-    )
-      return "deploy";
-    return phase;
-  };
-  let index = 0;
-  for (const log of logs)
-    index = Math.max(
-      index,
-      PHASES.findIndex(([phase]) => phase === normalize(log.phase)),
-    );
-  const latest = logs.at(-1);
-  const transfer = latest?.progress !== undefined && ["upload", "download"].includes(latest.phase);
-  return {
-    index,
-    total: PHASES.length,
-    titleId: PHASES[index]![1],
-    ...(transfer ? { percent: Math.floor(latest.progress! * 100) } : {}),
-    ...(logs[0] ? { startedAt: logs[0].timestamp } : {}),
-  };
-}
+import { resolveRemoteOperationProgress } from "@/remote-connection/RemoteConnectionConnectingStep.js";
 
 /** 与 Host 侧 resolveProjectHostService 相同的解析；URL Server 直连不属于 Source 管理域。 */
 function sourceServerIdForHost(host: RemoteProjectHost): string | undefined {

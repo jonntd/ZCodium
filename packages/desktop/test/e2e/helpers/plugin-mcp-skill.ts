@@ -4,9 +4,12 @@
 // plugin 安装记录落到 <E2E_HOME>/.zcode/cli/plugins/，并 patch cli config。
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
+// 修复原因：Windows 上 URL.pathname 是 `/C:/...`，resolve 后变成 `C:\C:\...`，
+// 与 wdio 写入工作区配置的真实插件路径不一致；必须用 fileURLToPath 转本机路径。
 const FIXTURES_ROOT = resolve(
-  dirname(new URL(import.meta.url).pathname),
+  dirname(fileURLToPath(import.meta.url)),
   "..",
   "fixtures",
   "plugin-mcp-skill",
@@ -22,6 +25,7 @@ export const PLUGIN_MCP_PLUGIN_ID = "e2e-plugin-mcp-ping@e2e-fixture";
 // `apps/zcode-cli/packages/adapters/src/mcp/index.ts:normalizeMcpToolDescriptor`。
 export const PLUGIN_MCP_TOOL_NAME = "mcp__plugin_e2e-plugin-mcp-ping_ping__ping";
 export const PLUGIN_MCP_MARKER_PREFIX = "E2E_PLUGIN_MCP_PING";
+const TITLE_REQUEST_MARKER = "Generate a concise title";
 
 /**
  * 读取 upstream replay 捕获的请求记录，遍历 tools 数组，断言指定工具名是否注册。
@@ -57,6 +61,7 @@ export async function findUpstreamRequestContaining(
       for (const record of artifact.records) {
         if (
           containsText(record.requestJson, marker) &&
+          !containsText(record.requestJson, TITLE_REQUEST_MARKER) &&
           (!options?.advertisedToolName ||
             captureArtifactAdvertisesToolName(record.requestJson, options.advertisedToolName))
         ) {
@@ -69,7 +74,8 @@ export async function findUpstreamRequestContaining(
       }
     }
     // 修复原因：同一首发 prompt 会并发触发主请求与标题请求，两者都含 marker，
-    // 但只有主请求携带 MCP tools。指定 advertisedToolName 时必须等到主请求落盘。
+    // 但只有主请求携带 MCP tools 与插件运行时内容。标题请求（system 为 Generate a concise title）
+    // 一律排除，必须等到主请求落盘，否则可能先取到标题请求导致后续断言读不到插件内容。
     if (latest) return latest;
     await sleep(250);
   }

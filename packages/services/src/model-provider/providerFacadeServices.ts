@@ -13,20 +13,12 @@ import {
   type ProviderSettingsCreationResult,
   type ModelConfigResolution,
   type ProviderSettingsView,
-  type RemoteModelCatalogRequest,
-  type RemoteModelCatalogResult,
   type ResolveModelConfigInput,
   type SavePersonalModelDraftInput,
 } from "@zcode/provider";
 import { createServiceDescriptor } from "../descriptors.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
-import type {
-  ModelhubFetchModelsRequest,
-  ModelhubFetchModelsResult,
-} from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
-import { fetchModelhubModels } from "./modelhubFetchModels.js";
-import type { RemoteModelCatalogExecutor } from "./remoteModelCatalog.js";
 
 export type {
   ProviderSettingsProviderView,
@@ -76,16 +68,6 @@ export interface IProviderSettingsService {
   testModelConnectivity(
     input: ProviderSettingsConnectivityRequest,
   ): Promise<ModelConnectivityResult>;
-  /**
-   * 拉取自定义渠道的模型列表（modelhub）。由 **Host/Server 的 Node 侧**执行，
-   * 因此没有浏览器 CORS 限制：桌面渲染进程走 main IPC，Web 端经本方法（RPC）转发。
-   *
-   * 可选：Web 端以它是否存在判断「当前 Host 是否支持拉取模型」，
-   * 决定 `platform.modelhubFetchModels` 是否暴露（UI 的按钮可见性依赖该探测）。
-   */
-  fetchModels?(payload: ModelhubFetchModelsRequest): Promise<ModelhubFetchModelsResult>;
-  /** 用草稿连接信息探测 Provider 的可用模型列表；纯读，不落盘、不改 Registry。 */
-  listRemoteModels(input: RemoteModelCatalogRequest): Promise<RemoteModelCatalogResult>;
 }
 
 export const IProviderSettingsService = createServiceDescriptor<IProviderSettingsService>(
@@ -128,7 +110,6 @@ export function createProviderSettingsService(
   facade: ProviderSettingsFacade,
   ensureReady: () => Promise<void> = async () => {},
   testConnectivity?: ProviderSettingsConnectivityTester,
-  listRemoteModels?: RemoteModelCatalogExecutor,
 ): IProviderSettingsService {
   return {
     onDidChange: toEvent((listener) => facade.onDidChange(listener)),
@@ -224,15 +205,6 @@ export function createProviderSettingsService(
         providerId: input.providerId,
         modelId: input.modelId,
       });
-    },
-    // 不需要 ensureReady：拉取只用到 renderer 给的 baseUrl/apiKey，不读 Host 的 provider 配置视图。
-    fetchModels: (payload) => fetchModelhubModels(payload),
-    listRemoteModels: async (input) => {
-      // 检测使用表单草稿值，与 Registry/落盘配置无关，不需要 ensureReady 或快照资格判断。
-      if (!listRemoteModels) {
-        throw new Error("当前 Environment 未装配模型可用性探测能力");
-      }
-      return listRemoteModels(input);
     },
   };
 }

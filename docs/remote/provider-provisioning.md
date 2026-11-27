@@ -15,6 +15,35 @@ v0 能力不提供远程配置管理 UI；本地 Environment 是编辑权威，�
 
 ## 不变量
 
+独立 Server 发布 ready 前验证凭据安全存储。Linux 无 Secret Service 时，管理员须在
+目标服务环境配置 `ZCODE_CREDENTIAL_SECRET_FILE`（目标机的受管 secret 文件，32–4096
+字节、原字节读取）或既有 `ZCODE_CREDENTIAL_SECRET`，不可同时配置。systemd/launchd
+应在服务环境持久配置文件位置，而非只在临时 shell 设置。重启时必须保留同一密钥；
+不能从 Desktop 复制系统主密钥，也不能自动降级到可推导密钥。
+Docker Web App 的 `scripts/docker-run-web-app.sh` 将显式文件只读挂载到容器；可以用
+`ZCODE_CREDENTIAL_SECRET_FILE=/path/to/managed-secret scripts/docker-run-web-app.sh` 启动。
+文件应由管理员以 0600 或受控只读 secret mount 提供，并保证容器运行用户 UID 10001
+可读取；只读挂载不会自动改变宿主文件的属主权限。程序不生成、不打印密钥；没有
+安全后端时启动失败，不接受可能写入失败的 Provisioning。
+
+SSH/WSL 的 Server 由 Desktop 按需启动，不能假设会读取 `.bashrc` 中的 export。
+Desktop 对 SSH/WSL/Docker 按需启动显式传入 `--prepare-credentials`，在远端的 ZCode
+配置目录准备私有 `credential-secret`（默认
+`~/.zcode/v2/credential-secret`，32–4096 字节、0400/0600）。Server 会在没有显式环境配置时
+读取这个文件，重新连接和进程重启均沿用它，不依赖 shell 类型。仅在没有显式配置、
+已有文件和 v2 密文时创建随机密钥；在凭据锁和密钥锁内排他发布，不覆盖已有文件。
+已有 v2 数据不换密钥；旧 v1 数据先用历史规则认证解密，再迁移到随机文件密钥。
+显式 `ZCODE_CREDENTIAL_SECRET` / `ZCODE_CREDENTIAL_SECRET_FILE` 优先，错误的显式配置
+不能回退到约定文件。不同数据根用各自配置目录，不能复制 Desktop 的系统密钥。
+文件内容按原字节读取，包括换行；从环境变量迁移时须保证字节完全相同，不能用
+自动追加换行的写法改变密钥。密钥丢失或被替换后不能恢复原密文，应独立备份管理。
+远端与同一用户的 Desktop 共用 `~/.zcode/v2`，且 Desktop 已把凭据库固定为系统库来源时，
+准备命令改为创建 `<server-root>/credentials/`，Server 在其中使用自有凭据文件和
+`credential-secret`，Provisioning 写入该文件，不改动 Desktop 的共享库。远端配置了显式密钥
+且共享库已有该密钥写入的 `enc:v2:env:` 条目时，保持共享库（见
+[系统凭证存储](../plans/2026-10-29-system-credential-storage.md#同机共用数据根server-自有凭据库2026-11-11)）。
+缺少安全后端时，现有连接错误详情会保留上述文件名、目标配置目录和重连指引。
+
 - 远端正式 `provider_config.json`、`model-selection.json`、`setting.json` 和 Credential Store
   仍是远端 Environment 的事实源。
 - Provisioning 只写目标 Environment 的正式 Store，完成后由目标 Environment 自己重建
@@ -61,8 +90,8 @@ Workspace B ─┼─> Remote Environment key ─> single-flight lane ─> 一�
 Workspace C ─┘
 ```
 
-Main 只保存 Environment key、Host registration、trigger、generation 和请求关联信息，不读取
-或转发配置与 Secret。被选中的 Window Host 在执行时重新读取最新 Local Source，并调用该
+Main 只保存 Environment key、Host registration（含可选 sourceServerId）、trigger、generation、
+最近一次执行结果（不含 Secret）和请求关联信息，不读取或转发配置与 Secret。被选中的 Window Host 在执行时重新读取最新 Local Source，并调用该
 Environment 的 Remote Target。同步期间发生的新触发只推进 generation；当前轮结束后再读取
 一次最新快照形成尾随同步，不为每个事件排队，也不使用固定延迟。
 
@@ -99,8 +128,11 @@ Settings，也不显示 Local → Remote 手动同步按钮。远端配置的修
 自身的管理入口完成；首次连接自动 Provisioning 仍遵循上面的条件与失败语义。
 
 页面中的模型连通性测试同样属于 Local Environment。激活远程 Workspace 时，测试必须选择本地
-workspace 作为 Agent cwd；没有可用本地 workspace 时返回不可用结果，不能把远程
-`workspacePath`/`workspaceIdentity` 发送给 Local Host。
+目录作为 Agent cwd，顺序为：远程 tab 记住的本地来源路径 → 已打开的本地 workspace → Local Host
+的对话目录（`fileService.ensureConversationWorkspace()`，由 Host 解析并创建）。Provider 配置是本机
+全局配置，测试不依赖项目；只打开远程项目、没有本地 tab 时也在本机测试。只有 Local Host 无法提供
+对话目录时才返回不可用结果。任何情况下都不能把远程 `workspacePath`/`workspaceIdentity` 发送给
+Local Host。
 
 ```text
 SettingsPage
@@ -165,23 +197,23 @@ snapshot、queue、owner/lease 和 `workspaceIdentity` 边界不变。
 
 同步范围由版本化 allowlist 定义：
 
-- `oauth:active_provider`；
-- `oauth:zai:*`、`oauth:bigmodel:*` 的 access token、refresh token、user info；
+- `oauth:active_provider`、`oauth:session_revision`；
+- `oauth:zai:*`、`oauth:zai_cn:*`、`oauth:bigmodel:*` 的 access token、refresh token、user info；
+- 同主会话绑定的 `oauth:linked_bigmodel`；
 - `zcodejwttoken`。
 
-OAuth → Project Token 迁移后，`account-provider:*:api-key` 不再属于同步 allowlist。
-Source 不解密或发送旧账号 Key；Target 不读取、覆盖或删除已有旧/手工 Key。
-新 Source 固定输出 `schemaVersion=2`，表达只替换 OAuth allowlist 的语义；新 Target 接受 v1/v2，v1 旧 `account-provider` 条目校验后忽略，结果数量仅统计实际同步的 OAuth 条目。v2 不允许账号 Key 条目。
-旧 Target 仅接受 v1，会在事务和任何 Store 写入之前拒绝 v2。Host 按现有同步失败语义报告失败，不把信封降级为 v1，也不透传旧 Key；远端已有 OAuth、Key 和配置保持不动，升级 Target 后才能同步。磁盘幂等状态版本不变。
+新 Source 固定输出 `schemaVersion=3`。v3 表示上述完整 OAuth 会话组；旧 Target 在解析阶段拒绝，任何 Store 写入之前终止，不能降级信封。新 Target 接受 v1/v2/v3：v1 历史账号 Key 只校验不应用，v1/v2 只允许旧 OAuth 字段；应用旧信封时清除新字段，不能拼接目标原有关联。每次实际应用和成功回滚均生成新的目标会话 revision，不复用 Source 或回滚前的 revision；同 syncId 重放仍零写入。
+
+Source 从一次凭据文件原子快照读取。Target 通过 Host 私有 `loadMany` 捕获整组旧值、`updateMany(expected)` 在凭据文件锁内比较并替换整组，单次通知。回滚也只做整组 CAS：当前值已等于旧值则无需写；等于本次已写快照才能恢复内容，同时生成新 revision，拒绝回滚前启动的旧请求。期间另一次登录/登出改动整组时，保留新登录并报告 `rollback_failed`，不能逐键回滚为混合会话。其余 Personal Config/窄设置沿原事务与 CAS 规则。
 
 ```text
-新 Source v2 → 旧 Target v1 校验拒绝 → 零写入，保留旧凭据
-新 Source v2 → 新 Target → 仅替换 OAuth allowlist
-旧 Source v1 → 新 Target → 忽略历史账号 Key，保留目标已有值
+Source 原子会话快照 → v3 信封 → 旧 Target：解析拒绝、零写入
+                              → 新 Target：整组 CAS → Registry 刷新 → 完成
+                                                      └失败：整组 CAS 回滚
+                                                               └会话已更新：保留新会话，报告失败
 ```
 
-目标 Host 用同步的登录态和自己的 Key ID 缓存换 Token；短期 Token 和 ID 缓存不跨 Environment 传输。
-显式手工 Provider 的 Key 仍随 Personal Config 同步。此变更不修改现有同步 lane、事务回滚或 desktop continuous/mobile replayable 边界。
+OAuth → Project Token 迁移后，`account-provider:*:api-key` 不属于同步 allowlist。Source 不解密或发送旧账号 Key；Target 不读取、覆盖或删除已有旧/手工 Key。目标 Host 用同步的登录态和自己的 Key ID 缓存换 Token；短期 Token 和 ID 缓存不跨 Environment 传输。显式手工 Provider 的 Key 仍随 Personal Config 同步。磁盘幂等状态版本、同步 lane 和 desktop continuous/mobile replayable 边界不变。
 
 不导出 SSH 密码/私钥、Bot 凭据、MCP OAuth token、插件 Secret 或其它通用 Credential key。
 
@@ -281,8 +313,11 @@ Host execution admission
   （“Provider Provisioning 仅支持受信 Desktop Host”），Window Host 的手机 allowlist 也不含该 channel。
   旧版 daemon（无 target）不会在 R3 主链上收到 Envelope：`ZCODE_MIN_COMPATIBLE_VERSION` 默认等于
   产品版本，R3 兼容门在握手阶段就判定“需升级”并先执行远端更新，更新后的 Core 才进入首连 Provisioning。
-  Core 使用的 ZCode Built-in Provider Config 由构建期 define 按内容 hash 物化到
-  `~/.zcode/server/config/provider/zcode-builtin-<sha256>.json`（不写进不可变 release 目录）。
+  Core 使用的 ZCode Built-in Provider Config 由构建期 define 在 Core 启动时物化到 Environment 配置根
+  `~/.zcode/v2/runtime/provider/bundled/zcode-builtin.json`（不写进不可变 release 目录）。运行中该文件与
+  Endpoint Active 同时被删除时，Source 使用本进程已解析的 Bundled 基线继续服务并重建 Active，
+  Provisioning 同步不再持续失败到 Core 重启（规则见
+  [Built-in Release 与活动缓存](../working-memory/provider-refactor/design/registry/configuration.md)）。
   R3 侧接线见 [r3-source-server-remote-architecture.md §8.3](../architecture/r3-source-server-remote-architecture.md)。
 
   ```text
@@ -291,11 +326,11 @@ Host execution admission
     └─ /ws       web-remote-replayable ─► { apply: () => throw }（stub；手机 allowlist 亦不含该 channel）
   ```
 
-- Remote Workspace 已连接后的自动同步失败只记录结构化 warning，不拆除现有连接，也不改变本地保存成功反馈；本轮不新增 Environment 错误状态、协议、Banner 或设置页入口。这是远程配置独立管理上线前的临时过渡语义。
+- Remote Workspace 已连接后的自动同步失败记录结构化 warning，不拆除现有连接，也不改变本地保存成功反馈；不新增 Banner，也不在模型设置页新增入口。Main 协调器按 lane 在内存中保留最近一次执行结果（时间、成功 / 失败、固定阶段码），供数据同步页「模型提供商」分类读取，Composer 连接切换也在保存后用 `waitForIdle` 读取它作为下发屏障（见 [Composer 模型与思考档位](../composer-model-thinking.md)「保存后等待远端下发结果」）；该分类在设备有 lane 且最近一次失败时提供「重试」，重试推进同一条 lane（trigger `user-retry`），不新增同步链路，见 [R3 §8.3.6](../architecture/r3-source-server-remote-architecture.md) 与 [数据同步](data-sync.md)。
 - 网络断开导致结果未知时，以 `syncId` 重试；目标端重复收到任意已完成 `syncId` 时返回之前结果，
   不会因后续同步覆盖幂等记录而重新应用旧 Envelope。
 - Environment 离线时保留一次待同步意图，重新上线后读取最新本地状态执行；普通失败不循环
-  重试，等待下一次真实触发。
+  重试，等待下一次真实触发或用户在数据同步页的重试。
 
 ## Desktop 附着 Source 的连接初始化与反向资源通道
 

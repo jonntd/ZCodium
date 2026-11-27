@@ -1,27 +1,15 @@
 import { normalizeRemoteConnectionError } from "@zcode/shared";
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
-import {
-  access,
-  copyFile,
-  lstat,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { access, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   SOURCE_SERVER_RELEASE_DESCRIPTOR_FILE_NAME,
   ZCODE_VERSION,
   normalizeRemoteAssetInstallMode,
   sourceServerReleaseDescriptorSchema,
-  remoteRuntimeAssetSettingsSchema,
-  type OfflineRuntimeImportResult,
   type RemoteTarget,
   type SourceServerReleaseArchive,
   type SourceServerReleaseDescriptor,
@@ -29,14 +17,26 @@ import {
 import {
   buildReleaseAssetUrlCandidates,
   buildReleaseBaseCandidates,
-  assertRemoteCdnBaseVersionMatches,
 } from "@zcode/server/remote/remoteAssetCdn.js";
 import {
   resolveRemoteAssetFetch,
   type RemoteAssetNetworkPort,
 } from "@zcode/server/remote/remoteAssetNetwork.js";
-import type { ServerReleaseAsset, SourceServerProbeResult } from "@zcode/server/source-server";
+import { createUnsupportedRemotePlatformError } from "@zcode/server/remote/remotePlatformSupport.js";
+import type {
+  ServerReleaseAsset,
+  SourceServerProbeResult,
+  TransportContext,
+} from "@zcode/server/source-server";
 import type { WindowRemoteAssetDirs } from "./windowRemoteConnectionRegistry.js";
+
+/** release 解析的调用方上下文：本机请求响应取消，本机下载按 `download` 阶段写进度（R3 §6.3）。 */
+export interface SourceServerReleaseResolveOptions extends Pick<
+  TransportContext,
+  "signal" | "onLog"
+> {
+  metadataOnly?: boolean;
+}
 
 interface ResolvedDescriptor {
   descriptor: SourceServerReleaseDescriptor;
@@ -82,17 +82,10 @@ function findArchive(
 }
 
 function resolveArchiveUrls(releaseBases: string[], archive: SourceServerReleaseArchive): string[] {
-  const allowedOrigins = new Set(releaseBases.map((base) => new URL(base).origin));
-  // 显式镜像不能被 descriptor 内的绝对 URL 绕回另一个公网源。
-  const absolute = archive.urls.filter(
-    (url) => /^https?:\/\//u.test(url) && allowedOrigins.has(new URL(url).origin),
-  );
+  const absolute = archive.urls.filter((url) => /^https?:\/\//u.test(url));
   const relative = archive.urls.filter((url) => !/^https?:\/\//u.test(url));
   return Array.from(
-    new Set([
-      ...absolute,
-      ...buildReleaseAssetUrlCandidates(releaseBases, [...relative, archive.fileName]),
-    ]),
+    new Set([...absolute, ...buildReleaseAssetUrlCandidates(releaseBases, relative)]),
   );
 }
 
@@ -122,85 +115,11 @@ async function resolveLocalDescriptor(
   return { archive, archivePath };
 }
 
-/** #68：导入与部署共同使用同一严格校验器；提交指针之前绝不改写原有可用代。 */
-export async function importOfflineRuntime(
-  directory: string,
-  remoteCacheDir: string,
-): Promise<OfflineRuntimeImportResult> {
-  if (typeof directory !== "string" || !isAbsolute(directory) || !remoteCacheDir) {
-    throw new Error("Offline runtime requires an absolute directory and a local cache");
-  }
-  const descriptorPath = join(directory, SOURCE_SERVER_RELEASE_DESCRIPTOR_FILE_NAME);
-  const info = await lstat(descriptorPath);
-  if (!info.isFile() || info.isSymbolicLink() || info.size > 1024 * 1024) {
-    throw new Error("Invalid offline runtime descriptor file");
-  }
-  const sourceDescriptor = readDescriptor(await readFile(descriptorPath, "utf8"));
-  const cacheRoot = join(remoteCacheDir, "source-server", ZCODE_VERSION);
-  const staging = join(cacheRoot, "offline", `.staging-${randomUUID()}`);
-  const archives: SourceServerReleaseArchive[] = [];
-  await mkdir(staging, { recursive: true });
-  try {
-    for (const archive of sourceDescriptor.archives) {
-      const source = join(directory, archive.fileName);
-      const fileInfo = await lstat(source).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return null;
-        throw error;
-      });
-      // 发布描述文件列出所有平台，但用户可以只下载自己需要的平台。
-      if (!fileInfo) continue;
-      if (
-        !fileInfo.isFile() ||
-        fileInfo.isSymbolicLink() ||
-        !(await verifyArchive(source, archive))
-      ) {
-        throw new Error(`Offline runtime verification failed: ${archive.target}`);
-      }
-      const destination = join(staging, archive.fileName);
-      await copyFile(source, destination);
-      // 用户选中的目录仍可能被外部修改；复验副本，避免校验与复制之间的文件替换。
-      if (!(await verifyArchive(destination, archive))) {
-        throw new Error(`Offline runtime copy verification failed: ${archive.target}`);
-      }
-      archives.push(archive);
-    }
-    if (!archives.length) throw new Error("Offline runtime directory contains no platform archive");
-    const descriptorText = JSON.stringify({ ...sourceDescriptor, archives });
-    const descriptorHash = createHash("sha256").update(descriptorText).digest("hex");
-    const generation = `${descriptorHash}-${randomUUID()}`;
-    await writeTextAtomic(
-      join(staging, SOURCE_SERVER_RELEASE_DESCRIPTOR_FILE_NAME),
-      descriptorText,
-    );
-    await rename(staging, join(cacheRoot, "offline", generation));
-    // 并发窗口各写独立代，最后原子发布；读取者永远不会看到半导入状态。
-    await writeTextAtomic(join(cacheRoot, "offline-active.json"), JSON.stringify({ generation }));
-    return { version: ZCODE_VERSION, targets: archives.map((archive) => archive.target) };
-  } catch (error) {
-    await rm(staging, { recursive: true, force: true });
-    throw error;
-  }
-}
-
-async function resolveImportedArchive(cacheRoot: string, target: string) {
-  const pointer = join(cacheRoot, "offline-active.json");
-  if (!(await pathExists(pointer))) return null;
-  const { generation } = JSON.parse(await readFile(pointer, "utf8")) as { generation: unknown };
-  if (typeof generation !== "string" || !/^[a-f0-9]{64}-[a-f0-9-]{36}$/u.test(generation)) {
-    throw new Error("Invalid offline runtime generation");
-  }
-  const releaseDir = join(cacheRoot, "offline", generation);
-  const descriptor = readDescriptor(
-    await readFile(join(releaseDir, SOURCE_SERVER_RELEASE_DESCRIPTOR_FILE_NAME), "utf8"),
-  );
-  if (!descriptor.archives.some((archive) => archive.target === target)) return null;
-  return resolveLocalDescriptor(releaseDir, target);
-}
-
 async function resolveRemoteDescriptor(
   remoteAssets: WindowRemoteAssetDirs,
   cacheRoot: string | null,
   remoteAssetNetwork?: RemoteAssetNetworkPort,
+  signal?: AbortSignal,
 ): Promise<ResolvedDescriptor> {
   const releaseBases = buildReleaseBaseCandidates(
     remoteAssets.remoteCdnBaseUrls ??
@@ -217,13 +136,15 @@ async function resolveRemoteDescriptor(
   const fetchImpl = resolveRemoteAssetFetch(remoteAssetNetwork);
   for (const url of descriptorUrls) {
     try {
-      const response = await fetchImpl(url);
+      const response = await fetchImpl(url, { signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const text = await response.text();
       const descriptor = readDescriptor(text);
       if (cachedDescriptorPath) await writeTextAtomic(cachedDescriptorPath, text);
       return { descriptor, releaseBases };
     } catch (error) {
+      // 取消不是候选地址失败：不再尝试下一个地址，也不回退到缓存的 descriptor。
+      signal?.throwIfAborted();
       lastError = error;
     }
   }
@@ -236,35 +157,75 @@ async function resolveRemoteDescriptor(
   throw new Error("Unable to resolve Source Server release descriptor", { cause: lastError });
 }
 
+/** 本机下载进度：消息格式与上传进度一致，最多每 500 毫秒写一次，下载结束补 100%。 */
+function createDownloadProgress(totalBytes: number, onLog: TransportContext["onLog"]) {
+  const startedAt = Date.now();
+  let receivedBytes = 0;
+  // 第一条进度也等满 500 毫秒：只凭首个数据块算出的速度偏高，会让预计剩余时间失真。
+  let reportedAt = startedAt;
+  const report = () => {
+    reportedAt = Date.now();
+    const progress = totalBytes > 0 ? Math.min(1, receivedBytes / totalBytes) : 0;
+    const seconds = Math.max(0.001, (reportedAt - startedAt) / 1000);
+    onLog?.({
+      phase: "download",
+      message: `download progress: ${(progress * 100).toFixed(1)}% (${(receivedBytes / 1048576).toFixed(1)}/${(totalBytes / 1048576).toFixed(1)} MB, ${(receivedBytes / 1048576 / seconds).toFixed(2)} MB/s)`,
+      progress,
+    });
+  };
+  return {
+    add(bytes: number) {
+      receivedBytes += bytes;
+      if (Date.now() - reportedAt >= 500) report();
+    },
+    finish: report,
+  };
+}
+
 async function downloadArchive(
   archive: SourceServerReleaseArchive,
   urls: string[],
   cacheRoot: string,
   remoteAssetNetwork?: RemoteAssetNetworkPort,
+  { signal, onLog }: Pick<TransportContext, "signal" | "onLog"> = {},
 ): Promise<string> {
   await mkdir(cacheRoot, { recursive: true });
   const cached = join(cacheRoot, archive.fileName);
   if (await verifyArchive(cached, archive)) return cached;
   await rm(cached, { force: true });
+  // Bug 原因（ZCT-2117527614209818624）：这里下载约 90MB archive 时不写日志、不接收取消信号。
+  // 慢网下更新停在“Checking the remote device”几分钟，向导无法取消，只能等下载结束或网络超时。
+  onLog?.({ phase: "download", message: `Downloading Source Server ${archive.version}` });
   let lastError: unknown;
   const fetchImpl = resolveRemoteAssetFetch(remoteAssetNetwork);
   for (const url of urls) {
     const temporary = `${cached}.${process.pid}.${randomUUID()}.tmp`;
     try {
-      const response = await fetchImpl(url);
+      const response = await fetchImpl(url, { signal });
       if (!response.ok || !response.body) throw new Error(`HTTP ${response.status}`);
+      const progress = createDownloadProgress(archive.sizeBytes, onLog);
       await pipeline(
         Readable.fromWeb(response.body as never),
+        async function* (source: AsyncIterable<Buffer>) {
+          for await (const chunk of source) {
+            progress.add(chunk.length);
+            yield chunk;
+          }
+        },
         createWriteStream(temporary, { mode: 0o600 }),
+        { signal },
       );
+      progress.finish();
       if (!(await verifyArchive(temporary, archive))) {
         throw new Error(`Source Server archive checksum mismatch: ${archive.fileName}`);
       }
       await rename(temporary, cached);
       return cached;
     } catch (error) {
-      lastError = error;
       await rm(temporary, { force: true }).catch(() => undefined);
+      // 取消不是候选地址失败：删除临时文件后直接结束，不再尝试下一个地址。
+      signal?.throwIfAborted();
+      lastError = error;
     }
   }
   throw new Error(`Unable to download Source Server release ${archive.fileName}`, {
@@ -278,6 +239,10 @@ export async function resolveSourceServerReleaseAsset(
   try {
     return await resolveReleaseAsset(...args);
   } catch (error) {
+    // Bug 原因：首次安装把窗口的连接信号传给 resolver 后，「取消连接」以无原因的 abort() 中止下载，
+    // 抛出的是只读 DOMException；这里给它写 code 会抛 TypeError，取消被记成下载失败（unknown、error 级）。
+    // 取消不是下载失败，原样抛出取消原因，由调用方按取消收口。
+    args[4]?.signal?.throwIfAborted();
     const failure = normalizeRemoteConnectionError(error, "download");
     throw Object.assign(error instanceof Error ? error : new Error(failure.message), failure);
   }
@@ -288,21 +253,21 @@ async function resolveReleaseAsset(
   remoteAssets: WindowRemoteAssetDirs,
   remoteTarget: Exclude<RemoteTarget, { kind: "server" }>,
   remoteAssetNetwork?: RemoteAssetNetworkPort,
-  options: { metadataOnly?: boolean } = {},
+  options: SourceServerReleaseResolveOptions = {},
 ): Promise<ServerReleaseAsset> {
   if (
     (probe.platform !== "linux" && probe.platform !== "darwin") ||
     (probe.arch !== "x64" && probe.arch !== "arm64")
   ) {
-    throw new Error(`Unsupported Source Server release target: ${probe.platform}-${probe.arch}`);
+    // Bug 原因：英文拒绝信息没有公开码，又被下载阶段兜底成 remote-download-failed，
+    // riscv64 等设备看到“下载失败”并被建议重试；平台不支持应使用专用码和中文原因。
+    // Bug 原因：原因曾写成“Linux / macOS”，连接错误脱敏把空格后的裸 `/` 当作路径遮到行尾，
+    // 用户只看到“只提供 Linux [redacted-path]”。脱敏无法区分路径与分隔符，列举改用顿号。
+    throw createUnsupportedRemotePlatformError(
+      `当前不支持 ${probe.platform}-${probe.arch} 设备：远程服务只提供 Linux、macOS 的 x64 与 arm64 版本`,
+    );
   }
   const target = `${probe.platform}-${probe.arch}`;
-  const settings = remoteRuntimeAssetSettingsSchema.parse(
-    remoteAssets.runtimeAssetSettings ?? { mode: "online" },
-  );
-  if (settings.mode !== "offline" && settings.baseUrl) {
-    assertRemoteCdnBaseVersionMatches([settings.baseUrl], ZCODE_VERSION);
-  }
   const installMode =
     remoteTarget.kind === "ssh"
       ? normalizeRemoteAssetInstallMode(remoteTarget.assetInstallMode)
@@ -310,29 +275,6 @@ async function resolveReleaseAsset(
   const cacheRoot = remoteAssets.remoteCacheDir
     ? join(remoteAssets.remoteCacheDir, "source-server", ZCODE_VERSION)
     : null;
-
-  const asLocalRelease = (
-    local: NonNullable<Awaited<ReturnType<typeof resolveLocalDescriptor>>>,
-  ) => ({
-    localArchivePath: local.archivePath,
-    target,
-    version: ZCODE_VERSION,
-    sha256: local.archive.sha256,
-    sizeBytes: local.archive.sizeBytes,
-    urls: [],
-  });
-  // 离线是硬网络边界，必须早于 fetch、metadata preview、开发态分支和 remote-download。
-  if (settings.mode === "offline") {
-    const local =
-      cacheRoot &&
-      ((await resolveImportedArchive(cacheRoot, target)) ??
-        (await resolveLocalDescriptor(cacheRoot, target)));
-    if (!local)
-      throw new Error(
-        `Source Server offline runtime missing for ${ZCODE_VERSION}/${target}; import the matching runtime first`,
-      );
-    return asLocalRelease(local);
-  }
 
   if (
     remoteTarget.kind === "ssh" &&
@@ -363,13 +305,6 @@ async function resolveReleaseAsset(
   }
 
   if (installMode === "local-download-upload") {
-    // 已验证的完整本地缓存无需先请求公网描述文件；这也是内网复用缓存的关键。
-    if (cacheRoot) {
-      const imported = await resolveImportedArchive(cacheRoot, target);
-      if (imported) return asLocalRelease(imported);
-      const cached = await resolveLocalDescriptor(cacheRoot, target).catch(() => null);
-      if (cached) return asLocalRelease(cached);
-    }
     // Bug 原因：开发态曾直接信任 gitignore 的 dist-release；同版本源码变化后仍会部署旧包。
     // 现在只接受本轮 staging 写入 mock-cdn 且通过 descriptor SHA/size 校验的本地产物。
     const localReleaseDirs = remoteAssets.mockCdnDir
@@ -390,15 +325,10 @@ async function resolveReleaseAsset(
   }
 
   const resolvedDescriptor = await resolveRemoteDescriptor(
-    settings.baseUrl
-      ? {
-          ...remoteAssets,
-          remoteCdnBaseUrls: [settings.baseUrl],
-          remoteCdnBaseUrl: settings.baseUrl,
-        }
-      : remoteAssets,
+    remoteAssets,
     cacheRoot,
     remoteAssetNetwork,
+    options.signal,
   );
   const archive = findArchive(resolvedDescriptor.descriptor, target);
   const urls = resolveArchiveUrls(resolvedDescriptor.releaseBases, archive);
@@ -414,7 +344,7 @@ async function resolveReleaseAsset(
   if (!cacheRoot)
     throw new Error(`Source Server release cache is unavailable: ${archive.fileName}`);
   return {
-    localArchivePath: await downloadArchive(archive, urls, cacheRoot, remoteAssetNetwork),
+    localArchivePath: await downloadArchive(archive, urls, cacheRoot, remoteAssetNetwork, options),
     target,
     version: ZCODE_VERSION,
     sha256: archive.sha256,

@@ -1,10 +1,10 @@
 import { expect, it, vi } from "vitest";
-import { createSessionId, createTurnId } from "@zcode/contracts";
+import { ToolSearchAnnouncementSchema, createSessionId, createTurnId } from "@zcode/contracts";
 import { createToolRegistry } from "../src/tool/registry.js";
 import { toolSearchToolEntry } from "../src/tool/handlers/tool-search.js";
 import { deferredToolCallEntry } from "../src/tool/handlers/deferred-tool-call.js";
-import { webFetchToolEntry } from "../src/tool/handlers/webfetch.js";
-import { todoWriteToolEntry } from "../src/tool/handlers/todo.js";
+import { taskOutputToolEntry } from "../src/tool/handlers/task-output.js";
+import { todoReadToolEntry } from "../src/tool/handlers/todo.js";
 import { buildToolExposure, buildToolSearchAnnouncement } from "../src/tool/search/exposure.js";
 import { prepareRuntimeProviderRequest } from "../src/runtime/helpers/runtime-provider-request-messages.js";
 import { createToolExecutor } from "../src/tool/executor.js";
@@ -13,15 +13,15 @@ import { createTestRuntimeModel } from "./test-runtime-model.js";
 import { searchTools } from "../src/tool/search/search.js";
 import type { RuntimeMessageEntry } from "../src/agent/message-history.js";
 
-const reference = { type: "tool_reference" as const, toolName: "WebFetch" };
+const reference = { type: "tool_reference" as const, toolName: "TaskOutput" };
 function fixture() {
   const registry = createToolRegistry();
   const handler = vi.fn();
   [
     toolSearchToolEntry,
     deferredToolCallEntry,
-    todoWriteToolEntry,
-    { ...webFetchToolEntry, handler },
+    todoReadToolEntry,
+    { ...taskOutputToolEntry, handler },
   ].forEach((entry) => registry.register(entry));
   const model = {
     ...createTestRuntimeModel({
@@ -47,8 +47,8 @@ function searchHistory(): RuntimeMessageEntry[] {
         role: "assistant",
         content: "",
         toolCalls: [
-          { id: "search", name: "ToolSearch", input: { query: "select:WebFetch" } },
-          { id: "second", name: "ToolSearch", input: { query: "select:TodoWrite" } },
+          { id: "search", name: "ToolSearch", input: { query: "select:TaskOutput" } },
+          { id: "second", name: "ToolSearch", input: { query: "select:TodoRead" } },
         ],
       },
     },
@@ -70,7 +70,7 @@ function searchHistory(): RuntimeMessageEntry[] {
         role: "tool",
         toolName: "ToolSearch",
         toolCallId: "second",
-        content: [{ type: "tool_reference", toolName: "TodoWrite" }],
+        content: [{ type: "tool_reference", toolName: "TodoRead" }],
       },
     },
   ];
@@ -118,8 +118,10 @@ it.each(["error", "unmatched", "unavailable"] as const)(
     const result = entries[2]!;
     if (result.kind === "attachment") throw new Error("unexpected attachment");
     if (state === "error") result.message.isError = true;
-    if (state === "unmatched") result.message.content = "No matching deferred tools found";
-    if (state === "unavailable") registry.unregister("WebFetch");
+    if (state === "unmatched")
+      result.message.content =
+        "No matching deferred tools found. Loaded tools are not searchable here and need no loading. Check your loaded tool list and query; try corrected spelling, alternative names, or broader keywords before concluding a tool is missing.";
+    if (state === "unavailable") registry.unregister("TaskOutput");
     for (const mode of ["native", "local"] as const) {
       const prepared = prepareRuntimeProviderRequest(
         { config: { toolSearch: { mode } } },
@@ -145,26 +147,32 @@ it.each(["native", "local"] as const)(
     });
     const call = {
       id: "invalid",
-      name: mode === "native" ? "WebFetch" : "DeferredToolCall",
-      input: mode === "native" ? {} : { name: "WebFetch", input: {} },
+      name: mode === "native" ? "TaskOutput" : "DeferredToolCall",
+      input: mode === "native" ? {} : { name: "TaskOutput", input: {} },
     };
     const invalid = await executor.execute(call, { toolSearch: exposure.context });
     expect(invalid.success).toBe(false);
     expect(invalid.toolCallId).toBe("invalid");
     expect(invalid.modelContent).toContain("InputValidationError");
     const known = await executor.execute(call, {
-      toolSearch: { ...exposure.context, discovered: new Set(["WebFetch"]) },
+      toolSearch: { ...exposure.context, discovered: new Set(["TaskOutput"]) },
     });
     const guidance =
       "\n\nThis tool's schema was not sent to the API — it was not in the discovered-tool set derived from message history. " +
       "Without the schema in your prompt, typed parameters (arrays, numbers, booleans) get emitted as strings and the client-side parser rejects them. " +
-      'Load the tool first: call ToolSearch with query "select:WebFetch", then retry this call. ' +
-      `For reference, this tool's input schema is: ${JSON.stringify(webFetchToolEntry.inputSchema)}`;
+      `Load the tool first: call ${mode === "local" ? "LocalToolSearch" : "ToolSearch"} with query "select:TaskOutput", then retry this call. ` +
+      `For reference, this tool's input schema is: ${JSON.stringify(taskOutputToolEntry.inputSchema)}`;
+    // 纠错段落属于这次校验错误，放在 `</tool_use_error>` 之内。
+    const closing = "</tool_use_error>";
+    expect(known.modelContent?.endsWith(closing)).toBe(true);
     expect(invalid.modelContent).toBe(
-      `${known.modelContent}${guidance}` +
-        (mode === "local" ? '\nCall DeferredToolCall with {name: "WebFetch", input: {...}}.' : ""),
+      `${known.modelContent?.slice(0, -closing.length)}${guidance}` +
+        (mode === "local"
+          ? '\nCall DeferredToolCall with {name: "TaskOutput", input: {...}}.'
+          : "") +
+        closing,
     );
-    expect(known.modelContent).not.toContain("select:WebFetch");
+    expect(known.modelContent).not.toContain("select:TaskOutput");
     const off = buildToolExposure({
       mode: "off",
       registry,
@@ -173,12 +181,12 @@ it.each(["native", "local"] as const)(
       entries: [],
     });
     const disabled = await executor.execute(
-      { ...call, name: "WebFetch", input: {} },
+      { ...call, name: "TaskOutput", input: {} },
       { toolSearch: off.context },
     );
     expect(disabled.modelContent).toBe(known.modelContent);
     expect(handler).not.toHaveBeenCalled();
-    registry.unregister("WebFetch");
+    registry.unregister("TaskOutput");
     const missing = await executor.execute(call, { toolSearch: exposure.context });
     expect(missing.success).toBe(false);
     expect(missing.modelContent ?? "").not.toContain("For reference, this tool's input schema is:");
@@ -265,4 +273,115 @@ it("does not promote a derived success marker to a media protection anchor", () 
   expect(prepared.request.messages.at(-1)?.content).toBe("Tool loaded.");
   expect(prepared.projection.sourceEntries.at(-1)).toBeUndefined();
   expect(prepared.projection.diagnostics.latestRealUserMessageIndex).toBe(-1);
+});
+
+it("announces final removal without retracting a definition that was never delivered", () => {
+  const { registry, model } = fixture();
+  registry.unregister("TodoRead");
+  registry.unregister("TaskOutput");
+  registry.unregister("DeferredToolCall");
+  registry.register({
+    ...todoReadToolEntry,
+    metadata: {
+      ...todoReadToolEntry.metadata,
+      name: "Opaque",
+      shouldDefer: true,
+      mcpPresentation: { serverName: "source", toolName: "fetch" },
+    },
+  });
+  const initial = buildToolSearchAnnouncement({
+    registry,
+    model,
+    mode: "native",
+    tools: registry.toContracts(),
+    entries: [],
+    mcp: { pending: [], failed: [] },
+  })!;
+  registry.unregister("Opaque");
+  const input = {
+    registry,
+    model,
+    mode: "native" as const,
+    tools: registry.toContracts(),
+    entries: [initial],
+    mcp: { pending: [], failed: [] },
+  };
+  const removed = buildToolSearchAnnouncement(input)!;
+  expect(removed.metadata?.toolSearchMcpDelta?.retractedTools).toBeUndefined();
+  expect(removed.content).not.toContain("Disregard those definitions");
+  expect(removed.content).toContain("no longer available in this session");
+  expect(buildToolExposure(input).tools.map((tool) => tool.name)).not.toContain("ToolSearch");
+  expect(buildToolSearchAnnouncement({ ...input, entries: [initial, removed] })).toBeUndefined();
+});
+
+it.each(["native", "local"] as const)(
+  "delivers final removal facts after %s search becomes unavailable",
+  (mode) => {
+    const { registry, model } = fixture();
+    for (const name of ["TodoRead", "TaskOutput"]) registry.unregister(name);
+    const name = "mcp__sample__ping";
+    registry.register({
+      ...todoReadToolEntry,
+      metadata: {
+        ...todoReadToolEntry.metadata,
+        name,
+        mcpPresentation: { serverName: "sample", toolName: "ping" },
+      },
+    });
+    const input = { mode, model, registry, tools: registry.toContracts(), entries: [] };
+    const first = buildToolSearchAnnouncement(input)!;
+    const status = buildToolSearchAnnouncement({
+      ...input,
+      entries: [first],
+      mcp: { pending: ["sample"], failed: [] },
+    })!;
+    expect.soft(status.metadata.toolSearchMcpDelta?.toolOrigins).toBeUndefined();
+    registry.unregister(name);
+    const last = buildToolSearchAnnouncement({
+      ...input,
+      tools: registry.toContracts(),
+      entries: [first, status],
+      mcp: { pending: [], failed: [] },
+    })!;
+    const entries = [
+      { message: { role: "user" as const, content: "continue" } },
+      first,
+      status,
+      last,
+    ];
+    const prepared = prepareRuntimeProviderRequest(
+      { config: { toolSearch: { mode } } },
+      { model, registry, tools: registry.toContracts(), entries },
+    );
+    expect(prepared.request.tools?.some((tool) => tool.name === "ToolSearch")).toBe(false);
+    expect(JSON.stringify(prepared.request.messages)).toContain("their MCP server disconnected");
+    const off = prepareRuntimeProviderRequest(
+      { config: { toolSearch: { mode: "off" } } },
+      { model, registry, tools: registry.toContracts(), entries },
+    );
+    expect(JSON.stringify(off.request.messages)).not.toContain("their MCP server disconnected");
+  },
+);
+
+it("keeps the old strict name delta compatible while recording MCP facts separately", () => {
+  const { registry, model } = fixture();
+  const announcement = buildToolSearchAnnouncement({
+    entries: [],
+    model,
+    registry,
+    tools: registry.toContracts(),
+    mode: "native",
+    mcp: { pending: ["demo"], failed: [] },
+  });
+  expect(announcement?.metadata.toolSearchAnnouncement).toEqual({
+    addedNames: expect.any(Array),
+    removedNames: [],
+    readdedNames: [],
+  });
+  expect(
+    ToolSearchAnnouncementSchema.safeParse(announcement?.metadata.toolSearchAnnouncement).success,
+  ).toBe(true);
+  expect(announcement?.metadata).toMatchObject({
+    toolSearchMcpDelta: { mcp: { pending: ["demo"], failed: [] } },
+  });
 });

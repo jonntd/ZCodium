@@ -158,6 +158,7 @@ CLI 侧已有一份多工作区草案 `apps/zcode-cli/docs/design/v2/multi-works
 - 项目分区新建按钮左侧提供「收起全部项目 / 展开全部项目」。有任一可展开项目展开时收起全部，否则展开全部；包含置顶项目。离线项目仍不可展开，不触发连接。无可展开项目时按钮禁用。
 - 批量操作一次更新现有按 Host + projectId 索引的展开偏好，保留分区自身的折叠、排序和当前会话，刷新后保持。
 - 当前会话的项目归属取 Host 的 task 索引，以 workspaceKey + taskId 精确查找，不能按 cwd 猜项目；当前草稿读取 draftProjectId。显式 projectId（包括 null）优先。桌面与手机在同一入口解析意图，手机仍由 bridge 准备目录并交接；异步读取后导航已改变则丢弃结果。
+- 继承的本地项目必须仍存在于所属 Host 的有效项目列表。项目已删除时，历史会话保留原归属与当前页面；再次点击左上角新建或快捷键时创建未归类草稿，不把历史 project_id 当成有效创建目标。草稿继承同样复验项目；显式选择项目失败仍报错，读取失败不视为已删除。远端无项目创建门禁保持不变。
 
 ```text
 快捷键 / 左上角新建 → 当前会话或草稿 → 项目归属 → Host prepareSession → 草稿
@@ -167,30 +168,57 @@ CLI 侧已有一份多工作区草案 `apps/zcode-cli/docs/design/v2/multi-works
 
 ### 3.4 新建 / 编辑 / 删除
 
-| #   | 问题       | 裁决                                                                                                                                                                                                                                           |
-| --- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| E1  | 删除项目   | 软删除容器：项目行标记 deleted，session 保留 project_id，CLI 库不受影响（消息、标题原样）；时间线仍可见、可打开、可拖入其他项目；远程项目离线时的删除仅移除本机入口（G5），不执行本条的远端软删除                                              |
-| E1a | 恢复       | 唯一入口：新建项目时若 roots 集合与某个同 host 已删项目完全相等（不看顺序与主要目录）则提示恢复；恢复 = deleted 置 0 并按本次填写更新名称 / 主要目录，session 原样回来；拒绝则新建空项目；重新添加已从本机移除的远程项目入口不属于恢复远端项目 |
-| E1b | 彻底删除   | 不提供；软删除项目永久保留                                                                                                                                                                                                                     |
-| E2  | 移除 root  | 绑定该目录的 session 留在项目里                                                                                                                                                                                                                |
-| E3  | 运行中确认 | 删除项目 / 移除 root 不弹确认                                                                                                                                                                                                                  |
-| E4  | 项目名     | 未手改则跟随首个 root 名（`name_overridden`）；同 host 内唯一，重名自动加序号；无 root 无名时叫「新项目」                                                                                                                                      |
-| E5  | roots 校验 | 允许父子嵌套；完全重复去重；不存在的目录拒绝添加                                                                                                                                                                                               |
+| #   | 问题       | 裁决                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E1  | 删除项目   | 软删除容器：项目行标记 deleted，session 保留 project_id，CLI 库不受影响（消息、标题原样）；时间线仍可见、可打开、可拖入其他项目；远程项目离线时的删除仅移除本机入口（G5），不执行本条的远端软删除；远程项目在线删除后保留本机入口，在线刷新把远端删除态写入入口缓存，离线或读取远端失败时不展示该入口，远端恢复后由下一次在线刷新清除                                                                                                                                            |
+| E1a | 恢复       | 两个入口：① 新建项目时若 roots 集合与某个同 host 已删项目完全相等（不看顺序与主要目录）则提示恢复；恢复 = deleted 置 0 并按本次填写更新名称 / 主要目录，session 原样回来；拒绝则新建空项目。② 设置 → 项目的撤销与「已移除的项目」恢复（2026-10-24）：`IProjectService.restoreProject` 复用①的仓库恢复写路径并原样传回 roots，主要目录 / 置顶 / 顺序不变，重名加序号，不校验目录存在，见 `2026-10-24-project-management.md`。重新添加已从本机移除的远程项目入口不属于恢复远端项目 |
+| E1b | 彻底删除   | 不提供；软删除项目永久保留                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| E2  | 移除 root  | 绑定该目录的 session 留在项目里                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| E3  | 运行中确认 | 删除项目 / 移除 root 不弹确认                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| E4  | 项目名     | 未手改则跟随首个 root 名（`name_overridden`）；同 host 内唯一，重名自动加序号；无 root 无名时叫「新项目」                                                                                                                                                                                                                                                                                                                                                                        |
+| E5  | roots 校验 | 允许父子嵌套；完全重复去重；不存在的目录拒绝添加                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 
 ### 3.4.1 新建项目默认排在最前（2026-09-15）
 
 显式新建、恢复或添加的项目在当前控制端所属展示区首位；本地和远程统一混排。偏好键为 (hostId, projectId)，重连、刷新、改名保留位置。置顶与普通区分离，拖动不改 pinned，不向远端写 position。
 
-唯一排序 owner 是 Host 项目仓库的 `projects.position`。在现有创建写事务中分配同 Host 的 `min(position) - 1`，该 Host 没有项目时为 0；不重排历史行，不按 UI 时间倒排，不在保存后再发一次 reorder。失败随同一事务回滚；串行 admission 下后提交的新建自然在前，读取及重启复用已持久化顺序。无 schema/迁移变更，本地与远端仓库共用该规则，桌面 continuous、手机 replayable 及 workspace 身份边界不变。
+Host 项目仓库在现有创建写事务中分配同 Host 的 `min(position) - 1`，该 Host 没有项目时为 0；不重排历史行，不按 UI 时间倒排，不在保存后再发一次 reorder。失败随同一事务回滚，串行 admission 下后提交的新建自然在前。Host 的 `projects.position` 提供首次展示和新项目批次的顺序；各控制端的既有侧栏偏好继续拥有手动显示顺序，不向远端回写。
+
+2026-11-04 新项目同步补充：桌面、手机收到权威目录后，按完整 `(hostId, projectId)` 识别本端排序记录中尚未出现的项目，将它们按目录返回顺序插到已记录项目之前。已记录项目之间的相对顺序完全保留，包括暂时离线、隐藏后重新出现的项目；重命名、普通刷新和重复快照不重新置前。首次加载没有排序记录时直接沿用目录顺序。显式创建端原有 `prepend` 继续用于当前操作，其他端不依赖此本地回调，也必须在刷新与重载后保持新项目在前。置顶与普通项目仍各自成区。
+
+此修复只改变共享侧栏偏好的合并规则，不同步各端完整手动顺序，不增加时间戳、定时器、服务字段或第二份项目状态；已有客户端记录过的项目不追溯重排。无 schema/迁移变更，本地与远端共用该规则，桌面 continuous、手机 replayable 及 workspace 身份边界不变。
 
 ```text
-保存新项目 → Host 原子分配首位 position 并写入 → readTree → 桌面 / Web / 手机列表
-手动拖拽 → 原 reorderProjects → 同一个 projects.position
+保存新项目 → Host 原子分配首位 position → 权威目录
+                                           ├→ 桌面：未记录项目前插 + 保留旧手动顺序
+                                           └→ 手机：未记录项目前插 + 保留旧手动顺序
+手动拖拽 → 当前控制端侧栏偏好；重复目录 / 离线恢复 → 保留已记录位置
 ```
 
-PRO01（accepted/pending）：已有项目时创建新项目，侧栏立即排首位，刷新后仍在首位；沿用 `ui-shell/manual-review/pending/project-native-directory-picker.test.ts` 的真实创建路径。仓库单测覆盖空库、连续创建、手动重排后新建、编辑/恢复保序以及不同 Host 隔离。不以本地 E2E 声称真实手机/远端传输已验证。
+2026-11-12 手机远控（Z.ai App）项目顺序补充：众测反馈桌面侧栏拖动排序后，手机远控项目列表前几项顺序对不上，刷新、重开远控都不变。根因是手动顺序只存在桌面 renderer 的侧栏偏好（`zcode-project-sidebar-preferences.order`，键为 `[hostId, projectId]`），手机 App 没有这份偏好，只能按 Host `position` 排（远端 Host 项目在前、本机项目按 position 升序），而拖动不写 position、也不发变更通知。
+
+本条不改变「不向远端回写 position」：远端 Host 的 `projects.position` 被连接同一 Host 的多个控制端共享，且不同 Host 的 position 不可比较，不能表达本地与远端混排。改为由桌面 renderer 上报显示投影：
+
+- 桌面目录 owner（`ProjectDirectoryProvider`，常驻，`isDesktop` 且首次读取完成后）把侧栏实际显示顺序（置顶区在前、普通区在后，本机与远端统一）经 `window-controller.setProjectDisplayOrder({ order: [{ hostId, projectId }] })` 上报。手机 Web 不上报。
+- Host 只接受 `desktop-continuous` attachment 的上报，手机 attachment 调用为空操作；顺序只存在 Window Host 内存，不落盘、不改 position。内容不变不处理；有手机 attachment 时广播一次 `state:projects`（手机 `window-project-changes` 与 broadcast 两条变化流都由它触发），复用手机「收到即重读」。
+- 手机 attachment 的 `project` / `window-project` 频道 `readTree` 在桌面上报过顺序后带顶层 `projectOrder`（完整列表，每个 Host 的 readTree 都带同一份，离线入口也能排到原位）；桌面自己的 readTree 不变。
+- 分组 / 时间线 / 未读视图不展示项目，手机始终使用项目视图的顺序。
+
+兼容：旧 App 忽略 `projectOrder`，行为不变；旧桌面不下发该字段，新 App 回退原排序；Host 重启后在 renderer 再次上报前同样回退。
+
+```text
+桌面拖动 → 侧栏偏好(localStorage) → ProjectDirectoryProvider.projects(置顶在前)
+        → window-controller.setProjectDisplayOrder → Window Host 内存顺序
+        → (有手机 attachment) broadcast state:projects → 手机重读 readTree(+projectOrder) → 按桌面顺序排
+```
+
+PRO01（accepted/pending）：已有项目时创建新项目，侧栏立即排首位，刷新后仍在首位；沿用 `workspace/projects/project-native-directory-picker.test.ts` 的真实创建路径。仓库单测覆盖空库、连续创建、手动重排后新建、编辑/恢复保序以及不同 Host 隔离。不以本地 E2E 声称真实手机/远端传输已验证。
 
 PRO01 验证：`desktop-e2e-20260915130441227-p90013-a508c06fba08fa3a` 1/1 通过，断言保存后与刷新后的实际项目行顺序；相关单测 8 文件 / 54 项通过，root/E2E typecheck、lint（0 errors / 47 既有 warnings）、相对 HEAD 架构检查通过。默认 staging 基线仍有开工前既存的 root resolver unmanaged-new-file；真实远端/手机链路及 Windows/Linux GUI 未复跑。保持 pending。
+
+PRO02：已有项目 A/B 的手动顺序与 Host 默认顺序不同；手机保存该既有顺序并保持 shared-host 连接。桌面新建 C 后，两端均显示 C 在前、A/B 相对位置不变；随后直接通过 Host 创建 D，验证两个接收端均将 D 前插。手机和桌面重载后顺序不变。浏览器回归另覆盖批量新增、重复目录、已知离线项目恢复和升级身份替换；不以浏览器模拟声明实体手机或远端操作系统已验证。
+
+2026-11-04 验证：旧实现的桌面/手机浏览器前插断言均失败；修复后浏览器回归 3/3、真实 Electron + 390px 触摸浏览器 shared-host 的 PRO02 1/1 通过。证据见[覆盖矩阵](../../testing/conversation-session-e2e-coverage-matrix.md)。实体手机、Windows/Linux GUI 和真实 SSH/WSL 未在本次重跑。
 
 ### 3.5 数据归属
 
@@ -213,12 +241,6 @@ PRO01 验证：`desktop-e2e-20260915130441227-p90013-a508c06fba08fa3a` 1/1 通�
 | C15 | 顶层排序                      | 项目区与任务区独立，不混排                                                                                                                                                                                                                                                                                                             |
 
 ### 3.6 兼容与迁移
-
-2026-11-02，#109：历史重命名/删除不依赖可执行 Provider/Model。必要时复用现有控制面
-客户端拉起同一 workspace CLI，经原 `v4/command` 与 `CommandInbox` 串行裁决，不绕过
-busy、owner/lease、权限与地址边界；归档/取消归档保持 Host-only。仅
-`renameSession` / `deleteSession` 免模型启动门禁，模型执行命令不随控制面启动而放行。
-状态所有者、时序和验收见[运行时边界](../../agents/runtime-boundaries.md#历史管理不依赖可执行模型109)。
 
 | #   | 问题                                                                             | 裁决                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | --- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -256,7 +278,7 @@ busy、owner/lease、权限与地址边界；归档/取消归档保持 Host-only
 | G1  | 远端旧库              | 远端 server bundle 升级时跑同一套迁移；本机新版连旧远端时按旧协议降级展示为单 root 项目                                                                                                                                                     |
 | G2  | 远程单 root           | 创建时必须选择一个有效目录，创建后固定；本地仍允许 0..n roots                                                                                                                                                                               |
 | G3  | 自动连接              | 启动自动连接所有已保存 host；连接成功后只刷新本机已添加的远程项目入口，不自动导入远端全部项目，也不重新添加已从本机删除的项目                                                                                                               |
-| G4  | 上限                  | 远程 host 上限 20                                                                                                                                                                                                                           |
+| G4  | 上限                  | 远程 host 保存数量不设硬上限（2026-10-26）；连接执行继续受既有并发门禁控制                                                                                                                                                                  |
 | G5  | 离线 / error 态操作   | 远程虚拟项目不可展开，不能改名、编辑 roots 或主要目录，项目操作仅允许删除本机保存的入口和缓存；保留远端项目、roots 与会话，不创建待同步删除操作。连接级仍允许重连、删除本机 host 连接记录；删除 host 一并移除其本机项目入口，不删除远端数据 |
 | G6  | 重新添加远程项目      | 用户主动连接并选择远端已有项目后，重新建立本机入口并读取最新信息；仍访问原项目及会话。在线创建远程项目成功后也显式添加入口；常规重连或刷新不执行添加                                                                                        |
 | H1  | 定时 / 闲时 / Bots    | 绑定虚拟项目；创建时取主要目录为 cwd、其余 roots 为附加目录，之后固定                                                                                                                                                                       |
@@ -266,6 +288,22 @@ busy、owner/lease、权限与地址边界；归档/取消归档保持 Host-only
 | H5  | 手机远控 bridge key   | 维持 workspaceKey                                                                                                                                                                                                                           |
 | I1  | 上线                  | 分 MR、同一版本发布                                                                                                                                                                                                                         |
 | I2  | E2E                   | 项目 CRUD、拖拽与拒绝、升降级与备份、4.3.2 多目录恢复、自动归档在项目树下生效；任务区归属与首次归位覆盖 6.1 验收场景；远程离线入口管理覆盖 6.2 验收场景                                                                                     |
+
+### 3.8 取消保存连接数量上限（2026-10-26）
+
+已确认取消 G4 原有的 20 个远程 host 硬上限。历史或未完成连接记录也会计入该数量，
+导致实际设备较少时，新连接在 SSH probe 前被拒绝。现在保存新连接、确认新 Source 身份
+均不得因已保存记录数量失败；不使用更大的固定值替代。此变更不清理存量记录、不改删除语义。
+连接实例、启动重连并发、凭据、身份校验与旧地址合并继续由现有 owner 负责。
+
+```text
+保存连接 → 原有输入与身份校验 → 事务写入 → 现有连接管理器 → SSH/WSL/Docker/Server
+确认新 Source → 原有 membership 与确认校验 → 事务写入
+```
+
+验收 SSH-P0-CONN-10：已有 20 条保存记录时，真实 SSH 新连接及第二个同设备项目成功，
+旧记录保留且同设备只占一条稳定 Source 记录；超过 20 条时仍可经确认新增不同 Source，
+旧 Source 与入口不迁移。普通 SSH 双项目任务链与已有连接管理用例继续回归。
 
 ## 4. 目标架构
 
@@ -387,9 +425,14 @@ saved URL member → credential lookup → Registry physical connection → memb
                                                        └─ workspace attachment → existing task owner
 ```
 
-远端连接列表只枚举有可用连接目标的本机 hosts 记录；历史 task 影子所需的 target_json=NULL 身份占位不表示用户保存了连接，不展示、不占 20 个连接名额。缓存刷新始终推进比较交换版本，内容未变时不发项目变更广播，避免 read → refresh → broadcast → read 的反馈循环。
+远端连接列表只枚举有可用连接目标的本机 hosts 记录；历史 task 影子所需的 target_json=NULL 身份占位不表示用户保存了连接，不展示；保存连接不设数量上限。缓存刷新始终推进比较交换版本，内容未变时不发项目变更广播，避免 read → refresh → broadcast → read 的反馈循环。
 
 迁移的旧 workspace 入口只在同 Host 唯一项目包含旧 cwd 时解析项目 ID；零个或多个匹配保留待选择入口。多个旧 cwd 解析到同一项目时保留已解析入口的 ID，删除重复旧入口；该去重与 CAS 刷新同一事务执行。侧栏只聚合本机保留入口的远端项目和任务；保存 Host 下的未归类任务进入任务区，已软删项目的历史仍进时间线。离线不展示或缓存远端 task 索引。
+
+侧栏读取先取本机入口目录（`remote-projects.readDirectory`），再并行读取本地树和各远端 Host 树；单个 Host 读取失败只影响该 Host。入口目录读取或入口缓存刷新失败时（2026-10-21）：
+
+- 本窗口还没有成功读取过目录（冷启动）：本地项目树照常展示，远程项目本轮不展示，侧栏显示已有的错误行；下次刷新（项目变化、tab 变化、窗口获得焦点）重试。禁止让入口目录故障把本地项目一起清空。
+- 已有成功读取的快照：保留上一次完整快照（含远程项目）并显示错误行，不清空远程部分。远程项目在一轮中消失会取消进行中的远程任务导航、卸载项目编辑表单、挂起首发提交。
 
 直接接入远端 owner 的 Web/客户端，projectService 返回该 owner 的权威树，remote-projects 入口查询返回空目录；不能伪造 Controller 成员表，入口写命令拒绝。桌面窗口的 Controller 查询仍使用本机 base attachment，与 workspace-scoped 的远端服务分开。
 
@@ -406,13 +449,15 @@ CLI 消费点
                                                    来自附加目录的 skill.qualifiedName = `${basename(dir)}/${name}`；prompt 与 mention 列表使用 qualifiedName
   2. subagents roots                             → 追加 <dir>/.zcode/agents；同名并存，qualifiedName 同上
   3. tool path policy                            → additionalDirectories 并入可读写根
-  4. 环境 prompt                                 → 主目录之后列出 Additional directories，仅含路径；空列表不输出
+  4. 环境 prompt                                 → 仓库状态之后列出 Additional working directories，仅含路径；空列表不输出
 不变：AGENTS.md、config(settings/mcp/hooks/plugins)、memory、permissions 仍只按 workingDirectory 解析。
 ```
 
-环境 prompt 使用本次运行实例初始化时收到的 `additionalDirectories`，逐项保留路径，不扫描附加目录内容、不增加权限说明。该列表仅经 Runtime 配置透传到 ContextBuilder，不写入环境快照或新增持久化字段；目录变更仍按 4.3.1 在运行实例重建时生效。
+环境 prompt 使用本次运行实例初始化时收到的 `additionalDirectories`，逐项保留路径，不扫描附加目录内容、不增加权限说明。该列表经 Runtime 配置透传，随环境公告的快照 metadata 写入会话历史，不新增 session 字段或数据库列；目录变更仍按 4.3.1 在运行实例重建时生效，冷恢复后按最近一次公告追加 `Additional working directories added/removed` 增量，原环境块不改写。格式见 `apps/zcode-cli/docs/design/v2/loop/meta-user-context.md`。
 
 #### 4.3.1 目录来源与生效时机
+
+普通新建会话恢复 `sess_${crypto.randomUUID()}`，后缀为带连字符的 UUID v4，不再使用命令哈希。V4 命令工厂只分配一次，pending payload 与重试保留原 ID，Host 以该 ID 预留归属。3.16 已落库的 `session_<32hex>` / `session_<UUID>` 作为不透明身份原样恢复，不迁移主键、不生成别名。读取、引用与邮箱兼容规则见 [Session identity compatibility](../../session-context-tool.md#session-identity-compatibility)。
 
 创建时序：UI 只传选中的 `projectId`（全局创建显式为 NULL）；Host 按 create command 的幂等 ID 分配稳定 session ID，在 app 同一事务预留归属并读取目录，然后才向 CLI 发送 create/firstInput。预留行的 `cli_created_at` 为空，所有列表隐藏，直到 CLI 发布持久会话事实。重复 create 不覆盖已经移动过的归属；失败不伪造会话事实。CLI 不接收项目 ID，只接收 session ID 和 `additionalDirectories`，并拒绝覆盖已存在的运行实例或持久会话；命令重试仍由 CommandInbox 去重。
 
@@ -423,6 +468,22 @@ CLI 消费点
                          ↓
                   Host 镜像后列表可见
 ```
+
+#### 4.3.1a Fork 的首次项目归属（2026-10-30）
+
+显式 fork 在 Host 首次接纳子会话时继承父会话当时的项目归属。同目录可以属于多个项目，不能以目录唯一匹配替代已知父会话的归属；父会话明确未归类时，子会话也保持 NULL。父子关系来自 CLI 持久事实，实时 sessions-index 与按 ID reconcile 均传递 `parentSessionId`，CLI 不接收项目 ID。
+
+Host 在子行首次写入的同一个事务内，以可信 hostId、workspaceKey 和 parentSessionId 读取父行并写入子行归属及首次判定位。已完成归属判定的行（包括 NULL）保持原值；重复摘要、ACK 重放、对账或重启不能覆盖用户后续移动。父行缺失、身份不符或所引用项目缺失时明确失败并回滚本次首次入库，不按目录猜项目、不把错误转换为已决定的 NULL。普通非 fork 发现继续使用既有唯一 root 规则；不改 cwd、CLI 时间、标题、置顶、归档或未读。旧版本已决定的空归属不批量重算，通过现有移动项目操作修复。
+
+```text
+CLI fork / 持久恢复 → 父子关系（summary / reconcile）
+  → Host 写事务：首次子行 + 同 Host/workspace 父归属 + 首次判定位
+  → 提交 → 列表广播 → 父项目内显示子行
+重复帧 / 重连 / 重启 → 已决定归属 → 保留用户组织操作
+桌面 continuous / 手机 replayable → 同一持库 Host 的首次接纳规则
+```
+
+验收 TSL41：A、B 共用一个目录，父会话属于 A；真实 fork 后立即断言子行 project_id=A、仅在 A 的 DOM 容器出现，不在 B 或未归类区。切走与重启后重复断言；手动移到 B 后再同步/恢复不得被拉回 A。父会话未归类、首次对账与实时摘要先后、父行缺失/身份隔离、重复首次接纳使用同一事务规则验证。测试保存持久归属和项目容器证据，不能只断言 workspace 下有记录或全页面存在任务行。
 
 项目归属与 roots 的唯一持久来源仍是 Host 的 app 库。Host 项目服务提供统一目录解析逻辑，供创建、显式恢复和 V4 冷恢复入口复用；CLI 只接收目录列表，不读取 app 库、不理解 project_id，也不新增普通任务的 roots 持久化副本或目录同步协议。新版 Host 在解析成功后显式传入数组（含 `[]`）；字段可选只为兼容旧调用，不能用省略参数掩盖查询失败。
 
@@ -456,6 +517,30 @@ Host app 库：任务归属 + 项目当前 roots（唯一配置来源）
 实现落点：在 Host 的 `subscribeConversationV4` 发出请求前调用同一目录解析逻辑；可沿用已有 `resumeThoughtLevel` 的参数传递路径，但目录查询错误不能被静默吞掉。同步更新 `packages/shared/src/zcode-protocol/index.ts` 的 create/resume schema 和 `packages/shared/src/zcode-protocol-v4/transport.ts` 的 subscribe schema；将 `additionalDirectories` 贯穿 Gateway → `ColdSessionResumeCoordinator` → `resumePersistedSession` → `activateSessionForResume`，在运行实例构建前交给能力与环境 prompt 消费点。Host 通过服务接口注入解析能力，Renderer 不负责拼装目录列表。
 
 实施补充（2026-09-10）：当前 rowsRange / search 等查询也可能先于 subscribe 触发冷恢复。该路径复用既有 `session/requestRuntimePreferences` 的 runtime-materialization 请求，从 Host 同一目录解析接口取得 `additionalDirectories`；不建立另一个目录缓存或同步协议。显式 create/resume/subscribe 的数组仍只在新实例初始化时使用；Host 查询失败必须拒绝初始化。该反向请求已由 READY single-flight 覆盖，因此查询与订阅竞争时只读取一次目录快照。
+
+子会话冷恢复补充（2026-10-22）：CLI 统一从持久化 `sessionKind / parentSessionId` 解析
+`directorySessionId`，沿四类 auxiliary 父链到最近的独立任务；interactive、fork、workflow_parent
+均停止继承。逐层校验 workspace identity 与 cwd，拒绝缺失、已删、成环或跨 workspace 的父链。
+历史 child 缺少 identity 时，仅允许同 cwd 的持久化父链证明归属。查询不激活父 runtime、不回写两库。
+
+Host 在现有 runtime/capabilities 请求中声明 `hostCapabilities.sessionDirectorySource`；CLI
+确认同名能力后，才在显式 session/list 元数据和 runtime-materialization 回调中携带
+`directorySessionId`。旧 Host 不收到新字段；旧 CLI 仍走现有元数据父链查询，完整冷恢复修复
+要求双方支持该能力。协商随 CLI 连接重建，不保存项目或目录副本。
+
+```text
+CLI 持久化父链 → directorySessionId ─┬─ session/list → Host 订阅 / 显式恢复
+                                    └─ 冷恢复反向请求 → Host 本地 / 外部设置应答
+                                                         ↓
+                                             同一项目仓库校验并读取目录
+                                                         ↓
+                                             初始化原 child，目标 ID 不变
+```
+
+冷恢复反向请求必须自带归属事实：CLI 正等待 Host 回包，此时 Host 再发 session/list 会排在
+当前请求之后，造成循环等待。Host 回调只读自身项目仓库；不增加并发协议旁路、重试计时器、
+child 主任务行或目录缓存。新建独立任务仍使用已经预留的自身 ID，自动化固定目录合同不变。
+复现与验收要求见 SAT30：真实进程退出后重开 child，检查正文、原 ID、主列表隔离及两种 delivery 模式。
 
 #### 4.3.2 本地多目录恢复验收
 
@@ -554,7 +639,7 @@ workspace attachment 同样转发远端项目服务，入口目录始终从 Cont
 
 项目树包含未打开 tab 的远端任务。其列表命令复用 Window Controller 的 mutateTask 路由：以稳定 Source + workspaceIdentity 定位现有在线物理连接，先读取该 owner 的任务行验证地址，再执行同一 task service；重命名也转交原 CLI 命令。查询和 pin/archive/read 不为列表创建 logical workspace、切换 tab 或启动 Agent。打开会话时才建立/复用 workspace attachment，手机仍走 shared-host replayable switcher；不能为未打开 tab 的列表命令伪造 remoteSessionId。离线或身份不匹配直接拒绝，绝不落本机。
 
-本机入口管理收口到 `remote-projects` 服务契约：`readDirectory / saveHost / removeHost / addEntry / refreshEntry / removeEntry`。项目服务只处理持库 Host 的权威项目，入口服务不接收任务索引或远端写操作。新增入口产生新的 entry ID；缓存刷新必须携带请求发出时的 entry ID 与 lastSyncedAt，SQL 只 UPDATE 并做比较交换。入口删除后，迟到响应不再有写入目标；移除后主动添加同一 project ID 会产生新 entry ID，旧响应仍不能覆盖它。Host 删除与所属入口删除在同一 SQLite 事务，20 个远端 host 上限在写事务内检查。连接运行态继续归现有连接管理器，凭据继续归凭据服务，不能保存在 target JSON。
+本机入口管理收口到 `remote-projects` 服务契约：`readDirectory / saveHost / removeHost / addEntry / refreshEntry / removeEntry`。项目服务只处理持库 Host 的权威项目，入口服务不接收任务索引或远端写操作。新增入口产生新的 entry ID；缓存刷新必须携带请求发出时的 entry ID 与 lastSyncedAt，SQL 只 UPDATE 并做比较交换。入口删除后，迟到响应不再有写入目标；移除后主动添加同一 project ID 会产生新 entry ID，旧响应仍不能覆盖它。Host 删除与所属入口删除在同一 SQLite 事务。保存新连接和确认不同 Source 身份均不按已有 host 数量拒绝；同一 host 的更新、地址身份合并和 membership 校验保持原合同。连接运行态继续归现有连接管理器，凭据继续归凭据服务，不能保存在 target JSON。
 
 ```text
 显式添加 → 本机入口行（新 entry ID）→ 发起远端读取
@@ -590,7 +675,7 @@ ProjectEditor 保存 → ProjectCreation 登记并刷新 → 校验原 tab / wor
 - 新建项目向导：类型（本地 / 远程）→ 远程先选连接 → 多选文件夹（可不选）→ 名称（默认首 root 名 / 「新项目」）→ 主要目录（默认第一个）。
 - 编辑弹窗：名称、roots 增删、设主要（主要被删自动后补首位）。项目操作菜单使用非模态导航，只有编辑弹窗拥有模态指针/焦点限制；菜单退出动画尚未结束时打开并快速保存弹窗，也必须恢复页面交互，不能手动改 body 样式或用超时解锁。
 - 拖拽：session → 其他项目（同 host 才可投放；仅本地目标缺该 root 时弹窗「将文件夹加入项目」，远程目标目录不匹配直接拒绝）；任务区 session → 项目（同上，使用该 session 的真实绑定目录，允许默认目录之外的 cwd）；项目节点排序。
-- 删除项目：本地项目及在线远端权威项目沿用 E1 软删除；时间线仍显示其 session；新建 roots 集合完全相等（同 host）的项目时弹窗「发现已删除的项目 P（N 个会话），是否恢复」，恢复即 undelete；无其他恢复入口，不提供彻底删除。
+- 删除项目：本地项目及在线远端权威项目沿用 E1 软删除；时间线仍显示其 session；新建 roots 集合完全相等（同 host）的项目时弹窗「发现已删除的项目 P（N 个会话），是否恢复」，恢复即 undelete；侧栏不提供彻底删除。2026-10-24 起设置 → 项目页的批量移除可勾选「同时删除 ZCode 数据」，只对本机项目彻底删除其会话、会话文件、文件检查点与记忆（见 `2026-10-24-project-management.md`「彻底删除数据」）。
 - 远程项目节点：离线或连接失败时显示缓存及离线 / error 状态，不可展开，不可改名、编辑 roots 或主要目录；项目操作仅允许“删除”，语义为从本机移除入口及缓存，远端项目和会话保留。连接级仍可重连或删除本机 host；重连不自动恢复已移除的项目入口。
 - composer：@文件跨 roots 加 root 后缀；skill / subagent 用 qualifiedName；# 提及按项目分组。
 - 设置页 agent 配置管理：目录下拉 = 所有 roots 去重平铺；hooks trust 按真实目录。
@@ -939,7 +1024,7 @@ subscribe in flight -> runtime available/restart -> old ACK rejected
 
 - 沿用本项目的项目行和分区交互，恢复项目/任务折叠、分区拖动顺序与 hover 操作，沿用原偏好。项目区新增为 Plus，任务新增为 MessageCirclePlus。时间线能力保留但暂不展示入口；项目排序移入标题右键菜单。项目行不显示独立箭头，以 Folder/FolderOpen 表达折叠状态；hover/focus/touch 保留“更多、查看文件、新建任务”三个按钮。右键包含查看文件、新建任务与更多菜单的全部操作，兼容键盘菜单键/Shift+F10 与触屏长按。
 - 创建向导先选本地/远端，再填名称和源文件夹。名称使用文件夹图标组合输入，源文件夹使用整块可点击添加区；路径输入仅属于目录浏览器。0 root 项目仍合法。远端可选择已保存连接或在向导内添加连接，选择已有项目或创建远端项目；侧栏不提供独立“添加连接”。
-- 名称聚焦时只保留组合输入外层已有的 ring，内层 Input 不叠加 outline；自动聚焦、鼠标点击和 Tab 返回均遵守此规则，深浅主题、窄屏及强制颜色模式一致。`ui-shell/manual-review/pending/command-center-focus.test.ts` 的 DIALOG-FOCUS-01 验证共享创建弹窗，并用取消退出，不写入项目。
+- 名称聚焦沿用当前表单的共享 Input：边框和背景使用 DESIGN.md 的 focused token，不另叠 outline 或父容器焦点环。自动聚焦、鼠标点击和 Tab 返回均遵守此规则，深浅主题、窄屏及强制颜色模式一致。`ui-shell/manual-review/pending/command-center-focus.test.ts` 的 DIALOG-FOCUS-01 验证共享创建弹窗，并用取消退出，不写入项目。
 - 复用现有连接对话框、目录浏览器和 Host 服务，不创建 workspace tab 或 Agent 来浏览目录。连接归连接管理器，表单只持有草稿，保存归所属 Host；取消/切换目标后拒绝迟到 UI 结果。只有显式选中已有项目或新项目保存成功才添加本机入口。桌面 continuous 与手机 replayable 不变。
 
 ```text
@@ -963,7 +1048,26 @@ subscribe in flight -> runtime available/restart -> old ACK rejected
 
 ### 项目行快捷入口补充
 
+项目行与聊天框项目菜单共用项目详情浮层，本地和远程项目均支持 hover / focus。标题只显示一次项目名，正文不再重复「项目名称」。本地项目正文仅显示「目录」，按项目 `roots` 原顺序逐项展示完整绝对路径；零目录显示「—」，不创建目录。远程项目在相同布局中保留 Host 的连接状态、进度、设备名、连接类型和地址。长路径换行，浮层不超出可用视口；浮层较窄时标签和值改为上下排列，避免目录被挤成一字一行。沿用现有移出、失焦、Escape 关闭和文字复制行为，触屏点击仍执行原有项目操作。
+
+2026-11-06 关闭时序：项目行与聊天框项目菜单均在离开触发区和详情区时立即关闭，不等待关闭计时器或退场动画。快速扫过多个项目不得产生迟到打开或残留叠层；同一入口的 pointer / focus 共用唯一的 300ms 打开任务，离开时撤销。触发区与详情之间的 4px 间隙作为连续命中区，允许移入详情选择、复制文字；选区不阻止离开关闭。触屏操作不排入 hover 打开任务。
+
+```text
+pointer / focus → 一个可撤销的打开任务 → 当前详情
+离开区域 / 失焦 / Escape → 撤销任务 + 立即关闭
+触发区 ↔ 4px 连续命中区 ↔ 详情（可选择、复制）
+```
+
+详情只读取既有项目与 Host 投影；hover 不查询目录、不建连接、不创建 workspace。桌面与手机共享组件，深浅主题及中英文遵守同一展示规则。
+
+```text
+项目 name / roots → 通用详情：标题 + 目录列表
+可选远程 Host     → 追加连接状态、进度、设备、类型和地址
+```
+
 更多下拉与右键复用同一组操作定义，菜单均为非模态，快捷按钮不触发行折叠。查看文件复用现有 WorkspaceFileTree：单 root 直接打开，多 root 由文件按钮菜单选择；零 root 保留禁用按钮，不创建目录或任务。离线远端仍只允许移除本机入口，不借本机文件服务读远端路径。
+
+项目行右键的每个查看文件条目统一显示「查看文件 · 绝对路径」，只有一个 workspace 时也显示完整的 `rootPath`；不缩写为目录名或 `~`。多目录文件菜单复用相同文案，行内文件按钮仍只显示动作提示。项目文件菜单限制在浮层可用宽度内，长路径可换行，避免窄屏裁掉路径。桌面与手机窄屏、深浅主题均沿用共享菜单样式。
 
 文件树展示目标归侧栏 UI，项目折叠状态按 Host + project ID 归常驻侧栏，查看文件后返回列表时保持。远端连接/绑定归现有连接管理器；只有显式查看文件才请求工作区绑定，手机只走可信 shared-host switchWorkspace。迟到的旧打开请求不得覆盖新选择，任务归属和 continuous/replayable 语义不变。
 
@@ -1061,6 +1165,7 @@ Shell active workspace + task UI -> 选中态；mobileViewState -> 手机标记
 
 ### 2026-09-11 补充：输入框项目选择器与侧栏同源
 
+- 桌面项目菜单整体排除原生窗口拖拽命中。菜单向上展开并与标题栏重叠时，搜索框仍可点击聚焦、输入和筛选；菜单外标题栏保留拖拽。Web 与手机沿用同一搜索行为。
 - 项目选择器列出侧栏完整的未删除虚拟项目，包含未打开目录、零 root、自定义名称与本机保留的远程入口；不再读取 workspace tabs，不截断为前 5 项。项目排序复用侧栏偏好；置顶项目排在普通项前，区内顺序不变。搜索文案为“搜索项目” / “Search projects”，按项目名称和 roots 搜索。
 - `project-sidebar` 的窗口级 Provider 单独持有项目树读取及偏好；侧栏与 composer 读取同一投影。Host 仍是项目、roots、远端入口的唯一权威，UI 不写库、不创建第二份项目缓存。读取错误显式显示，不退回 tabs。远端离线/未解析入口可见但不可选。
 - 选中态取草稿 `projectId` 与 workspace 的 Host 身份，同 cwd 的不同项目独立。无项目归属显示“选择项目”。选择项只调用现有 `onCreateTask({projectId, hostId})`，由 Root/Host 的 `prepareSession` 准备主要目录（零 root 自动补齐），再进入草稿；不自行按目录推断归属、不为展示项目拉起 Agent。已提交 session 的 cwd 与归属不改。
@@ -1086,7 +1191,7 @@ user selects {hostId, projectId} -> existing Root createTask -> Host prepareSess
 
 - 详情元数据通过已有 workspace-scoped `ZCodeTaskService.getTaskMeta` 读取 Host 索引（CLI 事实镜像 + Host 组织态），不再读取 CLI active runtime 的 `readSession`，也不依赖旧列表/query cache 是否恰好含当前任务。已归档历史直接打开仍可读取标题。首发尚未落索引时只复用现有未提交乐观元数据，不新增事实写者。
 - 详情读取由现有 active-task hook 拥有；监听当前 workspace 的列表变更、已有 taskListVersion 和 projects 广播重读。请求按 service/attachment + workspaceKey + taskId 隔离；后发请求优先，切换身份或卸载即丢弃迟到结果。失败记录日志，不能拿前一任务标题填当前任务，也不为标题恢复 CLI。
-- 自动归档判据、七天追溯生效及未读 CAS 不变。项目树接受新结果时，只对同 Host + workspaceKey + taskId 从 `archived=false` 变为 `true` 的任务，调用既有 `removeTaskState` 清理本窗口选中态/详情；手动、自动、另一端归档保持相同效果。不把首次读到已归档记录、离线缺行、移除项目入口或失败响应当成归档事件；明确打开既有归档历史仍可查看。
+- 自动归档判据、七天追溯生效及未读 CAS 不变。项目树接受新结果时，只对同 Host + workspaceKey + taskId 从 `archived=false` 变为 `true` 的任务，调用既有 `removeTaskState` 清理本窗口选中态/详情；手动、自动、另一端归档保持相同效果。不把首次读到已归档记录、离线缺行、移除项目入口或失败响应当成归档事件；明确打开既有归档历史仍可查看。读取在途期间，如果有导航提交打开了这个任务（同 workspaceKey + taskId），以之后的导航为准，这一轮不清理：项目树读取是 single-flight，读取期间的新变化只排队到下一轮，所以被接受的快照可能已经过期（例如归档、取消归档、打开在一次读取内先后发生），清理又无法撤回，不能用过期快照顶掉更新的导航（2026-11-06，PLM-EXT-P3C 运行时证据）。
 - 自动归档发生时退出当前详情到原工作区草稿，不自动选中下一条同名任务。导航和草稿仍由现有 session UI store 拥有；项目读取 hook 只比较两个已接受快照，不持久化第二份 archived 或新增同步计时器。
 - CLI/Host schema、migration、owner/lease 以及消息流协议均不变。远端元数据经现有 scoped service/attachment，桌面保持 continuous，手机保持 shared-host + replayable；归档清理不发送停止/删除 CLI 命令。
 
@@ -1207,3 +1312,19 @@ Host readTree + CLI 时间镜像 -> 纯选择器 -> 项目列表 / 最近更新�
 项目视图和 task 时间线共用滚动容器，复用 ScrollFadeViewport 的 24px mask。内容未溢出时无 mask；顶部仅下缘渐隐，中间上下缘渐隐，底部仅上缘渐隐。内容或容器尺寸变化后重新计算，导航栏和底部账户区域不参与 mask。保留列表原有间距、纵向滚动、拖拽边界，桌面和手机、深浅主题共用透明度渐变，不增加颜色或业务状态。
 
 MR !2897 手机文件导航：identity 的权威 session 映射与实际 services 注册共同证明连接有效，不要求 session 重复保存 identity 字段。跨 workspace 的 `workspace-bridge-open` 使用 `fileTreeTaskId` 与 `taskHostId` 定位可信任务 cwd，不能同时携带选择任务的 `taskId` 或 project 草稿。Host 复用任务目录准备，不设置 `initialTaskId`；手机新 Root 初始打开文件树，不选任务、不清除未读。旧 Root 的待返回请求仍遵循原有 generation 清理。关闭文件树后清除壳层已消费的打开请求，侧栏重挂载不得再次消费旧入口。
+
+## 2026-10-26 fork 归属交接与远端历史空归属修复
+
+CLI 的 fork 提交与 Host 的项目归属是两个 owner 的独立提交。Host 收到成功或重复 fork ACK 后，按同 workspace 的父任务继承项目与固化执行目录，落库成功后才将 ACK 返回界面。项目 ID 不进入 CLI 协议。sessions-index 首次摄入使用同一父任务证据，不能仅凭目录猜 fork 项目；通知早于 ACK 和 ACK 重放均不得覆盖用户已修改的归属。
+
+```text
+CLI 提交 fork → Host 继承父任务组织态 → 返回 ACK → UI 打开
+      └─ sessions-index → 首次摄入继承同一父任务（顺序可交换）
+重启 → Host 迁移完成 → CLI 持久化父链 → 冷订阅历史正文
+```
+
+远端已有强制项目约束，历史 remote owner 的 NULL 行是未完成的交接。新增版本化数据迁移只修复可证明的归属：优先同 owner、同 workspace、同 root 的父任务；没有父引用的独立任务只能匹配唯一未删除单 root 项目。零或多匹配、外部父任务、断链不猜测、不自动创建项目。迁移只写 tasks.project_id 与首次判定位，保留正文镜像、时间、置顶、归档、未读和执行目录。后续 CLI 事实摄入可补齐晚到的父任务/项目证据。
+
+本地合法 NULL、已有非空归属及跨 owner 行不能被当前 Host 重分配。重复启动/摄入幂等。迁移使用现有 runner 和表级备份，旧 migration checksum 不变。
+
+合并兼容边界：`0010_remote_task_ownership` 保留 3.17.2 已发布的迁移行为，不修改 checksum 或重跑迁移。当前事实摄入与 fork ACK 则沿用首次判定位：只有尚未完成归属判定的同 owner 远端记录可以补齐晚到证据，已判定的归属（包括 NULL）不会因重放再次继承父项目。创建回执查询与 fork 归属预留同时保留，各自沿原事务提交，不新增第二份归属状态。

@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import type { ProviderSettingsFormModel } from "@/lib/providerSettingsFormTypes.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
-import { Loader2Icon, Trash2, Unplug } from "lucide-react";
+import { LoaderCircle, Trash2, Unplug } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { ModelInputCapabilityBadge } from "@/components/ModelInputCapabilityBadge.js";
 import { Switch } from "@/components/ui/switch.js";
@@ -27,7 +27,6 @@ export function ModelRowInput({
   onDelete,
   onEnabledChange,
   onTest,
-  modelIdReadOnly = false,
 }: {
   model: ProviderSettingsFormModel;
   providerId: string;
@@ -45,8 +44,6 @@ export function ModelRowInput({
   onDelete?: () => void;
   onEnabledChange?: (enabled: boolean) => void;
   onTest?: (model: string) => Promise<ModelConnectivityResult>;
-  /** OrcaRouter 的模型 ID 由目录下拉决定：编辑元数据时不得改写成另一个自由字符串。 */
-  modelIdReadOnly?: boolean;
 }) {
   const { intl, locale } = useZCodeIntl();
   const { showFeedback } = useProviderDetailFeedback();
@@ -223,7 +220,7 @@ export function ModelRowInput({
   ]);
 
   const testIcon = isTesting ? (
-    <Loader2Icon className="size-3.5 text-foreground-subtle animate-spin" />
+    <LoaderCircle className="size-3.5 text-foreground-subtle animate-spin" />
   ) : (
     <Unplug className="size-3.5 text-foreground-subtle" />
   );
@@ -316,7 +313,7 @@ export function ModelRowInput({
           onModelIdBlur={() => {
             void editor.flush().catch(() => undefined);
           }}
-          modelIdReadOnly={modelIdReadOnly || model.builtin}
+          modelIdReadOnly={model.builtin}
         />
         {onDelete ? (
           <Button

@@ -1,5 +1,6 @@
 // V4 已提交命令的 renderer 持久账本。
 // 它只保存客户端恢复线索，不参与 conversation projection，也绝不能据此自动重放。
+import { permissionGrantMode } from "@zcode/shared/zcode-protocol-v4";
 import type {
   CommandAck,
   CommandEnvelope,
@@ -11,7 +12,9 @@ import {
   resolvePendingCommandWorkspaceKey,
   type PendingCommandClientContext,
 } from "@/v4/pendingCommandWorkspace.js";
-import { acceptComposerRecentReceipt } from "@/lib/composerRecent.js";
+import { pendingCommandReplayFor, type PendingCommandReplay } from "@/v4/pendingCommandReplay.js";
+import { logger } from "@/logger.js";
+import { acceptComposerRecentReceipt, type FullAccessRecentReceipt } from "@/lib/composerRecent.js";
 import {
   completePendingTaskDraft,
   markPendingTaskDraftCommand,
@@ -22,17 +25,16 @@ import {
   clearV4ComposerDraft,
   V4_DRAFT_SCOPE_ROOT,
 } from "@/v4/composer/composerDraftStore.js";
-import { pendingCommandReplayFor, type PendingCommandReplay } from "@/v4/pendingCommandReplay.js";
 export type { PendingCommandReplay } from "@/v4/pendingCommandReplay.js";
 
-export const PENDING_COMMAND_TTL_MS = 24 * 60 * 60 * 1_000;
 export type PendingCommandResolution =
   | "accepted"
   | "duplicate"
   | "authoritative"
-  | "unknown"
   | "failed"
   | "discarded";
+
+export const PENDING_COMMAND_TTL_MS = 24 * 60 * 60 * 1_000;
 const STORAGE_KEY = "zcode-v4-pending-commands:v1";
 
 interface StorageLike {
@@ -117,6 +119,7 @@ export class PendingCommandRegistry {
   private readonly storage: StorageLike | undefined;
   private readonly now: () => number;
   private readonly entries = new Map<string, PendingCommandEntry>();
+  private readonly preparingGrant = new WeakMap<PendingCommandEntry, Promise<void>>();
   private readonly listeners = new Set<() => void>();
   private readonly resolutionListeners = new Map<
     string,
@@ -152,6 +155,7 @@ export class PendingCommandRegistry {
   record(
     envelope: CommandEnvelope,
     clientContext?: PendingCommandClientContext,
+    resolveGrant?: () => Promise<FullAccessRecentReceipt>,
   ): PendingCommandEntry | null {
     this.pruneExpired();
     const replay = pendingCommandReplayFor(envelope);
@@ -171,7 +175,7 @@ export class PendingCommandRegistry {
     };
     this.entries.set(key, entry);
     const composer = clientContext?.composer;
-    // 首发恢复线索须先落盘；失败则不上行，不留下无法查询的目录身份。
+    // 首发恢复线索必须先持久化；失败时拒绝上行，不能留下无法查询的待发送身份。
     if (!this.commit() && composer?.draftId) {
       this.entries.delete(key);
       throw new Error("composer.draft-storage-unavailable");
@@ -189,6 +193,24 @@ export class PendingCommandRegistry {
       this.commit();
       throw error;
     }
+    if (resolveGrant) {
+      // 先登记命令，再并行查询归属。慢查询只影响偏好，不推迟工具审批或错误提示。
+      const ready = Promise.resolve()
+        .then(resolveGrant)
+        .then((grant) => {
+          if (this.entries.get(key) !== entry) return;
+          entry.clientContext = { ...entry.clientContext, fullAccess: grant };
+          this.commit();
+        })
+        .catch((error) => {
+          logger.warn("[v4-interaction] 未能确定项目归属，跳过权限偏好记录", {
+            commandId: envelope.commandId,
+            error,
+          });
+        })
+        .finally(() => this.preparingGrant.delete(entry));
+      this.preparingGrant.set(entry, ready);
+    }
     return entry;
   }
 
@@ -201,6 +223,14 @@ export class PendingCommandRegistry {
 
   findCommand(commandId: string): PendingCommandEntry | undefined {
     return [...this.entries.values()].find((entry) => entry.commandId === commandId);
+  }
+
+  // 随每个流式帧调用：直接遍历，不为一次存在性判断复制条目数组。
+  private hasEntriesForSession(sessionId: string): boolean {
+    for (const entry of this.entries.values()) {
+      if (entry.sessionId === sessionId) return true;
+    }
+    return false;
   }
 
   listRecoverable(sessionId: string | null): readonly PendingCommandEntry[] {
@@ -233,8 +263,7 @@ export class PendingCommandRegistry {
     let entry = this.entries.get(keyOf(envelope.sessionId, envelope.commandId));
     if (!entry) return;
     if (entry.replay.kind === "sensitiveDigest") {
-      // 交互答案不可重放；拿到确定 ACK 后其对账职责已结束。
-      this.settle(entry.sessionId, entry.commandId);
+      void this.settleSensitive(entry, ack);
       return;
     }
     entry = this.remapCreatedSession(entry, ack);
@@ -265,12 +294,8 @@ export class PendingCommandRegistry {
       let entry = this.entries.get(keyOf(item.key.sessionId, item.key.commandId));
       if (!entry) continue;
       if (item.result === "unknown") {
-        // unknown 不证明首发未接纳；保留目录和唯一查询证据。
-        if (this.ownsPendingDraft(entry)) continue;
-        // V4 初版把“权威事实未命中”提升成需要用户处理的错误横幅，导致正常的
-        // App/CLI 生命周期切换也频繁打扰用户。unknown 没有可操作结论，renderer 静默清账。
-        this.notifyResolution(entry.commandId, "unknown");
-        this.settle(entry.sessionId, entry.commandId);
+        // 查询可能越过仍在 Host 准备的发送；未命中不是拒绝。提前清账会恢复已发送正文，
+        // 并丢掉迟到 ACK 的结算订阅。保留线索，交给明确结果、权威投影或既有 TTL 收口。
         continue;
       }
       if (
@@ -295,7 +320,7 @@ export class PendingCommandRegistry {
       }
       entry = this.remapCreatedSession(entry, item.result);
       if (entry.replay.kind === "sensitiveDigest") {
-        this.settle(entry.sessionId, entry.commandId);
+        void this.settleSensitive(entry, item.result);
         continue;
       }
       if (item.result.status === "accepted" || item.result.status === "duplicate") {
@@ -311,6 +336,11 @@ export class PendingCommandRegistry {
   }
 
   reconcileSnapshot(snapshot: ConversationSnapshot): void {
+    // Bug 根因：每个流式帧都会逐行扫描全部历史来收集 sourceCommandId。只有本会话还有待对账条目、
+    // 或有人在等某个命令的结算时，扫描才可能产生效果；两者都没有时直接返回，结果不变。
+    if (this.resolutionListeners.size === 0 && !this.hasEntriesForSession(snapshot.sessionId)) {
+      return;
+    }
     const settled = new Set<string>();
     for (const item of snapshot.queue.items) {
       if (item.sourceCommandId) {
@@ -340,6 +370,29 @@ export class PendingCommandRegistry {
     if (changed) this.commit();
   }
 
+  private async settleSensitive(entry: PendingCommandEntry, ack: CommandAck): Promise<void> {
+    const resolved = ack.result?.type === "resolveInteraction" ? ack.result.resolvedBy : undefined;
+    if (
+      (ack.status === "accepted" || ack.status === "duplicate") &&
+      resolved?.clientId === entry.clientId
+    ) {
+      const preparing = this.preparingGrant.get(entry);
+      if (preparing) {
+        await preparing;
+        // ACK 和 query 可同时确认同一命令，清账之后不再回写。
+        if (this.entries.get(keyOf(entry.sessionId, entry.commandId)) !== entry) return;
+      }
+      const grant = entry.clientContext?.fullAccess;
+      if (
+        grant &&
+        permissionGrantMode(resolved.optionId) === grant.mode &&
+        !acceptComposerRecentReceipt(grant, this.storage)
+      )
+        return;
+    }
+    this.settle(entry.sessionId, entry.commandId);
+  }
+
   private acceptComposer(entry: PendingCommandEntry): boolean {
     const composer = entry.clientContext?.composer;
     if (!composer) return true;
@@ -354,7 +407,8 @@ export class PendingCommandRegistry {
           V4_DRAFT_SCOPE_ROOT,
           composer.scope,
         );
-        // 首发等待期间的新正文交给正式 session；已接纳原文不能在恢复后复活。
+        // 首发期间可能已经切走；下一条输入仍归该 session，不能遗留给下一份任务目录。
+        // 传输失败恢复的原文已被权威接纳，应清除而不是再次放入正式会话输入框。
         if (draft && entry.replay.kind === "input") {
           const payload = entry.replay.payload;
           const sentText =
@@ -433,6 +487,9 @@ export class PendingCommandRegistry {
         : {}),
       ...(entry.clientContext ? { clientContext: entry.clientContext } : {}),
     };
+    // Bug 原因：首发 admission 已持久化旧会话，确认重发沿用旧 ID 会被 CLI 拒绝。
+    // 只在用户确认生成新命令时去掉 ID；同命令重试仍保留原信封，也兼容旧恢复记录。
+    if (request.type === "createSession") delete request.payload.sessionId;
     // 用户已确认以新 commandId 重发，旧 discarded 线索在本地完成收口。
     this.rejectComposer(entry);
     this.settle(entry.sessionId, entry.commandId);
@@ -444,6 +501,7 @@ export class PendingCommandRegistry {
     query: QueryCommands,
     workspaceKey?: string,
   ): Promise<void> {
+    // null bucket 会收集各 workspace 的创建；只能向命令原属 Agent 查询。
     const entries = this.list(sessionId).filter(
       (entry) =>
         workspaceKey === undefined ||
@@ -544,7 +602,7 @@ export class PendingCommandRegistry {
           this.storage.setItem(STORAGE_KEY, JSON.stringify([...this.entries.values()]));
         }
       } catch {
-        // 普通命令保持内存降级；首发目录由 record 检查持久化结果。
+        // 普通命令保持原有内存降级；首发目录交接由 record 检查写入结果。
         written = false;
       }
     }

@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ZCodeElicitationRequest, ZCodePermissionOption, ZCodeProvider } from "@zcode/shared";
-import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
+import {
+  type ZCodeElicitationRequest,
+  type ZCodePermissionOption,
+  type ZCodeProvider,
+} from "@zcode/shared";
+import { captureRecentOrder } from "@/lib/composerRecent.js";
+import type { ComposerScope } from "@/v4/composer/composerDraftStore.js";
+import {
+  committedPermissionGrantMode,
+  permissionGrantMode,
+  type ConversationSnapshot,
+} from "@zcode/shared/zcode-protocol-v4";
 import { ElicitationDialog } from "@/ElicitationDialog.js";
 import { PermissionDialog } from "@/PermissionDialog.js";
 import { workflowSessionModelOf } from "@/components/workflow-timeline/workflowRunSettings.js";
@@ -18,13 +28,31 @@ import {
 import type { ElicitationFormDraft } from "@/store/zcodeSessionStoreTypes.js";
 import { createCommandEnvelope } from "@/v4/commandFactory.js";
 import { pendingCommandRegistry } from "@/v4/pendingCommandRegistry.js";
-import { sendInteractionAutoResolutionSnooze } from "@/v4/interactionAutoResolutionCommand.js";
+import {
+  createInteractionAutoResolutionIntentTracker,
+  sendInteractionAutoResolutionSnooze,
+} from "@/v4/interactionAutoResolutionCommand.js";
+export {
+  createInteractionAutoResolutionIntentTracker,
+  type InteractionAutoResolutionIntentTracker,
+} from "@/v4/interactionAutoResolutionCommand.js";
 import {
   pendingPermissionToLegacyRequest,
   pendingUserInputToElicitationRequest,
   pendingUserInputToViewModel,
 } from "@/v4/pendingInteractionAdapter.js";
 import { V4UserInputDialog } from "@/v4/V4UserInputDialog.js";
+import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";
+import {
+  buildPermissionPromptResultTelemetryEvent,
+  createPermissionPromptShownClock,
+  resolveConversationRewindTarget,
+} from "@zcode/shared/conversation-telemetry";
+
+// 授权弹窗首次在本窗口出现的时间（wait_ms 起点）。按 interactionId 存在模块级：切换会话、
+// SessionPane 重挂载都不能重置计时；不用 CLI 的 createdAt，远程工作区两端时钟可能不一致。
+const permissionPromptShownClock = createPermissionPromptShownClock();
+import { PluginInstallCard } from "@/v4/PluginInstallCard.js";
 import { useV4Conversation } from "@/v4/V4ConversationContext.js";
 
 export interface V4InteractionDialogsProps {
@@ -36,6 +64,7 @@ export interface V4InteractionDialogsProps {
   provider?: ZCodeProvider;
   snapshot: ConversationSnapshot | null;
   onCommandSettled?: (commandId: string) => void;
+  resolveRecentScope: (sessionId: string) => Promise<ComposerScope>;
   onPlanInteractionAccepted?: (interactionId: string) => void;
 }
 
@@ -61,32 +90,6 @@ export function buildV4ElicitationProgressKey(request: ZCodeElicitationRequest):
   return `${request.requestId}:${request.currentQuestionIndex ?? 0}:${JSON.stringify(request.answerDrafts ?? {})}`;
 }
 
-export interface InteractionAutoResolutionIntentTracker {
-  markInteracted(interactionId: string): void;
-  consumeSnooze(interactionId: string, autoResolutionReady: boolean): boolean;
-  releaseSnooze(interactionId: string): void;
-}
-
-export function createInteractionAutoResolutionIntentTracker(): InteractionAutoResolutionIntentTracker {
-  const interactedIds = new Set<string>();
-  const sentIds = new Set<string>();
-  return {
-    markInteracted(interactionId) {
-      interactedIds.add(interactionId);
-    },
-    consumeSnooze(interactionId, autoResolutionReady) {
-      if (!autoResolutionReady || !interactedIds.has(interactionId) || sentIds.has(interactionId)) {
-        return false;
-      }
-      sentIds.add(interactionId);
-      return true;
-    },
-    releaseSnooze(interactionId) {
-      sentIds.delete(interactionId);
-    },
-  };
-}
-
 /**
  * 竖切：把 projection.pendingInteractions 接到 PermissionDialog / userInput 弹窗。
  * ChatView 删除后若无此组件，带 tool 权限的会话会永久阻塞。
@@ -101,6 +104,7 @@ export function V4InteractionDialogs({
   snapshot,
   onCommandSettled,
   onPlanInteractionAccepted,
+  resolveRecentScope,
 }: V4InteractionDialogsProps) {
   const { sendCommand } = useV4Conversation();
   const connectWorkspaceHookCommands = useWorkspaceHookReviewStore((state) => state.connect);
@@ -123,7 +127,9 @@ export function V4InteractionDialogs({
   const pending =
     currentSnapshot?.pendingInteractions.find(
       (interaction) =>
-        interaction.payload.kind === "permission" || interaction.payload.kind === "userInput",
+        interaction.payload.kind === "permission" ||
+        interaction.payload.kind === "userInput" ||
+        interaction.payload.kind === "pluginInstall",
     ) ?? null;
   const workspaceHookReview = currentSnapshot?.pendingInteractions.find(
     (interaction) => interaction.payload.kind === "workspaceHookReview",
@@ -177,7 +183,7 @@ export function V4InteractionDialogs({
       onCommandSettled,
     });
     // 软门禁：不再强制跳转 Settings/Hooks。
-    // 用户通过 WorkspaceHookPendingBanner 的 [去审核] 按钮主动打开 Hooks 设置。
+    // 用户通过 WorkspaceHookPendingIndicator 的 [去审核] 按钮主动打开 Hooks 设置。
   }, [
     clearWorkspaceHookReview,
     onCommandSettled,
@@ -193,6 +199,7 @@ export function V4InteractionDialogs({
     interactionId: string;
     pending: boolean;
     failed: boolean;
+    committedMode?: "guarded" | "yolo";
   } | null>(null);
   const permissionResponseFlight = useRef<string | null>(null);
 
@@ -212,8 +219,20 @@ export function V4InteractionDialogs({
         payload: { interactionId, answer },
       });
       // 权限/freeText/content 不落盘；registry 只持摘要，用于 ACK 丢失后的 query 对账。
-      pendingCommandRegistry.record(envelope);
       try {
+        const mode = permissionGrantMode(answer.optionId);
+        if (mode) {
+          const order = captureRecentOrder();
+          pendingCommandRegistry.record(
+            envelope,
+            { workspace: { workspacePath, workspaceIdentity } },
+            async () => ({
+              order,
+              mode,
+              scope: await resolveRecentScope(sessionId),
+            }),
+          );
+        } else pendingCommandRegistry.record(envelope);
         const ack = await sendCommand(envelope);
         pendingCommandRegistry.applyAck(envelope, ack);
         const accepted =
@@ -225,15 +244,29 @@ export function V4InteractionDialogs({
             reasonCode: ack.reasonCode,
           });
         }
-        return accepted;
+        return {
+          accepted,
+          ackStatus: ack.status,
+          committedMode:
+            mode && ack.status === "failed"
+              ? committedPermissionGrantMode(ack.reasonCode)
+              : undefined,
+        };
       } catch (error) {
         logger.error("[v4-interaction] resolveInteraction 失败", { interactionId, error });
-        return false;
+        return { accepted: false, ackStatus: "failed", committedMode: undefined };
       } finally {
         onCommandSettled?.(envelope.commandId);
       }
     },
-    [onCommandSettled, sendCommand, sessionId],
+    [
+      onCommandSettled,
+      sendCommand,
+      sessionId,
+      resolveRecentScope,
+      workspaceIdentity,
+      workspacePath,
+    ],
   );
 
   const snoozeAutoResolution = useCallback(
@@ -323,8 +356,23 @@ export function V4InteractionDialogs({
   if (pending.payload.kind === "workspaceHookReview") {
     return null;
   }
+  if (pending.payload.kind === "pluginInstall") {
+    return (
+      <PluginInstallCard
+        key={pending.interactionId}
+        request={pending.payload}
+        onRespond={(optionId) =>
+          resolveInteraction(pending.interactionId, { optionId }).then(({ accepted }) => accepted)
+        }
+      />
+    );
+  }
 
   if (pending.payload.kind === "permission") {
+    permissionPromptShownClock.markShown(pending.interactionId, Date.now());
+    const permissionPayload = pending.payload;
+    const response =
+      permissionResponse?.interactionId === pending.interactionId ? permissionResponse : null;
     const request = pendingPermissionToLegacyRequest(sessionId, {
       ...pending,
       payload: pending.payload,
@@ -334,57 +382,98 @@ export function V4InteractionDialogs({
       <PermissionDialog
         key={pending.interactionId}
         request={request}
+        permissionMode={currentSnapshot?.config?.mode}
+        modeSwitch={pending.payload.modeSwitch}
         workspacePath={workspacePath}
         {...(workspaceIdentity === undefined ? {} : { workspaceIdentity })}
         {...(remoteSessionId === undefined ? {} : { remoteSessionId })}
         {...(workflowSessionModel === undefined ? {} : { workflowSessionModel })}
         isWebRemoteControl={isWebRemoteControl}
         provider={provider}
-        responding={
-          permissionResponse?.interactionId === pending.interactionId && permissionResponse.pending
-        }
+        responding={response?.pending}
+        committedMode={response?.committedMode}
         responseError={
-          permissionResponse?.interactionId === pending.interactionId && permissionResponse.failed
-            ? intl.formatMessage({ id: "chat.permission.responseFailed" })
+          response?.failed
+            ? response.committedMode
+              ? intl.formatMessage(
+                  { id: "chat.permission.retryCommittedMode" },
+                  { mode: intl.formatMessage({ id: `mode.label.glm.${response.committedMode}` }) },
+                )
+              : intl.formatMessage({ id: "chat.permission.responseFailed" })
             : undefined
         }
         onRespond={(_requestId, option: ZCodePermissionOption, feedback, content) => {
           if (permissionResponseFlight.current === pending.interactionId) return;
           const interactionId = pending.interactionId;
           permissionResponseFlight.current = interactionId;
-          setPermissionResponse({ interactionId, pending: true, failed: false });
+          setPermissionResponse({
+            interactionId,
+            pending: true,
+            failed: false,
+            committedMode: response?.committedMode,
+          });
           // content：工作流确认窗里改过的设置，只在放行应答上（docs/dynamic-workflow/launch.md
           // 「Adjusting the settings in the window」）。
           void resolveInteraction(interactionId, {
             optionId: option.optionId,
             ...(feedback ? { freeText: feedback } : {}),
             ...(content === undefined ? {} : { content }),
-          }).then((accepted) => {
+          }).then(({ accepted, ackStatus, committedMode }) => {
+            // 已收口过的 interaction 不再上报（双击 / 连点）；规则见 createPermissionPromptShownClock。
+            const claim = permissionPromptShownClock.claimReport(interactionId, ackStatus);
+            if (platform && claim.report) {
+              void reportAppTelemetryEvent(
+                platform,
+                buildPermissionPromptResultTelemetryEvent({
+                  sessionId,
+                  // anchorRowId 所在轮次的 sourceCommandId，与该轮 agent_step 的 message_id 一致。
+                  messageId:
+                    pending.anchorRowId === null || !currentSnapshot
+                      ? undefined
+                      : resolveConversationRewindTarget(
+                          currentSnapshot.rows.window,
+                          pending.anchorRowId,
+                        ).targetMessageId,
+                  toolName: permissionPayload.toolName,
+                  toolCallId: permissionPayload.toolCallId,
+                  option,
+                  feedback,
+                  fromSubagent: permissionPayload.origin?.kind === "subagent",
+                  askMode: currentSnapshot?.config?.mode,
+                  modeSwitch: permissionPayload.modeSwitch,
+                  shownAt: claim.shownAt,
+                  respondedAt: Date.now(),
+                  ackStatus,
+                }),
+                "V4InteractionDialogs",
+              );
+            }
             if (permissionResponseFlight.current !== interactionId) return;
             permissionResponseFlight.current = null;
-            setPermissionResponse({ interactionId, pending: false, failed: !accepted });
+            setPermissionResponse({
+              interactionId,
+              pending: false,
+              failed: !accepted,
+              committedMode: committedMode ?? response?.committedMode,
+            });
           });
         }}
       />
     );
   }
 
-  // 行模型升级后 payload 联合含 permission/pluginInstall 变体：helper 只吃 userInput，
-  // 先窄化再传入，后续 toolName 访问统一走窄化后的 pendingUserInput。
-  const pendingUserInput =
-    pending?.payload.kind === "userInput" ? { ...pending, payload: pending.payload } : null;
-  const projectedElicitationRequest = pendingUserInput
-    ? pendingUserInputToElicitationRequest(sessionId, pendingUserInput)
-    : null;
+  const projectedElicitationRequest = pendingUserInputToElicitationRequest(sessionId, {
+    ...pending,
+    payload: pending.payload,
+  });
   const elicitationRequest = resolveV4ElicitationRequest(
     projectedElicitationRequest,
     botElicitationProgress,
   );
   if (elicitationRequest) {
-    const isExitPlanMode =
-      pendingUserInput?.payload.toolName?.trim().toLowerCase() === "exitplanmode";
+    const isExitPlanMode = pending.payload.toolName?.trim().toLowerCase() === "exitplanmode";
     const isAskUserQuestion =
-      pendingUserInput?.payload.toolName?.trim().toLowerCase() === "askuserquestion" ||
+      pending.payload.toolName?.trim().toLowerCase() === "askuserquestion" ||
       pending.autoResolution !== undefined;
     return (
       <ElicitationDialog
@@ -416,7 +505,7 @@ export function V4InteractionDialogs({
           void resolveInteraction(pending.interactionId, {
             action,
             ...(content ? { content } : {}),
-          }).then((accepted) => {
+          }).then(({ accepted }) => {
             if (!accepted) return;
             removeElicitationDraft(pending.interactionId);
             if (isExitPlanMode) {
@@ -430,10 +519,10 @@ export function V4InteractionDialogs({
     );
   }
 
-  if (pending?.payload.kind !== "userInput") {
-    return null;
-  }
-  const model = pendingUserInputToViewModel({ ...pending, payload: pending.payload });
+  const model = pendingUserInputToViewModel({
+    ...pending,
+    payload: pending.payload,
+  });
   return (
     <V4UserInputDialog
       model={model}

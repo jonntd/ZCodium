@@ -446,28 +446,30 @@ function isFrameAuthorityText(value) {
  * 图片与 frame authority 走 host 的 structured sink，文本走 write。
  * 成功的纯文本动作不产生任何正文 —— 否则会和观察结果拼成两段输出。
  */
-function projectToHost(globals, result) {
+function projectToHost(globals, result, options) {
   const sink = globals.nodeRepl?.emitStructuredResult;
   if (typeof sink !== "function" || !result || !Array.isArray(result.content)) return;
-  const media = result.content.filter(
-    (block) => block?.type === "image" || (block?.type === "text" && isFrameAuthorityText(block.text)),
-  );
+  const raw = result.structuredContent;
+  const structured = raw && typeof raw === "object" ? forDisplay(raw) : undefined;
+  // 元数据曾只留在结构化字段，模型读取 content 时也需要它，并保持与本次截图一致。
+  const metadataContent =
+    options?.emit !== false && structured
+      ? [{ type: "text", text: JSON.stringify(structured) }]
+      : [];
+  const media =
+    options?.emit === false
+      ? []
+      : result.content.filter(
+          (block) =>
+            block?.type === "image" || (block?.type === "text" && isFrameAuthorityText(block.text)),
+        );
   if (media.length > 0) {
-    // 带图的观察必须**保留**自己的 structuredContent（投影后）。
-    //
-    // Bug 根因（2026-09-17 真机，会话 sess_8ec5bb22）：这里原先无条件丢弃它，于是
-    // getAXStateAndScreenshot() 那次的元数据一个字都不显示，模型看到的 `Structured
-    // content` 是同 cell 里**没有图**的另一次调用 —— 也就是 getApp() 绑定时那次隐藏的
-    // 全量观察。可观测后果：请求了像素、图也确实附上了，`has_image` 却恒为 false
-    // （6 次调用全中），而 SKILL 里写着 "has_image: false 只表示这次没要像素"，两边对不上。
-    // 更危险的是 `window` 与 `state_id` 也是探针那次的：探针早于本 cell 的动作执行，
-    // 弹窗在动作后才出现时，模型读到的是**漂移前**的窗口，据此判断"对话框没出现"。
-    //
-    // 丢弃的原意是防元素全表泄漏（见 forDisplay 的注释），但那件事 forDisplay 已经做了，
-    // 不需要整块丢。这里走同一条投影，所以元素表照样不会外泄。
-    const { structuredContent: raw, ...rest } = result;
-    const structured = raw && typeof raw === "object" ? forDisplay(raw) : undefined;
-    sink({ ...rest, content: media, ...(structured ? { structuredContent: structured } : {}) });
+    const { structuredContent: _raw, ...rest } = result;
+    sink({
+      ...rest,
+      content: [...media, ...metadataContent],
+      ...(structured ? { structuredContent: structured } : {}),
+    });
     return;
   }
   if (result.isError === true) {
@@ -475,14 +477,10 @@ function projectToHost(globals, result) {
     return;
   }
   const meta = result._meta && typeof result._meta === "object" ? result._meta : undefined;
-  const structured =
-    result.structuredContent && typeof result.structuredContent === "object"
-      ? result.structuredContent
-      : undefined;
   if (!meta && !structured) return;
   sink({
-    content: [],
-    ...(structured ? { structuredContent: forDisplay(structured) } : {}),
+    content: metadataContent,
+    ...(structured ? { structuredContent: structured } : {}),
     ...(meta ? { _meta: meta } : {}),
   });
 }
@@ -608,7 +606,7 @@ function createTarget(ctx, binding) {
     // 「也不能把自己算成基线」。同一个道理对 producer 侧的位移台账成立：没展示给模型的树
     // 不能被算作「模型看到过的」，否则索引位移校验变成当前树跟当前树自比（2026-09-15 探针实测）。
     if (yieldsTree !== true) args.tree_shown_to_model = false;
-    const result = await call("get_app_state", args);
+    const result = await call("get_app_state", args, options);
     assertOk("get_app_state", result);
     const state = appStateOf("get_app_state", result);
     binding.stateId = state.state_id;
@@ -730,6 +728,11 @@ function createTarget(ctx, binding) {
         to: bindTarget(binding, to, "drag to"),
         app_ref: binding.appRef,
         ...(options?.modifiers ? { modifiers: options.modifiers } : {}),
+        // Bug 原因（2026-10-27）：文档 DragOptions 声明了 strategy，broker 的 drag
+        // handler 也早已按 strategy==="event" 跳过后台中间级走前台 SendInput，但
+        // 此前 SDK 只透传 modifiers —— 调用方显式选 event 被静默吞成 auto，前台
+        // 拖拽从 SDK 层不可达。与 click/pressKey/scroll 同形透传。
+        ...(options?.strategy ? { strategy: options.strategy } : {}),
       });
     },
 
@@ -861,7 +864,10 @@ const KEY_ALIASES = Object.freeze({
   shift_l: "shift", shift_r: "shift", shift: "shift",
   escape: "esc", esc: "esc",
   prior: "pageup", next: "pagedown",
-  period: ".", comma: ",", greater: ">", slash: "/", minus: "-", equal: "=",
+  // 曾有 greater: ">"——输出 ">" 从未通过工具层白名单（S2 前后均如此），是端到端
+  // 死路径，且会让组合契约测试（sdk-key-chord-contract.node-test.mjs）被迫开
+  // 豁免口，故移除。需要输出 ">" 时应先给工具层 canonical 集补该 token。
+  period: ".", comma: ",", slash: "/", minus: "-", equal: "=",
 });
 
 function normalizeKeyChord(chord, platform) {
@@ -892,7 +898,7 @@ export async function setupComputerUseRuntime({ globals }) {
 
   const platform = globals.process?.platform ?? process.platform;
 
-  const call = async (methodName, args) => {
+  const call = async (methodName, args, options) => {
     // not-ready 是 Helper 冷启动的正常一步，不是失败：payload 明确要求"稍等后重试同一
     // 调用"。只在 retryable 为真时重试 —— possibly_sent 的动作绝不重放（见常量注释）。
     for (let attempt = 0; ; attempt += 1) {
@@ -900,7 +906,8 @@ export async function setupComputerUseRuntime({ globals }) {
       const result = await bridge.call(methodName, args ?? {});
       const notReady = notReadyEnvelopeOf(result);
       if (!notReady) {
-        projectToHost(globals, result);
+        // 展示由 SDK 的 emit 控制，不能用 producer 的索引记账标志推断。
+        projectToHost(globals, result, options);
         return result;
       }
       if (notReady.retryable !== true || attempt >= NOT_READY_MAX_ATTEMPTS - 1) {
@@ -966,7 +973,7 @@ export async function setupComputerUseRuntime({ globals }) {
     let appRef = objectRef ?? appRefFor(target, windowId);
     const binding = createBinding(label, appRef);
     const app = createTarget(ctx, binding);
-    // 绑定即观察：返回前展示该 app 的**全量** AX 树。
+    // 绑定时只解析身份，观察结果留在宿主通道。
     let result = await call("get_app_state", {
       app_ref: appRef,
       include_screenshot: false,
@@ -975,7 +982,7 @@ export async function setupComputerUseRuntime({ globals }) {
       // 「模型看到过的树」。不标的后果（2026-09-15 探针实测）：索引位移校验拿当前树
       // 跟当前树自比，必然一致，静默点错元素的保护完全失效。
       tree_shown_to_model: false,
-    });
+    }, { emit: false });
     if (isAppNotFound(result) && objectRef === undefined) {
       // 只有字符串需要猜字段；对象形态是显式的，猜错的是调用方而不是我们。
       const alternate = alternateAppRef(target, windowId);
@@ -987,7 +994,7 @@ export async function setupComputerUseRuntime({ globals }) {
           include_screenshot: false,
           disable_diffing: true,
           tree_shown_to_model: false,
-        });
+        }, { emit: false });
       }
     }
     assertOk("get_app_state", result);
@@ -1063,19 +1070,19 @@ export async function setupComputerUseRuntime({ globals }) {
     Object.defineProperty(app, "elements", {
       enumerable: false,
       value: async () => {
-        // 与 getScreenshot 同档的静默观察（见 createTarget 的 observe）：结果只回给 JS、
-        // 不 emit 任何东西，所以两条声明都必须给。
+        // 与 getScreenshot 不同档（2026-10-25 修正）：返回值（含 index 的元素表）
+        // 回给了模型所写的 JS——els[3].index 直接进 click 参数，这张表就是模型
+        // 选目标的信息来源，构成「模型可见」。2026-09-16 评审按「不 emit」把它
+        // 与 bindApp/getScreenshot 一刀切标 false，掩盖了本质差异（那两条的
+        // 返回值不含树）；false 的真实后果是位移台账只剩更旧的树，模型用
+        // elements() 的新鲜索引点击时被拿旧树对照新树，element_index_shifted
+        // 假阳性（真位移同时拦不住）。记账后 producer 台账与模型实际所见一致。
         //
-        // Bug 原因（2026-09-16 评审）：这里过去两条都没给。
-        // 1. 漏 tree_shown_to_model=false ⇒ producer 默认按「模型看过」记账
-        //    （observation.ts 的 `treeShownToModel !== false`），索引位移台账被一棵模型
-        //    没看过的树覆盖，校验退化成当前树跟当前树自比，静默点错元素的保护失效。
-        // 2. 这次 capture 还把 Helper 的 diff 基线推到了这棵未展示的树上，而 binding.treeSeen
-        //    仍是 true ⇒ 下一次 getAXState 会拿到相对未展示树的增量，SKILL 承诺的
-        //    「diff 只相对本 cell 展示过的树」就成了假话。清 treeSeen 让它强制整树。
+        // diff 基线问题不受影响：binding.treeSeen 仍清空（treeSeen 管的是 emit
+        // 展示面的整树承诺，与记账正交），下一次 getAXState 照旧强制整树。
         const fresh = appStateOf(
           "get_app_state",
-          await call("get_app_state", { app_ref: appRef, tree_shown_to_model: false }),
+          await call("get_app_state", { app_ref: appRef, tree_shown_to_model: true }, { emit: false }),
         );
         binding.stateId = fresh.state_id;
         binding.elements = fresh.elements;
@@ -1087,7 +1094,7 @@ export async function setupComputerUseRuntime({ globals }) {
   };
 
   const inventory = async (options) => {
-    const result = await call("list_apps", {});
+    const result = await call("list_apps", {}, options);
     assertOk("list_apps", result);
     const apps = [];
     for (const text of textBlocks(result)) {
@@ -1114,12 +1121,19 @@ export async function setupComputerUseRuntime({ globals }) {
   const unwrapEnvelope = (result) => {
     if (result === null || typeof result !== "object") return result;
     if (!Array.isArray(result.content)) return result;
-    const textBlocks = result.content.filter(
+    // 新增的紧凑元数据副本已由宿主展示，解封时排除它以保持单载荷调用的返回类型。
+    const metadataText =
+      result.structuredContent && JSON.stringify(forDisplay(result.structuredContent));
+    const content =
+      result.content.length > 1 && typeof metadataText === "string"
+        ? result.content.filter((block) => block?.type !== "text" || block.text !== metadataText)
+        : result.content;
+    const textBlocks = content.filter(
       (block) => block && block.type === "text" && typeof block.text === "string",
     );
     // 只在"单一 text block"这种明确形态上解封；多块 / 图像等一律原样返回，
     // 避免把一个我们不认识的形状猜成裸值。
-    if (textBlocks.length !== 1 || result.content.length !== 1) return result;
+    if (textBlocks.length !== 1 || content.length !== 1) return result;
     const text = textBlocks[0].text;
     try {
       return JSON.parse(text);
@@ -1199,4 +1213,4 @@ export async function setupComputerUseRuntime({ globals }) {
   return cua;
 }
 
-export { COMPUTER_METHOD_NAMES, PLATFORM_EXCLUDED_METHODS, ComputerUseError, normalizeKeyChord };
+export { COMPUTER_METHOD_NAMES, PLATFORM_EXCLUDED_METHODS, ComputerUseError, normalizeKeyChord, KEY_ALIASES };

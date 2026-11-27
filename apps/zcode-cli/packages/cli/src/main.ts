@@ -1,9 +1,10 @@
 import { STORAGE_MIGRATION_COMMAND } from "@zcode/shared/sqlite-migrations";
+import { ZCODE_PLUGIN_ID_ENV_KEY } from "@zcode/shared/mcp";
 import { interceptTuiStderr, isTuiInvocation } from "./tui-stderr.js";
 import { interceptKnownRuntimeWarnings } from "./runtime-warnings.js";
 import { installStderrConsoleBoundary } from "./protocol-console.js";
-import { setCliProcessTitle } from "./process-name.js";
-import { applyCliRuntimeEnvSanitization } from "./env.js";
+import { setCliProcessTitle, setPluginHostProcessTitle } from "./process-name.js";
+import { applyCliRuntimeEnvSanitization, mintStandaloneCuaCredentialsIfEligible } from "./env.js";
 import { ensureSeaRuntimeTools } from "./sea-runtime-tools.js";
 import { isPluginHostInvocation, runPluginHostCommand } from "./plugin-host-command.js";
 import { scheduleCliExitWatchdog } from "./shutdown.js";
@@ -11,39 +12,30 @@ import { installCliProcessErrorBoundary } from "./process-errors.js";
 import { installProtocolStderrBoundary } from "./protocol-stderr.js";
 import { createProtocolProcessLifecycle } from "./protocol-lifecycle.js";
 import { isProtocolServerInvocation } from "./arguments.js";
-import {
-  initializeDataRootNonInteractive,
-  resolveDataRootActionFromEnv,
-} from "@zcode/services/node";
-import { ZCODE_VERSION } from "@zcode/shared";
 
 void main();
 
 async function main(): Promise<void> {
-  // 任何 CLI 子命令（含 Host Worker）都可能读取数据目录；先完成数据根初始化与合法化。
-  // CLI 没有决策窗口，按 ZCODIUM_DATA_ROOT_ACTION 非交互处置（默认备份冲突目录 + 全新初始化）。
-  try {
-    await initializeDataRootNonInteractive({
-      createdBy: "cli",
-      appVersion: ZCODE_VERSION,
-      action: resolveDataRootActionFromEnv(),
-    });
-  } catch (error) {
-    // fail 策略或迁移失败必须拒绝启动：没有合法数据根时任何子命令都无法安全工作。
-    process.stderr.write(
-      `[zcode] data root initialization failed: ${error instanceof Error ? error.message : String(error)}\n`,
-    );
-    process.exitCode = 1;
-    return;
-  }
   const argv = process.argv.slice(2);
   // 存储模式也可运行在 Host Worker 中，不能修改整个 Host 的进程名称。
-  if (argv[0] !== STORAGE_MIGRATION_COMMAND && !argv.includes("--prepare-storage")) setCliProcessTitle();
+  if (argv[0] !== STORAGE_MIGRATION_COMMAND && !argv.includes("--prepare-storage")) {
+    // 插件宿主复用 CLI 入口；统一改名会把 MCP 进程误标成 Agent，须在加载插件前按角色命名。
+    if (isPluginHostInvocation(argv)) {
+      setPluginHostProcessTitle(process.env[ZCODE_PLUGIN_ID_ENV_KEY]);
+    } else {
+      setCliProcessTitle();
+    }
+  }
   // 真实 zcode CLI 进程里仍可能有少量路径直接读取 process.env。
   // 入口先清洗用户 shell 注入的 NODE_ENV、代理和证书变量；网络变量只封存给后续 Bash/tool 子进程恢复。
   applyCliRuntimeEnvSanitization(process.env);
   const isProtocol = argv[0] === STORAGE_MIGRATION_COMMAND || isProtocolServerInvocation(argv);
   const isTui = isTuiInvocation(argv);
+  mintStandaloneCuaCredentialsIfEligible({
+    isProtocol,
+    isPluginHost: isPluginHostInvocation(argv),
+    platform: process.platform,
+  });
   if (isProtocol) installProtocolStderrBoundary(process.stderr);
   const lifecycle =
     isProtocol && argv[0] !== STORAGE_MIGRATION_COMMAND && !argv.includes("--prepare-storage")

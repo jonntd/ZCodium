@@ -18,11 +18,20 @@
 
 ## 接受的 Case
 
+### STF05–07 富内容会话的侧栏动画性能
+
+接受 [布局开销规格](../performance/sidebar-toggle-rendering.md) 的真实长会话、表格跟随、锚点及交替生产构建对照。新增候选保持 manual-review/pending；合成回归与真实会话性能证据必须分开标注。表格专属交互复用既有 Markdown table layout/enhanced-scroll E2E。
+
+### DGJ01–03 草稿标题适配与输入框稳定
+
+接受 [问候语规格](../ui/chat-empty-time-greeting.md#回归验收) 中的 DGJ01–03。真实桌面回归检查右侧面板开关、拖动时的中间布局；共享组件浏览器验收补充连续宽度、快速反向、语言切换和手机紧凑模式。只改变布局，不请求模型。候选保留 manual-review/pending。
+
 ### SPT-E2E-000 独立面板平台圆角与拖动指示线
 
 - Setup：桌面新任务草稿，展开 Side Pane 和底部 Terminal，分别使用亮暗主题。
 - Action：等待平台状态和布局就绪，hover 并拖动 Sidebar、Side Pane、Terminal 手柄。
 - Assertions：Windows 5px，Sequoia 及更早 macOS 6px，Tahoe 26+ 12px，Linux 12px；三处热区保持 4px，指示线为沿边 2px foreground-subtlest/50、无 mask，默认隐藏且 hover/拖动可见，尺寸真实变化。
+- 居中回归：Side Pane 为 3px 热区、2px 指示线；亮暗主题及拖动后，指示线中心与左右面板间隙中心误差小于 0.1px。
 - 数据链路补充：useAppChromeStateAutoUpdate.test.ts 运行真实 hook，以平台异步查询返回 macOS 15/26，验证半径与订阅清理；用于在非 macOS CI 中捕获 macOS 查询被守卫跳过的问题。不能替代 macOS 原生视觉验收。
 
 ### SPT-E2E-001 默认宽度与跟随加号
@@ -68,6 +77,7 @@
 - Assertions：两入口展示相同推荐与本地化标题；请求保留工作区/会话字段，重复打开复用 plugin tab；安装、启用后必须另点打开。草稿会话隐藏整个应用插件区及分隔线、查看所有插件入口；已有会话从默认空态或显式新标签页进入市场均可返回来源，默认空态返回后保持面板展开。无宿主、无 bridge 无插件项；推荐为空或配置失败显示空态；冷加载显示 skeleton。新标签页保持可见，窄屏无横向溢出。
 - 操作进度回归：控制安装/启用响应，确认只有目标插件显示加载并禁用，其他插件保留原文案与可点击状态。连续提交两个不同插件安装，各自保留进度；一个失败或成功只清理自身，已启用插件仍可打开。同一插件重复点击只提交一次，失败可重试，成功不自动打开。覆盖空态与新标签页、桌面亮色英文与手机暗色中文。
 - 加载图标回归：等待响应期间，目标入口显示可见的旋转图标与 `aria-busy`；成功或失败后全部清除。同一插件的两个 surface 同步显示进度，其他插件无进度；减少动画偏好下图标保留但不旋转。
+- 推荐展示回归：混合安装态时已安装优先，暂停插件仍置前且组内稳定；安装完成后刷新排序。社区标签位于描述前，仅标识官方市场的社区条目，个人来源自声明不显示；覆盖桌面英文亮色与窄屏中文暗色。
 - 边界：服务由浏览器 fixture 注入，在 plugin tab owner 边界检查请求，不启动沙箱、Agent 或真实手机远控。
 - 当前验证：2026-10-19 自动浏览器 E2E 16/16 通过，含 4 组并发安装与操作互不阻塞、8 组操作进度，以及同插件多 surface / 减少动画偏好回归。夹具按当前面板 owner 初始化默认 new-tab；仍为 manual-review/pending，不代表真实 Agent 安装、插件沙箱或手机远控验证。
 
@@ -81,6 +91,8 @@
 
 ## 不变量
 
+左右侧栏开关性能的 STF01–04 accepted 场景见 [布局开销规格](../performance/sidebar-toggle-rendering.md)。必须验证左右两侧展开和收起的真实尺寸动画、快速反向、减少动画偏好、拖动 / 窗口 resize 及输入框防抖；禁止用尺寸瞬切或仅裁剪代替。使用真实 shell、保留标签和合成重内容负载；不请求模型。候选保留 manual-review/pending，性能数据与行为断言分别记录。
+
 - `+` 不参与 Tab 等宽计算。
 - 滚动只能发生在所有 Tab 已达到 60px 下限之后。
 - 关闭按钮点击不得触发 Tab 激活或拖拽。
@@ -90,7 +102,7 @@
 
 ## 通用 / 编程界面模式 M1
 
-范围与 MODE-01～07 用例见 [模式验证矩阵](general-coding-mode-verification.md)。新增桌面用例位于 `packages/desktop/test/e2e/ui-shell/general-coding-mode.test.ts`，覆盖设置偏好、入口隐藏和已有面板保留；已人工验收并转为 ui-shell 正式用例，尚未加入 Docker preset。对话展示由组件单测补充，验证状态以该矩阵为准。
+范围与 MODE-01～07 用例见 [模式验证矩阵](general-coding-mode-verification.md)。新增桌面用例位于 `packages/desktop/test/e2e/ui-shell/navigation/general-coding-mode.test.ts`，覆盖设置偏好、入口隐藏和已有面板保留；已人工验收并转为 ui-shell 正式用例，尚未加入 Docker preset。对话展示由组件单测补充，验证状态以该矩阵为准。
 
 ### 新标签页多开与标准标签行为
 
@@ -132,6 +144,7 @@ SPT-E2E-009 补充：末标签关闭后面板收起且无补建；重新展开�
 
 - Setup：接 001，完整视图中当前为 Terminal tab。
 - Action：点对话 tab；再点 Terminal tab。
+- 动画断言：切回面板 tab 的首个浮窗绘制帧已在最终位置与尺寸，宿主不产生 `left/top/width/height` 过渡；不得只等待动画结束后检查终态。
 - Assertions：对话 tab 激活时对话宿主覆盖 slot（误差 2px 内），浮窗不存在，输入框为两行布局（`data-composer-layout=stacked`）且有草稿项目栏；回到 Terminal tab 后浮窗出现在 slot 右下角（距边 16px），只露出输入区：输入区与浮窗同宽、底边对齐，没有外层留白，抽屉不可见；输入框为单行（`data-composer-layout=inline`，浮窗高度不超过 64px，「+」、输入区、发送按钮从左到右排在同一行、垂直居中误差 2px 内，输入区至少占一半宽度），没有草稿项目栏；切换前打在输入框节点上的 DOM 标记仍在（编辑器未重新挂载）。
 
 ### SPFV-E2E-003 操作栏、最小化与恢复
@@ -144,6 +157,7 @@ SPT-E2E-009 补充：末标签关闭后面板收起且无补建；重新展开�
 
 - Setup：接 003，浮窗收起态。
 - Action：拖动 ⠿ 到 slot 左上区域松手；点击 ⠿ 打开菜单，选「在完整视图中打开」。
+- 动画断言：拖动松手后的吸附仍产生位置过渡，最终准确落到吸附点。
 - Assertions：松手后浮窗贴 slot 左上（16px）；全局偏好 `zcode:side-pane-full-view:floating-anchor` 写为 `top-left`；菜单项选择后切到对话 tab，且浮窗展开态不被菜单点击改变（回归：portal 事件沿 React 树冒泡）。
 
 ### SPFV-MODEL-001 浮窗模型菜单关闭（pending）
@@ -151,12 +165,13 @@ SPT-E2E-009 补充：末标签关闭后面板收起且无补建；重新展开�
 - Setup：完整视图浮窗，背后为独立插件页面；有两个可用模型及一个锁定模型。
 - Action：打开模型菜单后点击插件区域；再次打开并选择模型（包括当前模型和键盘确认），再点击外侧关闭；调档和切换 Provider；Escape 关闭。
 - Assertions：一次外侧点击关闭菜单，且不触发底层插件操作；可用模型被选择后选择生效、菜单保持打开，锁定模型不关闭；调档与 Provider 导航保持打开；选模型后仍可点击外侧一次关闭，关闭后插件仍可交互。桌面 Electron 使用真实 webview，浏览器手机宽度使用独立 iframe，覆盖深浅主题。
-- 候选自动化：`packages/ui/test/browser/manual-review/pending/composer-menu-dismiss.test.mjs`；配合既有 `ui-shell/side-pane-full-view.test.ts` 验证完整 App 的浮窗行为。组件级夹具不覆盖插件安装、Agent 握手和远控连接。
+- 候选自动化：`packages/ui/test/browser/manual-review/pending/composer-menu-dismiss.test.mjs`；配合既有 `ui-shell/panels/side-pane-full-view.test.ts` 验证完整 App 的浮窗行为。组件级夹具不覆盖插件安装、Agent 握手和远控连接。
 
 ### SPFV-E2E-005 展开与收起消息流
 
 - Setup：浮窗收起 + 操作栏。
 - Action：点「⌃」按钮；再点「⌄」按钮。
+- 动画断言：展开与收起均保留宿主高度过渡。
 - Assertions：展开后浮窗高度大于 400px 且时间线可见，按钮 `aria-expanded=true`；消息滚动容器底边在输入区顶边之上至少 8px（滚动条不延伸到输入框后面）；再点回到收起态。
 
 ### SPFV-E2E-009 插件页面层不被面板外框遮挡
@@ -181,7 +196,7 @@ SPT-E2E-009 补充：末标签关闭后面板收起且无补建；重新展开�
 
 - Setup：接 007，会话 A 在完整视图，当前为 Terminal tab。
 - Action：在浮窗发送触发 AskUserQuestion 的提示（回放延迟 4s），用户消息出现后立即最小化，等待问答请求。
-- Assertions：用户消息出现后（问答请求到达前，对话运行中）操作栏「⌃ / ⌄」右侧显示 loading，输入框占位文字为「工作中 N 秒」/ `Working for …`，与流式消息最后一行运行时长文本完全相同；浮窗自动恢复为收起态，问答卡片显示在浮窗内；提交回答后卡片消失、输入框恢复；回答结束弹出新气泡（`spfv-ask-done`），点 × 后气泡消失、浮窗保持收起；对话空闲后聚焦浮窗，操作栏可见但没有 loading。
+- Assertions：用户消息出现后（问答请求到达前，对话运行中）操作栏「⌃ / ⌄」右侧显示 loading，输入框占位文字为「工作中 N 秒」/ `Working for …`，使用整秒摘要且运行中顶部没有折叠入口（消息流底部计时单独保留十分之一秒）；浮窗自动恢复为收起态，问答卡片显示在浮窗内；提交回答后卡片消失、输入框恢复；回答结束弹出新气泡（`spfv-ask-done`），点 × 后气泡消失、浮窗保持收起；对话空闲后聚焦浮窗，操作栏可见但没有 loading。
 
 ### 不变量
 

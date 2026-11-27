@@ -29,14 +29,9 @@ export interface PluginUiLauncherItemsProps {
   onOpenPluginUi: (request: OpenPluginUiSideTabRequest) => void;
   /** 菜单复用标准菜单项；空白页与内置应用共用 SidePaneLauncherRow。 */
   variant?: "launcher" | "menu";
-  /** fork 兼容（app-shell 旧调用）：launcher 行附加样式（打开标签页网格按钮）。 */
-  itemClassName?: string;
 }
 
-export function buildPluginUiLauncherItemId(
-  pluginId: string,
-  surfaceId: string,
-): string {
+export function buildPluginUiLauncherItemId(pluginId: string, surfaceId: string): string {
   return `plugin-ui:${pluginId}/${surfaceId}`;
 }
 
@@ -62,11 +57,7 @@ export function PluginUiLauncherItems(props: PluginUiLauncherItemsProps) {
     const label = intl.formatMessage({ id: "common.loading" });
     if (props.variant === "menu")
       return (
-        <DropdownMenuItem
-          disabled
-          aria-label={label}
-          data-testid="side-pane-ui-loading"
-        >
+        <DropdownMenuItem disabled aria-label={label} data-testid="side-pane-ui-loading">
           <span
             aria-hidden="true"
             className="h-4 w-40 motion-safe:animate-pulse rounded bg-surface"
@@ -104,10 +95,7 @@ export function PluginUiLauncherItems(props: PluginUiLauncherItemsProps) {
   }
   if (props.sessionId === null || entries.length === 0)
     return props.variant === "menu" ? null : (
-      <p
-        className="text-ui-base text-foreground-subtle"
-        data-testid="side-pane-ui-empty"
-      >
+      <p className="text-ui-base text-foreground-subtle" data-testid="side-pane-ui-empty">
         {intl.formatMessage({ id: "sidePane.launcher.empty" })}
       </p>
     );
@@ -115,9 +103,7 @@ export function PluginUiLauncherItems(props: PluginUiLauncherItemsProps) {
   return (
     <>
       {entries.map(({ pluginId, surfaceId, item }) => {
-        const surface = item.info?.uiSurfaces?.find(
-          (candidate) => candidate.id === surfaceId,
-        );
+        const surface = item.info?.uiSurfaces?.find((candidate) => candidate.id === surfaceId);
         const title = surface
           ? resolvePluginUiSurfaceTitle(surface.title, locale)
           : resolveItemDisplayName(item, locale);
@@ -143,21 +129,13 @@ export function PluginUiLauncherItems(props: PluginUiLauncherItemsProps) {
             props.remoteSessionId ||
             isRemoteWorkspaceIdentity(props.workspaceIdentity ?? "")
           ) {
-            toast(
-              intl.formatMessage({
-                id: "settings.plugins.store.ui.unsupported",
-              }),
-            );
+            toast(intl.formatMessage({ id: "settings.plugins.store.ui.unsupported" }));
             return;
           }
           const resolved = await resolveSurface(pluginId, surfaceId);
           if (resolved === undefined) return;
           if (!resolved) {
-            toast(
-              intl.formatMessage({
-                id: "settings.plugins.store.ui.unavailable",
-              }),
-            );
+            toast(intl.formatMessage({ id: "settings.plugins.store.ui.unavailable" }));
             return;
           }
           props.onOpenPluginUi({
@@ -169,9 +147,7 @@ export function PluginUiLauncherItems(props: PluginUiLauncherItemsProps) {
             ...documentViewerInstance(resolved.resourceUri),
             title: resolvePluginUiSurfaceTitle(resolved.title, locale),
             workspacePath: props.workspacePath,
-            ...(props.workspaceIdentity
-              ? { workspaceIdentity: props.workspaceIdentity }
-              : {}),
+            ...(props.workspaceIdentity ? { workspaceIdentity: props.workspaceIdentity } : {}),
             remoteSessionId: props.remoteSessionId ?? null,
           });
         };
@@ -181,8 +157,7 @@ export function PluginUiLauncherItems(props: PluginUiLauncherItemsProps) {
               key={itemId}
               data-side-pane-add-item={itemId}
               onSelect={(event) => {
-                if (!item.installed || !item.info?.enabled)
-                  event.preventDefault();
+                if (!item.installed || !item.info?.enabled) event.preventDefault();
                 void open();
               }}
               disabled={isBusy}
@@ -208,7 +183,6 @@ export function PluginUiLauncherItems(props: PluginUiLauncherItemsProps) {
             key={itemId}
             itemId={itemId}
             icon={PuzzleIcon}
-            className={props.itemClassName}
             avatar={
               <PluginStoreAvatar
                 item={item}
@@ -218,15 +192,11 @@ export function PluginUiLauncherItems(props: PluginUiLauncherItemsProps) {
             }
             label={title}
             description={
-              surface
-                ? resolveItemDisplayName(item, locale)
-                : resolveItemDescription(item, locale)
+              surface ? resolveItemDisplayName(item, locale) : resolveItemDescription(item, locale)
             }
             descriptionTag={
               resolvePluginStoreSegment(item) === "community"
-                ? intl.formatMessage({
-                    id: "settings.plugins.store.segment.community",
-                  })
+                ? intl.formatMessage({ id: "settings.plugins.store.segment.community" })
                 : undefined
             }
             actionLabel={actionLabel}
@@ -257,7 +227,6 @@ export function SidePaneLauncherRow({
   disabled,
   title,
   testId,
-  className,
   onOpen,
 }: {
   itemId: string;
@@ -272,8 +241,6 @@ export function SidePaneLauncherRow({
   /** 整行的悬停说明。 */
   title?: string;
   testId?: string;
-  /** fork 兼容：调用方附加行级样式。 */
-  className?: string;
   onOpen?: () => void;
 }) {
   const { intl } = useZCodeIntl();
@@ -286,9 +253,7 @@ export function SidePaneLauncherRow({
         </span>
       )}
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-ui-base font-semibold text-foreground">
-          {label}
-        </span>
+        <span className="block truncate text-ui-base font-semibold text-foreground">{label}</span>
         {description || descriptionTag ? (
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-ui-sm text-foreground-subtle">
             {descriptionTag ? (
@@ -297,10 +262,7 @@ export function SidePaneLauncherRow({
               </span>
             ) : null}
             {description ? (
-              <span
-                className="truncate"
-                title={title ? undefined : description}
-              >
+              <span className="truncate" title={title ? undefined : description}>
                 {description}
               </span>
             ) : null}
@@ -315,10 +277,7 @@ export function SidePaneLauncherRow({
         data-side-pane-open-tab-item={itemId}
         data-testid={testId}
         title={title}
-        className={cn(
-          "flex w-full min-w-0 items-center gap-3 rounded-xl px-2 py-2.5 text-left",
-          className,
-        )}
+        className="flex w-full min-w-0 items-center gap-3 rounded-xl px-2 py-2.5 text-left"
       >
         {content}
       </div>
@@ -330,10 +289,7 @@ export function SidePaneLauncherRow({
       data-side-pane-open-tab-item={itemId}
       data-testid={testId}
       title={title}
-      className={cn(
-        "flex w-full min-w-0 items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused",
-        className,
-      )}
+      className="flex w-full min-w-0 items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
       onClick={onOpen}
       disabled={disabled}
       aria-busy={loading || undefined}
@@ -353,8 +309,7 @@ export function SidePaneLauncherRow({
             aria-hidden="true"
           />
         ) : null}
-        {actionLabel ??
-          intl.formatMessage({ id: "settings.plugins.store.ui.open" })}
+        {actionLabel ?? intl.formatMessage({ id: "settings.plugins.store.ui.open" })}
       </span>
     </button>
   );

@@ -1,4 +1,5 @@
 import type { ToolSearchExecutionContext, ToolSearchMode } from "@zcode/contracts";
+import type { SessionControlBinding } from "../tool/session-control/contract.js";
 import type { ExecutionState, RequestVerificationReason } from "@zcode/shared";
 import type { GetAgentDefinitions, LoadAgentDefinitions } from "../subagent/definitions.js";
 import type { RuntimeInputPresentation, TurnExecutionModelFallbackReason } from "@zcode/contracts";
@@ -21,11 +22,15 @@ import type {
   StableForkGoalBoundaryMetadata,
   StableForkTargetMetadata,
   WorkspaceHookBundleSnapshot,
+  ProjectId,
   WorkspaceId,
+  PendingTurnAttachment,
+  WorktreeCreationFact,
 } from "@zcode/contracts";
-import type { CustomSystemSegments, ZCodeProviderAccountAccess } from "@zcode/shared";
+import type { ZCodeProviderAccountAccess } from "@zcode/shared";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 import type { RuntimeMessageEntry } from "../agent/message-history.js";
+import type { ProviderToolRound } from "./provider-tool-rounds/contract.js";
 import type {
   CompactPhase,
   CompactReason,
@@ -42,6 +47,7 @@ import type {
   ModelNetworkStatusEvent,
   ModelMessageContentBlock,
   ModelReasoningContentBlock,
+  ModelTextContentBlock,
   ModelStreamRecoveryStatus,
   ModelToolCall,
   ModelToolContract,
@@ -76,6 +82,7 @@ import type {
   AutomationPort,
   OffPeakPort,
   TopicResourcePort,
+  PluginDiscoveryPort,
   FileSystemPort,
   HttpClientPort,
   ImageProcessorPort,
@@ -83,12 +90,15 @@ import type {
   HooksRuntimeConfig,
   SkillPort,
   McpPort,
+  McpConfigurationSource,
   McpServerConfig,
+  McpToolCatalogPort,
   SubagentPort,
   ToolArtifactStorePort,
   ToolCallId,
   WorkflowPort,
   WorkflowEscalatePort,
+  WorkflowWebSearchBudgetPort,
   WorkflowSubmitPort,
   TraceContext,
   TraceId,
@@ -119,12 +129,6 @@ import type { WorkspaceHookRuntimeAdmissionPort } from "../hooks/workspace-hook-
 // Agent Runtime
 // -----------------------------------------------
 
-/** 删除保护偏好的 runtime 形状（与 ToolDeleteProtectionPreferences 同构）。 */
-export interface DeleteProtectionRuntimePreferences {
-  deleteProtectionEnabled: boolean;
-  batchDeleteApprovalThreshold: number;
-}
-
 export interface AgentRuntimeConfig {
   toolSearch?: { mode?: ToolSearchMode };
   /** shared-host CUA request routing metadata; desktop is the safe default. */
@@ -145,15 +149,31 @@ export interface AgentRuntimeConfig {
   permissionTimeoutMs?: number;
   compact?: AutoCompactPolicyConfig;
   targetCompletionVerification?: { enabled?: boolean };
+  /** token 预算提醒；创建 runtime 时固定，缺省关闭（loop/meta-user-context.md）。 */
+  totalTokensReminder?: { enabled?: boolean };
   midConversationSystem?: {
     mode?: "auto" | "force";
   };
   subagents?: {
     enabled?: boolean;
+    /**
+     * Agent 工具总在后台运行（模型可见输入没有 run_in_background）。缺省 true；只有 false 回到旧形态：
+     * 可选 run_in_background，省略时前台。创建 runtime 时固定（07-subagent.md「ZCode 当前实现」）。
+     */
+    alwaysBackground?: boolean;
     // foreground subagent 没有任何 child 事件的最大静默时间；默认对齐模型流 idle timeout。
     inactivityTimeoutMs?: number;
     autoBackgroundMs?: number;
     backgroundBashMaxMs?: number;
+    /**
+     * 本 runtime 是子代理时：父会话是否用前台 Agent 启动它。启动时固定，中途转后台不改；
+     * 为 true 时后台 Bash 的文案说明最终回复之后不会再有通知（04-bash.md）。
+     */
+    startedInForeground?: boolean;
+    /** 后台 Agent 无进展多久后第一次提醒父会话；之后每次间隔加倍。默认 15 分钟。 */
+    backgroundStallNotifyMs?: number;
+    /** 无进展提醒的最大间隔。默认 4 小时。 */
+    backgroundStallMaxIntervalMs?: number;
     maxTurns?: number;
     outputRootDir?: string;
     profiles?: readonly AgentProfile[];
@@ -207,11 +227,6 @@ export interface AgentRuntimeConfig {
   embeddedSearchBackend?: EmbeddedSearchBackend;
   /** 根 Session runtime 创建时固定；false 只关闭 Bash 的 bfs/ugrep prelude。 */
   nativeSearchEnhancementsEnabled?: boolean;
-  /**
-   * 删除保护偏好（docs/spec/delete-protection.md）：Bash 删除移废纸篓 + 批量删除审批。
-   * 由 bootstrap 从 App Runtime Preferences 初始化，并经 updateConfig 实时更新。
-   */
-  deleteProtection?: DeleteProtectionRuntimePreferences;
   memory?: MemoryRuntimeConfig;
   /** 历史恢复允许未绑定；只有完整选择才能创建本轮执行 Model。 */
   modelSelection?: ModelSelection;
@@ -241,12 +256,6 @@ export interface AgentRuntimeConfig {
   // Context Builder config
   systemPrompt?: string;
   /**
-   * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落按
-   * 继承/覆盖/追加/清空组合。`systemPrompt`（v1 整段替换）在场时被 builder 整体忽略；
-   * workflow child 经继承链自动拿到（dwf actor 由 workflowSubagent 作用域生效）。
-   */
-  customSystemSegments?: CustomSystemSegments;
-  /**
    * 动态工作流子代理的身份输入：在场即让
    * context builder 走「基座 + 工作流子代理契约 + persona 叠加」路径，而不是把 persona 当
    * `systemPrompt` 整段替换。与 `systemPrompt` 互斥（builder 抛错）。
@@ -262,7 +271,6 @@ export interface AgentRuntimeConfig {
     agentPrompt: string;
     userInstructions?: ResolvedUserInstructions;
   };
-  language?: string;
   outputStyle?: OutputStylePromptConfig;
   agentName?: string; // Default: "zcode-agent"
   workingDirectory?: string; // Required for context builder
@@ -275,8 +283,23 @@ export interface AgentRuntimeConfig {
   workspacePath?: string;
   /** 仅用于持久化隔离；文件与命令执行仍使用 workingDirectory。 */
   workspaceIdentity?: WorkspaceId;
+  /**
+   * 会话所属 workspace 的 key：MCP 工具调用的 `workspace_key`、官方 MCP 授权头等发往 Host 的
+   * 请求都以它为身份。受管 worktree 会话 = 项目，不等于工作目录（docs/git/worktree.md §9.3）；
+   * 缺省按 workspaceIdentity || 工作目录。
+   */
+  workspaceKey?: string;
+  /**
+   * 派生项目身份（权限 project_id、项目记忆目录）使用的目录。受管 worktree 会话映射回
+   * 源仓库中对应路径，与 Hook Trust 继承同一规则（docs/git/worktree.md §6.6.3）；缺省 = 工作区根。
+   */
+  projectDirectory?: string;
   envInfo?: EnvInfo; // Optional, will be auto-detected if not provided
-  currentDate?: string; // YYYY-MM-DD, resolved by adapter when omitted
+  /**
+   * YYYY-MM-DD，缺省由 adapter 解析。只用于 ContextBuilder 日期段的用量统计；
+   * 模型看到的日期公告一律取运行时时钟（固定日期请注入 `now`）。
+   */
+  currentDate?: string;
   userInstructions?: UserInstructionsOptions; // P1: AGENTS.md
   projectContext?: ProjectContext; // P2: auto-detected if not provided
   skillMetadataBudget?: number;
@@ -345,6 +368,8 @@ export interface MemoryRuntimeConfig {
   workspaceIdentity?: string;
 }
 
+export type McpStartupPolicy = "blocking" | "background";
+
 export interface AgentRuntimeDeps {
   /** 只读目录入口；必须同步读取内存，不在请求收集阶段进行 I/O。 */
   getAgentDefinitions?: GetAgentDefinitions;
@@ -362,6 +387,12 @@ export interface AgentRuntimeDeps {
   resolveEffectiveModelSelection?: (selection: ModelSelection) => EffectiveModelSelectionResult;
   modelIoDir?: string;
   providerRuntimeHeadersPort?: ProviderRuntimeHeadersPort;
+  /** 回复语言来源：Host 的回复语言设置，只给主线程注入；没有设置时为 null（runtime 发清除公告），读取失败时 reject（runtime 跳过本次公告）。见 docs/i18n/agent-reply-language.md。 */
+  readReplyLanguage?: (input: {
+    sessionId: SessionId;
+    signal?: AbortSignal;
+    traceContext: TraceContext;
+  }) => Promise<string | null>;
   permissionService?: PermissionService;
   permissionBroker?: PermissionBrokerPort;
   toolScheduler?: ToolScheduler;
@@ -378,7 +409,15 @@ export interface AgentRuntimeDeps {
   imageProcessorPort?: ImageProcessorPort;
   pdfDocumentPort?: PdfDocumentPort;
   skillPort?: SkillPort;
+  /** child 工厂返回的借用端口自带标记；历史 parentSessionId 不决定连接所有权。 */
   mcpPort?: McpPort;
+  mcpConfigurationSource?: McpConfigurationSource;
+  mcpToolCatalogPort?: McpToolCatalogPort;
+  /**
+   * MCP 启动策略，由入口显式传入，默认 blocking：首个请求等全部 server 启动结束。
+   * background 只用缓存命中与已就绪 server 的工具，其余 server 就绪后在下一次正常请求生效。
+   */
+  mcpStartupPolicy?: McpStartupPolicy;
   subagentPort?: SubagentPort;
   coordinatorResponsePort?: CoordinatorResponsePort;
   /** 工作流 actor 提交终态结果的端口；存在即作为 submit_result 工具的注册门。 */
@@ -395,11 +434,22 @@ export interface AgentRuntimeDeps {
    */
   workflowEscalatePort?: WorkflowEscalatePort;
   /**
+   * 工作流 actor 每个 ask 的 WebSearch 预算（计数与重置归 driver）。缺席即无上限，
+   * 所以主会话与 Agent 子代理不受影响。
+   */
+  webSearchBudget?: WorkflowWebSearchBudgetPort;
+  /**
    * 模型请求的进程级准入端口：在场时
    * 每次模型请求尝试先经它拿票据；沿调用上下文到 adapter。dwf actor runtime 拿 driver 的 per-actor
    * 包装（受闸门约束），主 runtime 拿治理器的 observer（只喂信号）；缺席即不设闸门。
    */
   modelRequestAdmission?: ModelRequestAdmission;
+  /**
+   * 主代理 subagent（`Agent` 工具）的准入端口工厂：派生 subagent 时以**当前**父 sessionId 调用，
+   * 结果作为子 runtime 的 `modelRequestAdmission`（受闸门约束，同一父会话的 subagent 共用一条队列）。
+   * 缺席时子 runtime 沿用父的 `modelRequestAdmission`。
+   */
+  subagentModelRequestAdmission?: (parentSessionId: string) => ModelRequestAdmission;
   onOffPeakLifecycleEvent?: (
     event: import("./off-peak/lifecycle.js").OffPeakLifecycleEvent,
   ) => void;
@@ -411,9 +461,11 @@ export interface AgentRuntimeDeps {
   modelCatalogPort?: ModelCatalogPort;
   runtimeTaskRegistry?: RuntimeTaskRegistry;
   artifactStore?: ToolArtifactStorePort;
+  sessionControl?: SessionControlBinding;
   automationPort?: AutomationPort;
   offPeakPort?: OffPeakPort;
   topicResourcePort?: TopicResourcePort;
+  pluginDiscoveryPort?: PluginDiscoveryPort;
   contextSourcePort?: ContextSourcePort;
   eventSink?: SessionEventSink;
   logger?: Logger;
@@ -561,6 +613,31 @@ export type PromptAdmissionOptions = ExecuteTurnOptions & {
   requireIdle?: boolean;
 };
 
+/** composer 编辑态写回排队项（docs/ui/composer-edit-mode.md）；可选字段缺省 = 保留原值。 */
+export interface EditPendingInputOptions {
+  pendingInputId: string;
+  /**
+   * 缺省 = 保留原输入，只改配置（applyQueueItemsConfig）。不能由调用方用投影 text 回填：
+   * 投影 text 经过 genUi 归一化，写回会丢掉输入里的上下文。
+   */
+  newText?: string;
+  /** 携带时必须持有该编辑器的锁；成功后同一调用释放锁。 */
+  editorId?: string;
+  attachmentRefs?: NonNullable<TurnInputIntentMetadata["attachmentRefs"]>;
+  attachments?: PendingTurnAttachment[];
+  conversationQuotes?: TurnInputIntentMetadata["conversationQuotes"];
+  modelSelection?: ModelSelection;
+  mode?: TurnInputIntentMetadata["mode"];
+  planEnabled?: boolean;
+  /** 用户改了模型：入队时冻结的 Highspeed 卡不能再覆盖用户的新选择。 */
+  dropHighspeed?: boolean;
+}
+
+/** editLocked = 该项被他人锁定且调用方未持锁；lockLost = 调用方声明的锁已不在。 */
+export type EditPendingInputResult = "edited" | "missing" | "editLocked" | "lockLost";
+
+export type LockPendingInputEditResult = "locked" | "missing" | "reserved" | "lockedByOther";
+
 export type PromptAdmissionReceipt =
   | {
       kind: "started";
@@ -670,9 +747,6 @@ export interface WorkspaceFileRewindIgnoredFile {
 export interface WorkspaceFileRewindPreview {
   canApply: boolean;
   ignoredFiles: WorkspaceFileRewindIgnoredFile[];
-  // 按文件撤销（docs/spec/per-file-rewind.md）：预览时排除的「此前已撤销」路径，
-  // artifact 原始路径形态，与 fileChanges items 的 path 同形。
-  revertedPaths?: string[];
   safeFiles: WorkspaceFileRewindSafeFile[];
   unsafeFiles: WorkspaceFileRewindUnsafeFile[];
 }
@@ -712,8 +786,23 @@ export type StableConversationForkGoalBoundary = StableForkGoalBoundaryMetadata;
 
 export type StableConversationForkChildMetadata = ForkChildSessionMetadata;
 
+/**
+ * 显式 forkAssistant 把子会话放到同一 workspace 下的另一个 cwd（受管 worktree，
+ * docs/git/worktree.md §8.2）。bootstrap 负责解析并校验；core 只写入子会话。
+ */
+export interface StableConversationForkTargetCwd {
+  /** 子会话 cwd，同时写入 session.directory / path。workspaceID 沿用父会话（本地为空）。 */
+  directory: string;
+  /** 权限与记忆使用的项目 ID：由 cwd 映射回源仓库路径派生（§6.6.3），映射失败时按 cwd。 */
+  projectID: ProjectId;
+  /** 追加在复制历史之后的 "已创建 worktree" 时间线事实。 */
+  worktreeCreation: WorktreeCreationFact;
+}
+
 export interface StableConversationForkOptions {
   forkedSessionId?: SessionId;
+  /** 缺省 = 父会话 cwd（原行为）。 */
+  targetCwd?: StableConversationForkTargetCwd;
   modelSelection?: ModelSelection;
   goalBoundary: StableConversationForkGoalBoundary;
   sourceCommandId: string;
@@ -789,7 +878,6 @@ export interface ResumeSessionResult extends SessionHistoryHydrationResult {
   /** resume 是否写回了当前 materialization 无法完整反映的 compact 修补事实。 */
   persistedMessagesReloadRequired: boolean;
   readFileStateRestoredCount: number;
-  readFileStateSkippedRangeReadCount: number;
   readFileStateSkippedUnreadableEditCount: number;
   traceId: TraceId;
 }
@@ -803,7 +891,11 @@ export interface PermissionDecisionResult {
 
 export interface ExecuteToolsOptions {
   toolSearch?: ToolSearchExecutionContext;
+  pluginDiscoveryUi?: boolean;
+  /** 产生这批调用的 assistant 回复；未注册 MCP 工具的等待预算按它共享。 */
+  responseId?: string;
   automationTurn?: boolean;
+  automationId?: string;
   offPeakTurn?: boolean;
   signal?: AbortSignal;
   traceContext?: TraceContext;
@@ -864,6 +956,7 @@ export interface ActiveTurnStartReservation {
 }
 
 export interface DrainedPendingInputDiagnostics {
+  pluginDiscoveryUi?: boolean;
   injectedMessageIds: MessageId[];
   /** 行内 Guide 本身携带的原子 Submission 配置；由下一次 model-step 边界消费。 */
   intent?: TurnInputIntentMetadata;
@@ -874,6 +967,8 @@ export interface DrainedPendingInputDiagnostics {
   runtimeEntries: readonly RuntimeMessageEntry[];
   /** 本次 drain 注入的输入附带的工具隐藏列表，下一次 provider 请求必须继续生效。 */
   toolDisallowlist?: readonly string[];
+  /** 本次取出的输入里至少一条是用户亲手 steer 的（`user_steer`）；信箱、工具跟进、协调者都不算。 */
+  userSteered: boolean;
 }
 
 export interface ProviderContextUsageSnapshot {
@@ -899,6 +994,8 @@ export interface RunModelTextRequestOptions {
   messages: ModelInputMessage[];
   /** 与 messages 按索引对应的 canonical 来源，仅用于本地用量统计。 */
   sourceEntries?: readonly (RuntimeMessageEntry | undefined)[];
+  /** 与 messages 按索引对应的全部来源条目（含 attachment），仅用于 context 组成统计。 */
+  originEntries?: readonly (readonly RuntimeMessageEntry[])[];
   model: Model;
   onStreamSnapshot?: (snapshot: RuntimeModelStreamSnapshot) => void;
   onStreamReasoningDelta?: (text: string) => void;
@@ -911,8 +1008,12 @@ export interface RunModelTextRequestOptions {
 }
 
 export interface RuntimeModelStreamSnapshot {
+  /** 当前轮（最后一个服务端内置工具之后）的内容；之前的轮在 providerToolRounds。 */
   reasoning: ModelReasoningContentBlock[];
   text: string;
+  /** 当前轮按到达顺序的文字块；`text` 是它们的直接拼接。 */
+  textBlocks?: ModelTextContentBlock[];
+  providerToolRounds?: readonly ProviderToolRound[];
 }
 
 export interface StreamedToolExecutionResult {
@@ -929,8 +1030,14 @@ export interface RuntimeModelTextResult {
   providerMetadata?: Record<string, unknown>;
   reasoning?: ModelReasoningContentBlock[];
   text: string;
+  /** 最后一轮按到达顺序的文字块；`text` 是它们的直接拼接。缺失时按旧数据写入和回放。 */
+  textBlocks?: ModelTextContentBlock[];
   toolCalls?: ModelToolCall[];
+  /** 服务端内置工具切出的前序轮次；text/reasoning 只保留最后一轮。 */
+  providerToolRounds?: ProviderToolRound[];
   usage: ModelUsage;
+  /** 结果来自签名修复后的重试，提交 assistant 时要记 signedReasoningReset。 */
+  signedReasoningReset?: boolean;
 }
 
 export type ParsedRewindCommand =

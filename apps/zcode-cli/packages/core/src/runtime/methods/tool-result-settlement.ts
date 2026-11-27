@@ -11,26 +11,26 @@ import {
   createStreamRecoveryAnchorId,
   emitStreamRecoveryAnchor,
   emitStreamingToolLedgerUpdate,
-  isErrorForToolResult,
   isTurnCancellationError,
   modelContentForToolResult,
   stringifyToolResultOutput,
+  toolBatchModelEntries,
 } from "../helpers/index.js";
 import { persistToolResultMediaAttachments } from "../helpers/tool-result-media-persistence.js";
 import type { AgentRuntimeInternal } from "../internal.js";
 import type { StreamedToolExecutionResult } from "../types.js";
-import { createRuntimeToolResultEntry } from "../../agent/message-history.js";
 import { recordBrowserTurnToolResult } from "../../repl/browser-turn-state.js";
 import { completedToolPartMetadata, mcpToolPartMetadata } from "./tool-part-metadata.js";
 import { projectToolNameForNonEmptyBoundary } from "./tool-part-persistence.js";
 import type { RegularTurnLoopState } from "./turn-loop-state.js";
 import { emitNestedModelUsageEvents } from "./turn-nested-model-usage.js";
 import { commitTurnRequestEntries } from "./turn-output-token-continuation.js";
+import { persistAnnouncements } from "./context-refresh.js";
 import { recordToolUsageFromResult } from "./turn-tool-usage.js";
+import { recordSessionFeaturesFromToolResults } from "../session-features/contract.js";
 
 export interface ToolResultPart {
   partID: PartId;
-  declarationIndex: number;
   input: Record<string, unknown>;
   startedAt: number;
 }
@@ -48,22 +48,14 @@ export async function settleToolResults(
   },
 ): Promise<void> {
   const { results, toolParts, toolCallById, streamedResultsById } = options;
+  const batchEntries = toolBatchModelEntries(results, {
+    registry: this.registry,
+    modelCallWrapperOf: (toolCallId) => toolCallById.get(toolCallId)?.modelCallWrapper,
+  });
   // 根因：工具调用已进入历史，但旧逻辑在异步保存之后逐项加入结果；中途失败会
   // 留下缺失结果的调用。整批真实结果必须在任何异步收尾之前同步进入两份模型历史。
   // 这只保证当前进程历史完整，恢复锚点仍以各项持久化成功为前提。
-  commitTurnRequestEntries(
-    this,
-    state.turnRequestState,
-    results.map((result) =>
-      createRuntimeToolResultEntry(
-        result.toolCallId,
-        result.toolName,
-        modelContentForToolResult(result),
-        isErrorForToolResult(result),
-        toolCallById.get(result.toolCallId)?.modelCallWrapper,
-      ),
-    ),
-  );
+  commitTurnRequestEntries(this, state.turnRequestState, batchEntries.toolResults);
   for (const result of results) {
     recordBrowserTurnToolResult({
       output: result.output,
@@ -72,6 +64,8 @@ export async function settleToolResults(
       turnId: state.turnId,
     });
   }
+  // 结果已进入历史后同步打能力标签，下一次模型请求就带上（session-features 只读结果）。
+  recordSessionFeaturesFromToolResults.call(this, results, options.modelTraceContext);
   await emitNestedModelUsageEvents(this, {
     events: state.events,
     results,
@@ -105,6 +99,7 @@ export async function settleToolResults(
     const content = stringifyToolResultOutput(result);
     const projectedResultToolName = projectToolNameForNonEmptyBoundary(result.toolName);
     const persisted = toolParts.get(result.toolCallId);
+    const toolCall = toolCallById.get(result.toolCallId);
     if (persisted) {
       const mediaPersistence = result.success
         ? await persistToolResultMediaAttachments({
@@ -126,13 +121,15 @@ export async function settleToolResults(
           messageID: options.assistantMessageId,
           type: "tool",
           callID: result.toolCallId,
-          declarationIndex: persisted.declarationIndex,
+          ...(toolCall?.blockIndex !== undefined ? { blockIndex: toolCall.blockIndex } : {}),
           tool: projectedResultToolName.toolName,
           metadata: {
             ...projectedResultToolName.metadata,
-            ...(toolCallById.get(result.toolCallId)?.modelCallWrapper
-              ? { modelCallWrapper: toolCallById.get(result.toolCallId)?.modelCallWrapper }
-              : {}),
+            ...(toolCall?.modelCallWrapper ? { modelCallWrapper: toolCall.modelCallWrapper } : {}),
+            // 修复原因：子代理身份与后台启动事实原来只在模型可见文本里（agentId 行、output_file 行、
+            // 启动回执前缀），冷加载、子会话目录与崩溃对账只能用正则从文本里找，error 状态的 part
+            // 还找不到；这里写成结构化字段（agentId / childSessionId / background / outputFile），读的一侧直接用。
+            ...result.subagent,
           },
           state: result.success
             ? {
@@ -197,7 +194,6 @@ export async function settleToolResults(
       deferredCheckpointCancellation ??= error;
       continue;
     }
-    const toolCall = toolCallById.get(result.toolCallId as ToolCallId);
     if (toolCall) {
       const resultPartId = persisted?.partID;
       const recoveryAnchorId = createStreamRecoveryAnchorId(
@@ -234,6 +230,16 @@ export async function settleToolResults(
     );
   }
 
+  // 工具 Hook 的附加上下文与工具声明的批次提示（例如 Read 部分视图提示）紧跟在这批 tool result 之后
+  // （顺序见 toolBatchModelEntries）。持久化后进入历史，resume 后位置不变。
+  // 它们属于这批结果，Stop 打断 checkpoint 时也先写入再抛出：结果 → 附件 → 中断标记。
+  // 先抛出会丢附件：tool result 已在历史里，模型之后只看到被截断的正文。
+  await persistAnnouncements(
+    this,
+    state.turnRequestState,
+    batchEntries.attachments,
+    options.modelTraceContext,
+  );
   if (deferredCheckpointCancellation) {
     throw deferredCheckpointCancellation;
   }

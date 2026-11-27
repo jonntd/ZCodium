@@ -1,6 +1,7 @@
 import type { Logger, McpPort } from "@zcode/contracts";
 import type { McpConnectionPool, McpTelemetryTracker } from "@zcode/adapters/mcp";
 import type { SqliteSessionStore } from "@zcode/adapters/storage";
+import { shutdownPreparedModelTelemetry } from "@zcode/telemetry";
 import { closeSessionStore } from "../app/session-store.js";
 import type { NodeReplBrowserBroker } from "../app/node-repl-browser-broker.js";
 import type { ZCodeProcessResourceSampler } from "../process-resource-sampler.js";
@@ -20,6 +21,7 @@ export async function cleanupProtocolRuntime(options: {
   mcpConnectionPool?: Pick<McpConnectionPool, "close">;
   sessionStore?: SqliteSessionStore;
   providerRegistryRuntime?: { dispose(): unknown };
+  pluginPreparation?: { dispose(): unknown };
 }): Promise<void> {
   const deadline = options.deadlineAt ?? Date.now() + DEFAULT_CLEANUP_BUDGET_MS;
   const step = async (resource: string, cleanup: () => unknown | Promise<unknown>) => {
@@ -47,6 +49,7 @@ export async function cleanupProtocolRuntime(options: {
   };
   await Promise.all([
     step("sampler", () => options.processResourceSampler?.stop()),
+    step("plugin_preparation", () => options.pluginPreparation?.dispose()),
     step("mcp_telemetry", () => options.mcpTelemetryTracker?.stop()),
   ]);
   await step("sessions", () => options.server?.shutdown());
@@ -62,5 +65,6 @@ export async function cleanupProtocolRuntime(options: {
       if (options.sessionStore) closeSessionStore(options.sessionStore);
     }),
     step("provider_registry", () => options.providerRegistryRuntime?.dispose()),
+    step("telemetry", () => shutdownPreparedModelTelemetry()),
   ]);
 }

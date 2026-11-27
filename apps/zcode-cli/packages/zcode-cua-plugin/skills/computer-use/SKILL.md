@@ -135,10 +135,9 @@ no separate launch tool. Its argument is a display name or a bundle identifier �
 the same strings `listApps()` returns — or an `AppRef`.
 
 When the user names an application, copy it character-for-character into the app
-identifier. Do not translate, localize, normalize, shorten, or remove a suffix:
-`{"name":"网易云音乐app"}` is not `{"name":"网易云音乐"}`; `{"name":"日历"}` is not
-`{"name":"Calendar"}`. A rewritten name resolves to a different app or to nothing,
-and the failure reads "app not found". If the exact string does not resolve, call
+identifier. Do not translate, localize, normalize, shorten, or remove a suffix.
+A rewritten name resolves to a different app or to nothing, and the failure reads
+"app not found". If the exact string does not resolve, call
 `agent.computerUse.listApps()` once and pick the matching identifier.
 
 Batch related actions and a single closing observation into one cell:
@@ -283,7 +282,8 @@ get_app_state({app_ref, include_screenshot?=false, disable_diffing?=false})
 
 left_click({target, mouse_button?="left", click_count?=1, modifiers?="",
            strategy?, app_ref?, return_state?})
-left_click_drag({from_target, to, modifiers?="", app_ref?, return_state?})
+left_click_drag({from_target, to, modifiers?="", strategy?, app_ref?,
+                return_state?})
 scroll({target, scroll_direction, scroll_amount, strategy?, app_ref?,
        return_state?})
 

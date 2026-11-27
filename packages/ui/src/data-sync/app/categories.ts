@@ -8,10 +8,7 @@ import {
   WandSparkles,
   type LucideIcon,
 } from "lucide-react";
-import type {
-  IDataSyncCategoryService,
-  IServiceAccessor,
-} from "@zcode/services";
+import type { IDataSyncCategoryService, IServiceAccessor } from "@zcode/services";
 import {
   PLUGIN_DATA_SYNC_MAX_ITEM_BYTES,
   SKILL_DATA_SYNC_MAX_ITEM_BYTES,
@@ -71,16 +68,13 @@ export const DATA_SYNC_OVERVIEW_ICON = LayoutDashboard;
 function tabsOnDevice(context: DataSyncAfterPushContext): WorkspaceTabState[] {
   return (context.workspaceTabs ?? []).filter(
     (tab) =>
-      getWorkspaceSourceServerId(tab, {
-        workspaceHistory: context.workspaceHistory,
-      }) === context.sourceServerId,
+      getWorkspaceSourceServerId(tab, { workspaceHistory: context.workspaceHistory }) ===
+      context.sourceServerId,
   );
 }
 
 /** 刷新该设备上已打开 workspace 的技能列表，并使草稿会话失效（沿用旧技能同步入口的刷新逻辑）。 */
-async function refreshSkillsAfterPush(
-  context: DataSyncAfterPushContext,
-): Promise<void> {
+async function refreshSkillsAfterPush(context: DataSyncAfterPushContext): Promise<void> {
   for (const tab of tabsOnDevice(context)) {
     await invalidateDeferredDraftSessionForSkillChange({
       workspacePath: tab.workspacePath,
@@ -98,9 +92,7 @@ async function refreshSkillsAfterPush(
 /**
  * 插件推送后复用旧插件同步入口的完整刷新链：依次刷新技能、slash commands、MCP，并发送插件管理通知。
  */
-async function refreshPluginsAfterPush(
-  context: DataSyncAfterPushContext,
-): Promise<void> {
+async function refreshPluginsAfterPush(context: DataSyncAfterPushContext): Promise<void> {
   const { targetServices } = context;
   for (const tab of tabsOnDevice(context)) {
     await refreshWorkspacePluginCapabilitiesAfterRemoteSync({
@@ -122,16 +114,13 @@ function bindUserConfigSyncCategory(
   const channel = services.userConfigSyncService;
   return {
     listSyncItems: () => channel.listSyncItems({ category }),
-    getSyncContentHashes: ({ keys }) =>
-      channel.getSyncContentHashes({ category, keys }),
+    getSyncContentHashes: ({ keys }) => channel.getSyncContentHashes({ category, keys }),
     checkSyncWriteAccess: () => channel.checkSyncWriteAccess({ category }),
     exportSyncItems: ({ keys }) => channel.exportSyncItems({ category, keys }),
     importSyncItems: ({ payload, items }) =>
       channel.importSyncItems({
         category,
-        payload: payload as Parameters<
-          typeof channel.importSyncItems
-        >[0]["payload"],
+        payload: payload as Parameters<typeof channel.importSyncItems>[0]["payload"],
         items,
       }),
   };
@@ -142,16 +131,12 @@ function bindUserConfigSyncCategory(
  * Bug 根因：原实现按 targetServices（source-settings 服务）刷新，而建议缓存按项目服务分桶，一个都刷不到。
  * 修法：按各项目已注册的服务逐个刷新，取不到服务就跳过（见 refreshSubagentsStoreForRemoteWorkspaces）。
  */
-async function refreshSubagentsAfterPush(
-  context: DataSyncAfterPushContext,
-): Promise<void> {
+async function refreshSubagentsAfterPush(context: DataSyncAfterPushContext): Promise<void> {
   await refreshSubagentsStoreForRemoteWorkspaces(tabsOnDevice(context));
 }
 
 /** MCP 推送后只刷新全局 MCP store 当前指向的项目（不切换当前项目），见 reloadMcpStoreIfCurrentWorkspace。 */
-async function refreshMcpAfterPush(
-  context: DataSyncAfterPushContext,
-): Promise<void> {
+async function refreshMcpAfterPush(context: DataSyncAfterPushContext): Promise<void> {
   for (const tab of tabsOnDevice(context)) {
     await reloadMcpStoreIfCurrentWorkspace({
       workspacePath: tab.workspacePath,
@@ -165,9 +150,7 @@ async function refreshMcpAfterPush(
  * 修复：这里原来不做推送后处理，理由是「Agent 侧沿用现有的配置读取时机」。但会话只在创建时读一次钩子，
  * 推送前打开的新建任务页已建好预热会话，发出的第一条消息不执行推送的钩子；本机设置页保存会作废预热会话，两端因此不一致。
  */
-async function refreshHooksAfterPush(
-  context: DataSyncAfterPushContext,
-): Promise<void> {
+async function refreshHooksAfterPush(context: DataSyncAfterPushContext): Promise<void> {
   for (const tab of tabsOnDevice(context)) {
     await invalidateDeferredDraftSessionForRuntimeChange({
       logScope: "hooks",
@@ -179,9 +162,7 @@ async function refreshHooksAfterPush(
 }
 
 /** 命令推送后刷新该设备上已打开项目的 slash commands（沿用插件同步后的命令刷新）。 */
-async function refreshCommandsAfterPush(
-  context: DataSyncAfterPushContext,
-): Promise<void> {
+async function refreshCommandsAfterPush(context: DataSyncAfterPushContext): Promise<void> {
   for (const tab of tabsOnDevice(context)) {
     await refreshSlashCommandsAfterRemoteSync({
       commandsService: context.targetServices.commandsService,
@@ -203,8 +184,7 @@ export const DATA_SYNC_CATEGORIES: readonly DataSyncCategoryAdapter[] = [
   {
     id: "plugins",
     icon: Blocks,
-    getService: (services, control) =>
-      createPluginCategoryDataSyncService(services, control),
+    getService: (services, control) => createPluginCategoryDataSyncService(services, control),
     maxBatchBytes: PLUGIN_DATA_SYNC_MAX_ITEM_BYTES,
     afterPush: refreshPluginsAfterPush,
   },

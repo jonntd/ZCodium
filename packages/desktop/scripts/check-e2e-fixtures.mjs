@@ -2,7 +2,7 @@
 /* eslint-disable max-lines */
 
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { basename, resolve } from "node:path";
 
 const desktopDir = resolve(import.meta.dirname, "..");
 const upstreamFixtureRoot = resolve(desktopDir, "test/e2e/fixtures/upstream");
@@ -153,10 +153,10 @@ function parseArgs(args) {
 function printUsage() {
   console.log(
     "Usage:\n" +
-      "  pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/<case>.test.ts\n" +
-      "  pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/manual-review/pending/<case>.test.ts\n" +
-      "  pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/plugins/<case>.test.ts\n" +
-      "  pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/plugins/manual-review/pending/<case>.test.ts\n",
+      "  pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/<scenario>/<case>.test.ts\n" +
+      "  pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/conversation-session/<scenario>/manual-review/pending/<case>.test.ts\n" +
+      "  pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/plugins/<scenario>/<case>.test.ts\n" +
+      "  pnpm --filter @zcode/desktop e2e:fixture:check -- --spec ./test/e2e/plugins/<scenario>/manual-review/pending/<case>.test.ts\n",
   );
 }
 
@@ -180,17 +180,21 @@ function resolveE2ESpecContract(specPath) {
     const markerIndex = normalized.lastIndexOf(candidate.marker);
     if (markerIndex < 0) continue;
     const relativeSpecPath = normalized.slice(markerIndex + candidate.marker.length);
-    const isPending = relativeSpecPath.startsWith("manual-review/pending/");
-    const fileName = isPending
-      ? relativeSpecPath.slice("manual-review/pending/".length)
-      : relativeSpecPath;
-    if (fileName.includes("/") || fileName.includes("*") || !fileName.endsWith(".test.ts")) {
+    const canonicalRelative = relativeSpecPath.replace(
+      /(?:^|\/)manual-review\/pending\//u,
+      (match) => (match.startsWith("/") ? "/" : ""),
+    );
+    if (
+      canonicalRelative.includes("manual-review/") ||
+      /[*?\[{}]/u.test(canonicalRelative) ||
+      !canonicalRelative.endsWith(".test.ts")
+    ) {
       return null;
     }
-    // pending fixture contracts always target the formal direct-root path
+    // 候选转正只去掉 review 层级，场景目录属于 fixture 的正式身份。
     return {
-      canonicalSpecPath: resolve(candidate.formalDir, fileName),
-      caseName: fileName.slice(0, -".test.ts".length),
+      canonicalSpecPath: resolve(candidate.formalDir, canonicalRelative),
+      caseName: basename(canonicalRelative, ".test.ts"),
       fixtureDir: candidate.fixtureDir,
       manifestRoot: candidate.manifestRoot,
     };
@@ -268,8 +272,24 @@ function validateCaseManifest(
       );
     }
   }
-  if (value.providerRequestPolicy !== undefined && value.providerRequestPolicy !== "none") {
-    nextErrors.push(`${manifestPath}: providerRequestPolicy must be "none" when present`);
+  if (
+    value.providerRequestPolicy !== undefined &&
+    !["none", "external-live"].includes(value.providerRequestPolicy)
+  ) {
+    nextErrors.push(
+      `${manifestPath}: providerRequestPolicy must be "none" or "external-live" when present`,
+    );
+  }
+  if (
+    value.providerRequestPolicy === "external-live" &&
+    (typeof value.externalProviderReason !== "string" ||
+      !value.externalProviderReason.trim() ||
+      value.noProviderRequests === true ||
+      requests.length > 0)
+  ) {
+    nextErrors.push(
+      `${manifestPath}: external-live requires a reason, an empty replay ledger and no noProviderRequests claim`,
+    );
   }
   if (
     value.providerRequestPolicy === "none" &&
@@ -301,9 +321,16 @@ function validateCaseFixtureIdentity(fixtureFile, { canonicalSpecPath, caseName 
 
 function allowsEmptyCaseLocalFixture(manifest) {
   const value = manifest?.value;
-  // pure UI cases must opt in via empty provider contract
+  // 真实账号专项没有回放响应，但必须明确保留真实请求语义，不能冒充纯 UI 用例。
+  const externalLive =
+    value?.providerRequestPolicy === "external-live" &&
+    typeof value.externalProviderReason === "string" &&
+    value.externalProviderReason.trim().length > 0 &&
+    value.noProviderRequests !== true;
   return (
-    (value?.noProviderRequests === true || value?.providerRequestPolicy === "none") &&
+    (value?.providerRequestPolicy === "external-live"
+      ? externalLive
+      : value?.noProviderRequests === true || value?.providerRequestPolicy === "none") &&
     Array.isArray(value.requests) &&
     value.requests.length === 0
   );

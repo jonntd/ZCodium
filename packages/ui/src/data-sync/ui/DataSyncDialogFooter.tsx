@@ -50,16 +50,10 @@ export function DialogFooterBar(props: {
           <span data-testid="remote-sync-selection-summary">
             {selectedCount === 0
               ? formatMessage({ id: "remoteSync.selection.empty" })
-              : formatMessage(
-                  { id: "remoteSync.selection.summary" },
-                  { count: selectedCount },
-                )}
+              : formatMessage({ id: "remoteSync.selection.summary" }, { count: selectedCount })}
           </span>
           {activeView.failedCount > 0 && !categoryPushing ? (
-            <span
-              data-testid="remote-sync-failure-summary"
-              className="text-destructive"
-            >
+            <span data-testid="remote-sync-failure-summary" className="text-destructive">
               {formatMessage(
                 { id: "remoteSync.selection.failed" },
                 { count: activeView.failedCount },
@@ -88,10 +82,7 @@ export function DialogFooterBar(props: {
             {/* 当前分类失败后，其他分类可能仍在推送；文案与禁用条件必须使用同一整批状态。 */}
             {props.pushing ? (
               <>
-                <RefreshCw
-                  className="size-3.5 animate-spin"
-                  aria-hidden="true"
-                />
+                <RefreshCw className="size-3.5 animate-spin" aria-hidden="true" />
                 {formatMessage({ id: "remoteSync.action.transferring" })}
               </>
             ) : activeView.push !== "idle" ? (
@@ -103,9 +94,7 @@ export function DialogFooterBar(props: {
               formatMessage(
                 { id: "remoteSync.action.pushCategory" },
                 {
-                  category: formatMessage({
-                    id: `remoteSync.category.${activeCategory.id}`,
-                  }),
+                  category: formatMessage({ id: `remoteSync.category.${activeCategory.id}` }),
                 },
               )
             )}

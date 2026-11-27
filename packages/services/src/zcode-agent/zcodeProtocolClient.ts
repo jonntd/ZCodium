@@ -1,5 +1,15 @@
+import {
+  zcodeProtocolMethods,
+  sessionLifecycleParamsSchema,
+  sessionLifecycleActivationParamsSchema,
+  zcodeRuntimeCapabilitiesSchema,
+  type ZCodeWorkspaceRef,
+  sessionLifecycleSnapshotSchema,
+  sessionLifecycleResultSchema,
+} from "@zcode/shared";
 import { ZCodeStorageStartupGate } from "#src/zcode-agent/zcodeStorageStartupGate.js";
 import { Emitter } from "@zcode/rpc";
+import { zcodePluginStartupDegradedSchema, zcodeProtocolNotifications } from "@zcode/shared";
 import type { IDisposable } from "@zcode/rpc";
 import type {
   ZCodeProtocolMethod,
@@ -7,20 +17,10 @@ import type {
   ZCodeProtocolRequest,
   ZCodeProtocolRequestId,
   ZCodeProtocolTrace,
-  ZCodeWorkspaceRef,
-} from "@zcode/shared";
-import {
-  sessionLifecycleActivationParamsSchema,
-  sessionLifecycleParamsSchema,
-  sessionLifecycleSnapshotSchema,
-  sessionLifecycleResultSchema,
-  zcodeProtocolMethods,
-  zcodeRuntimeCapabilitiesSchema,
 } from "@zcode/shared";
 import type { V4Method } from "@zcode/shared/zcode-protocol-v4";
 import type { z } from "zod";
 import type { ZCodeProtocolTransport } from "./zcodeProtocolTransport.js";
-import { zcodeProtocolNotifications, zcodePluginStartupDegradedSchema } from "@zcode/shared";
 
 /** 客户端可发的方法名：旧 zcodeProtocolMethods + v4/*（M3 起并存，M5 波次 2 收敛为 v4）。 */
 export type ZCodeProtocolClientMethod = ZCodeProtocolMethod | V4Method;
@@ -84,29 +84,6 @@ export class ZCodeProtocolRequestTimeoutError extends Error {
 }
 
 export class ZCodeProtocolClient implements IDisposable {
-  readonly storageStartup: ZCodeStorageStartupGate;
-  private readonly pending = new Map<string, PendingRequest<unknown>>();
-  private readonly notificationEmitter = new Emitter<ZCodeProtocolNotification>();
-  private readonly requestEmitter = new Emitter<ZCodeProtocolRequest>();
-  private readonly requestTimeoutEmitter = new Emitter<ZCodeProtocolRequestTimeoutEvent>();
-  // 业务请求归零时触发；观测完成不能给被观察进程续命。
-  private readonly pendingDrainedEmitter = new Emitter<void>();
-  private readonly closeEmitter = new Emitter<void>();
-  private readonly disposables: IDisposable[] = [];
-  private nextRequestId = 1;
-  private disposed = false;
-  private readonly requestTimeoutMs: number;
-
-  /**
-   * client 是否已 dispose（进程被回收/transport 关闭后为 true）。
-   * 调用方（如 getClient 复用 active entry）必须在复用前检查此标记，
-   * 避免对一个已被 processManager 回收但尚未触发 onClose 的 client 发请求，
-   * 否则会立即抛 "ZCode Protocol client is disposed"。
-   */
-  get isDisposed(): boolean {
-    return this.disposed;
-  }
-
   /** 与已连接 workspace 的 CLI 生命周期 owner 通信；此入口不拉起或重启整个进程。 */
   readonly sessionLifecycle = {
     getState: (sessionId: string) =>
@@ -137,6 +114,56 @@ export class ZCodeProtocolClient implements IDisposable {
         workspace,
       ),
   };
+
+  private async requestSessionActivation(
+    method:
+      | typeof zcodeProtocolMethods.sessionLifecycleEnsureReady
+      | typeof zcodeProtocolMethods.sessionLifecycleRestart,
+    sessionId: string,
+    workspace?: ZCodeWorkspaceRef,
+  ) {
+    if (workspace) {
+      // 旧 CLI 的严格参数不接受 workspace；不能退回会丢失归属的重启，也不能重启整个进程。
+      const capabilities = await this.request(
+        zcodeProtocolMethods.runtimeCapabilities,
+        {},
+        zcodeRuntimeCapabilitiesSchema,
+        // 能力查询是观察请求，等待超时不能淘汰共享 CLI 连接。
+        { lifecycle: "observation" },
+      );
+      if (!capabilities.sessionLifecycleWorkspace)
+        throw new Error("fault.sessionLifecycle.unsupported");
+    }
+    return this.request(
+      method,
+      sessionLifecycleActivationParamsSchema.parse({ sessionId, workspace }),
+      sessionLifecycleResultSchema,
+      { invalidateConnectionOnTimeout: false },
+    );
+  }
+
+  readonly storageStartup: ZCodeStorageStartupGate;
+  private readonly pending = new Map<string, PendingRequest<unknown>>();
+  private readonly notificationEmitter = new Emitter<ZCodeProtocolNotification>();
+  private readonly requestEmitter = new Emitter<ZCodeProtocolRequest>();
+  private readonly requestTimeoutEmitter = new Emitter<ZCodeProtocolRequestTimeoutEvent>();
+  // 业务请求归零时触发；观测完成不能给被观察进程续命。
+  private readonly pendingDrainedEmitter = new Emitter<void>();
+  private readonly closeEmitter = new Emitter<void>();
+  private readonly disposables: IDisposable[] = [];
+  private nextRequestId = 1;
+  private disposed = false;
+  private readonly requestTimeoutMs: number;
+
+  /**
+   * client 是否已 dispose（进程被回收/transport 关闭后为 true）。
+   * 调用方（如 getClient 复用 active entry）必须在复用前检查此标记，
+   * 避免对一个已被 processManager 回收但尚未触发 onClose 的 client 发请求，
+   * 否则会立即抛 "ZCode Protocol client is disposed"。
+   */
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
 
   readonly onNotification = this.notificationEmitter.event;
   /** 当前连接的降级投影；新进程的新连接自然重置，不跨进程保存。 */
@@ -223,7 +250,7 @@ export class ZCodeProtocolClient implements IDisposable {
         // process manager 仍复用这个 stale client，导致后续 plugins/list 等请求连续卡在超时窗口。
         // 超时事件把“连接已不可信”的事实上抛给 owner，由 owner 负责淘汰进程。
         // 资源查询的短超时只表示本轮无数据，不能被升级成整个 Agent 的故障回收。
-        if (!observation) {
+        if (!observation && options?.invalidateConnectionOnTimeout !== false) {
           this.requestTimeoutEmitter.fire({ method, requestId: id, timeoutMs: requestTimeoutMs });
         }
         reject(error);
@@ -325,14 +352,14 @@ export class ZCodeProtocolClient implements IDisposable {
     this.transport.dispose();
   }
 
-  async disposeAndWait(): Promise<void> {
+  async disposeAndWait(options?: { deadlineAtMs?: number }): Promise<void> {
     const wasDisposed = this.disposed;
     if (!wasDisposed) {
       this.disposed = true;
       this.disposeLocalResources();
     }
     if (this.transport.disposeAndWait) {
-      await this.transport.disposeAndWait();
+      await this.transport.disposeAndWait(options);
       return;
     }
     if (!wasDisposed) {
@@ -375,7 +402,6 @@ export class ZCodeProtocolClient implements IDisposable {
     }
 
     if ("method" in message) {
-      // 上游 v3.18.x：插件启动降级投影通知（extensions 链的 onDynamicPluginStartupDegraded 消费）。
       if (
         message.method === zcodeProtocolNotifications.pluginStartupDegraded &&
         zcodePluginStartupDegradedSchema.safeParse((message as ZCodeProtocolNotification).params)
@@ -453,33 +479,6 @@ export class ZCodeProtocolClient implements IDisposable {
     if (hadPending && !this.disposed) {
       this.pendingDrainedEmitter.fire();
     }
-  }
-
-  private async requestSessionActivation(
-    method:
-      | typeof zcodeProtocolMethods.sessionLifecycleEnsureReady
-      | typeof zcodeProtocolMethods.sessionLifecycleRestart,
-    sessionId: string,
-    workspace?: ZCodeWorkspaceRef,
-  ) {
-    if (workspace) {
-      // 旧 CLI 的严格参数不接受 workspace；不能退回会丢失归属的重启，也不能重启整个进程。
-      const capabilities = await this.request(
-        zcodeProtocolMethods.runtimeCapabilities,
-        {},
-        zcodeRuntimeCapabilitiesSchema,
-        // 能力查询是观察请求，等待超时不能淘汰共享 CLI 连接。
-        { lifecycle: "observation" },
-      );
-      if (!capabilities.sessionLifecycleWorkspace)
-        throw new Error("fault.sessionLifecycle.unsupported");
-    }
-    return this.request(
-      method,
-      sessionLifecycleActivationParamsSchema.parse({ sessionId, workspace }),
-      sessionLifecycleResultSchema,
-      { invalidateConnectionOnTimeout: false },
-    );
   }
 
   private deletePending(requestKey: string): void {

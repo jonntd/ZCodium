@@ -12,6 +12,7 @@ import {
   zcodeProtocolMethods,
   zcodeProtocolNotifications,
 } from "@zcode/shared";
+import { V4_METHODS } from "@zcode/shared/zcode-protocol-v4";
 import type { Logger } from "@zcode/contracts";
 
 type ZCodeProtocolOutgoingMessage =
@@ -25,6 +26,18 @@ type ZCodeProtocolMessageHandler = (
 ) => Promise<ZCodeProtocolOutgoingMessage | undefined>;
 
 const PROTOCOL_EOF_DRAIN_MS = 100;
+// 生命周期由 session owner 自己串行化。若排在长请求后，查询看不到 starting/stopping，
+// 不同 session 的启动也会被整个 workspace 的队列锁住。
+const SESSION_LIFECYCLE_CONCURRENT_METHODS = new Set<string>([
+  // V4 的 admission/恢复已有 session owner；全连接串行会让 A 的初始化堵住 B 的停止与订阅。
+  V4_METHODS.command,
+  V4_METHODS.conversationSubscribe,
+  V4_METHODS.commandsQuery,
+  zcodeProtocolMethods.sessionLifecycleGetState,
+  zcodeProtocolMethods.sessionLifecycleEnsureReady,
+  zcodeProtocolMethods.sessionLifecycleStop,
+  zcodeProtocolMethods.sessionLifecycleRestart,
+]);
 // 插件读请求收到即处理，不排在安装/更新之后。describe 写 manifest 的分支自带 storage lock；
 // list/overview 是同步 handler，执行中不让出事件循环，seed 只在内容变化时写盘，
 // 不会与安装跨 await 的读改写交错。
@@ -32,6 +45,10 @@ const PLUGIN_READ_IMMEDIATE_METHODS = new Set<string>([
   zcodeProtocolMethods.pluginsDescribe,
   zcodeProtocolMethods.pluginsList,
   zcodeProtocolMethods.pluginsOverview,
+  // 扩展 settings.get 的只读查询；排在安装之后会让扩展激活等待整个安装。
+  zcodeProtocolMethods.pluginsReadUserOptions,
+  // `@` 面板候选项按键触发、只读；排队会让候选项落后于输入。
+  zcodeProtocolMethods.pluginsMentionItems,
 ]);
 // MCP App 的请求由实例凭证和 callId 隔离；若与普通命令一起等待完成，
 // uiCallTool 会挡住自己的 cancel/close，真实 stdio 链路将死锁。
@@ -75,6 +92,7 @@ interface ZCodeProtocolNdjsonConnectionOptions {
 export class ZCodeProtocolNdjsonConnection {
   private buffer = "";
   private processing: Promise<void> = Promise.resolve();
+  private readonly presentationReads = new Set<Promise<void>>();
   private lastQueuedMessageStarted: Promise<void> = Promise.resolve();
   private readonly closedPromise: Promise<void>;
   private resolveClosed!: () => void;
@@ -148,7 +166,7 @@ export class ZCodeProtocolNdjsonConnection {
     this.notifyTransportClosed(new Error("ZCode Protocol client connection closed"));
     // EOF 保留短请求半关闭响应，但挂起 handler 不能让进程永久保活。
     this.drainTimer = setTimeout(() => this.finish(), PROTOCOL_EOF_DRAIN_MS);
-    void this.processing.then(
+    void Promise.all([this.processing, ...this.presentationReads]).then(
       () => this.finish(),
       (error: Error) => this.fail(error),
     );
@@ -227,7 +245,8 @@ export class ZCodeProtocolNdjsonConnection {
     if (
       "id" in message &&
       "method" in message &&
-      PLUGIN_READ_IMMEDIATE_METHODS.has(message.method)
+      (PLUGIN_READ_IMMEDIATE_METHODS.has(message.method) ||
+        SESSION_LIFECYCLE_CONCURRENT_METHODS.has(message.method))
     ) {
       // Bugfix：插件详情与列表曾排在串行队列里，安装 A 下载期间打开详情卡在组件 loading，
       // 新建右侧标签页（新 store 首次加载 list/overview）卡在骨架屏。读请求不依赖前序请求的
@@ -245,6 +264,25 @@ export class ZCodeProtocolNdjsonConnection {
         .catch((error: unknown) => {
           this.fail(error instanceof Error ? error : new Error(String(error)));
         });
+      return;
+    }
+    if (
+      "id" in message &&
+      "method" in message &&
+      message.method === zcodeProtocolMethods.workspaceReadPresentation
+    ) {
+      // 根因：命令目录的插件发现占住普通队列，后续 Provider 刷新及依赖它的历史订阅一起等待。
+      // 读取仍等待已接收的前序配置更新完成，但其完成不再阻塞后续请求；Provider FIFO 不变。
+      // 在途集合只用于 EOF 排空，终止后的待执行/迟到读取由 handleMessage 的 terminal 检查拦截。
+      const reading = this.processing.then(() => this.handleMessage(message));
+      this.presentationReads.add(reading);
+      void reading.then(
+        () => this.presentationReads.delete(reading),
+        (error: unknown) => {
+          this.presentationReads.delete(reading);
+          this.fail(error instanceof Error ? error : new Error(String(error)));
+        },
+      );
       return;
     }
     let markStarted!: () => void;
@@ -293,21 +331,12 @@ export class ZCodeProtocolNdjsonConnection {
   private shouldBypassProcessingQueue(message: ZCodeProtocolMessage): boolean {
     // 模型任务占住串行队列时，停止/取消请求必须仍能进入 server，
     // 才能把底层 AbortSignal 传给真实模型请求。控制面只旁路当前执行，普通请求仍保持串行。
-    //
-    // workspaceGenerateText（提示词增强 / Git 提交消息等辅助生成）也必须旁路：
-    // 它是长请求（单次模型调用最长 60s，invalid-output 还会重试一次），若走串行
-    // 队列，在模型返回前会阻塞该 worker 的所有其它协议请求（发消息、读会话、
-    // 订阅、切会话……），UI 表现为「点击增强后整个程序卡死」且无取消入口。
-    // 它与 stop/cancel 一样只旁路自身执行，不参与状态排队；请求本身有
-    // AbortSignal.timeout(60s) 自兜底，operationId 取消面（workspaceCancelGenerateText）
-    // 保持先于它启动的时序（lastQueuedMessageStarted 门），旁路后仍可正常取消。
     return (
       "id" in message &&
       "method" in message &&
-              (message.method === zcodeProtocolMethods.sessionStop ||
-                message.method === zcodeProtocolMethods.workspaceCancelGenerateText ||
-                message.method === zcodeProtocolMethods.workspaceGenerateText ||
-                MCP_APP_CONCURRENT_METHODS.has(message.method))
+      (message.method === zcodeProtocolMethods.sessionStop ||
+        message.method === zcodeProtocolMethods.workspaceCancelGenerateText ||
+        MCP_APP_CONCURRENT_METHODS.has(message.method))
     );
   }
 

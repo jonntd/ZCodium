@@ -1,6 +1,6 @@
 import { ComposerSubmissionPendingContext } from "@/project-sidebar/ComposerSubmissionPendingContext.js";
 import { ChatRemoteFolderSelection } from "@/project-sidebar/ChatRemoteFolderSelection.js";
-import { RemoteIdentityHoverCard } from "@/project-sidebar/RemoteIdentityHoverCard.js";
+import { ProjectIdentityHoverCard } from "@/project-sidebar/ProjectIdentityHoverCard.js";
 import { remoteHostLabel } from "@/project-sidebar/RemoteHostSection.js";
 import type { ReactNode } from "react";
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -34,6 +34,7 @@ import {
   TID_COMPOSER_WORK_OUTSIDE_PROJECT,
   TID_COMPOSER_WORKSPACE_TRIGGER,
 } from "@zcode/shared/test-ids";
+import { runUserAction, runUserActionAsync } from "@/lib/userActionTelemetry.js";
 
 import type { ProjectSidebarProps, RemoteProjectHost } from "@/project-sidebar/contract.js";
 import { remoteHostIdFromWorkspaceIdentity } from "@/project-sidebar/contract.js";
@@ -42,7 +43,7 @@ import { ProjectEditor } from "@/project-sidebar/ProjectEditor.js";
 import { ProjectCreation } from "@/project-sidebar/ProjectCreation.js";
 import { ProjectFolderIcon } from "@/project-sidebar/ProjectFolderIcon.js";
 import { projectKey, projectSourceServerId } from "@/project-sidebar/view.js";
-import { useProjectDirectory } from "@/project-sidebar/ProjectDirectoryProvider.js";
+import { useProjectSelectionDirectory } from "@/project-sidebar/ProjectDirectoryProvider.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 
 export function ProjectComposerMenu({
@@ -92,7 +93,7 @@ export function ProjectComposerMenu({
   const canUseRemoteWorkspace =
     allowRemoteWorkspace && showRemoteConnectionEntry && Boolean(onOpenRemoteWorkspace);
   const {
-    tree,
+    allProjects,
     projects,
     availability,
     directory,
@@ -101,7 +102,7 @@ export function ProjectComposerMenu({
     service,
     remoteService,
     refresh,
-  } = useProjectDirectory();
+  } = useProjectSelectionDirectory();
   const workspaceKey = workspaceIdentity?.trim() || workspacePath;
   const projectId = useZCodeSessionStore((state) => state.workspaces[workspaceKey]?.draftProjectId);
   const activeTaskId = useZCodeSessionStore(
@@ -313,7 +314,16 @@ export function ProjectComposerMenu({
             data-testid={TID_COMPOSER_PROJECT_DETACH}
             onClick={(event) => {
               event.stopPropagation();
-              void onSelectConversationWorkspace();
+              void runUserActionAsync({
+                input: {
+                  featureId: "workspace.project_binding",
+                  action: "detach",
+                  trigger: "button",
+                },
+                operation: () => Promise.resolve(onSelectConversationWorkspace()),
+                completed: { resultSource: "optimistic_projection" },
+                failureStage: "project_detach",
+              });
             }}
           >
             <X className="size-3.5" />
@@ -352,7 +362,8 @@ export function ProjectComposerMenu({
         data-testid="composer-project-menu"
         align="start"
         side="top"
-        className="flex w-72 max-w-[calc(100vw-2rem)] flex-col p-0"
+        // 菜单向上展开会覆盖标题栏；原生拖拽区会吞掉点击，需将整个菜单排除拖拽命中。
+        className="flex w-72 max-w-[calc(100vw-2rem)] flex-col p-0 [app-region:no-drag]"
       >
         <div
           data-slot="command-input-wrapper"
@@ -391,15 +402,14 @@ export function ProjectComposerMenu({
                 deviceNames?.get(projectSourceServerId(project) ?? "") ||
                 (remoteHost ? remoteHostLabel(remoteHost) : undefined);
               return (
-                <RemoteIdentityHoverCard
+                <ProjectIdentityHoverCard
                   key={projectKey(project)}
                   host={remoteHost}
                   title={project.name}
-                  projectName={project.name}
                   deviceName={deviceName}
                   paths={project.roots.map((root) => root.rootPath)}
                   anchorToMenu
-                  contentClassName="z-[60] max-w-(--radix-hover-card-content-available-width)"
+                  contentClassName="z-[60]"
                 >
                   <span className="block min-w-0">
                     <DropdownMenuCheckboxItem
@@ -413,13 +423,24 @@ export function ProjectComposerMenu({
                           projectId: project.id,
                           hostId: project.hostId,
                         });
-                        // 审计版直接提交原动作，不恢复用户行为遥测包装层。
-                        createProjectTask({
-                          projectId: project.id,
-                          ...(compactForRemoteControl ||
-                          directory.hosts.some((host) => host.id === project.hostId)
-                            ? { hostId: project.hostId }
-                            : {}),
+                        runUserAction({
+                          input: {
+                            featureId: "workspace.project_binding",
+                            action: isConversationWorkspace ? "attach" : "switch",
+                            trigger: "menu",
+                            workspaceKind: isRemoteWorkspace ? "remote" : "local",
+                          },
+                          // 同侧栏项目新建入口：由 Root/Host 解析主要目录及远程 attachment。
+                          operation: () =>
+                            createProjectTask({
+                              projectId: project.id,
+                              ...(compactForRemoteControl ||
+                              directory.hosts.some((host) => host.id === project.hostId)
+                                ? { hostId: project.hostId }
+                                : {}),
+                            }),
+                          completed: { resultSource: "local_commit" },
+                          failureStage: "project_switch",
                         });
                       }}
                     >
@@ -450,7 +471,7 @@ export function ProjectComposerMenu({
                       ) : null}
                     </DropdownMenuCheckboxItem>
                   </span>
-                </RemoteIdentityHoverCard>
+                </ProjectIdentityHoverCard>
               );
             })}
             {visibleProjects.length === 0 && !error ? (
@@ -481,7 +502,17 @@ export function ProjectComposerMenu({
                     `[ProjectComposerMenu] open remote dialog from workspace menu workspace=${workspacePath}`,
                   );
                   // 连接流程由 Root 唯一持有；聊天只提供有效性检查与完成结果接缝。
-                  addDevice();
+                  runUserAction({
+                    input: {
+                      featureId: "workspace.remote.lifecycle",
+                      action: "open_dialog",
+                      trigger: "menu",
+                      workspaceKind: "remote",
+                    },
+                    operation: addDevice,
+                    completed: { resultSource: "local_commit" },
+                    failureStage: "dialog_open",
+                  });
                 }}
               >
                 <Cloud className="size-4 text-foreground-subtle" />
@@ -492,7 +523,18 @@ export function ProjectComposerMenu({
               <DropdownMenuCheckboxItem
                 data-testid={TID_COMPOSER_WORK_OUTSIDE_PROJECT}
                 checked={isConversationWorkspace}
-                onSelect={() => void onSelectConversationWorkspace()}
+                onSelect={() =>
+                  void runUserActionAsync({
+                    input: {
+                      featureId: "workspace.project_binding",
+                      action: "work_outside_project",
+                      trigger: "menu",
+                    },
+                    operation: () => Promise.resolve(onSelectConversationWorkspace()),
+                    completed: { resultSource: "optimistic_projection" },
+                    failureStage: "project_detach",
+                  })
+                }
               >
                 <MessageCircle className="size-4 text-foreground-subtle" />
                 <span>{intl.formatMessage({ id: "chat.empty.workOutsideProject" })}</span>
@@ -536,7 +578,7 @@ export function ProjectComposerMenu({
           workspacePath={workspacePath}
           workspaceIdentity={workspaceIdentity}
           onCreateTask={createProjectTask}
-          projects={tree.projects}
+          projects={allProjects}
           directory={directory}
           service={service}
           remoteService={remoteService}
@@ -574,7 +616,7 @@ export function ProjectComposerMenu({
           key={projectKey(currentProject)}
           project={currentProject}
           host={directory.hosts.find((host) => host.id === currentProject.hostId)}
-          projects={tree.projects.filter(
+          projects={allProjects.filter(
             (project) => !availability.get(projectKey(project))?.entryId,
           )}
           service={service}

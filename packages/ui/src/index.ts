@@ -3,7 +3,7 @@ export { AppErrorBoundary, ScopedErrorBoundary } from "./ErrorBoundary.js";
 export type { ScopedErrorBoundaryVariant } from "./ErrorBoundary.js";
 export { Button, buttonVariants } from "./components/ui/button.js";
 export { DesktopWindowFrame } from "./DesktopWindowFrame.js";
-export { WebRemoteControlDialog } from "./WebRemoteControlDialog.js";
+export { WebRemoteControlDialog } from "@/web-remote-control/index.js";
 export {
   WebRemoteControlFeatureProvider,
   useWebRemoteControlFeatureEnabled,
@@ -13,8 +13,6 @@ export {
   useAssistantCodeCommentFeatureEnabled,
 } from "./AssistantCodeCommentFeatureProvider.js";
 export { Root } from "./Root.js";
-// 手机项目导航复用客户端草稿 owner；不在 Web 端另建待发送目录状态。
-export { ensurePendingTaskDraft } from "./v4/composer/composerDraftStore.js";
 export { UpdateStatusWindowRoot } from "./UpdateStatusWindowRoot.js";
 export type { WebRemoteControlTerminalTransportState } from "./root/types.js";
 export { setWebRemoteControlTerminalTransportState } from "./webRemoteControlTerminalTransportState.js";
@@ -65,7 +63,6 @@ export {
   PlatformProvider,
   usePlatform,
   useSelectDirectory,
-  useOpenDataRootImport,
   useConnectRemote,
   useReaddir,
   useSystemInfo,
@@ -97,22 +94,31 @@ export {
 export type { FileDisplayDescriptor, FileDisplayOptions } from "./lib/fileDisplay.js";
 export { playTaskNotificationSound } from "./lib/taskNotificationSound.js";
 export {
-  isMermaidRenderingEnabled,
-  setMermaidRenderingEnabled,
-} from "./lib/mermaidRendering.js";
-export { installDocumentHiddenMotionPause } from "./lib/documentHiddenMotionPause.js";
-export {
   applyUiFontSizePx,
   loadUiFontSizePx,
   subscribeToUiFontSizeStorageChanges,
 } from "./lib/uiFontSize.js";
+export { reportUiLaunchToInput } from "./lib/uiPerfArmsTelemetry.js";
+export {
+  RendererUserActionTelemetry,
+  runUserAction,
+  runUserActionAsync,
+  setUserActionTelemetry,
+  startUserAction,
+} from "./lib/userActionTelemetry.js";
+export {
+  CORE_USER_ACTION_FEATURES,
+  SETTINGS_USER_ACTION_FEATURES,
+  USER_ACTION_CATALOG,
+} from "./lib/userActionTraceCatalog.js";
+export { setReactErrorArmsReporter } from "./lib/reactErrorArmsTelemetry.js";
+export { recordArmsCustomEventForE2E } from "./lib/armsCustomEventObservability.js";
 export { generateMobileDeviceFingerprint, setStreamClientId } from "./lib/streamClientId.js";
-// 设置页 hash 深链（FR-B14 权限规则入口）：入口壳解析后经 Root.initialSettingsDeepLink 消费。
-export { readSettingsSectionFromLocationHash } from "./lib/settingsNavigation.js";
-export type { SettingsSectionId } from "./lib/settingsNavigation.js";
 export { GlobalDatabaseStartupLoading } from "./root/GlobalDatabaseStartupLoading.js";
-// 非桌面入口（Web 远控）的启动兜底：桌面用 RootStartupLoading 阻塞启动渲染，
-// Web 侧不阻塞，改为在 workspace tab 注入前把它当作 initialWorkspaceLoadingFallback，
-// 避免渲染空 RootShell 露出浏览器白底。两处必须共用同一组件，否则又是两套首屏视觉。
-export { RootStartupLoading } from "./root/RootStartupLoading.js";
-export { DataRootDecisionApp } from "./data-root-decision/DataRootDecisionApp.js";
+
+export { LocalTtftObserver, setLocalTtftObserver } from "@/v4/telemetry/local-ttft/contract.js";
+export {
+  ensurePendingTaskDraft,
+  readPendingTaskDraft,
+  readComposerWorkspaceScope,
+} from "@/v4/composer/composerDraftStore.js";

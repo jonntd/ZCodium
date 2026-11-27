@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   findStaticView,
   type ExtensionViewInput,
@@ -52,30 +45,24 @@ export function ExtensionViewPane({
   const service = useExtensionsService();
   const viewsService = useExtensionViewsService();
   // 视图声明来自 Window Host 的静态表（§16.1）；实例要等扩展进程连上（快照的 gen）才能创建。
-  const { gen, declared, appScoped } = useExtensionSlotsState(
-    service,
-    (state) => {
-      const view = findStaticView(state.table, tab.viewId);
-      return {
-        gen: state.snapshot?.gen ?? null,
-        declared: Boolean(view),
-        appScoped: view?.scope === "app",
-      };
-    },
-  );
+  const { gen, declared, appScoped } = useExtensionSlotsState(service, (state) => {
+    const view = findStaticView(state.table, tab.viewId);
+    return {
+      gen: state.snapshot?.gen ?? null,
+      declared: Boolean(view),
+      appScoped: view?.scope === "app",
+    };
+  });
   // 实例作用域：侧栏当前目标的会话（草稿为预热会话），没有会话时为工作区。草稿首发交接期间
   // 窗格的会话不会消失（预热协调器保留已提升的 binding，§16.11），目标直接派生即可。
   // 声明了 scope: "app" 的视图（§18.1 H5）固定为 App 作用域：切换会话、草稿首发都不重建实例。
   const sessionId = appScoped ? null : target.sessionId;
   // 用序列化值做依赖：同一作用域的新对象不触发重建。
   const scopeKey = useMemo(() => {
-    if (appScoped)
-      return JSON.stringify({ kind: "app" } satisfies ResolvedScope);
+    if (appScoped) return JSON.stringify({ kind: "app" } satisfies ResolvedScope);
     const workspace = {
       workspacePath: target.workspacePath,
-      ...(target.workspaceIdentity
-        ? { workspaceIdentity: target.workspaceIdentity }
-        : {}),
+      ...(target.workspaceIdentity ? { workspaceIdentity: target.workspaceIdentity } : {}),
     };
     const scope: ResolvedScope = sessionId
       ? { kind: "session", workspace, sessionId }
@@ -98,9 +85,7 @@ export function ExtensionViewPane({
       platform: sandbox,
       viewId: tab.viewId,
       scope: JSON.parse(scopeKey) as ResolvedScope,
-      ...(inputKey
-        ? { input: JSON.parse(inputKey) as ExtensionViewInput }
-        : {}),
+      ...(inputKey ? { input: JSON.parse(inputKey) as ExtensionViewInput } : {}),
       locale: localeRef.current,
       openExternal: (url) => openExternalRef.current?.(url),
     });

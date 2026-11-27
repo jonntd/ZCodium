@@ -1,4 +1,3 @@
-import { assertOfficialServiceRemoved } from "@zcode/shared";
 /* ZCode 官方 Server MCP 的调用额度读取（`GET /api/v1/mcp/usage`）。
  *
  * 单文件承载该接口的全部细节：路径、信封解析、总额度映射。**鉴权不在这里实现**——
@@ -134,7 +133,8 @@ function readScopeFromCredentialSnapshot(
   snapshot: Extract<OfficialMcpCredentialOutcome, { ok: true }>["snapshot"],
 ): UsageMcpQuotaScope | null {
   const scope = snapshot.planScope;
-  if (!scope) return null;
+  if (!scope || (snapshot.providerFamily !== "zai" && snapshot.providerFamily !== "bigmodel"))
+    return null;
   return scope.targetType === "TEAM"
     ? {
         organizationId: scope.organizationId,
@@ -174,9 +174,6 @@ export async function fetchMcpQuotaSnapshot(params: {
   env: NodeJS.ProcessEnv;
   requestScope: McpQuotaRequestScope;
 }): Promise<UsageMcpQuotaSnapshot | null> {
-  // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-  assertOfficialServiceRemoved("codingPlan");
-
   let outcome: OfficialMcpCredentialOutcome;
   try {
     outcome = await params.credentialSource.resolve();

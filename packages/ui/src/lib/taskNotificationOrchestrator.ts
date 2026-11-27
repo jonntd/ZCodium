@@ -108,6 +108,15 @@ function pendingInteractionPayload(params: {
   if (interaction.payload.kind === "workspaceHookReview") {
     return null;
   }
+  if (interaction.payload.kind === "pluginInstall") {
+    return {
+      taskId,
+      status: "elicitation_request",
+      requestId,
+      title: formatMessage({ id: "plugin.discovery.confirmTitle" }),
+      body: interaction.payload.reason,
+    };
+  }
 
   if (interaction.payload.kind === "permission") {
     return {
@@ -119,11 +128,6 @@ function pendingInteractionPayload(params: {
         interaction.payload.summary.trim() ||
         taskTitleBody(taskTitle, "notification.permissionRequired", formatMessage),
     };
-  }
-
-  // 行模型升级后 payload 联合含 pluginInstall 变体：其入口在扩展面板，不走任务通知。
-  if (interaction.payload.kind === "pluginInstall") {
-    return null;
   }
 
   if (isPlanApprovalInteraction(interaction.payload)) {

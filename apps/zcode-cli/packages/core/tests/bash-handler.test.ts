@@ -2,7 +2,12 @@ import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { CoreErrorType, SessionEventType, createImageProcessorError } from "@zcode/contracts";
+import {
+  BashOutputSchema,
+  CoreErrorType,
+  SessionEventType,
+  createImageProcessorError,
+} from "@zcode/contracts";
 import { isErrorForToolResult } from "../src/runtime/helpers/tool-result.js";
 import { decideBashCwdPolicy } from "../src/tool/handlers/bash-cwd-policy.js";
 import { bashHandler, bashToolEntry, createBashToolEntry } from "../src/tool/handlers/bash.js";
@@ -23,12 +28,14 @@ import type {
   SessionEvent,
   ToolExecutionSpanWriter,
 } from "@zcode/contracts";
-import { createReadFileStateKey } from "../src/tool/read-file-state.js";
+import { createReadFileStatePathKey } from "../src/tool/read-file-state.js";
 import type { ReadFileStateMap, ToolExecutionContext } from "../src/tool/types.js";
 
 const workspaceRoot = resolve("/work");
 const projectRoot = resolve(workspaceRoot, "project");
 const defaultCommandRoot = resolve("/tmp");
+// 1x1 无损 WebP，34 字节，RIFF 头记录的长度与实际一致。
+const validWebpBase64 = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
 
 describe("Bash cwd policy", () => {
   it("keeps cwd when resolved cwd stays inside workspace", () => {
@@ -95,11 +102,6 @@ describe("Bash cwd policy", () => {
 
       try {
         const physicalChild = await realpath(realChild);
-        // 测试基建修复：Turbo 的严格环境可能让 tmpdir() 回落到 /tmp，而 macOS realpath
-        // 会返回 /private/tmp；断言必须与生产 cwd policy 使用同一组系统路径别名。
-        const normalizedPhysicalChild = physicalChild
-          .replace(/^\/private\/var\//, "/var/")
-          .replace(/^\/private\/tmp(\/|$)/, "/tmp$1");
         expect(
           decideBashCwdPolicy({
             status: "completed",
@@ -108,7 +110,17 @@ describe("Bash cwd policy", () => {
             workspaceRoot: linkRoot,
             runtimeScope: "main",
           }),
-        ).toEqual({ nextWorkingDirectory: normalizedPhysicalChild });
+        ).toEqual({ nextWorkingDirectory: join(linkRoot, "child") });
+        // 不 cd 的命令捕获到 root 的物理路径：写回 root 原样，环境公告不会报目录变化。
+        expect(
+          decideBashCwdPolicy({
+            status: "completed",
+            exitCode: 0,
+            resolvedCwd: await realpath(realRoot),
+            workspaceRoot: linkRoot,
+            runtimeScope: "main",
+          }),
+        ).toEqual({ nextWorkingDirectory: linkRoot });
       } finally {
         await rm(root, { recursive: true, force: true });
       }
@@ -125,7 +137,42 @@ describe("Bash cwd policy", () => {
         platform: "win32",
         runtimeScope: "main",
       }),
-    ).toEqual({ nextWorkingDirectory: "C:\\Repo\\Subdir" });
+    ).toEqual({ nextWorkingDirectory: "c:\\repo\\Subdir" });
+  });
+
+  it("writes cwd back in the workspace root spelling", () => {
+    // 同一目录换了写法（盘符大小写、/private 别名）时写回 root 原样。
+    expect(
+      decideBashCwdPolicy({
+        status: "completed",
+        exitCode: 0,
+        resolvedCwd: "C:\\Repo",
+        workspaceRoot: "c:\\Repo",
+        platform: "win32",
+        runtimeScope: "main",
+      }),
+    ).toEqual({ nextWorkingDirectory: "c:\\Repo" });
+    expect(
+      decideBashCwdPolicy({
+        status: "completed",
+        exitCode: 0,
+        resolvedCwd: "/tmp/repo",
+        workspaceRoot: "/private/tmp/repo",
+        runtimeScope: "main",
+      }),
+    ).toEqual({ nextWorkingDirectory: "/private/tmp/repo" });
+    expect(
+      decideBashCwdPolicy({
+        status: "completed",
+        exitCode: 0,
+        resolvedCwd: "/outside",
+        workspaceRoot: "/private/tmp/repo",
+        runtimeScope: "main",
+      }),
+    ).toEqual({
+      nextWorkingDirectory: "/private/tmp/repo",
+      stderrSuffix: "Shell cwd was reset to /private/tmp/repo",
+    });
   });
 
   it("reuses shared Windows tool path normalization for Git Bash cwd aliases", () => {
@@ -209,7 +256,7 @@ describe("Bash cwd policy", () => {
         platform: "win32",
         runtimeScope: "main",
       }),
-    ).toEqual({ nextWorkingDirectory: "C:\\Repo\\..cache" });
+    ).toEqual({ nextWorkingDirectory: "c:\\repo\\..cache" });
   });
 });
 
@@ -759,6 +806,84 @@ describe("bashHandler", () => {
   });
 
   it.each([
+    [true, true],
+    [false, undefined],
+    [undefined, undefined],
+  ])(
+    "marks a background command in a synchronous subagent (syncSubagent=%s)",
+    async (syncSubagent, expected) => {
+      const executionPort: BashBackgroundLifecycleExecutionPort = {
+        async run() {
+          throw new Error("run should not be used for background execution");
+        },
+        async runBashWithBackgroundLifecycle() {
+          return {
+            kind: "backgrounded",
+            task: { taskId: "exec_bg", status: "running", startedAt: new Date() },
+          };
+        },
+      };
+
+      const output = (await bashHandler(
+        { command: "sleep 1", run_in_background: true } satisfies BashInput,
+        {
+          ...contextWith(executionPort, { runtimeScope: "subagent" }),
+          ...(syncSubagent === undefined ? {} : { syncSubagent }),
+        },
+      )) as BashOutput;
+
+      expect(output.backgroundInSyncSubagent).toBe(expected);
+    },
+  );
+
+  it.each([
+    ["cd nested && sleep 1", true],
+    ["make; popd", true],
+    ["pushd nested", true],
+    ["chdir nested", true],
+    ["command cd nested", true],
+    ["builtin cd nested", true],
+    ["FOO=1 cd nested", true],
+    ["sleep 1 | cd nested", true],
+    ["sleep 1", false],
+    ["echo cd", false],
+    ["(cd nested; make)", false],
+    ["{ cd nested; make; }", false],
+  ])(
+    "records the session cwd for a background command that changes directory: %s",
+    async (command, changesDirectory) => {
+      const executionPort: BashBackgroundLifecycleExecutionPort = {
+        async run() {
+          throw new Error("run should not be used for background execution");
+        },
+        async runBashWithBackgroundLifecycle() {
+          return {
+            kind: "backgrounded",
+            task: {
+              taskId: "exec_bg",
+              status: "running",
+              startedAt: new Date(),
+              outputPath: "/tmp/exec_bg.output",
+            },
+          };
+        },
+      };
+      const sessionCwd = resolve(projectRoot, "nested");
+
+      const output = (await bashHandler(
+        { command, run_in_background: true } satisfies BashInput,
+        contextWith(executionPort, { workingDirectory: sessionCwd, workspaceRoot: projectRoot }),
+      )) as BashOutput;
+
+      expect(output.backgroundSessionCwd).toBe(changesDirectory ? sessionCwd : undefined);
+      const note = `Session cwd remains ${sessionCwd}; directory changes made by the backgrounded command do not apply to subsequent commands.`;
+      expect(String(bashToolEntry.formatModelContent?.(output)).endsWith(`\n${note}`)).toBe(
+        changesDirectory,
+      );
+    },
+  );
+
+  it.each([
     [
       "failed",
       executionResult({
@@ -891,7 +1016,7 @@ describe("bashHandler", () => {
 
   it("marks valid image data URI stdout as image output for provider-visible content", async () => {
     const tinyPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l2tzWQAAAABJRU5ErkJggg==";
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
     const executionPort: ExecutionPort = {
       async run() {
         return executionResult({
@@ -921,7 +1046,7 @@ describe("bashHandler", () => {
 
   it("resizes image data URI stdout through ImageProcessorPort when configured", async () => {
     const tinyPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l2tzWQAAAABJRU5ErkJggg==";
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
     let capturedResizeRequest: Parameters<ImageProcessorPort["resizeToFit"]>[0] | undefined;
     const imageProcessorPort: ImageProcessorPort = {
       async resizeToFit(request) {
@@ -959,13 +1084,29 @@ describe("bashHandler", () => {
     expect(Buffer.from(capturedResizeRequest?.data ?? []).byteLength).toBeGreaterThan(0);
   });
 
-  it("keeps valid image stdout as image output when optional resize fails", async () => {
-    const grayAlphaPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+  it.each([
+    {
+      // 回归：截断的 PNG 头部 magic bytes 完好；原来解码失败后仍按 magic 放行成 image block，
+      // provider 拒绝后坏图随历史重放，会话后续请求全部失败。
+      name: "the image cannot be decoded",
+      stdout: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNo",
+      error: new Error("image decode failed"),
+    },
+    {
+      name: "the image exceeds the provider budget",
+      stdout:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNo+A8AAgIBgG5WixMAAAAASUVORK5CYII=",
+      error: createImageProcessorError({
+        code: "too_large",
+        message: "Unable to fit image in provider budget",
+      }),
+    },
+  ])("falls back to text when $name", async ({ stdout, error }) => {
+    const resizeToFit = vi.fn<ImageProcessorPort["resizeToFit"]>(async () => {
+      throw error;
+    });
     const imageProcessorPort: ImageProcessorPort = {
-      async resizeToFit() {
-        throw new Error("decoder did not handle this valid png");
-      },
+      resizeToFit,
       async prepareForModel() {
         throw new Error("prepareForModel should not be called");
       },
@@ -974,39 +1115,49 @@ describe("bashHandler", () => {
       async run() {
         return executionResult({
           status: "completed",
-          stdout: grayAlphaPng,
+          stdout,
         });
       },
     };
 
     const output = (await bashHandler(
       {
-        command: "printf image",
+        command: "cat image.txt",
       } satisfies BashInput,
       contextWith(executionPort, { imageProcessorPort }),
     )) as BashOutput;
 
-    expect(output.isImage).toBe(true);
-    expect(output.stdout).toBe(grayAlphaPng);
-    expect(bashToolEntry.formatModelContent?.(output)).toEqual([
-      {
-        type: "image",
-        mediaType: "image/png",
-        dataUrl: grayAlphaPng,
-      },
-    ]);
+    // 必须真的走到 resize 再失败，才覆盖 catch 分支；fixture 若在 parse 阶段被拒，这条断言会失败。
+    expect(resizeToFit).toHaveBeenCalledTimes(1);
+    expect(output.isImage).toBe(false);
+    expect(output.stdout).toBe(stdout);
+    expect(bashToolEntry.formatModelContent?.(output)).toBe(stdout);
   });
 
-  it("falls back to text when image resize fails because the image is too large", async () => {
-    const grayAlphaPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+  it.each([
+    {
+      name: "non-image bytes declared as WebP",
+      stdout: `data:image/webp;base64,${Buffer.from("hello world, not an image").toString("base64")}`,
+    },
+    {
+      name: "PNG bytes declared as JPEG",
+      stdout:
+        "data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==",
+    },
+    {
+      // 文件头完好，只是被截断；WebP 不经解码，只能靠 RIFF 头记录的长度发现。
+      name: "truncated WebP",
+      stdout: `data:image/webp;base64,${Buffer.from(validWebpBase64, "base64").subarray(0, 20).toString("base64")}`,
+    },
+  ])("falls back to text for $name", async ({ stdout }) => {
+    // resize 适配器对 WebP 原样透传，不解码；声明类型必须先与 magic bytes 一致。
+    const resizeToFit = vi.fn<ImageProcessorPort["resizeToFit"]>(async (request) => ({
+      data: request.data,
+      mediaType: request.mediaType,
+      resized: false,
+    }));
     const imageProcessorPort: ImageProcessorPort = {
-      async resizeToFit() {
-        throw createImageProcessorError({
-          code: "too_large",
-          message: "Unable to fit image in provider budget",
-        });
-      },
+      resizeToFit,
       async prepareForModel() {
         throw new Error("prepareForModel should not be called");
       },
@@ -1015,26 +1166,66 @@ describe("bashHandler", () => {
       async run() {
         return executionResult({
           status: "completed",
-          stdout: grayAlphaPng,
+          stdout,
         });
       },
     };
 
     const output = (await bashHandler(
       {
-        command: "printf image",
+        command: "cat image.txt",
       } satisfies BashInput,
       contextWith(executionPort, { imageProcessorPort }),
     )) as BashOutput;
 
     expect(output.isImage).toBe(false);
-    expect(output.stdout).toBe(grayAlphaPng);
-    expect(bashToolEntry.formatModelContent?.(output)).toBe(grayAlphaPng);
+    expect(resizeToFit).not.toHaveBeenCalled();
+    expect(bashToolEntry.formatModelContent?.(output)).toBe(stdout);
+  });
+
+  it("keeps a complete WebP stdout as image output", async () => {
+    const webp = `data:image/webp;base64,${validWebpBase64}`;
+    const resizeToFit = vi.fn<ImageProcessorPort["resizeToFit"]>(async (request) => ({
+      data: request.data,
+      mediaType: request.mediaType,
+      resized: false,
+    }));
+    const imageProcessorPort: ImageProcessorPort = {
+      resizeToFit,
+      async prepareForModel() {
+        throw new Error("prepareForModel should not be called");
+      },
+    };
+    const executionPort: ExecutionPort = {
+      async run() {
+        return executionResult({
+          status: "completed",
+          stdout: webp,
+        });
+      },
+    };
+
+    const output = (await bashHandler(
+      {
+        command: "cat image.txt",
+      } satisfies BashInput,
+      contextWith(executionPort, { imageProcessorPort }),
+    )) as BashOutput;
+
+    expect(output.isImage).toBe(true);
+    expect(resizeToFit).toHaveBeenCalledTimes(1);
+    expect(bashToolEntry.formatModelContent?.(output)).toEqual([
+      {
+        type: "image",
+        mediaType: "image/webp",
+        dataUrl: webp,
+      },
+    ]);
   });
 
   it("short-circuits successful image stdout without appending stderr text", async () => {
     const tinyPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l2tzWQAAAABJRU5ErkJggg==";
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
     const executionPort: ExecutionPort = {
       async run() {
         return executionResult({
@@ -1063,7 +1254,7 @@ describe("bashHandler", () => {
 
   it("projects failed image Bash results as text-only provider errors", async () => {
     const tinyPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l2tzWQAAAABJRU5ErkJggg==";
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
     const executionPort: ExecutionPort = {
       async run() {
         return executionResult({
@@ -1116,7 +1307,7 @@ describe("bashHandler", () => {
 
   it("does not resize failed image-looking stdout before provider error projection", async () => {
     const tinyPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l2tzWQAAAABJRU5ErkJggg==";
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
     const resizeToFit = vi.fn<ImageProcessorPort["resizeToFit"]>(async () => {
       throw new Error("failed Bash output should not be resized");
     });
@@ -1155,7 +1346,7 @@ describe("bashHandler", () => {
   it("reads artifact-backed image stdout before resizing provider-visible image output", async () => {
     const testRoot = await mkdtemp(join(tmpdir(), "zcode-bash-image-"));
     const tinyPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l2tzWQAAAABJRU5ErkJggg==";
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
     const outputPath = join(testRoot, "stdout.txt");
     await writeFile(outputPath, tinyPng, "utf8");
     let capturedResizeRequest: Parameters<ImageProcessorPort["resizeToFit"]>[0] | undefined;
@@ -1211,7 +1402,7 @@ describe("bashHandler", () => {
 
   it("does not swallow cancellation while resizing Bash image stdout", async () => {
     const tinyPng =
-      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l2tzWQAAAABJRU5ErkJggg==";
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==";
     const abortController = new AbortController();
     abortController.abort();
     const imageProcessorPort: ImageProcessorPort = {
@@ -1322,6 +1513,64 @@ describe("bashHandler", () => {
     expect(output.stdoutPersistedOutputPath).toBe("/tmp/exec_bg-stdout.log");
     expect(output.stderrPersistedOutputPath).toBe("/tmp/exec_bg-stderr.log");
     expect(output.interrupted).toBe(false);
+    // 显式后台不是超时触发的，不记录超时。
+    expect(output.timedOutAfterMs).toBeUndefined();
+  });
+
+  it("records the timeout when a foreground command is moved to the background", async () => {
+    const executionPort: BashBackgroundLifecycleExecutionPort = {
+      async run() {
+        throw new Error("run should not be called");
+      },
+      runBashWithBackgroundLifecycle: vi.fn(
+        async (_request: ExecutionRequest, lifecycle: { mode: string }) => {
+          expect(lifecycle.mode).toBe("auto_on_timeout");
+          return {
+            kind: "backgrounded" as const,
+            task: {
+              taskId: "exec_bg",
+              status: "running" as const,
+              startedAt: new Date(),
+              outputPath: "/tmp/exec_bg.output",
+            },
+          };
+        },
+      ),
+    };
+
+    const output = (await bashHandler(
+      { command: "long-running command" } satisfies BashInput,
+      contextWith(executionPort),
+    )) as BashOutput;
+
+    expect(output.status).toBe("backgrounded");
+    expect(output.timedOutAfterMs).toBe(120_000);
+  });
+
+  it("keeps a decimal timeout valid in the auto-background output", async () => {
+    const executionPort: BashBackgroundLifecycleExecutionPort = {
+      async run() {
+        throw new Error("run should not be called");
+      },
+      runBashWithBackgroundLifecycle: vi.fn(async () => ({
+        kind: "backgrounded" as const,
+        task: {
+          taskId: "exec_bg_decimal",
+          status: "running" as const,
+          startedAt: new Date(),
+          outputPath: "/tmp/exec_bg_decimal.output",
+        },
+      })),
+    };
+
+    const output = (await bashHandler(
+      { command: "long-running command", timeout: 1500.5 } satisfies BashInput,
+      contextWith(executionPort),
+    )) as BashOutput;
+
+    // 模型可以传小数 timeout，超时转后台的输出原样记录它；输出校验不能因此判工具失败。
+    expect(output.timedOutAfterMs).toBe(1500.5);
+    expect(BashOutputSchema.safeParse(output).success).toBe(true);
   });
 
   it.each([
@@ -1365,7 +1614,7 @@ describe("bashHandler", () => {
             unknown
           >
         ).description,
-      ).toBe("Optional timeout in milliseconds (max 900)");
+      ).toBe("Optional timeout in milliseconds (max 900 for a foreground command)");
       expect(entry.metadata.description).toContain("default 250");
       expect(entry.metadata.description).toContain("max 900");
     },
@@ -1922,7 +2171,7 @@ describe("bashHandler", () => {
       contextWith(executionPort, { fileSystemPort, readFileState }),
     );
 
-    const entry = readFileState.get(createReadFileStateKey(filePath, 1, undefined));
+    const entry = readFileState.get(createReadFileStatePathKey(filePath));
     expect(entry).toMatchObject({
       path: filePath,
       content: "FOO=bar\n",
@@ -1980,9 +2229,7 @@ describe("bashHandler", () => {
         contextWith(executionPort, { fileSystemPort, readFileState }),
       );
 
-      const entry = readFileState.get(
-        createReadFileStateKey(filePath, testCase.expectedOffset, testCase.expectedLimit),
-      );
+      const entry = readFileState.get(createReadFileStatePathKey(filePath));
       expect(entry).toMatchObject({
         path: filePath,
         content: testCase.expectedContent,
@@ -2017,7 +2264,7 @@ describe("bashHandler", () => {
       contextWith(successPort, { fileSystemPort, readFileState: successState }),
     );
 
-    expect(successState.get(createReadFileStateKey(filePath, 1, undefined))).toMatchObject({
+    expect(successState.get(createReadFileStatePathKey(filePath))).toMatchObject({
       path: filePath,
       content: "needle\nhaystack\n",
       offset: undefined,
@@ -2068,7 +2315,7 @@ describe("bashHandler", () => {
       contextWith(executionPort, { fileSystemPort, readFileState }),
     );
 
-    expect(readFileState.get(createReadFileStateKey(filePath, 1, undefined))).toBeUndefined();
+    expect(readFileState.get(createReadFileStatePathKey(filePath))).toBeUndefined();
   });
 
   it("does not backfill readFileState for complex or unsafe Bash read commands", async () => {
@@ -2113,7 +2360,7 @@ describe("bashHandler", () => {
   it("emits stale read hint when a write-like Bash command modifies a previously read file", async () => {
     const filePath = resolve(defaultCommandRoot, "fixture.ts");
     const readFileState: ReadFileStateMap = new Map();
-    readFileState.set(createReadFileStateKey(filePath, 1, undefined), {
+    readFileState.set(createReadFileStatePathKey(filePath), {
       path: filePath,
       content: "old\n",
       isPartialView: false,
@@ -2152,7 +2399,7 @@ describe("bashHandler", () => {
   it("does not emit stale hint when write-like Bash exits with provider error", async () => {
     const filePath = resolve(defaultCommandRoot, "fixture.ts");
     const readFileState: ReadFileStateMap = new Map();
-    readFileState.set(createReadFileStateKey(filePath, 1, undefined), {
+    readFileState.set(createReadFileStatePathKey(filePath), {
       path: filePath,
       content: "old\n",
       isPartialView: false,
@@ -2193,7 +2440,7 @@ describe("bashHandler", () => {
     );
     const readFileState: ReadFileStateMap = new Map();
     for (const filePath of changedFilePaths) {
-      readFileState.set(createReadFileStateKey(filePath, 1, undefined), {
+      readFileState.set(createReadFileStatePathKey(filePath), {
         path: filePath,
         content: "old\n",
         isPartialView: false,
@@ -2242,7 +2489,7 @@ describe("bashHandler", () => {
     );
     const readFileState: ReadFileStateMap = new Map();
     for (const filePath of changedFilePaths) {
-      readFileState.set(createReadFileStateKey(filePath, 1, undefined), {
+      readFileState.set(createReadFileStatePathKey(filePath), {
         path: filePath,
         content: "old\n",
         isPartialView: false,
@@ -2308,56 +2555,42 @@ describe("bashHandler", () => {
     const cases = [
       {
         command: "cat -n fixture.txt",
-        keyOffset: 1,
-        keyLimit: undefined,
         expectedContent: "a\nb\nc\nd\ne\n",
         expectedOffset: undefined,
         expectedLimit: undefined,
       },
       {
         command: "cat --number fixture.txt",
-        keyOffset: 1,
-        keyLimit: undefined,
         expectedContent: "a\nb\nc\nd\ne\n",
         expectedOffset: undefined,
         expectedLimit: undefined,
       },
       {
         command: "head --lines=2 fixture.txt",
-        keyOffset: 1,
-        keyLimit: 2,
         expectedContent: "a\nb",
         expectedOffset: 1,
         expectedLimit: 2,
       },
       {
         command: "head -2 fixture.txt",
-        keyOffset: 1,
-        keyLimit: 2,
         expectedContent: "a\nb",
         expectedOffset: 1,
         expectedLimit: 2,
       },
       {
         command: "tail --lines 2 fixture.txt",
-        keyOffset: 4,
-        keyLimit: 2,
         expectedContent: "d\ne",
         expectedOffset: 4,
         expectedLimit: 2,
       },
       {
         command: "sed --quiet '3p' fixture.txt",
-        keyOffset: 3,
-        keyLimit: 1,
         expectedContent: "c",
         expectedOffset: 3,
         expectedLimit: 1,
       },
       {
         command: "grep -n --color=never c fixture.txt",
-        keyOffset: 1,
-        keyLimit: undefined,
         expectedContent: "a\nb\nc\nd\ne\n",
         expectedOffset: undefined,
         expectedLimit: undefined,
@@ -2381,9 +2614,7 @@ describe("bashHandler", () => {
         contextWith(executionPort, { fileSystemPort, readFileState }),
       );
 
-      expect(
-        readFileState.get(createReadFileStateKey(filePath, testCase.keyOffset, testCase.keyLimit)),
-      ).toMatchObject({
+      expect(readFileState.get(createReadFileStatePathKey(filePath))).toMatchObject({
         content: testCase.expectedContent,
         offset: testCase.expectedOffset,
         limit: testCase.expectedLimit,
@@ -2422,7 +2653,7 @@ describe("bashHandler", () => {
   it("does not backfill readFileState for files over 10MB or existing read state paths", async () => {
     const largePath = resolve(defaultCommandRoot, "large.txt");
     const existingPath = resolve(defaultCommandRoot, "existing.txt");
-    const existingKey = createReadFileStateKey(existingPath, 1, undefined);
+    const existingKey = createReadFileStatePathKey(existingPath);
     const readFileState: ReadFileStateMap = new Map([
       [
         existingKey,
@@ -2466,7 +2697,7 @@ describe("bashHandler", () => {
       contextWith(executionPort, { fileSystemPort, readFileState }),
     );
 
-    expect(readFileState.get(createReadFileStateKey(largePath, 1, undefined))).toBeUndefined();
+    expect(readFileState.get(createReadFileStatePathKey(largePath))).toBeUndefined();
     expect(readFileState.get(existingKey)?.content).toBe("old\n");
   });
 
@@ -2495,7 +2726,7 @@ describe("bashHandler", () => {
       contextWith(executionPort, { fileSystemPort, readFileState }),
     );
 
-    expect(readFileState.get(createReadFileStateKey(filePath, 1, undefined))).toBeUndefined();
+    expect(readFileState.get(createReadFileStatePathKey(filePath))).toBeUndefined();
   });
 
   it("does not backfill readFileState when Bash stdout is truncated", async () => {
@@ -2523,7 +2754,7 @@ describe("bashHandler", () => {
       contextWith(executionPort, { fileSystemPort, readFileState }),
     );
 
-    expect(readFileState.get(createReadFileStateKey(filePath, 1, undefined))).toBeUndefined();
+    expect(readFileState.get(createReadFileStatePathKey(filePath))).toBeUndefined();
   });
 
   it("does not reject completed Bash output when read-state parsing sees an empty path", async () => {
@@ -2553,7 +2784,7 @@ describe("bashHandler", () => {
   it("ignores stale hint candidates unless mtime is newer than both Bash start and read state", async () => {
     const filePath = resolve(defaultCommandRoot, "fixture.ts");
     const readFileState: ReadFileStateMap = new Map();
-    readFileState.set(createReadFileStateKey(filePath, 1, undefined), {
+    readFileState.set(createReadFileStatePathKey(filePath), {
       path: filePath,
       content: "old\n",
       isPartialView: false,
@@ -2590,7 +2821,7 @@ describe("bashHandler", () => {
   it("ignores stale hint candidates that cannot be stat'ed", async () => {
     const filePath = resolve(defaultCommandRoot, "missing.ts");
     const readFileState: ReadFileStateMap = new Map();
-    readFileState.set(createReadFileStateKey(filePath, 1, undefined), {
+    readFileState.set(createReadFileStatePathKey(filePath), {
       path: filePath,
       content: "old\n",
       isPartialView: false,
@@ -2639,6 +2870,115 @@ describe("bashHandler", () => {
   });
 });
 
+describe("Bash process log", () => {
+  function recordingLogger() {
+    const entries: Array<{ message: string; context: Record<string, unknown> }> = [];
+    const logger = {
+      debug() {},
+      info(message: string, context?: Record<string, unknown>) {
+        entries.push({ message, context: context ?? {} });
+      },
+      warn() {},
+      error() {},
+      child() {
+        return logger;
+      },
+    } as unknown as NonNullable<ToolExecutionContext["logger"]>;
+    return { entries, logger };
+  }
+
+  it("logs the child pid with toolCallId when the process starts and exits", async () => {
+    const { entries, logger } = recordingLogger();
+    const executionPort: ExecutionPort = {
+      async run(_request, options) {
+        await options?.onEvent?.({ type: "started", pid: 4321, timestamp: new Date() });
+        return {
+          ...executionResult({ status: "failed", exitCode: 3 }),
+          pid: 4321,
+          durationMs: 1500,
+        };
+      },
+    };
+
+    await bashHandler(
+      { command: "python train.py" } satisfies BashInput,
+      contextWith(executionPort, { logger }),
+    );
+
+    const started = entries.find((entry) => entry.context.event === "tool.bash.process.started");
+    const exited = entries.find((entry) => entry.context.event === "tool.bash.process.exited");
+    expect(started?.context).toMatchObject({
+      pid: 4321,
+      runInBackground: false,
+      toolCallId: "tool_test",
+    });
+    expect(exited?.context).toMatchObject({
+      durationMs: 1500,
+      exitCode: 3,
+      executionStatus: "failed",
+      pid: 4321,
+      toolCallId: "tool_test",
+    });
+  });
+
+  it("logs the start of an explicit background command and leaves its exit to background tracking", async () => {
+    const { entries, logger } = recordingLogger();
+    const executionPort: BashBackgroundLifecycleExecutionPort = {
+      async run() {
+        throw new Error("foreground run is not expected");
+      },
+      // 与真实 adapter 一致：explicit 模式在 started 里就提交后台，不再把 started 转发给 handler。
+      async runBashWithBackgroundLifecycle() {
+        return {
+          kind: "backgrounded",
+          task: { taskId: "exec_bg", status: "running", startedAt: new Date(), pid: 98 },
+        };
+      },
+    };
+
+    await bashHandler(
+      { command: "sleep 600", run_in_background: true } satisfies BashInput,
+      contextWith(executionPort, { logger }),
+    );
+
+    expect(entries.map((entry) => entry.context.event)).toEqual(["tool.bash.process.started"]);
+    expect(entries[0]?.context).toMatchObject({
+      pid: 98,
+      runInBackground: true,
+      toolCallId: "tool_test",
+    });
+  });
+
+  it("writes one start log when a forwarded started event is followed by backgrounding", async () => {
+    const { entries, logger } = recordingLogger();
+    const executionPort: BashBackgroundLifecycleExecutionPort = {
+      async run() {
+        throw new Error("foreground run is not expected");
+      },
+      // auto_on_timeout：前台阶段已转发 started，超时后才转后台。
+      async runBashWithBackgroundLifecycle(_request, _lifecycle, options) {
+        await options?.onEvent?.({ type: "started", pid: 77, timestamp: new Date() });
+        return {
+          kind: "backgrounded",
+          task: { taskId: "exec_auto", status: "running", startedAt: new Date(), pid: 77 },
+        };
+      },
+    };
+
+    await bashHandler(
+      { command: "npm run build" } satisfies BashInput,
+      contextWith(executionPort, { logger }),
+    );
+
+    expect(entries.map((entry) => entry.context.event)).toEqual(["tool.bash.process.started"]);
+    expect(entries[0]?.context).toMatchObject({
+      pid: 77,
+      runInBackground: false,
+      toolCallId: "tool_test",
+    });
+  });
+});
+
 function contextWith(
   executionPort: ExecutionPort,
   options: {
@@ -2648,6 +2988,7 @@ function contextWith(
     emitEvent?: ToolExecutionContext["emitEvent"];
     fileSystemPort?: FileSystemPort;
     imageProcessorPort?: ImageProcessorPort;
+    logger?: ToolExecutionContext["logger"];
     offPeakTurn?: boolean;
     readFileState?: ReadFileStateMap;
     runtimeScope?: ToolExecutionContext["runtimeScope"];
@@ -2668,6 +3009,7 @@ function contextWith(
     executionPort,
     fileSystemPort: options.fileSystemPort,
     imageProcessorPort: options.imageProcessorPort,
+    logger: options.logger,
     offPeakTurn: options.offPeakTurn,
     readFileState: options.readFileState,
     runtimeScope: options.runtimeScope,

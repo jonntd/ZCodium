@@ -1,3 +1,12 @@
+import type { HostQuitBlocker, HostRemoteConversationTelemetryResponse } from "@zcode/shared";
+import {
+  createSystemCredentialCipher,
+  executeCredentialCipherRequest,
+} from "@zcode/shared/credential-security";
+import { getCredentialsFilePath } from "@zcode/services/node";
+import { ingestToolExecResource } from "./desktopResourceTelemetry.js";
+import { bindAppControlNavigationHost } from "#src/app-control-navigation/main.js";
+import { ingestMcpResourceSamples } from "./processResourceMcpTelemetrySource.js";
 /* eslint-disable max-lines -- host process 统一处理 main↔host 生命周期、日志、ZCode Agent，拆分前先保持跨进程消息收口。 */
 import {
   type HostAgentProcessErrorResponse,
@@ -6,9 +15,14 @@ import {
   type HostAgentProcessReadyResponse,
   type HostAgentProcessSpawnedResponse,
   type HostCuaOperationStateResponse,
+  type HostMcpTelemetryResponse,
+  type HostSessionCreateTelemetryResponse,
+  type HostPluginTelemetryResponse,
+  type ProviderProvisioningLaneStatus,
   type RemoteTarget,
   type TaskRealtimeHostDeliveryKind,
   type WorkspacePurpose,
+  CREDENTIAL_KEY_SHARE_UNAVAILABLE_ERROR_CODE,
   formatZCodeHostProcessName,
   HostMessageTypes,
   hostResponseMessageSchema,
@@ -32,10 +46,11 @@ import {
   MessageChannelMain,
 } from "electron";
 import { randomUUID } from "node:crypto";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { BroadcastHub } from "./broadcastHub.js";
 import { bindDatabaseStartupRelay } from "./databaseStartupRelay.js";
 import { getMainLaunchPartialMarks } from "./desktopLaunchMarks.js";
+import { ingestHostNetworkObservations } from "./desktopNetworkTelemetry.js";
 import {
   buildHostProcessEnv,
   hostModulePath,
@@ -54,7 +69,6 @@ import {
   unregisterHostAgentProcess,
   unregisterHostProcess,
 } from "./resourceManagerWindow.js";
-import { FORK_CUA_BROKER_SOCKET_ENV } from "./desktopCuaBrokerSocket.js";
 import type { RemoteAssetDirs } from "./desktopRuntimeEnv.js";
 import type { TaskRealtimeBus } from "./taskRealtimeBus.js";
 
@@ -69,6 +83,7 @@ export interface WindowBootstrapOptions {
 }
 
 export interface HostInitMessage {
+  browserBackendIdentity?: { id: string; generation: number };
   type: typeof HostMessageTypes.InitLocal;
   hostId?: string;
   databaseStartupId?: string;
@@ -83,8 +98,11 @@ export interface HostInitMessage {
   }>;
   agentSpawnFallbackCwd?: string;
   remoteAssets?: RemoteAssetDirs;
+  /** Main 持有的 Agent 回复语言（null 为未设置）；后续变化由 reply-language-changed 推送。 */
+  replyLanguage: string | null;
   /** Main 解析后的 ZCode Built-in Provider Config 路径；Host/Services 不感知 Electron 安装布局。 */
   zcodeBuiltinProviderConfigFilePath: string;
+  /** 构建固定目标，不包含安装状态；本机 Host 用共享纯函数解析记录地址。 */
   /** Main 提前异步采集并过滤的本机 runtime 环境；只允许传给 InitLocal。 */
   runtimeProcessEnvPatch?: Record<string, string>;
 }
@@ -168,6 +186,8 @@ export function spawnHostProcess(
     taskRealtimeBus?: TaskRealtimeBus;
     windowHostProcessMap: Map<number, ElectronUtilityProcess>;
     hostRunningTaskCountMap: Map<ElectronUtilityProcess, number>;
+    /** 每个 Host 当前阻止退出的事项（docs/git/worktree.md §6.4）；空集合时删除条目。 */
+    hostQuitBlockersMap: Map<ElectronUtilityProcess, HostQuitBlocker[]>;
     onWorkspaceRunningTaskCountChanged?: (
       child: ElectronUtilityProcess,
       event: {
@@ -181,6 +201,10 @@ export function spawnHostProcess(
     onAgentProcessException?: (event: HostAgentProcessExceptionResponse) => void;
     onAgentProcessReady?: (event: HostAgentProcessReadyResponse) => void;
     onAgentProcessSpawned?: (event: HostAgentProcessSpawnedResponse) => void;
+    onMcpTelemetry?: (event: HostMcpTelemetryResponse) => void;
+    onPluginTelemetry?: (event: HostPluginTelemetryResponse) => void;
+    onRemoteConversationTelemetry?: (event: HostRemoteConversationTelemetryResponse) => void;
+    onSessionCreateTelemetry?: (event: HostSessionCreateTelemetryResponse) => void;
     onCuaOperationStateChanged?: (
       source: ElectronUtilityProcess,
       event: HostCuaOperationStateResponse,
@@ -215,6 +239,7 @@ export function spawnHostProcess(
       requestId: string;
       browserId?: string;
       browserGeneration?: number;
+      controlScopeId?: string;
       sessionId: string;
       turnId?: string;
       workspaceKey?: string;
@@ -231,39 +256,50 @@ export function spawnHostProcess(
     registerPluginSandbox?: (
       input: PluginSandboxRegisterRequestPayload,
     ) => PluginSandboxHandle | Promise<PluginSandboxHandle>;
+    /** 数据同步页经本机 Host 读取 / 重试 Main 协调器的 Provisioning lane（按 sourceServerId）。 */
+    providerProvisioningLanes?: {
+      getStatus(
+        sourceServerId: string,
+        options: { waitForIdle: boolean },
+      ): Promise<ProviderProvisioningLaneStatus>;
+      retry(sourceServerId: string): Promise<ProviderProvisioningLaneStatus>;
+    };
   },
   options?: SpawnHostProcessOptions,
 ): ElectronUtilityProcess {
   const hostId = randomUUID();
+  // 系统库只由 Main 访问；路径在 fork 时绑定，Host 不能指定其他凭据目录。
+  // 与 Host 凭据服务共用同一路径解析入口，保证 Main 绑定的 cipher 与 Host 读写的文件一致。
+  const credentialCipher = createSystemCredentialCipher({ filePath: getCredentialsFilePath() });
   const glmBinaryPath = resolveBundledGlmBinaryPath();
   const execArgv = [
     ...(RUNTIME_ZCODE_DEBUG ? [`--inspect-brk=${RUNTIME_ZCODE_DEBUG}`] : []),
     "--no-warnings",
   ];
-  const hostForkEnv = {
-    ...buildHostProcessEnv(dependencies.hostProcessLocalEnv),
-    ...buildHostE2ECoverageEnv(),
-    ZCODE_PROCESS_LABEL: label,
-    // macOS-only: the Computer Use Helper launcher runs inside this forked host utilityProcess, whose
-    // code-signing identity is a nested Electron helper (NOT dev.zcode.app). Publish THIS (main
-    // Electron) process's pid — which IS dev.zcode.app — so helperLauncher passes it as
-    // `--launcher-pid` and the Helper's signature/peer verification succeeds instead of
-    // health-timing out. Env-name mirror of services' LAUNCHER_PID_ENV. Not set on
-    // Windows/Linux (CUA is macOS-only; nothing reads it there) to keep the host env pristine.
-    ...(process.platform === "darwin" ? { ZCODE_CUA_LAUNCHER_PID: String(process.pid) } : {}),
-    ...(dependencies.desktopContextPromptEnabled
-      ? {
-          [ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV]: dependencies.desktopContextPromptEnabled()
-            ? "1"
-            : "0",
-        }
-      : {}),
-  };
   const child = electronUtilityProcess.fork(hostModulePath, [], {
     serviceName: formatZCodeHostProcessName(label),
     execArgv,
-    env: hostForkEnv,
+    env: {
+      ...buildHostProcessEnv(dependencies.hostProcessLocalEnv),
+      ...buildHostE2ECoverageEnv(),
+      ZCODE_PROCESS_LABEL: label,
+      // macOS-only: the Computer Use Helper launcher runs inside this forked host utilityProcess, whose
+      // code-signing identity is a nested Electron helper (NOT dev.zcode.app). Publish THIS (main
+      // Electron) process's pid — which IS dev.zcode.app — so helperLauncher passes it as
+      // `--launcher-pid` and the Helper's signature/peer verification succeeds instead of
+      // health-timing out. Env-name mirror of services' LAUNCHER_PID_ENV. Not set on
+      // Windows/Linux (CUA is macOS-only; nothing reads it there) to keep the host env pristine.
+      ...(process.platform === "darwin" ? { ZCODE_CUA_LAUNCHER_PID: String(process.pid) } : {}),
+      ...(dependencies.desktopContextPromptEnabled
+        ? {
+            [ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV]: dependencies.desktopContextPromptEnabled()
+              ? "1"
+              : "0",
+          }
+        : {}),
+    },
   });
+
   dependencies.logger.info(
     `[spawnHostProcess] forked host process for (${label}), pid=${child.pid}`,
   );
@@ -271,11 +307,6 @@ export function spawnHostProcess(
   dependencies.logger.info(`[spawnHostProcess] glm binary path: ${glmBinaryPath ?? "<not found>"}`);
   dependencies.logger.info(
     `[spawnHostProcess] BIGMODEL_OAUTH_APP_SECRET source: ${process.env.BIGMODEL_OAUTH_APP_SECRET ? "process" : dependencies.hostProcessLocalEnv.BIGMODEL_OAUTH_APP_SECRET ? "dotenv" : "fallback"}`,
-  );
-  // §D/§E 观测点（docs/spec/cua-runtime-builtin.md）：fork env 里下发的 broker socket。
-  // 历史上注入失败时全链路零日志，只能靠 helper exit log 反推；这行让 main 侧注入结果直接可见。
-  dependencies.logger.info(
-    `[spawnHostProcess] cua broker socket for (${label}): ${hostForkEnv[FORK_CUA_BROKER_SOCKET_ENV] ?? "<not set>"}`,
   );
 
   // 远程连接与本地服务共享 window Host，进程级 stdout 没有请求身份。
@@ -293,9 +324,58 @@ export function spawnHostProcess(
   });
 
   const databaseStartupRelay = bindDatabaseStartupRelay(win, child, hostId);
+  const unbindAppNavigation = bindAppControlNavigationHost(win, child, (id) =>
+    BrowserWindow.fromId(id),
+  );
+  child.once("exit", unbindAppNavigation);
   child.on("message", (message: unknown) => {
     const result = hostResponseMessageSchema.safeParse(message);
     if (!result.success) {
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.CredentialCipherRequest) {
+      const { type: _type, ...request } = result.data;
+      void executeCredentialCipherRequest(credentialCipher, request)
+        .then((reply) => {
+          if (!exitedHostProcesses.has(child)) {
+            child.postMessage({ type: HostMessageTypes.CredentialCipherResult, ...reply });
+          }
+        })
+        .catch(() => {
+          // Host 已退出时只能放弃回包；任何凭据输入/结果都不得进入日志。
+        });
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.CredentialKeyShareRequest) {
+      const { requestId, targetBaseDir } = result.data;
+      // 修复原因（ZCT-2120723935487688704）：切换数据存储路径只复制凭据文件，新根缺少系统条目，
+      // 重启后掉登录且无法重新登录。Host 只提供数据根；凭据路径由 Main 按 copyDataDirectory 的
+      // 目标布局推导，密钥不离开 Main，也不开放对目标目录的加解密。
+      const share = isAbsolute(targetBaseDir)
+        ? credentialCipher.shareKeyWithCopiedCredentials(
+            join(targetBaseDir, ".zcode", "v2", "credentials.json"),
+          )
+        : Promise.reject(new Error("Data root must be absolute"));
+      void share
+        .then(
+          () => ({ ok: true }),
+          () => ({ ok: false, errorCode: CREDENTIAL_KEY_SHARE_UNAVAILABLE_ERROR_CODE }),
+        )
+        .then((reply) => {
+          dependencies.logger.info(`[credential-key-share] ${reply.ok ? "completed" : "failed"}`);
+          if (!exitedHostProcesses.has(child)) {
+            child.postMessage({
+              type: HostMessageTypes.CredentialKeyShareResult,
+              requestId,
+              ...reply,
+            });
+          }
+        })
+        .catch(() => {
+          // Host 已退出时只能放弃回包；原生异常不进入日志，避免泄露系统细节。
+        });
       return;
     }
 
@@ -309,16 +389,65 @@ export function spawnHostProcess(
       return;
     }
 
+    if (result.data.type === HostResponseTypes.NetworkTelemetryBatch) {
+      ingestHostNetworkObservations(result.data.observations);
+      return;
+    }
     if (result.data.type === HostResponseTypes.NetworkCaptureBatch) {
       ingestHostNetworkCapture(result.data.batch, child.pid ?? 0);
       return;
     }
     // CLI 自采的 60 秒样本：按 services 打的 lane 归入 cli_chat / cli_aux 角色。
+    if (result.data.type === HostResponseTypes.AgentResourceSample) {
+      ingestCliResourceSample(
+        result.data.sample,
+        result.data.runtimeSurface,
+        result.data.environmentKey,
+      );
+      return;
+    }
 
     // Host 自采的 60 秒样本：main 只取 heap 作 host 角色事件的 heap 维度。
+    if (result.data.type === HostResponseTypes.HostResourceSample) {
+      ingestHostSelfResourceSample(result.data.sample);
+      return;
+    }
 
     if (result.data.type === HostResponseTypes.ResourceUsageSnapshotResult) {
       resolveHostResourceUsageResult(label, result.data);
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.ToolExecResource) {
+      ingestToolExecResource(result.data.sample, result.data.runtimeSurface);
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.McpResourceSamples) {
+      ingestMcpResourceSamples(
+        result.data.samples,
+        result.data.runtimeSurface,
+        result.data.environmentKey,
+      );
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.McpTelemetry) {
+      dependencies.onMcpTelemetry?.(result.data);
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.PluginTelemetry) {
+      dependencies.onPluginTelemetry?.(result.data);
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.RemoteConversationTelemetry) {
+      dependencies.onRemoteConversationTelemetry?.(result.data);
+      return;
+    }
+    if (result.data.type === HostResponseTypes.SessionCreateTelemetry) {
+      dependencies.onSessionCreateTelemetry?.(result.data);
       return;
     }
 
@@ -368,7 +497,9 @@ export function spawnHostProcess(
         return;
       }
       void Promise.resolve()
-        .then(() => register(request))
+        // schema 的 refine 已按 contentKind 校验归属（扩展视图无会话，其他类型必须有会话）；
+        // zod 的推导类型表达不出这层判别，这里收窄成契约的判别联合。
+        .then(() => register(request as PluginSandboxRegisterRequestPayload))
         .then((handle) => reply({ requestId: request.requestId, ok: true, ...handle }))
         .catch((error: unknown) =>
           reply({
@@ -383,6 +514,35 @@ export function spawnHostProcess(
     if (result.data.type === HostResponseTypes.CuaOperationState) {
       // Main 只投影 Host 已经判定的 turn 状态，不在这里重复解析 session/tool 业务事件。
       dependencies.onCuaOperationStateChanged?.(child, result.data);
+      return;
+    }
+
+    if (result.data.type === HostResponseTypes.ProviderProvisioningLaneRequest) {
+      const request = result.data;
+      const lanes = dependencies.providerProvisioningLanes;
+      const reply = (status: ProviderProvisioningLaneStatus) =>
+        child.postMessage({
+          type: HostMessageTypes.ProviderProvisioningLaneResult,
+          requestId: request.requestId,
+          status,
+        });
+      // 没有协调器（例如未接线的测试宿主）时回「无 lane」：Host 请求总有应答，不靠超时收尾。
+      if (!lanes) {
+        reply({ lane: "none" });
+        return;
+      }
+      void (
+        request.action === "retry"
+          ? lanes.retry(request.sourceServerId)
+          : lanes.getStatus(request.sourceServerId, { waitForIdle: request.action === "wait" })
+      ).then(reply, (error: unknown) => {
+        // 协调器的查询与重试不会抛出；万一抛出也要应答，避免 Renderer 一直停在「同步中」。
+        dependencies.logger.warn("[provider-provisioning] lane request failed", {
+          action: request.action,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        reply({ lane: "none" });
+      });
       return;
     }
 
@@ -427,6 +587,7 @@ export function spawnHostProcess(
           ? handler({
               win,
               requestId,
+              controlScopeId: result.data.controlScopeId,
               browserId: result.data.browserId,
               browserGeneration: result.data.browserGeneration,
               sessionId: result.data.sessionId,
@@ -526,6 +687,15 @@ export function spawnHostProcess(
       return;
     }
 
+    if (result.data.type === HostResponseTypes.QuitBlockersChanged) {
+      if (result.data.blockers.length > 0) {
+        dependencies.hostQuitBlockersMap.set(child, result.data.blockers);
+      } else {
+        dependencies.hostQuitBlockersMap.delete(child);
+      }
+      return;
+    }
+
     if (result.data.type === HostResponseTypes.AgentRunningTaskCountChanged) {
       if (result.data.runningTaskCount > 0) {
         dependencies.hostRunningTaskCountMap.set(child, result.data.runningTaskCount);
@@ -603,6 +773,7 @@ export function spawnHostProcess(
     hostLogRelay.flushRawLogs();
     dependencies.logger.info(`[spawnHostProcess] host process (${label}) exited with code ${code}`);
     dependencies.hostRunningTaskCountMap.delete(child);
+    dependencies.hostQuitBlockersMap.delete(child);
     if (shouldRegisterBroadcast) {
       dependencies.broadcastHub.unregister(windowId);
     }

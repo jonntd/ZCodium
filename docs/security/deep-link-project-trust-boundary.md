@@ -25,15 +25,46 @@ ZCode Desktop 支持 `zcode://workspace/open?path=...` 打开本地工作区，�
 - deep link 传入的 workspace path 必须在任何 filesystem probe 前拒绝 UNC / 网络路径。
 - deep link 打开本地目录前必须有用户确认；用户取消时不得缓存或投递 workspace path。
 - deep-link 确认只授权打开路径，不建立 Workspace Hook Trust。
+- 项目配置只接受扩展声明与启停：`mcp`、`hooks`、`plugins.enabledPlugins`、`plugins.dirs`（仅作待信任候选）、
+  `skill`、`command`，以及兼容设置页的 `skills[绝对路径]` 开关。自动发现的 `zcode.json`、
+  `.zcode/config.json` 和显式 `projectConfigPath` 使用同一白名单。
+- 项目配置中的 `network`（含代理、CA、No Proxy、超时）、`storage`（含根目录和 session DB）、
+  `permission`、`features`、`memory`、`modelStream`、`logging`、`ui`、`toolConcurrency`、
+  `modelAnomalyGuard`、`skills` 的运行参数，以及插件全局开关、市场和卸载记录均不生效；`plugins.dirs` 不进入可执行配置。
+  这些字段在 schema 校验前排除，非法值也不能使同文件的合法扩展声明失效。新增字段默认不向项目开放。
+- 项目文件中的 `plugins.options` 全部剥离。插件的 `userConfig` 可进入 MCP 的命令、参数、环境变量和 URL，
+  不能因插件已安装就信任仓库提供的值；包括解释器探测在内的插件启动行为可能早于工具调用审批。
+  设置页或 CLI 显式保存的项目选项仍可覆盖用户默认，但只写入 Host 用户私有的
+  `plugin-secrets.json`，按 workspace root 隔离，复用既有锁与原子写入。普通选项同样适用。
+  旧项目文件中的值不自动迁移、不回退读取；用户须在设置页重新保存。清除项目值后回退到可信外层或用户值。
+- 用户配置、设置页注入的环境变量和可信启动参数继续控制运行参数；自定义证书仍允许用户指定任意路径。
+  用户存储和插件 inventory 根目录不得由项目文件重定向，包括独立的 workspace storage 查询入口。
 - 项目级 `zcode.json` 与 `.zcode/config.json` Hook 声明视为未信任代码，默认不能进入可执行路径。
 - discovery 只生成 immutable `WorkspaceHookBundleSnapshot`；Runtime admission 必须在 Hook lifecycle 和进程启动前完成。
 - 持久 Trust 只按 `workspaceIdentity + hookDeclarationDigest` 命中；bundle digest 用于保证审核和执行快照一致。
 - Trust 只能由受信任 Host 的 `设置 → 钩子 → 工作区` 审核，或显式 `zcode hooks trust` 命令建立；repository、环境变量和普通 permission answer 都不能授权。
 - managed `deny` 高于 persistent Trust，并在下一次 dispatch gate 生效。
-- 用户级 Hook 与已启用插件 Hook 继续按各自既有可信来源规则运行。
-- 项目级 `.zcode/agents/*.md` 不得通过 frontmatter 改写 child runtime 权限模式；`permissionMode` 只对用户级或受信插件 profile 生效。
+- 用户级 Hook 与已启用插件 Hook 继续按各自既有可信来源规则运行。已启用插件（含第三方市场）的 Hook 当前照常执行，
+  插件本身没有隔离；下面的 `permissionMode` 规则不能防御恶意插件。
+- subagent profile 的 frontmatter `permissionMode` 按来源处理。父会话为 guarded 时，任何来源的
+  `bypassPermissions`、`dontAsk` 都先收紧为 guarded。
+  - 用户级（用户存储根下的 `agents/`，默认 `~/.zcode/agents`）：按声明生效。
+  - 项目级 `.zcode/agents/*.md`（含附加目录）：忽略，子会话继承父会话模式。
+  - 插件 agent（默认 `agents/` 目录与 manifest `agents` 声明的目录；官方与第三方同一规则）：
+    只在比父会话模式更严格时生效，否则继承父会话模式。
+    严格程度从严到宽为 plan、build、edit、guarded、yolo；`bypassPermissions`、`dontAsk` 对应 yolo，
+    因此不会生效；`auto` 尚未实现，不参与比较，按继承处理。
+    这个顺序按各模式的默认策略排列。例外：guarded 对危险命令的审批先于 allow 规则，用户配置了
+    allow 规则时，build 与 edit 可能放行 guarded 仍会询问的命令。
+  - 插件规则防的是：模型把任务委派给插件 agent 后，插件声明的宽松模式让子会话里模型生成的命令免去审批。
 
 ## Rollout 与回滚
+
+```text
+项目 JSON → 扩展字段白名单 → MCP trust / Hook admission / 已安装插件启停
+设置页或 CLI 显式保存项目选项 → Host 用户私有存储 → 按 workspace root 叠加 → 插件 MCP
+用户配置 + 可信启动输入 → 网络、CA、存储与其他运行参数 → Agent adapter
+```
 
 ```text
 外部 URL → Windows 协议注册 owner 写入的 exe [entry] -- URL
@@ -67,6 +98,16 @@ timeout、superseded、snapshot mismatch、policy block、Trust store failure �
 不得记录命令原文、脚本内容、source path、Trust payload 或 interaction response body。
 
 ## 验证要点
+
+- 两种自动发现文件、子目录覆盖和显式项目配置均不能覆盖用户网络、证书、存储、权限或其它运行参数。
+- 无用户网络配置时，项目代理不能收到请求，项目 CA 不被读取；同一 CA 通过用户配置显式设置后仍可使用。
+- 含非法运行参数或插件选项的项目文件仍能提供合法 MCP、Hook 候选、插件启停和技能/命令开关。
+- 仓库插件选项不能覆盖解释器路径、环境变量、URL 或用户密钥；启动读取不得迁移这些值。
+  显式保存普通项目选项后运行时可用，仓库配置不含该值；重新加载、清除、嵌套项目及不同项目仍保持隔离。
+- 项目 MCP 仍需通过既有连接信任，Hook 声明仍先进入不可执行快照；伪造安装根目录不能进入发现。
+- 项目 `plugins.dirs` 只产生待信任候选：未在用户域记录里命中「Trust identity + 插件根 + 声明摘要」的
+  目录插件强制停用，不解析 Hook、MCP、技能、命令、Agent；仓库里的同名记录文件不会被读取。
+  规则见 [项目目录插件的手动信任](../plugins/workspace-plugin-dir-trust.md)。
 
 - Windows 生产态和开发态注册均将 `--` 放在 URL 前，重复注册仍保持安全模板；macOS/Linux
   注册行为保持不变，注册失败仍记录原有警告。

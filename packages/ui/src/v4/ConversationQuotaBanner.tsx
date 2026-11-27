@@ -15,6 +15,7 @@ import type {
 } from "@/v4/sessionQuotaBannerState.js";
 
 const MESSAGE_IDS: Record<SessionQuotaBannerKind, string> = {
+  "model-very-low": "chat.quota.startPlan.modelVeryLow",
   "model-exhausted": "chat.quota.startPlan.modelExhausted",
   "daily-exhausted": "chat.quota.startPlan.dailyExhausted",
   "concurrent-limit": "chat.quota.startPlan.concurrentLimit",
@@ -24,6 +25,13 @@ const MESSAGE_IDS: Record<SessionQuotaBannerKind, string> = {
 };
 
 function resolveMessageId(state: SessionQuotaBannerState): string {
+  if (state.kind === "model-very-low") {
+    return state.quotaPeriod === "daily"
+      ? "chat.quota.startPlan.bucketDailyLow"
+      : state.quotaPeriod === "one_time"
+        ? "chat.quota.startPlan.bucketActivityLow"
+        : "chat.quota.startPlan.modelVeryLow";
+  }
   if (state.kind === "concurrent-limit") {
     return state.concurrentLimitReason === "retry-exhausted-busy"
       ? "chat.quota.startPlan.concurrentLimit.retryExhausted"
@@ -105,10 +113,10 @@ export function ConversationQuotaBanner({
   return (
     <div
       ref={bannerRef}
-      className="mb-3 w-full px-4 max-md:px-2"
+      className="mb-3 w-full"
       data-testid="v4-session-quota-banner"
     >
-      <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+      <div className="flex w-full flex-wrap items-center gap-2 rounded-xl border-[0.5px] border-border bg-surface backdrop-blur-md py-2 pl-3 pr-2">
         <div className="flex min-w-0 flex-1 items-center gap-2 text-ui-base text-foreground">
           <InfoIcon className="size-4 shrink-0" />
           <div className="min-w-0 break-words">{message}</div>

@@ -2,7 +2,7 @@ import { SidebarNativeTooltip } from "@/ControlHintTooltip.js";
 import { useState } from "react";
 import { Folder } from "lucide-react";
 import {
-  resolveWebRemoteControlInitialWorkspaceSelection,
+  isWebRemoteControlBridgeableWorkspaceTarget,
   resolveWebRemoteControlWorkspaceKey,
   type WebRemoteControlWorkspaceTarget,
 } from "@zcode/shared";
@@ -20,13 +20,6 @@ import { logger } from "@/logger.js";
 import { useHomeOnlyWorkspaces } from "@/project-sidebar/useHomeOnlyWorkspaces.js";
 import { RemoteConnectionStateIcon } from "@/remote-connection/RemoteConnectionStateIcon.js";
 import type { WebRemoteControlWorkspaceSwitcherApi } from "@/root/types.js";
-
-function isWebRemoteControlBridgeableWorkspaceTarget(workspace: WebRemoteControlWorkspaceTarget) {
-  return (
-    resolveWebRemoteControlInitialWorkspaceSelection({ workspaces: [workspace] })?.canBridge ===
-    true
-  );
-}
 
 /** home-only 首页的工作区入口：可 bridge 的行打开工作区，其余行交给桌面已有重连 owner。 */
 export function HomeOnlyWorkspaceRows({

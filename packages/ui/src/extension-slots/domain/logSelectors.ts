@@ -10,16 +10,8 @@ import type {
 
 // 日志标签的纯函数（docs/plugins/extension-host.md §16.8）：合入、过滤、格式化。不读 store，不做 IO。
 
-const LEVEL_RANK: Record<ExtensionLogLevel, number> = {
-  info: 0,
-  warn: 1,
-  error: 2,
-};
-const MIN_LEVEL_RANK: Record<ExtensionLogLevelFilter, number> = {
-  all: 0,
-  warn: 1,
-  error: 2,
-};
+const LEVEL_RANK: Record<ExtensionLogLevel, number> = { info: 0, warn: 1, error: 2 };
+const MIN_LEVEL_RANK: Record<ExtensionLogLevelFilter, number> = { all: 0, warn: 1, error: 2 };
 
 /** 追加已去重、按 seq 升序的条目，只留最近 limit 条（与 Main 的缓冲同一上限）。 */
 export function appendExtensionLogs(
@@ -37,9 +29,7 @@ export function filterExtensionLogs(
   level: ExtensionLogLevelFilter,
 ): ExtensionLogEntry[] {
   const minRank = MIN_LEVEL_RANK[level];
-  const pluginId = source.startsWith("plugin:")
-    ? source.slice("plugin:".length)
-    : null;
+  const pluginId = source.startsWith("plugin:") ? source.slice("plugin:".length) : null;
   return entries.filter((entry) => {
     if (LEVEL_RANK[entry.level] < minRank) return false;
     if (source === "host") return entry.pluginId === undefined;
@@ -49,9 +39,7 @@ export function filterExtensionLogs(
 }
 
 /** 当前条目里出现过的插件 id（来源过滤的选项），按字典序。 */
-export function listExtensionLogPlugins(
-  entries: readonly ExtensionLogEntry[],
-): string[] {
+export function listExtensionLogPlugins(entries: readonly ExtensionLogEntry[]): string[] {
   const ids = new Set<string>();
   for (const entry of entries) if (entry.pluginId) ids.add(entry.pluginId);
   return [...ids].sort();

@@ -31,21 +31,18 @@ export function resolveAutomationProjectOptions(
 /** 定义选择 Host 的虚拟项目；空项目在提交时初始化目录，不随打开的 tab 增减。 */
 export function useAutomationProjectOptions(): AutomationProjectOption[] {
   const services = useBaseWorkspaceServices();
-  const [owned, setOwned] = useState<{ services: typeof services; projects: VirtualProject[] }>({
-    services,
-    projects: [],
-  });
+  const [projects, setProjects] = useState<VirtualProject[]>([]);
   useEffect(() => {
     let generation = 0;
     const refresh = async () => {
       const request = ++generation;
       try {
         if (!services.projectService) throw new Error("project.service-unavailable");
-        const result = await services.projectService.readProjects();
-        if (request === generation) setOwned({ services, projects: result });
+        const projects = await services.projectService.readProjects();
+        if (request === generation) setProjects(projects);
       } catch (error) {
         if (request !== generation) return;
-        setOwned({ services, projects: [] });
+        setProjects([]);
         logger.error("[automation-projects] 读取项目选项失败", error);
       }
     };
@@ -54,12 +51,9 @@ export function useAutomationProjectOptions(): AutomationProjectOption[] {
       if (event.channel === "state:projects") void refresh();
     });
     return () => {
-      ++generation;
+      generation++;
       subscription.dispose();
     };
   }, [services]);
-  return useMemo(
-    () => (owned.services === services ? resolveAutomationProjectOptions(owned.projects) : []),
-    [owned, services],
-  );
+  return useMemo(() => resolveAutomationProjectOptions(projects), [projects]);
 }

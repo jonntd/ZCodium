@@ -1,5 +1,5 @@
 import { buildToolExposure } from "../../tool/search/exposure.js";
-import type { ModelToolContract } from "@zcode/contracts";
+import type { ToolSearchMcpState, ModelToolContract } from "@zcode/contracts";
 import type { RuntimeMessageEntry } from "../../agent/message-history.js";
 import type { ToolRegistry } from "../../tool/registry.js";
 import type { Model } from "../deps.js";
@@ -9,7 +9,27 @@ import {
   type ProviderRequestMessageProjectionResult,
 } from "./provider-request-messages.js";
 
+/** 本次请求是否走 MCS 的唯一判断：provider 投影与 system prompt 的 Harness 文案共用。 */
+export function shouldUseMidConversationSystem(
+  config: Pick<AgentRuntimeConfig, "midConversationSystem">,
+  model: Pick<Model, "properties">,
+): boolean {
+  return (
+    config.midConversationSystem?.mode === "force" || model.properties.supportsMidConversationSystem
+  );
+}
+
+/** 模型请求能力到投影参数的唯一推导。 */
+function requestCapabilityProjectionOptions(model: Pick<Model, "requestCapabilities">) {
+  const capabilities = model.requestCapabilities;
+  return {
+    foldRemindersIntoToolResults: capabilities?.foldRemindersIntoToolResults === true,
+    dropReasoningOnlyOrBlankAssistants: capabilities?.dropReasoningOnlyOrBlankAssistants === true,
+  };
+}
+
 type RequestRuntime = {
+  readonly mcpServerStatusFacts?: ToolSearchMcpState;
   readonly config: Pick<AgentRuntimeConfig, "midConversationSystem" | "toolSearch">;
 };
 
@@ -37,6 +57,7 @@ export function prepareRuntimeProviderRequest(
     tools: input.tools,
     registry: input.registry,
     entries: input.entries,
+    mcp: runtime.mcpServerStatusFacts,
   });
   const projection = buildRuntimeProviderRequestMessages(runtime, {
     entries:
@@ -54,9 +75,10 @@ export function prepareRuntimeProviderRequest(
       tools: exposure.tools,
       toolSearchEnabled: exposure.context.mode === "native",
     },
+    delivery: exposure.delivery,
     projection,
     entries: exposure.entries,
-    // 记录过滤 Continue 后会重新渲染，需复用本次有效引用，避免遗漏成功提示或重复扫描历史。
+    // 本次请求里有效的搜索结果 callID：只有 Native 会据此派生成功提示。
     loadedToolCallIds: exposure.loadedToolCallIds,
     toolSearch: exposure.context,
     reason: exposure.reason,
@@ -68,11 +90,9 @@ export function buildRuntimeProviderRequestMessages(
   runtime: RequestRuntime,
   input: MessageProjectionInput,
 ): ProviderRequestMessageProjectionResult {
-  const useMidConversationSystem =
-    runtime.config.midConversationSystem?.mode === "force" ||
-    input.model.properties.supportsMidConversationSystem;
   return buildProviderRequestMessages({
     ...input,
-    useMidConversationSystem,
+    useMidConversationSystem: shouldUseMidConversationSystem(runtime.config, input.model),
+    ...requestCapabilityProjectionOptions(input.model),
   });
 }

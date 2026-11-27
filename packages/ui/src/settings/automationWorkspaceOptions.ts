@@ -1,5 +1,4 @@
-import { resolveWorkspaceKey, type RemoteTarget } from "@zcode/shared";
-import { projectSelectionId } from "@zcode/services";
+import { resolveWorkspaceKey, type RemoteTarget, type WorkspacePurpose } from "@zcode/shared";
 
 export interface AutomationWorkspaceOption {
   projectId?: string | null;
@@ -9,6 +8,7 @@ export interface AutomationWorkspaceOption {
   remoteSessionId?: string;
   remoteTarget?: RemoteTarget;
   label: string;
+  workspacePurpose?: WorkspacePurpose;
 }
 
 export function resolveAutomationWorkspaceSelectionKey(
@@ -18,7 +18,7 @@ export function resolveAutomationWorkspaceSelectionKey(
   >,
 ): string {
   return workspace.projectId
-    ? projectSelectionId({ hostId: workspace.hostId ?? "local", id: workspace.projectId })
+    ? JSON.stringify([workspace.hostId ?? "local", workspace.projectId])
     : resolveWorkspaceKey(workspace);
 }
 

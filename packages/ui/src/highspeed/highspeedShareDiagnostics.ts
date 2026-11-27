@@ -50,7 +50,8 @@ export function collectHighspeedCardShareBlockers(cardId: string): string[] {
  */
 export function listHighspeedCardsAwaitingAutoShare(sessionId: string, now: number): string[] {
   const pendingRecords = listHighspeedTurnsBySession(sessionId).filter(
-    (record) => record.autoShareAttemptedAt === undefined && record.autoSharedAt === undefined,
+    (record) =>
+      record.autoShareAttemptedAt === undefined && record.autoSharedAt === undefined,
   );
   const cardsById = new Map<string, typeof pendingRecords>();
   for (const record of pendingRecords) {

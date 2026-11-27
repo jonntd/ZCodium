@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeStore } from "@/store/StoreProvider.js";
-import { resolveTheme } from "@/useTheme.js";
+import { normalizeThemePreference, resolveTheme } from "@/useTheme.js";
 import type { Theme } from "@/useTheme.js";
 
 interface ThemeHeroPalette {
@@ -67,10 +67,16 @@ function getThemeHeroPalette(theme: Theme): ThemeHeroPalette {
 
 export function useResolvedThemeHeroPalette(): ThemeHeroPalette {
   const theme = useZCodeStore((state) => state.theme);
-  const resolvedTheme =
-    theme === "system" ? (resolveTheme(theme) === "dark" ? "dark" : "light") : theme;
+  // 主题存储可能是旧值 light/dark，但实际应用的是 Zai Light/Zai Dark；
+  // 背景调色板必须跟实际主题一致，否则登录页会出现蓝色渐变与页面主题不匹配。
+  const appliedTheme =
+    theme === "system"
+      ? resolveTheme(theme) === "dark"
+        ? "zai-dark"
+        : "zai-light"
+      : normalizeThemePreference(theme);
 
-  return getThemeHeroPalette(resolvedTheme);
+  return getThemeHeroPalette(appliedTheme);
 }
 
 export function ThemeHeroVisual(props: {
@@ -84,13 +90,13 @@ export function ThemeHeroVisual(props: {
     <div className={cn("relative overflow-hidden", palette.panel, props.className)}>
       <div
         className={cn(
-          "pointer-events-none absolute start-[-12%] top-[18%] h-[42rem] w-[42rem] rounded-full blur-3xl",
+          "pointer-events-none absolute left-[-12%] top-[18%] h-[42rem] w-[42rem] rounded-full blur-3xl",
           palette.glowPrimary,
         )}
       />
       <div
         className={cn(
-          "pointer-events-none absolute end-[-18%] bottom-[-14%] h-[36rem] w-[36rem] rounded-full blur-3xl",
+          "pointer-events-none absolute right-[-18%] bottom-[-14%] h-[36rem] w-[36rem] rounded-full blur-3xl",
           palette.glowSecondary,
         )}
       />

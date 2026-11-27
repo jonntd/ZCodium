@@ -40,7 +40,7 @@ export function RemoteProjectList({
   service: IProjectService;
   remoteService: IRemoteProjectService;
   onClose(): void;
-  onSaved(isCurrent?: () => boolean, project?: VirtualProject): Promise<void>;
+  onSaved(isCurrent?: () => boolean): Promise<void>;
   initialRoots?: string[];
 }) {
   const hostId = device?.id ?? host!.id;
@@ -111,7 +111,7 @@ export function RemoteProjectList({
     });
     if (!current()) return;
     sidebar?.preferences.prepend(project);
-    await onSaved(current, project);
+    await onSaved(current);
     if (current()) onClose();
   };
   if (host && !embedded && creating && !loading && !legacySingleRoot && !error && renderCreate)

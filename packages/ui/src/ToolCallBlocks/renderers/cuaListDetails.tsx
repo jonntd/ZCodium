@@ -1,6 +1,6 @@
 import { AppWindow } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useOptionalPlatform } from "@/hooks/usePlatform.js";
+import { useToolPresentationCapabilities } from "@/ToolCallBlocks/presentationCapabilities.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { ToolCallBlockRenderContext } from "@/ToolCallBlocks/shared.js";
 import { readToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
@@ -118,7 +118,7 @@ export function buildCuaDetailList(
 
 function CuaAppList({ items }: { items: CuaAppItem[] }) {
   const { intl } = useZCodeIntl();
-  const platform = useOptionalPlatform();
+  const platform = useToolPresentationCapabilities();
   const [icons, setIcons] = useState<Record<string, string>>({});
 
   useEffect(() => {
@@ -144,7 +144,7 @@ function CuaAppList({ items }: { items: CuaAppItem[] }) {
   }, [items, platform]);
 
   return (
-    <div className="max-h-64 space-y-1 overflow-y-auto pe-1">
+    <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
       {items.map((item, index) => (
         <div
           key={`${item.bundleId ?? item.name}:${index}`}
@@ -175,7 +175,7 @@ function CuaAppList({ items }: { items: CuaAppItem[] }) {
 function CuaWindowList({ items }: { items: CuaWindowItem[] }) {
   const { intl } = useZCodeIntl();
   return (
-    <div className="max-h-64 space-y-1 overflow-y-auto pe-1">
+    <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
       {items.map((item, index) => (
         <div
           key={`${item.title ?? "untitled"}:${index}`}

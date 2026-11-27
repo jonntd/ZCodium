@@ -1,8 +1,17 @@
+import { normalizeGenUiInput } from "@zcode/core";
+import { genUiModelContextSchema } from "@zcode/shared/gen-ui";
 import type { ZCodeMessagePart, ZCodeMessageWithParts, ZCodeToolState } from "@zcode/shared";
 import type { MessagePart, MessageWithParts, ToolState } from "@zcode/contracts";
 import { shouldHideInvalidToolCallFromProduct } from "../tool-call-product-visibility.js";
 
 export function mapMessageWithParts(message: MessageWithParts): ZCodeMessageWithParts {
+  const intent =
+    message.info.metadata?.conversationInputIntent ?? message.info.metadata?.inputIntent;
+  const context = genUiModelContextSchema.safeParse(
+    intent && typeof intent === "object"
+      ? (intent as Record<string, unknown>).genUiContext
+      : undefined,
+  );
   return {
     info:
       message.info.role === "user"
@@ -56,7 +65,21 @@ export function mapMessageWithParts(message: MessageWithParts): ZCodeMessageWith
         (part) =>
           part.type !== "tool" || !shouldHideInvalidToolCallFromProduct(part.tool, part.metadata),
       )
-      .map(mapMessagePart),
+      .map((part) => {
+        // 历史读取和搜索索引同走此出口，旧尾块复用 CLI 解码器，不改持久正文。
+        if (
+          message.info.role === "user" &&
+          !message.info.synthetic &&
+          part.type === "text" &&
+          !part.synthetic
+        ) {
+          return mapMessagePart({
+            ...part,
+            text: normalizeGenUiInput(part.text, context.success ? context.data : undefined).text,
+          });
+        }
+        return mapMessagePart(part);
+      }),
   };
 }
 
@@ -179,6 +202,8 @@ function mapMessagePart(part: MessagePart): ZCodeMessagePart {
         type: "timeline",
         verification: part.timelineType === "goal_verification" ? part.verification : undefined,
         verificationId: part.timelineType === "goal_verification" ? part.verificationId : undefined,
+        worktreeCreation:
+          part.timelineType === "worktree_creation" ? { ...part.worktreeCreation } : undefined,
       };
     case "subtask":
       return {
@@ -256,8 +281,8 @@ function mapToolStateMetadata(
     return metadata;
   }
   const protocolMetadata = { ...metadata };
-  // readFileState 携带完整文件快照，只用于 agent resume 内部恢复；
-  // app/remote protocol 只需要展示 metadata，不能把文件内容藏在 tool state metadata 里透出。
+  // readFileState 是读取状态快照（新快照只有正文哈希，升级前的旧快照带正文全文），只用于 agent
+  // 冷恢复和 rewind 内部重建；app/remote protocol 只需要展示 metadata，不能把它和旧快照里的文件内容透出。
   delete protocolMetadata.readFileState;
   return protocolMetadata;
 }

@@ -1,11 +1,11 @@
-import { ChevronRight, Loader2 } from "lucide-react";
+import { ChevronRight, LoaderCircle } from "lucide-react";
+import { type StorageCategoryId } from "@zcode/shared";
 import {
-  type StorageCategoryId,
   TID_RESOURCE_MANAGER_STORAGE_CATEGORY_CLEAN,
   TID_RESOURCE_MANAGER_STORAGE_CATEGORY_ROW,
   TID_RESOURCE_MANAGER_STORAGE_CATEGORY_SIZE,
   testId,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { formatBytes } from "@/resource-manager/resourceUsageView.js";
@@ -44,7 +44,7 @@ export function StorageCategoryList({
             <button
               type="button"
               data-testid={testId(TID_RESOURCE_MANAGER_STORAGE_CATEGORY_ROW, category.id)}
-              className="flex min-w-0 flex-1 items-center gap-3 text-start"
+              className="flex min-w-0 flex-1 items-center gap-3 text-left"
               onClick={() => onOpen(category.id)}
             >
               <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface text-foreground-subtle">
@@ -72,7 +72,9 @@ export function StorageCategoryList({
                 disabled={disabled}
                 onClick={() => onClean(category.id)}
               >
-                {cleaning ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : null}
+                {cleaning ? (
+                  <LoaderCircle className="size-4 animate-spin" aria-hidden="true" />
+                ) : null}
                 {intl.formatMessage({
                   id: cleaning
                     ? "resourceManager.storage.cleaning"

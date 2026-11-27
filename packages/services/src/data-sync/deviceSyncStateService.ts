@@ -8,24 +8,17 @@ const RESULTS = new Set<DeviceSyncResult>(["success", "partial", "failed"]);
 
 function parseStates(value: unknown): Record<string, DeviceSyncState> {
   const devices =
-    value && typeof value === "object"
-      ? (value as Record<string, unknown>).devices
-      : undefined;
+    value && typeof value === "object" ? (value as Record<string, unknown>).devices : undefined;
   if (!devices || typeof devices !== "object") return {};
   const states: Record<string, DeviceSyncState> = {};
-  for (const [sourceServerId, raw] of Object.entries(
-    devices as Record<string, unknown>,
-  )) {
+  for (const [sourceServerId, raw] of Object.entries(devices as Record<string, unknown>)) {
     const state = raw as Partial<DeviceSyncState> | null;
     if (
       state &&
       typeof state.lastSyncAt === "number" &&
       RESULTS.has(state.lastResult as DeviceSyncResult)
     ) {
-      states[sourceServerId] = {
-        lastSyncAt: state.lastSyncAt,
-        lastResult: state.lastResult!,
-      };
+      states[sourceServerId] = { lastSyncAt: state.lastSyncAt, lastResult: state.lastResult! };
     }
   }
   return states;
@@ -46,9 +39,7 @@ export function createDeviceSyncStateService(options: {
   return {
     async getDeviceSyncStates() {
       try {
-        return parseStates(
-          JSON.parse(await readFile(options.filePath, "utf-8")),
-        );
+        return parseStates(JSON.parse(await readFile(options.filePath, "utf-8")));
       } catch {
         // 只读展示：文件缺失或损坏时按「尚未同步」显示。
         return {};
@@ -56,10 +47,7 @@ export function createDeviceSyncStateService(options: {
     },
 
     async recordDeviceSyncResult(params) {
-      const state: DeviceSyncState = {
-        lastSyncAt: now(),
-        lastResult: params.result,
-      };
+      const state: DeviceSyncState = { lastSyncAt: now(), lastResult: params.result };
       const run = () =>
         updateJsonObjectFile(options.filePath, (current) => ({
           version: STATE_FILE_VERSION,

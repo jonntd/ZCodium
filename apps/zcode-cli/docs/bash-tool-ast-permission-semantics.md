@@ -24,13 +24,84 @@ Bash tool 的权限、只读和并发安全判断必须避免把动态 shell 结
 
 Bash read-only 判定按多层 policy table 与执行器组合设计，而不是单一 allowlist：
 
-- 主命令 safe flag policy：按命令声明允许的 flag 与参数类型，覆盖 `tree`、`sed`、`sort`、`file`、`ps`、`date`、`fd`、`test` 等命令。
+- 主命令 safe flag policy：按命令声明允许的 flag 与参数类型，覆盖 `tree`、`sort`、`file`、`ps`、`date`、`fd`、`test` 等命令。
 - 命令族子表合入主表：git 子命令、`rg`、`pyright`、`docker logs/inspect` 等命令族各自维护 safe flags。
 - fallback allowlist 和 glob 分支：只有在命令结构、参数和动态特征都安全时才放行。
 - 写入/执行选项拒绝表：拒绝 `find -delete/-exec/...` 这类会写入或执行的选项。
 - 路径目标、读写类型、redirect 和 git internal path 等更宽的 permission 语义由独立层处理。
 
-ZCode 当前先实现 Bash read-only auto-allow 所需的核心子集：AST 安全检查、simple command 限制、命令级 `safeFlags`、参数类型校验、短 flag 组合、`--flag=value`、`--` 处理、`find` / `sed` 写语义拒绝。后续扩展其他命令时必须只改 policy table，不在执行器里追加命令名特判。
+ZCode 当前先实现 Bash read-only auto-allow 所需的核心子集：AST 安全检查、simple command 限制、命令级 `safeFlags`、参数类型校验、短 flag 组合、`--flag=value`、`--` 处理、`find` 写语义拒绝。后续扩展其他命令时必须只改 policy table，不在执行器里追加命令名特判。
+
+`sed` 的表达式属于另一套脚本语言；原来的 `-i` 和 `w` 黑名单漏掉了执行/写入形式。
+只读判定改为完整脚本白名单，不使用危险指令黑名单。解析器只消费既有 AST argv：
+
+- 选项仅允许 `-n/--quiet/--silent`、`-E/-r/--regexp-extended`、`--posix`、`-z/--zero-terminated`；
+  短选项可以组合，选项必须在脚本前，可在脚本前用 `--` 结束选项。
+- 打印要求 quiet：脚本仅由 `p`、`Np`、`N,Mp` 构成（地址为正整数），用分号连接，可带输入文件。
+- 替换不接受 quiet、零分隔选项和文件参数：只处理标准输入，脚本必须完整匹配一条
+  `s/pattern/replacement/flags`，只支持 `/` 分隔符及 `g/p/i/I/m/M` 与最多一个 `1–9` 标志。
+  转义仅支持 `/`、反斜杠、`&`、`1–9` 和常见正则元字符 `. ^ $ * + ? ( ) [ ] { } |`；其他转义拒绝。
+- 脚本中的控制字符、替换中的分号、未知选项、`-e/--expression`、`-f/--file`、`-i/--in-place`、
+  脚本后的 option 形参数（单独 `-` 输入除外）、额外命令及执行/写入标志均拒绝自动放行。
+
+子集外返回 `readOnly=false`、`concurrentSafe=false`：默认 Plan 拒绝，Build 请求审批。
+管道、命令链、已支持 wrapper 和 Memory Agent 复用同一分类器。展示层的 `sed -i*` 识别保留，
+已授权的普通 Bash 仍能执行原始 sed 命令。
+
+2026-10-28 回归证据：Linux/GNU sed 下，真实 executor 与 NodeExecutionAdapter 在临时目录
+复现了旧策略放行 `e`、替换命令的 `e`/`w` 标志并创建文件，且没有权限请求事件。
+首次封堵移除 sed 只读资格后，同一组 Plan 调用只发出 PermissionDenied，不调用执行端、不创建文件；
+Build 经审批仍可执行，cat/grep 继续自动放行。安全子集补充验收在 macOS/BSD sed 和
+Linux/GNU sed 各通过 49 个真实执行链场景：安全打印与标准输入替换直接执行，危险或子集外
+脚本在 Plan 下零执行、零文件改动；普通 Build 的 `-e` 打印经审批仍能执行。Windows 未实测。
+
+### 压缩包查看、Windows 查询与 git 历史（2026-11-14）
+
+Explore 子 agent 在 Plan 下常用的一批只读命令补进名单。同一份名单也决定 Build 是否免审批、
+Memory Agent 能执行什么、前缀授权哪些段可以省略，所以每个形态都必须在任何参数组合下不写盘、
+不联网、不执行其他程序：
+
+- `unzip`：必须带 `-l`/`-v`/`-t` 之一；只收 `-q`、`-C`、`-O`/`-I <字符集>`。`-d`、`-o`、`-p`、`-x`、
+  `-T`（改压缩包时间戳）都拒绝。Info-ZIP 没有长参数，`--` 不是参数结束而是「否定」标记
+  （`unzip -l -- -l a.zip` 会取消列表模式并解压，2026-11-14 用 Info-ZIP 6.00 复现），所以 unzip、`unzip -Z`、
+  zipinfo 里每个 `-` 开头的词都由回调按字符白名单整体校验：只能由该模式允许的字母组成（`-O`/`-I` 之后是字符集名），
+  `-`、`--` 和 `:`、`^`、`$`、`/` 等其他字符一律拒绝。原因是通用参数表只把 `-[A-Za-z0-9_-]` 开头的词当选项检查，
+  `unzip -:-l a.zip` 会被当成位置参数放过，而 Info-ZIP 把它解析成「开启 `:` 再取消 `-l`」并解压（同日复现）。
+  `-O` 的值可以贴在后面（`-Olatin1`），值里的字母不算列表参数。
+  `unzip -Z`（必须是第一个参数）与 `zipinfo` 共用 zipinfo 参数表，不收 `-M` 分页。
+- `tar`：只放行列表模式（`-t`/`--list`），必须用 `-f`/`--file` 指定归档；支持旧式 `tar tzf a.tgz`
+  和 `-tfa.tar`。只认 `t v z j J f` 与少量长参数（压缩格式、`--force-local`、`--wildcards`、
+  `--exclude` 等），长参数不接受缩写。GNU tar 把「冒号前没有 `/`」的归档名当成 `host:path`
+  远程归档，会解析主机名并调用 rsh；Windows 盘符 `D:\x.tar`、`D:/x.tar` 也命中（Git Bash 的 tar
+  是 GNU tar），所以带冒号的归档名必须同时给 `--force-local`。
+  例外说明：`-z/-j/-J/--zstd`（以及 GNU tar 对压缩归档的自动识别）会经 PATH 调用固定的解压程序
+  （gzip、bzip2、xz、zstd），只做解压流、不写盘；可由命令指定程序的 `-I`/`--use-compress-program` 仍拒绝。
+- `iconv`：不收 `-o`/`--output`。
+- `xxd`：参数按前缀识别（`-r` 开头都是还原），只收精确的安全写法；xxd 在第一个文件名后不再解析参数，
+  后面的词就是输出文件，所以最多一个位置参数。
+- `command -v`/`-V`：只查名字解析结果。`command <程序>` 仍由 wrapper 剥离后按程序本身判定。
+- Windows 查询：`dir` 同 `ls` 不限参数（CMD dir 和 GNU dir 都没有写入选项）；`findstr` 只认 `/` 开关，
+  `/F:`、`/G:`、`/D:` 的值是 UNC 路径时拒绝；`where` 只认 `/R <目录>`、`/Q`、`/F`、`/T`；
+  `whereis` 按参数表放行。三者都不接受 `-` 开头的未知参数。
+- 不放行 `printenv`：它会把全部环境变量（含 API key、token）带进模型上下文，
+  与需要审批的 `echo $TOKEN`、`env` 保持同一边界；只查单个变量同样可能读到密钥。
+- git：`git --version` 只放行精确形态；`git log` 补 `--follow`、`-L`、`-i`、`--not` 等；新增 `git ls-tree`；
+  `git grep` 补 `-r`、`-I`、`-m`、`-p`/`-W` 等，不收 `-O`（分页程序）和 `--textconv`。
+  写入检查对 git 只看子命令之前的全局参数区：子命令之后的 `-c`/`-C`（`git grep -c` 计数、
+  `git diff -C` 找复制）由子命令参数表判定。`git -C`、`cd && git` 仍拒绝。
+
+通配符：策略只看得到 shell 展开前的 argv。`tar`、`unzip`（含 `unzip -Z`）、`zipinfo`、`iconv`、`xxd`
+的只读结论依赖参数的形态和个数，任何一个词带未引用的通配符（`*`、`?`、`[...]`）就不算只读。
+原因是展开后的文件名可能变成选项（`--checkpoint-action=exec=...` 让 tar 执行程序，`-o` 让 iconv 写文件），
+也可能多出一个位置参数，被 xxd 当成输出文件。引号里的模式（如 `tar -tf a.tar '*.md'`）不受影响；
+brace 展开在解析层已按动态词拒绝。2026-11-14 用 GNU tar 1.35 复现过 `tar -tf - *` 执行程序、
+`xxd *.bin` 覆盖第二个文件。`findstr`、`where`、`dir`、`whereis`、`command -v` 没有写入或执行类参数，
+不受此限制。
+
+`tar` 和 `command` 的参数语法无法用 safe flag 表表达，与 `find`、`printf` 一样放在 direct argv 分支，
+不改通用参数解析器。运行时选择 `cmd`/`legacy-shell` 时不使用本名单，改由 CMD 只读策略按 CMD 语法判定（见 04-bash.md）；
+CMD 策略的 git 分支复用本名单的 `isGitReadOnlyCommand` 和 `hasDangerousGitGlobalOption`，所以 git 的新增形态
+（含「写入检查只看全局参数区」）在 CMD 下同样生效；其余新命令只对 Git Bash 等 POSIX 方言生效。回归见 `core/tests/bash-permission.test.ts`。
 
 ## 项目级 command prefix 权限
 

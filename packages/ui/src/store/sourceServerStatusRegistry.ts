@@ -1,4 +1,4 @@
-import type { ISourceServerManagementService } from "@/project-presentation/contract.js";
+import type { ISourceServerManagementService } from "@zcode/services";
 import {
   buildAggregatedSourceStatusMap,
   type AggregatedSourceStatus,

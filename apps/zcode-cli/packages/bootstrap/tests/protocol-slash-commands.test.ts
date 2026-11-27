@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { ExecutionPort, ExecutionResult, SessionId } from "@zcode/contracts";
 import { resolveZCodeBuiltinPromptCommand } from "../src/builtin-prompt-command.js";
 import { resolveZCodeCustomCommandPrompt } from "../src/custom-command-prompt.js";
 import { listProtocolSlashCommands } from "../src/zcode-protocol/slash-commands.js";
@@ -31,8 +30,20 @@ describe("protocol slash command surface", () => {
       // 同名自定义命令不得顶替内置 `/workflow`（保留名）：目录里只剩内置那一行。
       await writeCommand(userCommands, "workflow", "Shadowing workflow", "Should be hidden.");
 
+      // homeDirectory 只隔离自定义命令；插件存储也必须隔离，避免读取本机已安装插件。
       const commands = await listProtocolSlashCommands({
-        env: { ZCODE_ENV: "test" },
+        // 本例只验证用户/项目命令；官方插件命令由插件测试覆盖，不依赖本机已构建资源。
+        pluginDiscovery: {
+          discoverPlugins: async () => ({
+            commandRoots: [],
+            diagnostics: [],
+            hooks: {},
+            mcpServers: {},
+            plugins: [],
+            skillRoots: [],
+          }),
+        },
+        env: { ZCODE_ENV: "test", ZCODE_STORAGE_DIR: join(tempRoot, "storage") },
         homeDirectory: home,
         skipUserConfig: true,
         workingDirectory: workspace,
@@ -76,7 +87,7 @@ describe("protocol slash command surface", () => {
       await writeCommand(userCommands, "plan", "Reserved Plan action", "Should not expand.");
 
       const options = {
-        env: { ZCODE_ENV: "test" },
+        env: { ZCODE_ENV: "test", ZCODE_STORAGE_DIR: join(tempRoot, "storage") },
         homeDirectory: home,
         skipUserConfig: true,
         workingDirectory: workspace,
@@ -115,7 +126,7 @@ describe("protocol slash command surface", () => {
       await mkdir(userCommands, { recursive: true });
       await writeCommand(userCommands, "workflow", "Shadowing workflow", "Should not expand.");
       const options = {
-        env: { ZCODE_ENV: "test" },
+        env: { ZCODE_ENV: "test", ZCODE_STORAGE_DIR: join(tempRoot, "storage") },
         homeDirectory: home,
         skipUserConfig: true,
         workingDirectory: workspace,
@@ -175,21 +186,13 @@ describe("protocol slash command surface", () => {
     }
   });
 
-  it("runs shell expansion for plugin commands with plugin and session variables", async () => {
+  it("hands plugin shell blocks to the model with the plugin root resolved", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "zcode-plugin-command-shell-"));
     const workspace = join(tempRoot, "workspace");
     const pluginRoot = join(tempRoot, "ralph-loop");
     const commandsRoot = join(pluginRoot, "commands");
     const pluginDataRoot = join(tempRoot, "plugins");
     const configPath = join(tempRoot, "config.json");
-    const sessionId = "sess_shell_expansion" as SessionId;
-    let capturedRequest: Parameters<ExecutionPort["run"]>[0] | undefined;
-    const executionPort: ExecutionPort = {
-      async run(request) {
-        capturedRequest = request;
-        return createExecutionResult("ralph setup output");
-      },
-    };
 
     try {
       await mkdir(commandsRoot, { recursive: true });
@@ -205,7 +208,7 @@ describe("protocol slash command surface", () => {
         [
           "Before",
           "```!",
-          'echo "${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-loop.sh" "$ARGUMENTS"',
+          'echo "${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-loop.sh" "$ARGUMENTS" "$CLAUDE_PROJECT_DIR"',
           "```",
           "After",
         ].join("\n"),
@@ -223,81 +226,54 @@ describe("protocol slash command surface", () => {
         }),
       );
 
+      // 项目配置会剥离 plugins.dirs（工作区不能引入插件根目录），测试插件只能经用户配置加载；
+      // homeDirectory 指向临时目录，不读本机用户命令。
       const prompt = await resolveZCodeCustomCommandPrompt("/ralph-loop build demo", {
-        env: { ZCODE_ENV: "test" },
-        executionPort,
-        projectConfigPath: configPath,
-        sessionId,
-        skipUserConfig: true,
+        env: { ZCODE_ENV: "test", ZCODE_STORAGE_DIR: join(tempRoot, "storage") },
+        homeDirectory: join(tempRoot, "home"),
+        userConfigPath: configPath,
         workingDirectory: workspace,
       });
 
-      expect(prompt).toContain("ralph setup output");
       expect(prompt).not.toContain("```!");
-      expect(capturedRequest?.command).toMatchObject({
-        command: 'echo "${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-loop.sh" "build demo"',
-        mode: "shell",
-      });
-      expect(capturedRequest?.cwd).toBe(workspace);
-      expect(capturedRequest?.env?.set).toMatchObject({
-        CLAUDE_CODE_SESSION_ID: sessionId,
-        CLAUDE_PLUGIN_ROOT: pluginRoot,
-        CLAUDE_PROJECT_DIR: workspace,
-        CLAUDE_SESSION_ID: sessionId,
-        ZCODE_PLUGIN_ROOT: pluginRoot,
-        ZCODE_PROJECT_DIR: workspace,
-        ZCODE_SESSION_ID: sessionId,
-      });
+      expect(prompt).toContain(`the /ralph-loop command file (user/plugin), not from ZCode.`);
+      // 命令文本自带 "/scripts/..."，期望值不能用 join() 拼平台分隔符；工作区变量由 Bash 环境提供，保持原文。
+      // Windows 上插件路径改写成正斜杠，期望值按同一规则换算；POSIX 路径不受影响。
+      expect(prompt).toContain(
+        `\`\`\`bash\necho "${pluginRoot.replaceAll("\\", "/")}/scripts/setup-ralph-loop.sh" "build demo" "$CLAUDE_PROJECT_DIR"\n\`\`\`\n`,
+      );
     } finally {
       await rm(tempRoot, { force: true, recursive: true });
     }
   });
 
-  it("fails shell-expanded custom commands that request unavailable contexts", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "zcode-command-shell-missing-context-"));
-    const workspace = join(tempRoot, "workspace");
+  it("hands session variables to Bash and reports missing skill context without execution", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "zcode-command-runtime-context-"));
     const home = join(tempRoot, "home");
-    const userCommands = join(home, ".zcode", "commands");
-    let executionCalled = false;
-    const executionPort: ExecutionPort = {
-      async run() {
-        executionCalled = true;
-        return createExecutionResult("should not run");
-      },
-    };
-
+    const commands = join(home, ".zcode", "commands");
     try {
-      await mkdir(userCommands, { recursive: true });
-      await writeCommand(
-        userCommands,
-        "skill-context",
-        "Needs skill context",
-        ["```!", 'echo "${CLAUDE_SKILL_DIR}"', "```"].join("\n"),
-      );
-      await writeCommand(
-        userCommands,
-        "session-context",
-        "Needs session context",
-        ["```!", 'echo "${CLAUDE_SESSION_ID}"', "```"].join("\n"),
-      );
-
-      const options = {
-        env: { ZCODE_ENV: "test" },
-        executionPort,
-        homeDirectory: home,
-        skipUserConfig: true,
-        workingDirectory: workspace,
-      };
-
-      await expect(resolveZCodeCustomCommandPrompt("/skill-context", options)).rejects.toThrow(
-        "Custom command /skill-context variable requires a skill context: CLAUDE_SKILL_DIR",
-      );
-      await expect(resolveZCodeCustomCommandPrompt("/session-context", options)).rejects.toThrow(
-        "Custom command /session-context variable requires a runtime session context: CLAUDE_SESSION_ID",
-      );
-      expect(executionCalled).toBe(false);
+      await mkdir(commands, { recursive: true });
+      for (const variable of ["CLAUDE_SESSION_ID", "CLAUDE_SKILL_DIR"]) {
+        await writeCommand(commands, "runtime-context", "Runtime context", [
+          "```!", `echo \"$${variable}\"`, "```",
+        ].join("\n"));
+        const prompt = await resolveZCodeCustomCommandPrompt("/runtime-context", {
+          env: { ZCODE_ENV: "test", ZCODE_STORAGE_DIR: join(tempRoot, "storage") },
+          homeDirectory: home,
+          skipUserConfig: true,
+          workingDirectory: tempRoot,
+        });
+        if (variable === "CLAUDE_SESSION_ID") {
+          expect(prompt).toContain(`echo \"$${variable}\"`);
+          expect(prompt).toContain("```bash");
+        } else {
+          expect(prompt).toContain("was not run");
+          expect(prompt).toContain("$CLAUDE_SKILL_DIR, which cannot be resolved here");
+        }
+        expect(prompt).not.toContain("```!");
+      }
     } finally {
-      await rm(tempRoot, { force: true, recursive: true });
+      await rm(tempRoot, { recursive: true, force: true });
     }
   });
 });
@@ -313,19 +289,4 @@ async function writeCommand(
     join(directory, `${name}.md`),
     ["---", `description: ${description}`, ...extraFrontmatter, "---", "", body].join("\n"),
   );
-}
-
-function createExecutionResult(stdout: string): ExecutionResult {
-  const now = new Date();
-  return {
-    status: "completed",
-    exitCode: 0,
-    stdout: { text: stdout, bytes: stdout.length, truncated: false },
-    stderr: { text: "", bytes: 0, truncated: false },
-    durationMs: 1,
-    timedOut: false,
-    cancelled: false,
-    startedAt: now,
-    completedAt: now,
-  };
 }

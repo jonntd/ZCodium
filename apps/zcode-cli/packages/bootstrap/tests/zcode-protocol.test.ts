@@ -1,3 +1,9 @@
+import {
+  workspace,
+  requestResult,
+  attachSessionRuntimePreferencesResponder,
+  createShellRecordingFakeApp,
+} from "./zcode-protocol-fixture.js";
 import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,6 +13,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createSqliteSessionStore } from "@zcode/adapters/storage";
 import {
   BUILTIN_MODEL_PROVIDER_IDS,
+  elideSessionSnapshotForIndex,
   ZCODE_SESSION_RUNTIME_PREFERENCES_REQUEST_TIMEOUT_MS,
   zcodeProtocolMethods,
   zcodeMessagePartSchema,
@@ -60,7 +67,6 @@ import {
   type LoggerFactory,
   type McpPort,
   type McpServerConfig,
-  type ExecutionShellSelection,
 } from "@zcode/contracts";
 import { InMemoryWorkspaceHookPolicyProvider } from "@zcode/core";
 import {
@@ -70,6 +76,8 @@ import {
   ProviderRegistry,
   type Provider,
 } from "@zcode/provider";
+import { buildRuntimeUserEntriesFromTurn } from "../../core/src/runtime/helpers/conversation.js";
+import type { SendInputOptions } from "../src/app/types.js";
 import { ZCodeProtocolAgentServer } from "../src/zcode-protocol/server.js";
 import { ZCodeProtocolNdjsonConnection } from "../src/zcode-protocol/transport.js";
 import { shouldCloseSessionForExpectedPersistence } from "../src/zcode-protocol/server-operations.js";
@@ -87,13 +95,9 @@ import {
 import { createWorkspaceZCodeApp } from "../src/zcode-protocol/workspace-model-runtime.js";
 import { onSessionEvent } from "../src/zcode-protocol/server-operations.js";
 import type { ZCodeApp, ZCodeAppOptions } from "../src/app/types.js";
+import { answerReplyLanguageRequest } from "./helpers/fake-host-requests.js";
 import { createFakeApp } from "./helpers/fake-zcode-app.js";
 import { createApiKeyProviderConfig } from "./provider-config-fixtures.js";
-
-const workspace = {
-  workspacePath: "/workspace/app",
-  workspaceKey: "/workspace/app",
-};
 
 function currentOnlyModelOption() {
   return {
@@ -613,6 +617,89 @@ describe("ZCodeProtocolAgentServer", () => {
         },
       }),
     ]);
+  });
+
+  it("fills the goal first-round title past a SessionStart reminder stored before the prompt", async () => {
+    // SessionStart hook 的上下文写在首条 prompt 之前；补首轮标题时要跳过这条隐藏提醒。
+    const sessionId = "sess_goal_title_reminder" as SessionId;
+    const objective = "Ship the goal title fallback";
+    const app = createFakeApp(
+      { sessionId },
+      {
+        runtime: {
+          getSessionModelSelection: () => undefined,
+          getProjection: async () =>
+            ({
+              activeToolCalls: [],
+              backgroundTasks: [],
+              contextUsed: 0,
+              contextWindow: 128_000,
+              createdAt: new Date(1),
+              id: sessionId,
+              mode: "build",
+              pendingPermissions: [],
+              pendingSteerInputs: [],
+              status: "idle",
+              streamingToolLedger: [],
+              target: null,
+              totalTokenCount: 0,
+              turnCount: 0,
+              updatedAt: new Date(1),
+            }) as never,
+          getActiveTurnInfo: () => undefined,
+          subscribeEvents: () => () => {},
+        } as never,
+      },
+    );
+    const userRow = (id: string, created: number, text: string, hidden: boolean) =>
+      ({
+        info: {
+          id,
+          sessionID: sessionId,
+          role: "user",
+          time: { created },
+          ...(hidden
+            ? {
+                synthetic: true,
+                visibility: "model-only",
+                semantics: {
+                  origin: "agent_runtime",
+                  kind: "system_reminder",
+                  source: "hook_context",
+                  uiVisibility: "hidden",
+                  providerVisibility: "visible",
+                  transcriptVisibility: "hidden",
+                },
+              }
+            : {}),
+        },
+        parts: [{ id: `${id}-part`, sessionID: sessionId, messageID: id, type: "text", text }],
+      }) as never;
+
+    const snapshot = await buildSessionSnapshot({
+      app,
+      eventSeq: 0,
+      messages: [
+        userRow("msg_reminder", 1_000, "SessionStart hook additional context: ...", true),
+        userRow("msg_prompt", 1_010, objective, false),
+      ],
+      session: { id: sessionId, title: "Goal title", time: { created: 1, updated: 1 } } as never,
+      stateRevision: 1,
+      target: {
+        sessionID: sessionId,
+        targetID: "target-title",
+        objective,
+        summaryTitle: null,
+        status: "active",
+        tokenBudget: null,
+        tokensUsed: 0,
+        timeUsedSeconds: 0,
+        time: { created: 1_020, updated: 1_020 },
+      },
+      workspace,
+    });
+
+    expect(snapshot.projection.target?.summaryTitle).toBe("Goal title");
   });
 
   it("preserves latest main turn context usage breakdown in session snapshots", async () => {
@@ -1612,7 +1699,7 @@ describe("ZCodeProtocolAgentServer", () => {
     expect(createRecord?.context.rootTraceId).toBe("trace_from_app");
   });
 
-  it("refreshes MCP list statuses through the protocol process MCP port", async () => {
+  it("keeps project plugin roots and untrusted project MCP disconnected during refresh", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-protocol-mcp-list-"));
     const workspacePath = join(root, "workspace");
     const pluginRoot = join(root, "plugin");
@@ -1669,24 +1756,14 @@ describe("ZCodeProtocolAgentServer", () => {
       });
 
       expect(connectedConfigs).toHaveLength(1);
-      expect(connectedConfigs[0]?.["plugin:status-plugin:plugin-live"]).toMatchObject({
-        command: "plugin-server",
-        type: "stdio",
-      });
-      expect(connectedConfigs[0]?.["project-only"]).toMatchObject({
-        command: "project-server",
-        type: "stdio",
-      });
+      // 旧夹具仍期待项目配置自动加载插件、启动 MCP；当前合同要求用户安装与工作区信任。
+      expect(connectedConfigs[0]?.["plugin:status-plugin:plugin-live"]).toBeUndefined();
+      expect(connectedConfigs[0]?.["project-only"]).toBeUndefined();
       expect(result).toMatchObject({
         statuses: {
-          "plugin:status-plugin:plugin-live": {
-            status: "connected",
-            toolCount: 3,
-            transport: "stdio",
-          },
           "project-only": {
-            status: "connected",
-            toolCount: 3,
+            status: "untrusted",
+            toolCount: 0,
             transport: "stdio",
           },
         },
@@ -1768,7 +1845,7 @@ describe("ZCodeProtocolAgentServer", () => {
     }
   });
 
-  it("reads MCP list statuses without replace disconnects in status mode", async () => {
+  it("does not read or disconnect another workspace MCP lease in status mode", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-protocol-mcp-list-status-"));
     const workspacePath = join(root, "workspace");
     const connectedConfigs: Record<string, McpServerConfig>[] = [];
@@ -1828,19 +1905,13 @@ describe("ZCodeProtocolAgentServer", () => {
       });
 
       expect(connectedConfigs).toHaveLength(0);
-      expect(disconnectedNames).not.toContain("everything");
+      expect(disconnectedNames).toHaveLength(0);
+      // 没有为此 workspace 取得设置 lease 时，不能把原始端口中其他 owner 的连接态投过来。
+      expect((result as { statuses: Record<string, unknown> }).statuses.everything).toBeUndefined();
       expect(result).toMatchObject({
         statuses: {
-          everything: {
-            status: "connected",
-            toolCount: 9,
-            transport: "stdio",
-          },
           "plugin:canva:canva": {
-            authorization: {
-              authorizationUrl: "https://auth.canva.example.test/authorize",
-            },
-            status: "connecting",
+            status: "disconnected",
             transport: "http",
           },
         },
@@ -3258,7 +3329,21 @@ describe("ZCodeProtocolAgentServer", () => {
     const big = "y".repeat(512 * 1024);
     try {
       const server = new ZCodeProtocolAgentServer({
-        createZCodeApp: (options) => createFakeApp(options),
+        createZCodeApp: (options) => {
+          const app = createFakeApp(options);
+          app.readTarget = async () => ({
+            sessionID: app.sessionId,
+            targetID: "goal_index_profile" as never,
+            objective: "查一下订单",
+            summaryTitle: null,
+            status: "active",
+            tokenBudget: 100_000,
+            tokensUsed: 0,
+            timeUsedSeconds: 0,
+            time: { created: 10, updated: 30 },
+          });
+          return app;
+        },
         cwd: workspace.workspacePath,
         sessionStore: store,
         version: "test-version",
@@ -3345,6 +3430,23 @@ describe("ZCodeProtocolAgentServer", () => {
         type: "text",
         text: "订单在 orderService",
       });
+      await store.savePart({
+        id: "part_index_todos" as never,
+        messageID: assistantId,
+        sessionID,
+        type: "tool",
+        callID: "call_index_todos",
+        tool: "TodoWrite",
+        state: {
+          status: "completed",
+          input: { todos: [{ content: "检查订单", status: "in_progress", priority: "high" }] },
+          output: big,
+          title: "TodoWrite",
+          metadata: {},
+          time: { start: 24, end: 25 },
+        },
+      });
+      const messageReads = vi.spyOn(store, "messages");
 
       const readWith = async (id: number, extra: Record<string, unknown>) =>
         zcodeSessionStateSnapshotSchema.parse(
@@ -3356,6 +3458,12 @@ describe("ZCodeProtocolAgentServer", () => {
         );
       const full = await readWith(2, {});
       const index = await readWith(3, { contentProfile: "index" });
+
+      expect(messageReads).toHaveBeenLastCalledWith({ sessionID, contentProfile: "index" });
+      // 不能只比较 message 形状：过早裁掉 TodoWrite input 会静默丢失历史分组。
+      expect(index.todoGroups.some((group) => group.todos.length > 0)).toBe(true);
+      expect(index.goalStats).toBeDefined();
+      expect(index).toEqual(elideSessionSnapshotForIndex(full));
 
       expect(JSON.stringify(full).length).toBeGreaterThan(big.length * 2);
       expect(JSON.stringify(index).length).toBeLessThan(big.length / 4);
@@ -3756,6 +3864,7 @@ describe("ZCodeProtocolAgentServer", () => {
         "CronList",
         "CronUpdate",
         "CronDelete",
+        "CronPauseSelf",
       ]);
     }
   });
@@ -3764,6 +3873,8 @@ describe("ZCodeProtocolAgentServer", () => {
     const createdAppOptions: ZCodeAppOptions[] = [];
     let nativeSearchEnabled = false;
     let toolSearchMode: "off" | "local" = "off";
+    let totalTokensReminderEnabled = false;
+    let agentAlwaysBackgroundEnabled = false;
     let memoryEnabled = false;
     let modelContextBudgetStrategy: "legacy" | "preflight-v1" = "legacy";
     const server = new ZCodeProtocolAgentServer({
@@ -3777,6 +3888,8 @@ describe("ZCodeProtocolAgentServer", () => {
     const preferenceRequests = attachSessionRuntimePreferencesResponder(server, () => ({
       nativeSearchEnhancementsEnabled: nativeSearchEnabled,
       toolSearchMode,
+      totalTokensReminderEnabled,
+      agentAlwaysBackgroundEnabled,
       memoryEnabled,
       modelContextBudgetStrategy,
     }));
@@ -3790,6 +3903,8 @@ describe("ZCodeProtocolAgentServer", () => {
     );
     nativeSearchEnabled = true;
     toolSearchMode = "local";
+    totalTokensReminderEnabled = true;
+    agentAlwaysBackgroundEnabled = true;
     memoryEnabled = true;
     modelContextBudgetStrategy = "preflight-v1";
     await requestResult(server, {
@@ -3809,6 +3924,10 @@ describe("ZCodeProtocolAgentServer", () => {
     expect(createdAppOptions).toHaveLength(2);
     expect(createdAppOptions[0]?.runtimeConfig?.toolSearch).toEqual({ mode: "off" });
     expect(createdAppOptions[1]?.runtimeConfig?.toolSearch).toEqual({ mode: "local" });
+    expect(createdAppOptions[0]?.runtimeConfig?.totalTokensReminder).toEqual({ enabled: false });
+    expect(createdAppOptions[1]?.runtimeConfig?.totalTokensReminder).toEqual({ enabled: true });
+    expect(createdAppOptions[0]?.runtimeConfig?.subagents?.alwaysBackground).toBe(false);
+    expect(createdAppOptions[1]?.runtimeConfig?.subagents?.alwaysBackground).toBe(true);
     expect(createdAppOptions[0]?.runtimeConfig?.nativeSearchEnhancementsEnabled).toBe(false);
     expect(createdAppOptions[0]?.runtimeConfig?.memory?.enabled).toBe(false);
     expect(createdAppOptions[0]?.runtimeConfig?.modelContextBudgetStrategy).toBe("preflight-v1");
@@ -3845,6 +3964,8 @@ describe("ZCodeProtocolAgentServer", () => {
       const preferenceRequests = attachSessionRuntimePreferencesResponder(server, () => ({
         nativeSearchEnhancementsEnabled: false,
         toolSearchMode: "auto",
+        totalTokensReminderEnabled: true,
+        agentAlwaysBackgroundEnabled: false,
         memoryEnabled: false,
         modelContextBudgetStrategy: "preflight-v1",
       }));
@@ -3857,6 +3978,8 @@ describe("ZCodeProtocolAgentServer", () => {
 
       expect(preferenceRequests).toHaveLength(1);
       expect(createdAppOptions[0]?.runtimeConfig?.toolSearch).toEqual({ mode: "auto" });
+      expect(createdAppOptions[0]?.runtimeConfig?.totalTokensReminder).toEqual({ enabled: true });
+      expect(createdAppOptions[0]?.runtimeConfig?.subagents?.alwaysBackground).toBe(false);
       expect(createdAppOptions[0]?.runtimeConfig?.nativeSearchEnhancementsEnabled).toBe(false);
       expect(createdAppOptions[0]?.runtimeConfig?.memory?.enabled).toBe(false);
       expect(createdAppOptions[0]?.runtimeConfig?.modelContextBudgetStrategy).toBe("preflight-v1");
@@ -3865,8 +3988,13 @@ describe("ZCodeProtocolAgentServer", () => {
     }
   });
 
-  it.each([undefined, "remote:ssh:example.test:22:dev:/workspace/app"])(
-    "injects pull access only into advertised local sessions (%s)",
+  // 远端 Host 同样持有子智能体快照：是否接入只看 Host 声明的能力，不按 workspace 身份排除远程。
+  it.each([
+    undefined,
+    "remote:ssh:example.test:22:dev:/workspace/app",
+    "remote:server:example-server:/workspace/app",
+  ])(
+    "injects pull access into advertised local and remote sessions (%s)",
     async (workspaceIdentity) => {
       const options: ZCodeAppOptions[] = [];
       const reads: unknown[] = [];
@@ -3925,10 +4053,7 @@ describe("ZCodeProtocolAgentServer", () => {
       });
       expect(reads).toEqual([]);
       const reader = options[0]?.readSubagentRuntimeConfig;
-      if (workspaceIdentity) {
-        expect(reader).toBeUndefined();
-        return;
-      }
+      expect(reader).toBeTypeOf("function");
       const input = {
         signal: new AbortController().signal,
         traceContext: { traceId: createTraceId(), sessionId: options[0]!.sessionId! },
@@ -3994,6 +4119,9 @@ describe("ZCodeProtocolAgentServer", () => {
       params: { workspace },
     });
     expect(oldHostOptions[0]?.runtimeConfig?.nativeSearchEnhancementsEnabled).toBe(true);
+    expect(oldHostOptions[0]?.runtimeConfig?.totalTokensReminder).toEqual({ enabled: false });
+    // 旧 Host 不知道 Agent 后台开关，按产品缺省开启。
+    expect(oldHostOptions[0]?.runtimeConfig?.subagents?.alwaysBackground).toBe(true);
     expect(oldHostOptions[0]?.runtimeConfig?.memory?.enabled).toBe(false);
     expect(oldHostOptions[0]?.runtimeConfig?.modelContextBudgetStrategy).toBe("preflight-v1");
 
@@ -4281,62 +4409,6 @@ describe("ZCodeProtocolAgentServer", () => {
         source: "user-config",
       },
     ]);
-  });
-
-  it("does not initialize an unavailable configured integrated terminal shell as the effective snapshot", async () => {
-    const createdAppOptions: ZCodeAppOptions[] = [];
-    const shellInitializations: unknown[] = [];
-    const unavailablePath = "Z:\\Missing\\Git\\bin\\bash.exe";
-    const server = new ZCodeProtocolAgentServer({
-      createZCodeApp: (options) =>
-        createShellRecordingFakeApp(options, shellInitializations, createdAppOptions),
-      cwd: workspace.workspacePath,
-      env: { PATH: "" },
-      platform: "win32",
-      version: "test-version",
-    });
-    attachSessionRuntimePreferencesResponder(server, (scope) => ({
-      nativeSearchEnhancementsEnabled: true,
-      ...(scope === "user-execution"
-        ? {
-            integratedTerminalShell: {
-              mode: "shell" as const,
-              dialect: "git-bash" as const,
-              id: `git-bash:${unavailablePath}`,
-              label: "Git Bash",
-              path: unavailablePath,
-            },
-          }
-        : {}),
-    }));
-
-    const created = zcodeSessionStateSnapshotSchema.parse(
-      await requestResult(server, {
-        id: 1,
-        method: zcodeProtocolMethods.sessionCreate,
-        params: {
-          workspace,
-        },
-      }),
-    );
-
-    await requestResult(server, {
-      id: 2,
-      method: zcodeProtocolMethods.sessionSend,
-      params: {
-        sessionId: created.session.sessionId,
-        inputId: "input_unavailable_shell",
-        content: "first prompt",
-      },
-    });
-
-    expect(createdAppOptions[0]?.runtimeConfig?.bashShellSelection).toBeUndefined();
-    expect(shellInitializations[0]).toMatchObject({
-      source: expect.not.stringMatching(/^user-config$/u),
-    });
-    expect((shellInitializations[0] as { path?: string } | undefined)?.path).not.toBe(
-      unavailablePath,
-    );
   });
 
   it("keeps an existing session on its first prompt shell when later sends carry a newer shell setting", async () => {
@@ -4633,7 +4705,10 @@ describe("ZCodeProtocolAgentServer", () => {
 
     expect(updated.settings.model.current).toEqual({ providerId: "glm", modelId: "glm-4-air" });
     expect(updated.runtime.stateRevision).toBe(created.runtime.stateRevision + 1);
-    expect(notifications).toMatchObject([
+    // 新生命周期合同在 create 时发布 starting/ready；模型状态断言只读取自己的通知域。
+    expect(
+      notifications.filter((notification) => notification.method === "state.updated"),
+    ).toMatchObject([
       {
         method: "state.updated",
         params: {
@@ -5047,6 +5122,165 @@ describe("ZCodeProtocolAgentServer", () => {
     expect(sendInputSettled).toBe(false);
     resolveSendInput();
     await sendInputCompletion;
+  });
+
+  it("Bot 私聊带附件走 legacy session/send 时，ambient 块不声明设计模式", async () => {
+    // Bot 私聊带附件时 Host 仍走旧版 session/send（zcodeTaskServiceAdapter 附件回退）。旧协议没有
+    // inputOrigin 字段，Core 拿不到「桌面输入」，所以不写「Design mode: available」——锁住这一现状。
+    let receivedOptions: SendInputOptions | undefined;
+    let resolveSendInput!: () => void;
+    const sendInputCalled = new Promise<void>((resolve) => {
+      resolveSendInput = resolve;
+    });
+    const server = new ZCodeProtocolAgentServer({
+      createZCodeApp: (options) =>
+        createFakeApp(options, {
+          sendInput: async (_input, sendOptions) => {
+            receivedOptions = sendOptions;
+            resolveSendInput();
+            return { kind: "rejected", reason: "no_active_turn" };
+          },
+        }),
+      cwd: workspace.workspacePath,
+    });
+    const created = zcodeSessionStateSnapshotSchema.parse(
+      await requestResult(server, {
+        id: 1,
+        method: zcodeProtocolMethods.sessionCreate,
+        params: { workspace },
+      }),
+    );
+    await requestResult(server, {
+      id: 2,
+      method: zcodeProtocolMethods.sessionSend,
+      params: {
+        sessionId: created.session.sessionId,
+        content: "E2E_BOT_ATTACHMENT 看图",
+        inputId: "bot-legacy-input",
+        browserAmbientContext: { tabCount: 1, currentUrl: "http://localhost:5173/" },
+        botDeliveryTarget: {
+          provider: "feishu",
+          botId: "bot-1",
+          providerUserId: "ou_user",
+          chatType: "private",
+        },
+        expectedRevision: created.runtime.stateRevision,
+      },
+    });
+    await sendInputCalled;
+    expect(receivedOptions?.browserAmbientContext).toEqual({
+      tabCount: 1,
+      currentUrl: "http://localhost:5173/",
+    });
+    expect(receivedOptions?.intent?.inputOrigin).toBeUndefined();
+    // 与 Core turn.ts 相同的取值：inputOrigin / clientId 都来自 intent。
+    const content = String(
+      buildRuntimeUserEntriesFromTurn("E2E_BOT_ATTACHMENT 看图", [], {
+        browserAmbientContext: receivedOptions?.browserAmbientContext,
+        ...(receivedOptions?.intent?.inputOrigin
+          ? { inputOrigin: receivedOptions.intent.inputOrigin }
+          : {}),
+        ...(receivedOptions?.intent?.clientId
+          ? { inputClientId: receivedOptions.intent.clientId }
+          : {}),
+      })[0]?.message.content,
+    );
+    expect(content).toContain("- The user has the in-app browser open with 1 tab.");
+    expect(content).not.toContain("Design mode");
+  });
+
+  it("legacy session/send 在 busy 入队时把显式 automation 身份交给 Core admission", async () => {
+    let receivedAutomationId: string | undefined;
+    let receivedToolDisallowlist: readonly string[] | undefined;
+    let resolveSendInputStarted!: () => void;
+    const sendInputStarted = new Promise<void>((resolve) => {
+      resolveSendInputStarted = resolve;
+    });
+    const server = new ZCodeProtocolAgentServer({
+      createZCodeApp: (options) =>
+        createFakeApp(options, {
+          sendInput: async (_input, sendOptions) => {
+            receivedAutomationId = sendOptions?.automationId;
+            receivedToolDisallowlist = sendOptions?.toolDisallowlist;
+            resolveSendInputStarted();
+            return {
+              kind: "queued",
+              pendingInputId: "pending-automation-queued",
+              queueLength: 1,
+              turnId: "turn-busy" as never,
+            };
+          },
+        }),
+      cwd: workspace.workspacePath,
+    });
+
+    const created = zcodeSessionStateSnapshotSchema.parse(
+      await requestResult(server, {
+        id: 1,
+        method: zcodeProtocolMethods.sessionCreate,
+        params: { workspace },
+      }),
+    );
+
+    await requestResult(server, {
+      id: 2,
+      method: zcodeProtocolMethods.sessionSend,
+      params: {
+        sessionId: created.session.sessionId,
+        content: "automation busy prompt",
+        automationId: "automation-queued",
+        inputId: "automation-queued:scheduled:run-1",
+        expectedRevision: created.runtime.stateRevision,
+      },
+    });
+    await sendInputStarted;
+
+    expect(receivedAutomationId).toBe("automation-queued");
+    expect(receivedToolDisallowlist).toEqual(["CronCreate"]);
+  });
+
+  it("does not restore automation identity from a caller-controlled inputId", async () => {
+    let receivedAutomationId: string | undefined;
+    let receivedToolDisallowlist: readonly string[] | undefined;
+    let resolveSendInputStarted!: () => void;
+    const sendInputStarted = new Promise<void>((resolve) => {
+      resolveSendInputStarted = resolve;
+    });
+    const server = new ZCodeProtocolAgentServer({
+      createZCodeApp: (options) =>
+        createFakeApp(options, {
+          sendInput: async (_input, options) => {
+            receivedAutomationId = options?.automationId;
+            receivedToolDisallowlist = options?.toolDisallowlist;
+            resolveSendInputStarted();
+            return { kind: "rejected", reason: "no_active_turn" };
+          },
+        }),
+      cwd: workspace.workspacePath,
+    });
+
+    const created = zcodeSessionStateSnapshotSchema.parse(
+      await requestResult(server, {
+        id: 1,
+        method: zcodeProtocolMethods.sessionCreate,
+        params: { workspace },
+      }),
+    );
+
+    await requestResult(server, {
+      id: 2,
+      method: zcodeProtocolMethods.sessionSend,
+      params: {
+        sessionId: created.session.sessionId,
+        content: "ordinary prompt",
+        inputId: "automation-other-task:manual:forged-run",
+        expectedRevision: created.runtime.stateRevision,
+      },
+    });
+    await sendInputStarted;
+
+    expect(receivedAutomationId).toBeUndefined();
+    expect(receivedToolDisallowlist).toBeUndefined();
   });
 
   it("emits prompt_completed after the active prompt lock is released", async () => {
@@ -7454,9 +7688,13 @@ describe("ZCodeProtocolAgentServer", () => {
         sessionStore: store,
       });
       let toolSearchMode: "local" | "off" = "local";
+      let totalTokensReminderEnabled = true;
+      let agentAlwaysBackgroundEnabled = false;
       const preferenceRequests = attachSessionRuntimePreferencesResponder(server, () => ({
         nativeSearchEnhancementsEnabled: false,
         toolSearchMode,
+        totalTokensReminderEnabled,
+        agentAlwaysBackgroundEnabled,
         memoryEnabled: false,
         subagentRuntimeConfigEnabled: true,
         modelContextBudgetStrategy: "preflight-v1",
@@ -7522,6 +7760,8 @@ describe("ZCodeProtocolAgentServer", () => {
       });
 
       toolSearchMode = "off";
+      totalTokensReminderEnabled = false;
+      agentAlwaysBackgroundEnabled = true;
       const result = zcodeSessionForkResultSchema.parse(
         await requestResult(server, {
           id: 6,
@@ -7551,6 +7791,8 @@ describe("ZCodeProtocolAgentServer", () => {
       expect(createdAppOptions[1]?.readSubagentRuntimeConfig).toBeTypeOf("function");
       expect(preferenceRequests).toHaveLength(1);
       expect(createdAppOptions[1]?.runtimeConfig?.toolSearch).toEqual({ mode: "local" });
+      expect(createdAppOptions[1]?.runtimeConfig?.totalTokensReminder).toEqual({ enabled: true });
+      expect(createdAppOptions[1]?.runtimeConfig?.subagents?.alwaysBackground).toBe(false);
       expect(createdAppOptions[1]?.runtimeConfig?.nativeSearchEnhancementsEnabled).toBe(false);
       expect(createdAppOptions[1]?.runtimeConfig?.memory?.enabled).toBe(false);
       expect(createdAppOptions[1]?.runtimeConfig?.modelContextBudgetStrategy).toBe("preflight-v1");
@@ -7592,6 +7834,8 @@ describe("ZCodeProtocolAgentServer", () => {
       expect(createdAppOptions[2]?.readSubagentRuntimeConfig).toBeTypeOf("function");
       expect(preferenceRequests).toHaveLength(1);
       expect(createdAppOptions[2]?.runtimeConfig?.toolSearch).toEqual({ mode: "local" });
+      expect(createdAppOptions[2]?.runtimeConfig?.totalTokensReminder).toEqual({ enabled: true });
+      expect(createdAppOptions[2]?.runtimeConfig?.subagents?.alwaysBackground).toBe(false);
       expect(createdAppOptions[2]?.runtimeConfig?.nativeSearchEnhancementsEnabled).toBe(false);
       expect(createdAppOptions[2]?.runtimeConfig?.memory?.enabled).toBe(false);
       expect(createdAppOptions[2]?.runtimeConfig?.modelContextBudgetStrategy).toBe("preflight-v1");
@@ -7645,7 +7889,8 @@ describe("ZCodeProtocolAgentServer", () => {
                 targetCheckpointId: target?.targetCheckpointId,
                 targetMessageId: target?.targetMessageId,
               });
-              const forkedSessionId = "sess_forked" as SessionId;
+              // 两次 fork 必须像真实 core 一样生成不同身份，否则第二次会命中已初始化实例。
+              const forkedSessionId = `sess_forked_${forkTargets.length}` as SessionId;
               // fake 必须遵守 core fork 契约：返回前 child 已落 store。旧夹具只返回 id，
               // registerForkedSession 按生产语义回读时必然报 Persisted child not found。
               if (!(await store.getSession(forkedSessionId))) {
@@ -7893,19 +8138,12 @@ function messageTexts(
   );
 }
 
-async function requestResult(server: ZCodeProtocolAgentServer, message: ZCodeProtocolMessage) {
-  const response = await server.handleMessage(message);
-  if (!response || !("result" in response)) {
-    throw new Error(`Expected protocol success response: ${JSON.stringify(response)}`);
-  }
-  return response.result;
-}
-
 function setTestNotificationSink(
   server: ZCodeProtocolAgentServer,
   sink: Parameters<ZCodeProtocolAgentServer["setNotificationSink"]>[0],
 ): void {
   server.setNotificationSink((message) => {
+    if (answerReplyLanguageRequest(server, message)) return;
     if (
       "id" in message &&
       message.method === zcodeProtocolMethods.sessionRequestRuntimePreferences
@@ -7918,45 +8156,6 @@ function setTestNotificationSink(
     }
     sink(message);
   });
-}
-
-function attachSessionRuntimePreferencesResponder(
-  server: ZCodeProtocolAgentServer,
-  resolvePreferences: (scope: "runtime-materialization" | "user-execution") => {
-    nativeSearchEnhancementsEnabled: boolean;
-    toolSearchMode?: "auto" | "local" | "off";
-    memoryEnabled?: boolean;
-    subagentRuntimeConfigEnabled?: boolean;
-    modelContextBudgetStrategy?: "legacy" | "preflight-v1";
-    integratedTerminalShell?:
-      | {
-          mode: "auto";
-        }
-      | {
-          mode: "shell";
-          dialect: "git-bash" | "cmd";
-          id: string;
-          label: string;
-          path: string;
-        };
-  },
-): ZCodeProtocolMessage[] {
-  const requests: ZCodeProtocolMessage[] = [];
-  server.setNotificationSink((message) => {
-    if (
-      "id" in message &&
-      message.method === zcodeProtocolMethods.sessionRequestRuntimePreferences
-    ) {
-      requests.push(message);
-      const scope = (message.params as { scope: "runtime-materialization" | "user-execution" })
-        .scope;
-      void server.handleMessage({
-        id: message.id,
-        result: resolvePreferences(scope),
-      });
-    }
-  });
-  return requests;
 }
 
 interface RecordedLog {
@@ -8168,66 +8367,6 @@ function createProtocolPendingAuthorizationMcpPort(
     },
     async status() {
       return statuses;
-    },
-  };
-}
-
-type ShellInitializationCandidate = Parameters<
-  ZCodeApp["runtime"]["initializeSessionShellEnvironmentIfNeeded"]
->[0];
-
-function resolveShellInitializationCandidate(
-  candidate: ShellInitializationCandidate,
-): ExecutionShellSelection {
-  return typeof candidate === "function" ? candidate() : candidate;
-}
-
-function createShellRecordingFakeApp(
-  options: ZCodeAppOptions,
-  shellInitializations: unknown[],
-  createdAppOptions?: ZCodeAppOptions[],
-): ZCodeApp {
-  createdAppOptions?.push(options);
-  const app = createFakeApp(options);
-  let effectiveShellSelection = options.runtimeConfig?.bashShellSelection;
-  let shellInitialized = effectiveShellSelection !== undefined;
-  let shellInitializationPromise: Promise<void> | undefined;
-  const recordShellInitialization = (selection: ShellInitializationCandidate) => {
-    if (shellInitialized) {
-      return false;
-    }
-    const resolvedSelection = resolveShellInitializationCandidate(selection);
-    effectiveShellSelection = resolvedSelection;
-    shellInitialized = true;
-    shellInitializations.push(resolvedSelection);
-    return true;
-  };
-  const initializeFromStartupPreferences = async () => {
-    if (shellInitialized) {
-      return;
-    }
-    shellInitializationPromise ??= (async () => {
-      const selection = await options.resolveInitialBashShellSelection?.();
-      if (selection) {
-        recordShellInitialization(selection);
-      }
-    })();
-    await shellInitializationPromise;
-  };
-  return {
-    ...app,
-    resume: async (resumeOptions) => {
-      await initializeFromStartupPreferences();
-      return app.resume(resumeOptions);
-    },
-    runtime: {
-      ...app.runtime,
-      getSessionShellSelection: () => effectiveShellSelection,
-      initializeSessionShellEnvironmentIfNeeded: recordShellInitialization,
-    } as never,
-    sendInput: async (input, sendOptions) => {
-      await initializeFromStartupPreferences();
-      return app.sendInput(input, sendOptions);
     },
   };
 }

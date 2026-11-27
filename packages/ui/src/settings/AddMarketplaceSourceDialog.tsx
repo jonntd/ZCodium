@@ -2,12 +2,7 @@ import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { FolderOpen, LoaderCircle, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Checkbox } from "@/components/ui/checkbox.js";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-} from "@/components/ui/dialog.js";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog.js";
 import { Input } from "@/components/ui/input.js";
 import { Label } from "@/components/ui/label.js";
 import { cn } from "@/components/lib/utils.js";
@@ -56,13 +51,7 @@ export function AddMarketplaceSourceDialog({
 
   const handleAdd = async () => {
     // 按钮和 Enter 共用门槛，避免键盘提交绕过风险确认。
-    if (
-      !riskAcknowledged ||
-      trimmedSource.length === 0 ||
-      adding ||
-      pendingRef.current
-    )
-      return;
+    if (!riskAcknowledged || trimmedSource.length === 0 || adding || pendingRef.current) return;
     pendingRef.current = true;
     try {
       const added = await onAddMarketplace(trimmedSource);
@@ -101,9 +90,7 @@ export function AddMarketplaceSourceDialog({
         data-testid="plugin-store-add-source-dialog"
         className={cn(
           "w-[min(420px,calc(100vw-2rem))] max-w-none transition-colors",
-          canPickPath && dragActive
-            ? "border-border-hover bg-surface-hover"
-            : "",
+          canPickPath && dragActive ? "border-border-hover bg-surface-hover" : "",
         )}
         onDragOver={
           canPickPath
@@ -116,11 +103,7 @@ export function AddMarketplaceSourceDialog({
         onDragLeave={
           canPickPath
             ? (event) => {
-                if (
-                  !event.currentTarget.contains(
-                    event.relatedTarget as Node | null,
-                  )
-                ) {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
                   setDragActive(false);
                 }
               }
@@ -135,9 +118,7 @@ export function AddMarketplaceSourceDialog({
           data-testid="plugin-store-add-source-risk-warning"
           className="rounded-xl bg-warning-surface p-3 text-ui-base text-warning-surface-foreground"
         >
-          {intl.formatMessage({
-            id: "settings.plugins.marketplaces.riskWarning",
-          })}
+          {intl.formatMessage({ id: "settings.plugins.marketplaces.riskWarning" })}
         </DialogDescription>
         {error ? (
           <div
@@ -153,9 +134,7 @@ export function AddMarketplaceSourceDialog({
           data-testid="plugin-store-add-source-input"
           size="lg"
           autoFocus
-          aria-label={intl.formatMessage({
-            id: "settings.plugins.marketplaces.source",
-          })}
+          aria-label={intl.formatMessage({ id: "settings.plugins.marketplaces.source" })}
           value={source}
           onChange={(event) => setSource(event.target.value)}
           onCompositionStart={() => {
@@ -177,15 +156,11 @@ export function AddMarketplaceSourceDialog({
             event.preventDefault();
             void handleAdd();
           }}
-          placeholder={intl.formatMessage({
-            id: "settings.plugins.marketplaces.source",
-          })}
+          placeholder={intl.formatMessage({ id: "settings.plugins.marketplaces.source" })}
         />
         {canPickPath ? (
           <p className="text-ui-base text-foreground-subtle">
-            {intl.formatMessage({
-              id: "settings.plugins.marketplaces.dropHint",
-            })}
+            {intl.formatMessage({ id: "settings.plugins.marketplaces.dropHint" })}
           </p>
         ) : null}
         <div className="flex items-start gap-2">
@@ -197,13 +172,8 @@ export function AddMarketplaceSourceDialog({
             onCheckedChange={(checked) => setRiskAcknowledged(checked === true)}
             disabled={adding}
           />
-          <Label
-            htmlFor={riskAcknowledgementId}
-            className="min-w-0 font-normal leading-relaxed"
-          >
-            {intl.formatMessage({
-              id: "settings.plugins.marketplaces.riskAcknowledgement",
-            })}
+          <Label htmlFor={riskAcknowledgementId} className="min-w-0 font-normal leading-relaxed">
+            {intl.formatMessage({ id: "settings.plugins.marketplaces.riskAcknowledgement" })}
           </Label>
         </div>
         <div className="flex justify-end gap-2">
@@ -215,9 +185,7 @@ export function AddMarketplaceSourceDialog({
               onClick={() => void handleChooseDirectory()}
             >
               <FolderOpen data-icon="inline-start" aria-hidden="true" />
-              {intl.formatMessage({
-                id: "settings.plugins.marketplaces.chooseDirectory",
-              })}
+              {intl.formatMessage({ id: "settings.plugins.marketplaces.chooseDirectory" })}
             </Button>
           ) : null}
           <Button
@@ -229,11 +197,7 @@ export function AddMarketplaceSourceDialog({
             onClick={() => void handleAdd()}
           >
             {adding ? (
-              <LoaderCircle
-                data-icon="inline-start"
-                className="animate-spin"
-                aria-hidden="true"
-              />
+              <LoaderCircle data-icon="inline-start" className="animate-spin" aria-hidden="true" />
             ) : (
               <Plus data-icon="inline-start" aria-hidden="true" />
             )}

@@ -1,8 +1,4 @@
-import type {
-  ICommandsService,
-  ISkillsService,
-  IZCodeAgentService,
-} from "@zcode/services";
+import type { ICommandsService, ISkillsService, IZCodeAgentService } from "@zcode/services";
 import { logger } from "@/logger.js";
 import { invalidateDeferredDraftSessionForSkillChange } from "@/lib/zcodeDraftSkillInvalidation.js";
 import { refreshSharedSkillStoreForWorkspace } from "@/lib/skillStoreRefresh.js";
@@ -29,9 +25,7 @@ export async function refreshSlashCommandsAfterRemoteSync(params: {
   try {
     const result = await commandsService.list({
       workspacePath,
-      ...(workspaceIdentityParam
-        ? { workspaceIdentity: workspaceIdentityParam }
-        : {}),
+      ...(workspaceIdentityParam ? { workspaceIdentity: workspaceIdentityParam } : {}),
     });
 
     const commandsStore = useCommandsStore.getState();
@@ -64,10 +58,7 @@ export async function refreshSlashCommandsAfterRemoteSync(params: {
     // 向当前远端 workspace 拉取 commands 并写回 slashCommands，不能只刷新设置页 store。
     zcodeSessionStore.setSlashCommands(
       workspacePath,
-      mergeSlashCommandsAfterCommandRefresh(
-        currentSlashCommands,
-        result.commands,
-      ),
+      mergeSlashCommandsAfterCommandRefresh(currentSlashCommands, result.commands),
       workspaceIdentityParam,
     );
   } catch (error) {
@@ -82,15 +73,12 @@ export async function refreshSlashCommandsAfterRemoteSync(params: {
         error: toMessage(error),
       });
     }
-    logger.warn(
-      "[plugins] refresh slash commands after remote plugin sync failed",
-      {
-        reason,
-        workspaceIdentity,
-        workspacePath,
-        error: toMessage(error),
-      },
-    );
+    logger.warn("[plugins] refresh slash commands after remote plugin sync failed", {
+      reason,
+      workspaceIdentity,
+      workspacePath,
+      error: toMessage(error),
+    });
   }
 }
 
@@ -107,8 +95,7 @@ export async function reloadMcpStoreIfCurrentWorkspace(params: {
   workspacePath: string;
   workspaceIdentity?: string | null;
 }): Promise<void> {
-  const { currentProjectPath, currentWorkspaceIdentity } =
-    useMcpStore.getState();
+  const { currentProjectPath, currentWorkspaceIdentity } = useMcpStore.getState();
   const workspaceIdentity = params.workspaceIdentity?.trim() || undefined;
   if (
     params.workspacePath !== currentProjectPath ||

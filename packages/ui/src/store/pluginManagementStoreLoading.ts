@@ -22,10 +22,7 @@ export function buildWorkspaceKey(
 // 只共享同服务、同身份、同配置投影的在途查询；每个视图仍独立写回和保存错误态。
 const loadsByService = new WeakMap<
   IPluginManagementService,
-  Map<
-    string,
-    { task: Promise<Partial<PluginManagementState>>; revision: number }
-  >
+  Map<string, { task: Promise<Partial<PluginManagementState>>; revision: number }>
 >();
 export interface PluginManagementChange {
   owner?: () => PluginManagementState;
@@ -34,9 +31,7 @@ export interface PluginManagementChange {
   authorityKey: string | null;
   scope: ZCodePluginScope;
 }
-const changeListeners = new Set<
-  (change: PluginManagementChange) => void | Promise<void>
->();
+const changeListeners = new Set<(change: PluginManagementChange) => void | Promise<void>>();
 let revision = 0;
 export const getPluginManagementRevision = () => revision;
 export function subscribePluginManagementChanges(
@@ -47,9 +42,7 @@ export function subscribePluginManagementChanges(
     changeListeners.delete(listener);
   };
 }
-export function notifyPluginManagementChange(
-  change: PluginManagementChange,
-): void {
+export function notifyPluginManagementChange(change: PluginManagementChange): void {
   revision += 1;
   // 派生视图不能拖住已成功的写入；发布失效信号后，后台查询各自收口。
   for (const listener of changeListeners) {
@@ -73,25 +66,13 @@ export function isPluginManagementChangeRelevant(
   if (change.scope === "workspace") {
     return (
       state.configScope !== "user" &&
-      buildWorkspaceKey(
-        state.workspacePath,
-        state.workspaceIdentity,
-        state.authorityKey,
-      ) ===
-        buildWorkspaceKey(
-          change.workspacePath,
-          change.workspaceIdentity,
-          change.authorityKey,
-        )
+      buildWorkspaceKey(state.workspacePath, state.workspaceIdentity, state.authorityKey) ===
+        buildWorkspaceKey(change.workspacePath, change.workspaceIdentity, change.authorityKey)
     );
   }
-  const hostKey = (target: {
-    workspaceIdentity: string | null;
-    authorityKey: string | null;
-  }) => {
+  const hostKey = (target: { workspaceIdentity: string | null; authorityKey: string | null }) => {
     const identity = target.workspaceIdentity ?? "";
-    const sourceServerId =
-      parseRemoteWorkspaceIdentity(identity)?.sourceServerId;
+    const sourceServerId = parseRemoteWorkspaceIdentity(identity)?.sourceServerId;
     // Source 用户设置没有项目 identity，但和该 Source 下项目共享用户配置。
     return (
       target.authorityKey ??
@@ -118,11 +99,7 @@ export function beginPluginOperation(
     lastFailedPluginId: null,
   });
   return () => {
-    set({
-      activeOperations: get().activeOperations.filter(
-        (operation) => operation !== entry,
-      ),
-    });
+    set({ activeOperations: get().activeOperations.filter((operation) => operation !== entry) });
   };
 }
 
@@ -131,10 +108,7 @@ export async function runWorkspaceOperation(
   get: () => PluginManagementState,
   pluginService: IPluginManagementService,
   operationId: string,
-  operation: (workspace: {
-    workspacePath: string;
-    workspaceIdentity?: string;
-  }) => Promise<void>,
+  operation: (workspace: { workspacePath: string; workspaceIdentity?: string }) => Promise<void>,
   scope: ZCodePluginScope = "user",
 ): Promise<boolean> {
   const { workspacePath, workspaceIdentity, authorityKey, configScope } = get();
@@ -186,10 +160,7 @@ export async function runWorkspaceOperation(
     return isCurrentContext();
   } catch (error) {
     // marketplace add/update 等通用操作失败：无插件目标，归属清空。
-    logger.error("[plugins] operation failed", {
-      operationId,
-      error: toMessage(error),
-    });
+    logger.error("[plugins] operation failed", { operationId, error: toMessage(error) });
     // 旧操作不能覆盖同一配置层中新操作的错误态；只有最近发起的操作才回写。
     if (ownsVisibleOperation()) {
       set({ error: toMessage(error), lastFailedPluginId: null });
@@ -227,17 +198,11 @@ export async function loadInto(
   const loadKey = `${workspaceKey}\0${params.configScope ?? "effective"}`;
   const existing = inFlightLoads.get(loadKey);
   // 变更前启动的查询不能充当变更后的刷新；同一轮通知的新查询仍可共用。
-  if (
-    existing &&
-    (params.fresh || (params.background && existing.revision < revision))
-  ) {
+  if (existing && (params.fresh || (params.background && existing.revision < revision))) {
     await existing.task;
     return loadInto(set, get, { ...params, fresh: false });
   }
-  const request = existing ?? {
-    task: runLoadInto({ ...params, workspaceKey }),
-    revision,
-  };
+  const request = existing ?? { task: runLoadInto({ ...params, workspaceKey }), revision };
   inFlightLoads.set(loadKey, request);
   try {
     const result = await request.task;
@@ -252,11 +217,7 @@ export async function loadInto(
     // 其它视图的成功操作只刷新数据，不能抹掉本视图尚未处理的操作错误。
     set(
       params.background && current.error
-        ? {
-            ...result,
-            error: current.error,
-            lastFailedPluginId: current.lastFailedPluginId,
-          }
+        ? { ...result, error: current.error, lastFailedPluginId: current.lastFailedPluginId }
         : result,
     );
   } finally {
@@ -271,16 +232,12 @@ async function runLoadInto(
   const [listResult, overviewResult] = await Promise.allSettled([
     params.pluginService.listPlugins({
       workspacePath: params.workspacePath,
-      ...(params.workspaceIdentity
-        ? { workspaceIdentity: params.workspaceIdentity }
-        : {}),
+      ...(params.workspaceIdentity ? { workspaceIdentity: params.workspaceIdentity } : {}),
       ...(params.configScope ? { configScope: params.configScope } : {}),
     }),
     params.pluginService.getPluginsOverview({
       workspacePath: params.workspacePath,
-      ...(params.workspaceIdentity
-        ? { workspaceIdentity: params.workspaceIdentity }
-        : {}),
+      ...(params.workspaceIdentity ? { workspaceIdentity: params.workspaceIdentity } : {}),
       ...(params.configScope ? { configScope: params.configScope } : {}),
     }),
   ]);
@@ -300,8 +257,7 @@ async function runLoadInto(
     }
   }
   const list = listResult.status === "fulfilled" ? listResult.value : undefined;
-  const overview =
-    overviewResult.status === "fulfilled" ? overviewResult.value : undefined;
+  const overview = overviewResult.status === "fulfilled" ? overviewResult.value : undefined;
   return {
     plugins: list?.plugins ?? [],
     marketplaces: overview?.marketplaces ?? [],
@@ -310,10 +266,7 @@ async function runLoadInto(
     availablePlugins: overview?.availablePlugins ?? [],
     installedPlugins: overview?.installedPlugins ?? [],
     restorableBuiltins: overview?.restorableBuiltins ?? [],
-    diagnostics: [
-      ...(list?.diagnostics ?? []),
-      ...(overview?.diagnostics ?? []),
-    ],
+    diagnostics: [...(list?.diagnostics ?? []), ...(overview?.diagnostics ?? [])],
     loading: false,
     lastFailedPluginId: null,
     error: errors.length > 0 ? errors.join("\n") : null,

@@ -1,51 +1,135 @@
-import type { RemoteTarget } from "@zcode/shared";
+import type {
+  RemoteConnectionFeedbackOptions,
+  RemoteConnectionOpenPreference,
+} from "@/app-shell/types.js";
+export { requestRemoteProjectConnection } from "@/remote-connection-flow/requestRemoteProjectConnection.js";
+import { type RemoteTarget, type RemoteWorkspaceSessionEntry } from "@zcode/shared";
 
-export type { RemoteTarget } from "@zcode/shared";
-export { redactFeedbackText } from "@zcode/shared";
-
-/** 白名单展示地址，禁止将连接凭据、私钥路径或安装参数存入 Context。 */
-export type RemoteConnectionProgressTarget =
-  | Pick<Extract<RemoteTarget, { kind: "ssh" }>, "kind" | "host" | "port" | "username">
-  | Pick<Extract<RemoteTarget, { kind: "wsl" }>, "kind" | "distro" | "user">
-  | Pick<Extract<RemoteTarget, { kind: "docker" }>, "kind" | "container">
-  | Pick<Extract<RemoteTarget, { kind: "server" }>, "kind" | "url">;
-
-export interface RemoteConnectionProgressLog {
-  id: string;
-  level: "info" | "success" | "warn" | "error";
-  message: string;
-  timestamp: string;
+export interface RemoteConnectionFlowOptions {
+  /** 新的显式入口；卡片恢复不改变该标识。 */
+  openIntentId?: number;
+  completion?: RemoteConnectionOpenPreference["completion"];
+  /** 设备管理连接成功；导航由发起入口负责，不创建项目。 */
+  onDeviceConnected?: (
+    sourceServerId: string | undefined,
+    canDeliver?: () => boolean,
+  ) => void | Promise<void>;
+  /** 只有用户明确取消才触发；成功关闭和后台收起不触发。 */
+  onCancelled?: (background?: boolean) => void;
+  initialFailure?: RemoteConnectionOpenPreference["initialFailure"];
+  onConnect: (
+    options: RemoteTarget,
+    requestId?: string,
+    context?: { confirmSourceServerInstall?: boolean },
+    feedback?: RemoteConnectionFeedbackOptions,
+  ) => Promise<string>;
+  /** 项目向导在连接完成后接管目录选择，不准备会话。 */
+  onConnectionReady?: (sessionId: string) => Promise<void>;
+  onSelectProject: (
+    sessionId: string,
+    path: string,
+    localWorkspacePath?: string,
+    workspacePurpose?: "project" | "conversation",
+  ) => Promise<void>;
+  onCancelSession: (sessionId: string) => Promise<void>;
+  localWorkspacePath?: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  isWindowsDesktop?: boolean;
+  remoteWorkspaceSessions?: RemoteWorkspaceSessionEntry[];
+  onFlowActiveChange?: (active: boolean) => void;
+  onFlowRequestIdChange?: (requestId: string | null) => void;
+  onFlowTargetChange?: (target: RemoteTarget | null) => void;
+  preferredKind?: RemoteTarget["kind"];
+  preferredWslDistro?: string;
+  preferredSourceServerId?: string;
+  preferredProfileId?: string;
+  preferredDirectoryPath?: string;
+  preferredTarget?: RemoteTarget;
+  /** 用户改选线路或新建连接后，释放 Root 对原项目的恢复互斥。 */
+  onProjectIntentCleared?: () => void;
 }
 
-/** 只读展示事实和原 owner 的交互动作，不含 service、session 对象或准入队列。 */
+export interface RemoteConnectionCompletionIntent {
+  preferredDirectoryPath?: string;
+  options?: {
+    directToDirectory?: boolean;
+    localWorkspacePath?: string;
+    announceReusedConnection?: boolean;
+  };
+}
+
+export function normalizeRemoteConnectionOptions({
+  openIntentId,
+  completion,
+  onDeviceConnected,
+  onCancelled,
+  onConnect,
+  onConnectionReady,
+  onSelectProject,
+  onCancelSession,
+  localWorkspacePath,
+  open: controlledOpen,
+  onOpenChange,
+  isWindowsDesktop = false,
+  remoteWorkspaceSessions = [],
+  onFlowActiveChange,
+  onFlowRequestIdChange,
+  onFlowTargetChange,
+  preferredKind,
+  preferredWslDistro,
+  preferredSourceServerId,
+  preferredProfileId,
+  preferredDirectoryPath,
+  preferredTarget,
+  onProjectIntentCleared,
+  initialFailure,
+}: RemoteConnectionFlowOptions) {
+  return {
+    openIntentId,
+    completion,
+    onDeviceConnected,
+    onCancelled,
+    onConnect,
+    onConnectionReady,
+    onSelectProject,
+    onCancelSession,
+    localWorkspacePath,
+    controlledOpen,
+    onOpenChange,
+    isWindowsDesktop,
+    remoteWorkspaceSessions,
+    onFlowActiveChange,
+    onFlowRequestIdChange,
+    onFlowTargetChange,
+    preferredKind,
+    preferredWslDistro,
+    preferredSourceServerId,
+    preferredProfileId,
+    preferredDirectoryPath,
+    preferredTarget,
+    onProjectIntentCleared,
+    initialFailure,
+  };
+}
+export type RemoteConnectionOptions = ReturnType<typeof normalizeRemoteConnectionOptions>;
+
+/** 同一 Root flow 的只读 UI 投影；不含凭据，不保存连接事实。 */
 export interface RemoteConnectionProgress {
-  view: "kind" | "settings" | "connecting" | "directory";
-  loading: boolean;
-  selectingDirectory: boolean;
-  dialogOpen: boolean;
+  operationId: string;
+  view: import("@/RemoteConnectionWizardChrome.js").RemoteWizardStep;
+  cancelled: boolean;
+  target: RemoteTarget | null;
+  sourceServerId?: string;
+  profileId?: string;
+  name?: string;
+  logs: import("@/hooks/useRemoteConnectionLogs.js").RemoteConnectionLogEntry[];
+  /** 本次连接要打开的项目目录；有值时阶段多一步“打开项目目录”，与连接屏一致。 */
+  workspacePath?: string;
   error: string;
+  reason: string;
+  waiting: boolean;
   ready: boolean;
-  requestId?: string;
-  sourceServerId?: string;
-  profileId?: string;
-  target?: RemoteConnectionProgressTarget;
-  logs: readonly RemoteConnectionProgressLog[];
-  onResume: () => void;
-  onCancel: () => Promise<void> | void;
-}
-
-export interface RemoteConnectionProgressInput {
-  currentStep: RemoteConnectionProgress["view"];
-  loading: boolean;
-  selectingDirectory: boolean;
-  open: boolean;
-  error: string;
-  connectedSessionId: string | null;
-  connectingRequestId: string | null;
-  pendingRemoteTarget: RemoteTarget | null;
-  connectionLogs: readonly RemoteConnectionProgressLog[];
-  sourceServerId?: string;
-  profileId?: string;
-  onResume: () => void;
-  onCancel: () => Promise<void> | void;
+  onResume(): void;
+  onCancel(): void;
 }

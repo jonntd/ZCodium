@@ -37,10 +37,7 @@ import type {
 } from "@/extension-slots/contract.js";
 
 const EMPTY_ENTRIES: ExtensionLogEntry[] = [];
-const LEVEL_FILTERS: Array<{
-  value: ExtensionLogLevelFilter;
-  labelId: string;
-}> = [
+const LEVEL_FILTERS: Array<{ value: ExtensionLogLevelFilter; labelId: string }> = [
   { value: "all", labelId: "extensions.logs.level.all" },
   { value: "warn", labelId: "extensions.logs.level.warn" },
   { value: "error", labelId: "extensions.logs.level.error" },
@@ -108,9 +105,7 @@ export function ExtensionLogsPane({ visible }: ExtensionLogsPaneProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const entries = model?.entries ?? EMPTY_ENTRIES;
   const hostLabel = intl.formatMessage({ id: "extensions.logs.source.host" });
-  const selectedPlugin = source.startsWith("plugin:")
-    ? source.slice("plugin:".length)
-    : null;
+  const selectedPlugin = source.startsWith("plugin:") ? source.slice("plugin:".length) : null;
   const plugins = useMemo(() => listExtensionLogPlugins(entries), [entries]);
   // 已选的插件暂时没有条目（例如清空后）也留在选项里，选择不被悄悄换掉。
   const pluginOptions = useMemo(
@@ -139,25 +134,16 @@ export function ExtensionLogsPane({ visible }: ExtensionLogsPaneProps) {
       if (typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
         throw new Error("clipboard-unavailable");
       }
-      await navigator.clipboard.writeText(
-        formatExtensionLogsForCopy(visibleEntries, hostLabel),
-      );
+      await navigator.clipboard.writeText(formatExtensionLogsForCopy(visibleEntries, hostLabel));
       toast(intl.formatMessage({ id: "extensions.logs.copied" }, { count }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       logger.lifecycle.warn("[extension-slots] copy logs failed", { message });
-      toast(
-        intl.formatMessage(
-          { id: "extensions.logs.copyFailed" },
-          { error: message },
-        ),
-      );
+      toast(intl.formatMessage({ id: "extensions.logs.copyFailed" }, { error: message }));
     }
   };
 
-  const autoScrollLabel = intl.formatMessage({
-    id: "extensions.logs.autoScroll",
-  });
+  const autoScrollLabel = intl.formatMessage({ id: "extensions.logs.autoScroll" });
   const copyLabel = intl.formatMessage({ id: "extensions.logs.copy" });
   const clearLabel = intl.formatMessage({ id: "extensions.logs.clear" });
   const placeholder = !model?.loaded
@@ -177,16 +163,12 @@ export function ExtensionLogsPane({ visible }: ExtensionLogsPaneProps) {
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-2">
         <Select
           value={source}
-          onValueChange={(value) =>
-            setSource(value as ExtensionLogSourceFilter)
-          }
+          onValueChange={(value) => setSource(value as ExtensionLogSourceFilter)}
         >
           <SelectTrigger
             className="max-w-56 min-w-0 rounded-lg"
             data-testid={TID_EXTENSION_LOGS_SOURCE_FILTER}
-            aria-label={intl.formatMessage({
-              id: "extensions.logs.sourceFilter",
-            })}
+            aria-label={intl.formatMessage({ id: "extensions.logs.sourceFilter" })}
           >
             <SelectValue />
           </SelectTrigger>
@@ -209,26 +191,17 @@ export function ExtensionLogsPane({ visible }: ExtensionLogsPaneProps) {
             ))}
           </SelectContent>
         </Select>
-        <Select
-          value={level}
-          onValueChange={(value) => setLevel(value as ExtensionLogLevelFilter)}
-        >
+        <Select value={level} onValueChange={(value) => setLevel(value as ExtensionLogLevelFilter)}>
           <SelectTrigger
             className="min-w-0 rounded-lg"
             data-testid={TID_EXTENSION_LOGS_LEVEL_FILTER}
-            aria-label={intl.formatMessage({
-              id: "extensions.logs.levelFilter",
-            })}
+            aria-label={intl.formatMessage({ id: "extensions.logs.levelFilter" })}
           >
             <SelectValue />
           </SelectTrigger>
           <SelectContent position="popper" align="start">
             {LEVEL_FILTERS.map((option) => (
-              <SelectItem
-                key={option.value}
-                className="pr-8"
-                value={option.value}
-              >
+              <SelectItem key={option.value} className="pr-8" value={option.value}>
                 {intl.formatMessage({ id: option.labelId })}
               </SelectItem>
             ))}
@@ -276,22 +249,14 @@ export function ExtensionLogsPane({ visible }: ExtensionLogsPaneProps) {
           </ControlHintTooltip>
         </div>
       </div>
-      <div
-        ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto py-1"
-        role="log"
-      >
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto py-1" role="log">
         {placeholder ? (
           <div className="flex h-full items-center justify-center px-6 text-center text-ui-sm text-foreground-subtle">
             {placeholder}
           </div>
         ) : (
           visibleEntries.map((entry) => (
-            <ExtensionLogRow
-              key={entry.seq}
-              entry={entry}
-              hostLabel={hostLabel}
-            />
+            <ExtensionLogRow key={entry.seq} entry={entry} hostLabel={hostLabel} />
           ))
         )}
       </div>

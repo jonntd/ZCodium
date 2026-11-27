@@ -29,7 +29,7 @@ export function isRemoteWorkspaceDisconnectedError(error: unknown): boolean {
   );
 }
 
-/** 只投影协议结构化错误码，不用业务文案猜断线状态。 */
+/** 仅识别远程协议的结构化码，不能把模型网络报错或普通业务文案猜成设备断线。 */
 export function getRemoteConnectionFailureCode(error: unknown): string | undefined {
   if (isRemoteWorkspaceDisconnectedError(error)) return REMOTE_WORKSPACE_DISCONNECTED_ERROR_CODE;
   if (!error || typeof error !== "object" || !("code" in error) || typeof error.code !== "string")

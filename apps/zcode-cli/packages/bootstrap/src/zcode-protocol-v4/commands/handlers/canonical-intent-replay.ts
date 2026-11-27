@@ -40,6 +40,12 @@ function buildCanonicalIntent(
   requireQueue: boolean,
   canRetainQueuedHighspeed: boolean,
 ) {
+  // composer 编辑态复用普通发送的工具栏：edit 携带的模型/模式/Plan 是本次重跑的提交配置，
+  // 与 sendText 同语义；缺省（旧客户端、retry）沿用原 canonical intent。
+  const editPayload =
+    envelope.type === "editUserQuery"
+      ? (envelope.payload as CommandPayloadMap["editUserQuery"])
+      : undefined;
   const intent = inputIntentMetadataFromCanonical(
     envelope,
     {
@@ -50,15 +56,16 @@ function buildCanonicalIntent(
             editTarget.intent.conversationQuotes)
           : editTarget.intent.conversationQuotes,
       text: editTarget.intent.text,
+      genUiContext: editTarget.intent.genUiContext,
       sourceCommandId: editTarget.intent.sourceCommandId,
       clientId: editTarget.intent.clientId,
       queueItemId: editTarget.intent.queueItemId,
       requestedDelivery: editTarget.intent.requestedDelivery,
       admittedDelivery: editTarget.intent.admittedDelivery,
       fallbackReasonCode: editTarget.intent.fallbackReasonCode,
-      modelSelection: editTarget.intent.modelSelection,
-      mode: editTarget.intent.mode,
-      planEnabled: editTarget.intent.planEnabled,
+      modelSelection: editPayload?.modelSelection ?? editTarget.intent.modelSelection,
+      mode: editPayload?.mode ?? editTarget.intent.mode,
+      planEnabled: editPayload?.planEnabled ?? editTarget.intent.planEnabled,
       attachmentRefs,
       provenance: editTarget.intent.provenance,
     },

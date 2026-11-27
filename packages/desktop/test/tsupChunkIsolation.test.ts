@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import tsupConfig, {
+  resolvePreinstalledToolsTestBuild,
+  resolveBuildPackagedAgentTelemetryEnv,
   resolveBuildRemoteCdnReleaseRoots,
-  resolveBuildRemoteRuntimeReleaseBase,
   resolveDesktopTsupBundleSecurityOptions,
 } from "../tsup.config";
 
@@ -9,17 +10,6 @@ type EsbuildLikeOptions = {
   chunkNames?: string;
   legalComments?: string;
 };
-
-it("#68：fork 的完整 tag 地址编译入发布源，新环境变量优先", () => {
-  const base = "https://github.com/example/fork/releases/download/v1.16.3";
-  expect(
-    resolveBuildRemoteRuntimeReleaseBase({
-      ZCODIUM_REMOTE_ASSET_CDN_BASE_URL: ` ${base} `,
-      ZCODE_REMOTE_ASSET_CDN_BASE_URL: "https://legacy.test",
-    }),
-  ).toBe(base);
-  expect(resolveBuildRemoteRuntimeReleaseBase({})).toBe("");
-});
 
 function getChunkNames(configName: string): string | undefined {
   const configs = Array.isArray(tsupConfig) ? tsupConfig : [tsupConfig];
@@ -55,6 +45,22 @@ function getDefines(configName: string): Record<string, string> {
 }
 
 describe("desktop tsup chunk isolation", () => {
+  it("预装清单覆盖只能由显式 E2E 构建开启，运行时变量和 test 后端不构成权限", () => {
+    expect(
+      resolvePreinstalledToolsTestBuild({
+        ZCODE_ENV: "test",
+        ZCODE_E2E_PREINSTALLED_TOOLS_CATALOG: "/tmp/fixture.json",
+      }),
+    ).toBe(false);
+    expect(resolvePreinstalledToolsTestBuild({ NODE_ENV: "production" })).toBe(false);
+    expect(
+      resolvePreinstalledToolsTestBuild({
+        NODE_ENV: "production",
+        VITE_ZCODE_E2E_STORE_BRIDGE: "1",
+      }),
+    ).toBe(true);
+  });
+
   it("ZIP 解包器应外置，避免 Electron ESM 启动时动态 require fs 崩溃", () => {
     for (const name of ["main", "host", "scheduler"]) expect(getExternal(name)).toContain("yauzl");
   });
@@ -139,6 +145,54 @@ describe("desktop tsup chunk isolation", () => {
     ).toThrow("OSS_PATH_PREFIX must contain one value or match CDN_DOMAIN count");
   });
 
+  it("正式安装包 Agent OTLP 配置应映射为 Main 使用的标准环境字段", () => {
+    expect(
+      resolveBuildPackagedAgentTelemetryEnv({
+        ZCODE_ENV: "production",
+        ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT: "https://arms.example.com/otlp",
+        ZCODE_PACKAGED_AGENT_OTEL_HEADERS: "x-arms-license-key=write-only",
+        ZCODE_PACKAGED_AGENT_OTEL_SERVICE_NAME: "zcode-cli-agent",
+      }),
+    ).toEqual({
+      OTEL_EXPORTER_OTLP_ENDPOINT: "https://arms.example.com/otlp",
+      OTEL_EXPORTER_OTLP_HEADERS: "x-arms-license-key=write-only",
+      OTEL_SERVICE_NAME: "zcode-cli-agent",
+      ZCODE_TELEMETRY_RUNTIME_DISTRIBUTION: "packaged",
+    });
+  });
+
+  it("正式安装包 Agent OTLP 配置不完整或生产环境使用 HTTP 时应阻止构建", () => {
+    expect(() =>
+      resolveBuildPackagedAgentTelemetryEnv({
+        ZCODE_ENV: "production",
+        ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT: "https://arms.example.com/otlp",
+      }),
+    ).toThrow("must be configured together");
+    expect(() =>
+      resolveBuildPackagedAgentTelemetryEnv({
+        ZCODE_ENV: "production",
+        ZCODE_PACKAGED_AGENT_OTEL_ENDPOINT: "http://arms.example.com/otlp",
+        ZCODE_PACKAGED_AGENT_OTEL_HEADERS: "x-arms-license-key=write-only",
+      }),
+    ).toThrow("must use HTTPS in production");
+  });
+
+  it("release/current 与 Tag 构建缺少 Agent OTLP 配置时应失败，普通开发构建保持 Noop", () => {
+    expect(resolveBuildPackagedAgentTelemetryEnv({})).toEqual({});
+    expect(() =>
+      resolveBuildPackagedAgentTelemetryEnv({
+        CI: "true",
+        CI_COMMIT_BRANCH: "release/current",
+      }),
+    ).toThrow("required for release builds");
+    expect(() =>
+      resolveBuildPackagedAgentTelemetryEnv({
+        CI: "true",
+        CI_COMMIT_TAG: "v3.6.0",
+      }),
+    ).toThrow("required for release builds");
+  });
+
   it("安装包身份与后端环境作为两个编译期常量注入每个 bundle", () => {
     // 打包后的应用不能依赖机器环境变量：ZCODE_PREVIEW_IDENTITY 在构建时折叠成 __ZCODE_PRODUCT_FLAVOR__。
     for (const entry of ["main", "host", "preload"] as const) {
@@ -149,10 +203,10 @@ describe("desktop tsup chunk isolation", () => {
     }
   });
 
-  it("Agent OTLP 部署默认值不注入任何 bundle（审计剥离上报链路）", () => {
-    for (const entry of ["main", "host", "preload"] as const) {
-      expect(getDefines(entry)).not.toHaveProperty("__ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__");
-    }
+  it("Agent OTLP 部署默认值只应编译进 Main bundle", () => {
+    expect(getDefines("main")).toHaveProperty("__ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__");
+    expect(getDefines("host")).not.toHaveProperty("__ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__");
+    expect(getDefines("preload")).not.toHaveProperty("__ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__");
   });
 
   it("所有 tsup 子构建都应关闭 esbuild legal comments 输出", () => {

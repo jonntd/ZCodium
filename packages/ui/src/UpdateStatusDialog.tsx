@@ -75,7 +75,6 @@ export function UpdateStatusDialog({
     titleId: dialogTitleId,
   });
   const showSkipVersion = isBeforeDownload && Boolean(skippableVersion);
-  const showLaterButton = !isDownloading;
   const titleClassName =
     "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-ui-base font-medium leading-5 text-foreground";
   const titleContent = (
@@ -108,7 +107,7 @@ export function UpdateStatusDialog({
             src={macosDockIconUrl}
             alt=""
             aria-hidden="true"
-            className="pointer-events-none -ms-[5px] size-12 shrink-0 select-none shadow-none drop-shadow-none"
+            className="pointer-events-none -ml-[5px] size-12 shrink-0 select-none shadow-none drop-shadow-none"
             draggable={false}
           />
           <div className="min-w-0 flex-1 space-y-1.5">
@@ -206,18 +205,18 @@ export function UpdateStatusDialog({
               edgeToEdge ? "w-auto flex-row justify-end" : null,
             )}
           >
-            {showLaterButton ? (
-              <Button
-                type="button"
-                variant="secondary"
-                size="lg"
-                className="h-9 px-4"
-                disabled={isUpdateActionPending}
-                onClick={() => onOpenChange(false)}
-              >
-                {intl.formatMessage({ id: "updateDialog.later" })}
-              </Button>
-            ) : null}
+            <Button
+              type="button"
+              variant="secondary"
+              size="lg"
+              className="h-9 px-4"
+              disabled={isUpdateActionPending}
+              onClick={() => onOpenChange(false)}
+            >
+              {intl.formatMessage({
+                id: isDownloading ? "updateDialog.backgroundDownload" : "updateDialog.later",
+              })}
+            </Button>
             {isDownloaded ? (
               <Button
                 type="button"

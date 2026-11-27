@@ -44,9 +44,33 @@ sessionId -> BrowserControlPort.requireSession -> workspace/remote/clientMode
 
 - `mcp__node_repl__js`
 
-`node_repl` 的 server instructions 和该 tool description 声明 “Browser Use and Computer Use only”
-（成文时为 “Browser Use only”，CUA 接入后两处文案已同时限域到两个官方能力）。不得把它改成通用
-JavaScript、文件、Shell、包检查或数据处理工具，也不得提示模型改用专门的 `browser_use` 工具。
+`node_repl` 的 server instructions 和该 tool description 用一句话同时说明能力与路由禁令：
+
+- **能力**：`js` 以 ZCode agent 的权限运行、没有沙箱（unsandboxed），可加载任意本地模块。文案不得暗示存在
+  模块白名单或能力限制。vm context 只负责每次调用的全局状态隔离；协议保护 `process` facade 只保护
+  MCP stdio 和宿主进程生命周期。
+- **审批路径与 Bash 不同**：`js` 按 MCP 的 high/system 能力审批。build 模式每次询问（可始终允许）；
+  guarded 模式没有危险命令匹配，按 YOLO 基础策略放行；Bash 的命令前缀规则也管不到它。因此不能说
+  “安全边界与 Bash 相同”。
+- **路由禁令**：只在 Browser Use 或 Computer Use 官方 skill 指示控制浏览器或电脑时使用；明确禁止用于 shell、
+  文件、包检查、数据处理，要求改用专门工具。禁令以“不经过 Bash 危险命令确认”为理由写出，不得弱化成建议，
+  否则模型把 `js` 当 shell 用就绕过了 guarded 的确认。不得提示模型改用专门的 `browser_use` 工具。
+- 不写 import 规则。任何解析规则的描述都会被读成模块白名单；import 写法以官方 skill 的 bootstrap 示例为准。
+- 文案保持简短，不列举具体能力（读写文件、启动进程等），避免读起来像使用指引。
+- tool description 与 server instructions 只写跨 skill 的运行时契约：路由与能力、`title`、`timeout_ms`、
+  `nodeRepl.write` / `nodeRepl.emitImage` 输出 API、每次调用都 bootstrap。Browser Use 与 Computer Use 的用法
+  （tab 恢复、观察输出、元素目标、坐标、bootstrap 模板）只写在各自 skill；工具描述随每次请求发送，重复一份会和
+  skill 漂移。
+
+（2026-11-05 改写：旧文案的 “Import only …” 被外部安全评估理解为受限运行时，进而把加载
+`node:child_process` 判定为“沙箱逃逸”。能力本身未变，改的是描述；路由禁令保持原强度。）
+
+（2026-11-06 删除 import 句：上一版的 “`node:*` 或绝对 `file://` URL，裸包名不解析” 仍被读成白名单，且
+“裸包名不解析”不准确——`require` 由 `createRequire(cwd)` 创建，裸包名会从工作区 `node_modules` 解析。）
+
+（2026-11-09 删除 skill 专属内容：tool description 里的 CUA 段仍是 v1 SDK 写法——要求 `nodeRepl.write(state.text)`
+并用 `state.state_id`，与现行 skill“观察结果自行展示、不要再 write”相反；`state_id` 也已不在模型可见文本中。
+其余 tab 恢复、坐标、bootstrap 同 cell 等句子已由 skill 覆盖，一并删除。）
 
 模型 guidance 以升级前 `control-browser` skill 和 Browser API 文档为内容基线。除下列与 kernel
 生命周期直接冲突的语句外，导航、定位、popup 恢复、截图、安全、tab 生命周期和错误恢复规则必须保留：
@@ -70,14 +94,16 @@ JavaScript、文件、Shell、包检查或数据处理工具，也不得提示�
 - `timeout_ms` 继续使用 60 秒默认值、120 秒上限和既有超时文案。
 - 每次调用创建一次性 worker；worker 内创建 `NodeReplSession`、注入 Browser bridge、执行、
   返回结果并销毁。
-- 模型代码的 import 只支持 `node:*` 内置模块与基于官方 skill root 的绝对 `file://` URL；
-  裸包名不解析（`resolveSpecifier` 与 moduleDirs 已随工具一并删除）。
+- 模块加载不设白名单，也不做宿主注入（`resolveSpecifier` 与 moduleDirs 已随工具一并删除）。实际解析规则：
+  `require` 由 `createRequire(cwd)` 创建，裸包名从工作区 `node_modules` 解析；动态 `import()` 改写为
+  `importModule` 后直通宿主 `import()`，`node:*`、绝对路径与 `file://` URL 可加载，裸包名与相对路径
+  按宿主模块位置解析而不是工作区。这些规则不写进模型可见文案（见上文 §2）。
 - 同一 session 的 `js` 调用串行；不同 session 可并发。
 
 ### 已删除的两个工具（2026-09-18）
 
 `js_reset` 与 `js_add_node_module_dir` 从 `tools/list`、handler 和执行链中整体移除，`node_repl`
-只保留 `js`。调用它们返回 `Tool not found`。两者实测调用量均为 0（310 个本地会话、17134 次真实
+只保留 `js`。调用它们返回工具不存在的错误（`<tool_use_error>Error: No such tool available: …</tool_use_error>`）。两者实测调用量均为 0（310 个本地会话、17134 次真实
 `js` 调用）。
 
 `js_reset`：fresh-kernel 改造后已无可执行语义——下一次 `js` 本来就是新 kernel，它唯一的残余行为是
@@ -97,6 +123,18 @@ runtime 时注入，不要再给模型开配置工具。
 删除只作用于可执行路径。历史 transcript 的渲染继续依赖 `packages/shared/src/tool-identity.ts`
 和 `packages/ui/src/lib/nodeReplToolDisplay.ts` 的名称映射，必须保留：它们只读取历史记录里的
 toolName，与当前 `tools/list` 无关，删掉会让旧会话的调用块退化成 unknown fallback renderer。
+
+### 无进展提示（2026-10-26 加入，2026-11-20 撤销）
+
+0.6.2 曾在 `js` 结果末尾按 turn 追加「You may end this turn.」提示，档位为同码 5/15/45…、
+同结果 10/30/90…、本 turn 调用量 30/80/200 后每 200。起因是工单 ZCT-2114629172776046592
+（3.16.3，GLM-5.3，automation 定时任务）单个 turn 439 次 `js`、66 分钟后被用户取消。
+
+0.7.1 整体撤销：调用量档位只看次数，正常的 Browser Use / Computer Use 长任务同样会到 30 次，
+提示进入模型上下文，与 CLI「长程任务优先，不用 tool call 次数做硬停止」的原则冲突。
+`js` 结果只含执行输出，宿主不按 turn 计数，也不向 stderr 写 `no-progress hint`。
+ZCT-2114629172776046592 类的单 turn 空转仍未防住：core 的重复调用提醒按完整 input 计签名，
+模型改动 `code` 即重置。再做防护时应基于进展信号，不按调用次数。
 
 ## 3. Browser Use 与请求身份
 
@@ -130,8 +168,16 @@ subagent 可以使用 Browser Use：父 runtime 经 `BrowserControlPort.forChild
 - `mcp.server.connected` 记录 `mcpConnectionId`、`workspaceKey`、`mcpIsolation=workspace`、
   `mcpProtocolEra=modern`、`mcpProtocolVersion=2026-07-28` 和 stdio PID。
 - `mcp.pool.lease.acquired/released` 用同一 `mcpConnectionId` 分别记录每个 sessionId；共享连接日志不伪造唯一 owner。
-- frontend 崩溃后下一次调用按现有 adapter 逻辑重连。因为 kernel 无持久状态，重连不需要恢复 JavaScript；
-  Browser tab/page 仍由 Agent/host 的既有 owner 决定。
+- 宿主注入的 `node_repl` 配置带运行时来源 `builtin`。frontend 主进程意外退出（被外部终止或崩溃）时，
+  adapter 立即在后台重启它：重启期间保留已有工具目录，第 1 次立即尝试，失败后间隔 1/2/4/8 秒，最多 5 次；
+  5 次都失败才发布 failed 并清空目录。重启不依赖模型再次调用：frontend 是内置 server，设置页没有开关，
+  会话里的工具一旦离开视图，模型和用户都无法再触发重连。
+- 同一 server 10 分钟内最多自动重启 5 次，防止“启动后很快又退出”形成循环。超过后不再自动重启，
+  进入 failed 但保留目录：工具留在会话里，下一次调用由执行准入按普通连接重启一次，这次重启失败时清空目录。
+  配置变化、显式重连或执行准入重连会重新开始计数。
+- 这套重启按运行时来源 `builtin` 判定，官方市场插件声明的 stdio server 同样适用；范围见
+  `docs/mcp-async-tool-catalog-cache.md`「连接记录」。
+- 因为 kernel 无持久状态，重启不需要恢复 JavaScript；Browser tab/page 仍由 Agent/host 的既有 owner 决定。
 
 ## 5. 多端边界
 
@@ -153,7 +199,7 @@ BrowserControl/desktop guest manager: tab/page authority
 ## 6. 验收
 
 - 工具 identity 仅为 `mcp__node_repl__js`；`js_reset` 与 `js_add_node_module_dir` 不在 `tools/list` 中，
-  调用返回 `Tool not found`；不存在内置 `mcp__browser_use__*` 或 `mcp__computer-use__*` 模型工具。
+  调用返回工具不存在的错误；不存在内置 `mcp__browser_use__*` 或 `mcp__computer-use__*` 模型工具。
 - 连续两次 `js`：第二次看不到第一次的 global、timer、import module singleton 修改和 response meta；
   同一 Browser tab 的 DOM/page state 仍连续。
 - Desktop IAB full-chain 与 multi-tab replay 中，每个独立 `js` 都重新 bootstrap；下一次调用使用上一条
@@ -162,11 +208,15 @@ BrowserControl/desktop guest manager: tab/page authority
   暴露，不能退化成后续 UI 或 provider matcher 超时。
 - 同 workspace 两个 session 只保留一个稳定 `zcode-node-repl-mcp` frontend/PID；A/B 的 global、
   module dirs、tool result、权限和 tab 隔离。
+- 终止 frontend 进程后，不等模型调用就出现新的 frontend PID；重启期间 `mcp__node_repl__js` 不离开
+  provider 请求；同一 session 下一次 `js` 成功，原 tab/page 状态连续。重启 5 次都失败时进入 failed；
+  10 分钟内第 6 次退出不再重启。
 - `tools/list` 仍要求 title；直接 runtime call 接受 code-only。
 - `control-browser` 与 Browser API 文档保留升级前全部非状态 guidance；只替换 persistent/fresh、
   跨 cell binding 和 reset 语义。通用 bootstrap 不选择默认 backend。
 - 模型可见 `js.code` schema 不包含与 fresh kernel 冲突的 persistent 文案。
 - `js_reset` 与 `js_add_node_module_dir` 的模型可见描述、handler、schema 与 moduleDirs 执行链全部
   移除；UI 名称映射保留供历史回放渲染。
+- `js` 结果不追加任何无进展或调用量提示。
 - main 与 subagent Browser Use 都可用；subagent 与当前对话共用 tab，结束后 tab 保留；返回 main 后原 tab/page 可继续。
 - modern/legacy 第三方 MCP 协商回归、focused tests、Desktop pending E2E、`pnpm typecheck`、`pnpm lint` 通过。

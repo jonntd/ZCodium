@@ -4,12 +4,13 @@ import { cp } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { basename, join, win32 } from "node:path";
 import { homedir } from "node:os";
-import { readExternalEnvVar } from "@zcode/shared";
+import { readAssignedCredentialsFile } from "@zcode/shared/credential-security";
 import {
   DATA_BASE_DIR_FORBIDDEN_WINDOWS_INSTALL_DIR_ERROR_CODE,
   ZCODE_AGENT_RUNTIME,
   ZCODE_DATA_ROOT_DIR_NAME,
 } from "@zcode/shared";
+import { readExternalEnvVar } from "@zcode/shared";
 
 let _dataBaseDir: string | null = null;
 export const ZCODE_WINDOWS_APP_INSTALL_DIR_ENV = "ZCODE_WINDOWS_APP_INSTALL_DIR";
@@ -20,7 +21,7 @@ const defaultDataBaseDir =
   process.env.ZCODE_DESKTOP_HOME_DIR?.trim() || process.env.HOME?.trim() || homedir();
 
 /**
- * 显式注入的 ZCODE_DATA_BASE_DIR 是 dev test / e2e 的数据目录隔离硬边界：
+ * ZCODE_DATA_BASE_DIR 环境变量覆盖是否已生效（E2E/隔离运行的数据目录隔离闸门）。
  * 一旦生效，设置文件里发现的自定义 dataBaseDir（来自真实 HOME）不得再把
  * 运行时拉回真实数据目录，否则隔离实例会读写开发者的真实凭据与配置。
  */
@@ -83,6 +84,32 @@ export function getConversationWorkspaceDir(): string {
 /** {dataBaseDir}/.zcode/v2 */
 export function getAppConfigDir(): string {
   return join(getZCodeDataRootDir(), "v2");
+}
+
+/**
+ * 本进程读写的凭据文件，所有凭据读写方的唯一解析入口。
+ * 进程装配的 ZCODE_CREDENTIALS_FILE 优先（只有使用自有凭据库的 Source Server Core 设置，
+ * 其 Agent 继承）；否则为 {appConfigDir}/credentials.json。调用时读取，不在模块加载时缓存。
+ */
+export function getCredentialsFilePath(): string {
+  return readAssignedCredentialsFile(process.env) ?? join(getAppConfigDir(), "credentials.json");
+}
+
+/**
+ * Agent 侧用户级默认指令（个性化）文件的 home 解析。
+ * 必须与 CLI adapter（apps/zcode-cli/packages/adapters/src/context/index.ts 的
+ * resolveUserHomeDir）保持完全一致：只认 HOME/USERPROFILE。不能改用
+ * ZCODE_DATA_BASE_DIR（CLI 读该文件时忽略它）或 ZCODE_DESKTOP_HOME_DIR
+ * （agent 子进程不认），否则 App 写的文件和 Agent 读的文件会分叉。
+ */
+export function resolveAgentUserInstructionsHomeDir(env: NodeJS.ProcessEnv = process.env): string {
+  const envHome = env.HOME?.trim() || env.USERPROFILE?.trim();
+  return envHome && envHome.length > 0 ? envHome : homedir();
+}
+
+/** `{home}/.zcodium/AGENTS.md`：用户自定义指令的唯一事实源文件（fork 命名空间）。 */
+export function getAgentUserInstructionsFilePath(env: NodeJS.ProcessEnv = process.env): string {
+  return join(resolveAgentUserInstructionsHomeDir(env), ".zcodium", "AGENTS.md");
 }
 
 function readEnvValue(env: Record<string, string | undefined>, key: string): string | undefined {

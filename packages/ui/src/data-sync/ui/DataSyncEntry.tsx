@@ -1,17 +1,5 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  type MouseEvent,
-  type ReactNode,
-} from "react";
-import {
-  BlocksIcon,
-  CableIcon,
-  ChevronDown,
-  UploadCloud,
-  WandIcon,
-} from "lucide-react";
+import { useCallback, useEffect, useRef, type MouseEvent, type ReactNode } from "react";
+import { BlocksIcon, CableIcon, ChevronDown, UploadCloud, WandIcon } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import {
   DropdownMenu,
@@ -22,10 +10,7 @@ import {
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { useRemoteDevicePresentationInput } from "@/hooks/useSourceServerStatuses.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import type {
-  DataSyncCategoryId,
-  DataSyncDialogRequest,
-} from "@/data-sync/contract.js";
+import type { DataSyncCategoryId, DataSyncDialogRequest } from "@/data-sync/contract.js";
 import { isDataSyncDeviceOnline } from "@/data-sync/ui/DataSyncDialogContainer.js";
 import {
   useDataSyncResultVersion,
@@ -33,17 +18,12 @@ import {
 } from "@/data-sync/ui/DataSyncDialogProvider.js";
 
 /** 旧入口能定位的分类：技能、MCP、插件。 */
-export type DataSyncEntryCategory = Extract<
-  DataSyncCategoryId,
-  "skills" | "mcp" | "plugins"
->;
+export type DataSyncEntryCategory = Extract<DataSyncCategoryId, "skills" | "mcp" | "plugins">;
 
 export type DataSyncEntryRequest = DataSyncDialogRequest;
 
 /** 设备在线判断与数据同步页一致：取自管理快照的同一份展示输入；不会为此建立连接。 */
-export function useDataSyncDeviceOnline(
-  sourceServerId: string | null | undefined,
-): boolean {
+export function useDataSyncDeviceOnline(sourceServerId: string | null | undefined): boolean {
   const input = useRemoteDevicePresentationInput(sourceServerId ?? undefined);
   return input ? isDataSyncDeviceOnline(input) : false;
 }
@@ -53,9 +33,7 @@ export function useDataSyncDeviceOnline(
  * available：平台能申请设备的 source-settings attachment（只有桌面端）；Web 与手机远控不显示入口。
  * onPushFinished：任一推送的设备结果写入后，已挂载的本页刷新一次，与弹窗由哪个入口打开无关。
  */
-export function useDataSyncEntry(
-  options: { onPushFinished?(): void | Promise<void> } = {},
-): {
+export function useDataSyncEntry(options: { onPushFinished?(): void | Promise<void> } = {}): {
   available: boolean;
   open(request: DataSyncEntryRequest): void;
   dialog: ReactNode;
@@ -142,17 +120,11 @@ export function DataSyncEntryDropdownButton(props: {
         >
           <UploadCloud className="size-3.5" aria-hidden="true" />
           {intl.formatMessage({ id: "remote.syncAll" })}
-          <ChevronDown
-            className="size-3.5 text-foreground-subtle"
-            aria-hidden="true"
-          />
+          <ChevronDown className="size-3.5 text-foreground-subtle" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-40">
-        <DataSyncEntryMenuItems
-          disabled={props.disabled}
-          onSelect={props.onSelect}
-        />
+        <DataSyncEntryMenuItems disabled={props.disabled} onSelect={props.onSelect} />
       </DropdownMenuContent>
     </DropdownMenu>
   );

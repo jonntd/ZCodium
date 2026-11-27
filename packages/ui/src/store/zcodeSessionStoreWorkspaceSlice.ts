@@ -1,4 +1,5 @@
-import type { SessionCreateSource } from "@zcode/shared";
+import type { DraftPluginUiOpenRequest } from "@/plugin-ui/contract.js";
+import type { ManagedWorktreeCreation, SessionCreateSource } from "@zcode/shared";
 /* eslint-disable max-lines -- workspace 级状态动作集中在同一 slice，先保持收口便于维护。 */
 import {
   buildNativeSupplierKey,
@@ -23,8 +24,6 @@ import type {
   ComposerInitialization,
   ConfigOptionsStatus,
   ComposerMentionPrefill,
-  GroupedDraftTaskState,
-  GroupedDraftTaskPlacement,
   ModelSwitchStage,
   WorkspaceZCodeUIState,
 } from "@/store/zcodeSessionStoreTypes.js";
@@ -39,29 +38,17 @@ type SetFn = (
   partial:
     | ZCodeSessionStoreState
     | Partial<ZCodeSessionStoreState>
-    | ((
-        state: ZCodeSessionStoreState,
-      ) => ZCodeSessionStoreState | Partial<ZCodeSessionStoreState>),
+    | ((state: ZCodeSessionStoreState) => ZCodeSessionStoreState | Partial<ZCodeSessionStoreState>),
 ) => void;
 
-let groupedDraftSequence = 0;
-
-function createGroupedDraftId(createdAt: number): string {
-  groupedDraftSequence += 1;
-  return `grouped-draft-${createdAt}-${groupedDraftSequence}`;
-}
-
-function normalizeThoughtLevelConfigOption(
-  option: ZCodeConfigOption,
-): ZCodeConfigOption {
+function normalizeThoughtLevelConfigOption(option: ZCodeConfigOption): ZCodeConfigOption {
   if (
     option.type !== "select" ||
     (option.id !== "thought_level" && option.category !== "thought_level")
   ) {
     return option;
   }
-  const currentValue =
-    typeof option.currentValue === "string" ? option.currentValue : "";
+  const currentValue = typeof option.currentValue === "string" ? option.currentValue : "";
   if (option.options?.some((entry) => entry.value === currentValue)) {
     return option;
   }
@@ -73,32 +60,15 @@ function normalizeThoughtLevelConfigOption(
   return { ...option, currentValue: fallbackValue };
 }
 
-function normalizeConfigOptions(
-  options: ZCodeConfigOption[],
-): ZCodeConfigOption[] {
+function normalizeConfigOptions(options: ZCodeConfigOption[]): ZCodeConfigOption[] {
   return options.map(normalizeThoughtLevelConfigOption);
 }
 
-function cloneConfigOptions(
-  options: readonly ZCodeConfigOption[],
-): ZCodeConfigOption[] {
+function cloneConfigOptions(options: readonly ZCodeConfigOption[]): ZCodeConfigOption[] {
   return options.map((option) => ({
     ...option,
     options: option.options?.map((entry) => ({ ...entry })),
   }));
-}
-
-function isSameGroupedDraftPlacement(
-  left: GroupedDraftTaskPlacement,
-  right: GroupedDraftTaskPlacement,
-): boolean {
-  if (left.type !== right.type) {
-    return false;
-  }
-  if (left.type === "top") {
-    return true;
-  }
-  return right.type === "group" && left.groupId === right.groupId;
 }
 
 function isModeConfigOption(option: ZCodeConfigOption): boolean {
@@ -257,13 +227,9 @@ export function createWorkspaceSlice(set: SetFn) {
           state,
           workspacePath,
           (current) => {
-            const {
-              [id ?? ""]: _ignoredUnreadTask,
-              ...restTaskUnreadByTaskId
-            } = current.taskUnreadByTaskId;
-            const optimisticTask = id
-              ? current.optimisticTaskListByTaskId[id]
-              : undefined;
+            const { [id ?? ""]: _ignoredUnreadTask, ...restTaskUnreadByTaskId } =
+              current.taskUnreadByTaskId;
+            const optimisticTask = id ? current.optimisticTaskListByTaskId[id] : undefined;
             const nextOptimisticTaskListByTaskId =
               id && typeof optimisticTask?.unreadAt === "number"
                 ? {
@@ -286,15 +252,14 @@ export function createWorkspaceSlice(set: SetFn) {
               taskUnreadByTaskId: restTaskUnreadByTaskId,
               optimisticTaskListByTaskId: nextOptimisticTaskListByTaskId,
               activeTaskId: id,
+              // 导航和首发提升共用此入口；配置版本不变也必须取消原草稿的待打开请求。
+              pluginUiOpenRequest: id ? null : current.pluginUiOpenRequest,
               composerInitialization:
                 id && composerConfig
                   ? { taskId: id, config: composerConfig }
                   : current.activeTaskId === id
                     ? current.composerInitialization
                     : undefined,
-              // grouped 的 New task 草稿行只是当前草稿态锚点。
-              // 一旦用户选中真实 task，就代表离开这个临时实体，必须立刻清掉，避免侧栏留下不可操作的假行。
-              groupedDraftTask: id ? null : current.groupedDraftTask,
             };
             return activeTaskId && activeTaskConfig
               ? {
@@ -326,150 +291,68 @@ export function createWorkspaceSlice(set: SetFn) {
 
         return { ...workspaceUpdate, ...navUpdate };
       });
-      if (id)
-        notifyTaskNavigationCommitted({
-          workspacePath,
-          workspaceIdentity,
-          taskId: id,
-        });
+      if (id) notifyTaskNavigationCommitted({ workspacePath, workspaceIdentity, taskId: id });
     },
 
-    promoteGroupedDraftTask: (
-      workspacePath: string,
-      taskId: string,
-      draft: GroupedDraftTaskState,
-      workspaceIdentity?: string,
-    ) => {
-      set((state) =>
-        updateWorkspaceState(
-          state,
-          workspacePath,
-          (current) => {
-            const optimisticTask: ZCodeTaskMeta = {
-              taskId,
-              traceId: `session-${taskId}` as ZCodeTaskMeta["traceId"],
-              title: "",
-              workspacePath,
-              ...(workspaceIdentity ? { workspaceIdentity } : {}),
-              createdAt: draft.createdAt,
-              // 这是只用于填补 ACK 空档的 renderer 占位行，不是 session 真相。
-              // updatedAt 用最低哨兵值，保证任何 sessions-index 权威 meta 都会在
-              // mergeTaskWithOptimisticMeta 中获胜，避免本地时钟压住 mode/provider/status 等字段。
-              updatedAt: 0,
-              mode: "default",
-              provider: current.selectedProvider,
-            };
-            // task 导航和 draft session 创建是不同状态转换。只有创建成功边界
-            // 才能把发起命令时捕获的 grouped placement 绑定到新 task。ACK 返回期间用户
-            // 可能已进入另一份草稿，因此只在 identity 仍匹配时清除当前草稿。
-            // 过去这里先清除 draft row，却要等 sessions-index 才有真实 task meta，
-            // create/send ACK 与权威投影之间会闪出空档。提升事务同时写最小乐观元数据，
-            // 但不伪造 conversation 状态，后续仍由 desktop continuous / web replayable 权威投影收口。
-            return {
-              ...current,
-              groupedDraftTask:
-                current.groupedDraftTask?.draftId === draft.draftId
-                  ? null
-                  : current.groupedDraftTask,
-              optimisticTaskListByTaskId: {
-                ...current.optimisticTaskListByTaskId,
-                // task_created 可能比 command ACK 更早到 renderer；若已有更完整的乐观元数据，
-                // 不能被这个仅用于补空档的最小行反向降级。
-                [taskId]:
-                  current.optimisticTaskListByTaskId[taskId] ?? optimisticTask,
-              },
-              promotedGroupedDraftTaskByTaskId: {
-                ...current.promotedGroupedDraftTaskByTaskId,
-                [taskId]: draft,
-              },
-            };
-          },
-          workspaceIdentity,
-        ),
-      );
-    },
-
-    clearPromotedGroupedDraftTask: (
-      workspacePath: string,
-      taskId: string,
-      workspaceIdentity?: string,
-    ) => {
-      set((state) =>
-        updateWorkspaceState(
-          state,
-          workspacePath,
-          (current) => {
-            if (!current.promotedGroupedDraftTaskByTaskId[taskId]) {
-              return current;
-            }
-            // promoted placement 只负责草稿提升到 SQLite 排序收敛前的单次事务。
-            // 落库后必须消费，避免用户后续手动拖动 task 时被旧 placement 再次拉回原 group。
-            const {
-              [taskId]: _consumedPromotedDraft,
-              ...restPromotedGroupedDraftTaskByTaskId
-            } = current.promotedGroupedDraftTaskByTaskId;
-            return {
-              ...current,
-              promotedGroupedDraftTaskByTaskId:
-                restPromotedGroupedDraftTaskByTaskId,
-            };
-          },
-          workspaceIdentity,
-        ),
-      );
-    },
-
-    setDraftSessionId: (
-      workspacePath: string,
-      sessionId: string | null,
-      workspaceIdentity?: string,
-    ) => {
-      set((state) =>
-        updateWorkspaceState(
-          state,
-          workspacePath,
-          (current) => {
-            if (current.draftSessionId === sessionId) {
-              return current;
-            }
-            return { ...current, draftSessionId: sessionId };
-          },
-          workspaceIdentity,
-        ),
-      );
-    },
-
-    invalidateDraftRuntime: (
-      workspacePath: string,
-      workspaceIdentity?: string,
-    ) => {
+    invalidateDraftRuntime: (workspacePath: string, workspaceIdentity?: string) => {
       set((state) =>
         updateWorkspaceState(
           state,
           workspacePath,
           (current) => ({
             ...current,
-            // protocol-v4 的草稿预热会话只存在于 SessionPane 内，不能仅清空
-            // legacy draftSessionId。递增版本让 pane 精确回收未提升的预热会话并重建能力快照。
-            draftRuntimeInvalidationVersion:
-              current.draftRuntimeInvalidationVersion + 1,
-            draftSessionId: null,
+            // 预热会话只存在于 V4 pane 内；递增版本让 owner 回收并重建能力快照。
+            draftRuntimeInvalidationVersion: current.draftRuntimeInvalidationVersion + 1,
+            pluginUiOpenRequest: null,
           }),
           workspaceIdentity,
         ),
       );
     },
 
+    requestPluginUiOpen: (request: DraftPluginUiOpenRequest) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          request.workspacePath,
+          (current) => ({
+            ...current,
+            pluginUiOpenVersion: current.pluginUiOpenVersion + 1,
+            pluginUiOpenRequest: {
+              ...request,
+              requestId: current.pluginUiOpenVersion + 1,
+              invalidationVersion: current.draftRuntimeInvalidationVersion,
+            },
+          }),
+          request.workspaceIdentity,
+        ),
+      );
+    },
+    clearPluginUiOpenRequest: (
+      workspacePath: string,
+      requestId: number,
+      workspaceIdentity?: string,
+    ) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          workspacePath,
+          (current) =>
+            current.pluginUiOpenRequest?.requestId === requestId
+              ? { ...current, pluginUiOpenRequest: null }
+              : current,
+          workspaceIdentity,
+        ),
+      );
+    },
     requestComposerTextInsert: (
       workspacePath: string,
       text: string,
       workspaceIdentity?: string,
       mention?: ComposerMentionPrefill,
       mode?: "replace" | "prepend-if-missing",
-      mentions?: readonly ComposerMentionPrefill[],
     ) => {
       let nextRequestId = 0;
-      const batch = mentions && mentions.length > 0 ? [...mentions] : undefined;
       set((state) =>
         updateWorkspaceState(
           state,
@@ -483,8 +366,7 @@ export function createWorkspaceSlice(set: SetFn) {
               composerTextInsertRequest: {
                 requestId,
                 text,
-                // 批量优先；单数 mention 仅在无批量时透传（兼容既有生产者）。
-                ...(batch ? { mentions: batch } : mention ? { mention } : {}),
+                ...(mention ? { mention } : {}),
                 ...(mode ? { mode } : {}),
               },
             };
@@ -513,27 +395,7 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
-    requestComposerFocus: (workspacePath: string, workspaceIdentity?: string) => {
-      set((state) =>
-        updateWorkspaceState(
-          state,
-          workspacePath,
-          // 只递增版本号发聚焦意图（ConversationComposer 对 draftFocusVersion 变化
-          // 主动 requestComposerFocus）；不带任何会话/草稿态变更，重复调用无害。
-          (current) => ({
-            ...current,
-            draftFocusVersion: current.draftFocusVersion + 1,
-          }),
-          workspaceIdentity,
-        ),
-      );
-    },
-
-    requestTimelineBottom: (
-      workspacePath: string,
-      taskId: string,
-      workspaceIdentity?: string,
-    ) => {
+    requestTimelineBottom: (workspacePath: string, taskId: string, workspaceIdentity?: string) => {
       let nextRequestId = 0;
       set((state) =>
         updateWorkspaceState(
@@ -589,10 +451,77 @@ export function createWorkspaceSlice(set: SetFn) {
         ),
       );
     },
-    clearDraftTaskGroup: (
+
+    setDraftWorktree: (
       workspacePath: string,
+      worktree: { ref: string | null } | null,
       workspaceIdentity?: string,
     ) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          workspacePath,
+          (current) => ({ ...current, draftWorktree: worktree }),
+          workspaceIdentity,
+        ),
+      );
+    },
+
+    beginWorktreeHandoff: (
+      workspacePath: string,
+      handoff: { sessionId: string; creation: ManagedWorktreeCreation },
+      workspaceIdentity?: string,
+    ) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          workspacePath,
+          (current) => ({ ...current, worktreeHandoff: handoff }),
+          workspaceIdentity,
+        ),
+      );
+    },
+
+    finishWorktreeHandoff: (
+      workspacePath: string,
+      sessionId: string,
+      workspaceIdentity?: string,
+    ) => {
+      // 没有属于该会话的交接时返回原 state，避免 SessionPane 的 effect 引起无效渲染。
+      set((state) =>
+        state.getWorkspaceState(workspacePath, workspaceIdentity).worktreeHandoff?.sessionId !==
+        sessionId
+          ? state
+          : updateWorkspaceState(
+              state,
+              workspacePath,
+              (current) => ({ ...current, worktreeHandoff: null }),
+              workspaceIdentity,
+            ),
+      );
+    },
+
+    viewWorktreeCreation: (
+      workspacePath: string,
+      creationId: string | null,
+      workspaceIdentity?: string,
+    ) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          workspacePath,
+          (current) => ({
+            ...current,
+            ...(creationId ? { activeTaskId: null, draftWorktree: null } : {}),
+            draftWorktreeCreationId: creationId,
+          }),
+          workspaceIdentity,
+        ),
+      );
+    },
+
+    clearDraftTaskGroup: (workspacePath: string, workspaceIdentity?: string) => {
+      // 关闭分组行只撤销组织意图；调用 startDraft 会重置预热、配置和焦点。
       set((state) =>
         updateWorkspaceState(
           state,
@@ -605,12 +534,12 @@ export function createWorkspaceSlice(set: SetFn) {
         ),
       );
     },
+
     startDraft: (
       workspacePath: string,
       provider?: ZCodeProvider,
       workspaceIdentity?: string,
       options?: {
-        groupedDraftPlacement?: GroupedDraftTaskPlacement;
         projectId?: string | null;
         taskGroupId?: string | null;
         createSource?: SessionCreateSource;
@@ -632,14 +561,11 @@ export function createWorkspaceSlice(set: SetFn) {
               normalizedProvider ?? current.selectedProvider,
             );
             const shouldResetSupplierForDraftProvider =
-              Boolean(normalizedProvider) &&
-              nextSelectedProvider !== current.selectedProvider;
+              Boolean(normalizedProvider) && nextSelectedProvider !== current.selectedProvider;
             const shouldClearSlashCommands =
-              current.activeTaskId !== null ||
-              shouldResetSupplierForDraftProvider;
+              current.activeTaskId !== null || shouldResetSupplierForDraftProvider;
             const shouldInheritActiveTaskConfig =
-              current.activeTaskId !== null &&
-              !shouldResetSupplierForDraftProvider;
+              current.activeTaskId !== null && !shouldResetSupplierForDraftProvider;
             const activeTaskIdForInheritance = shouldInheritActiveTaskConfig
               ? current.activeTaskId
               : null;
@@ -647,8 +573,7 @@ export function createWorkspaceSlice(set: SetFn) {
               ? current.taskConfigOptionsByTaskId[activeTaskIdForInheritance]
               : null;
             const inheritedConfigOptions = activeTaskIdForInheritance
-              ? cachedActiveTaskConfigOptions &&
-                cachedActiveTaskConfigOptions.length > 0
+              ? cachedActiveTaskConfigOptions && cachedActiveTaskConfigOptions.length > 0
                 ? cachedActiveTaskConfigOptions
                 : // Bug 原因：protocol-v4 当前任务的配置可能只完成了 workspace 投影，
                   // legacy task 缓存尚未写入或仍是首帧空数组。此时工具条已经显示
@@ -661,58 +586,24 @@ export function createWorkspaceSlice(set: SetFn) {
                 : null;
             const inheritedConfigOptionsStatus =
               current.activeTaskId && inheritedDraftConfigOptions
-                ? (current.taskConfigOptionsStatusByTaskId[
-                    current.activeTaskId
-                  ] ?? "ready")
+                ? (current.taskConfigOptionsStatusByTaskId[current.activeTaskId] ?? "ready")
                 : current.configOptionsStatus;
-            const nextGroupedDraftTask = (() => {
-              const placement = options?.groupedDraftPlacement;
-              if (!placement) {
-                return null;
-              }
-              if (
-                current.activeTaskId === null &&
-                current.groupedDraftTask &&
-                isSameGroupedDraftPlacement(
-                  current.groupedDraftTask.placement,
-                  placement,
-                )
-              ) {
-                return current.groupedDraftTask;
-              }
-              if (current.activeTaskId === null && current.groupedDraftTask) {
-                // 同一个 grouped 草稿可以被不同 New task 入口重新定位。
-                // 连续点击同入口要复用临时实体，但从全局入口切到 group 入口时，创建位置必须跟随最新入口。
-                return {
-                  ...current.groupedDraftTask,
-                  workspacePath,
-                  ...(workspaceIdentity ? { workspaceIdentity } : {}),
-                  placement,
-                };
-              }
-              const createdAt = Date.now();
-              return {
-                draftId: createGroupedDraftId(createdAt),
-                workspacePath,
-                ...(workspaceIdentity ? { workspaceIdentity } : {}),
-                placement,
-                createdAt,
-              };
-            })();
             return {
               ...current,
               activeTaskId: null,
+              // 同项目重入不会递增失效版本；新打开请求由调用方在进入草稿之后投递。
+              pluginUiOpenRequest: null,
               composerInitialization: undefined,
               draftProjectId: options?.projectId,
               draftTaskGroupId: options?.taskGroupId,
-              // 同 cwd 的项目目录范围不同；更换项目必须使原预热 owner 退休。
+              // 新草稿默认在本地运行，也不再展示之前的 worktree 创建记录（§3.2）。
+              draftWorktree: null,
+              draftWorktreeCreationId: null,
+              // 同 cwd 可属于多个项目；换项目不能复用前一个项目的预热 runtime 目录范围。
               draftRuntimeInvalidationVersion:
                 current.draftRuntimeInvalidationVersion +
                 Number(current.draftProjectId !== options?.projectId),
-              groupedDraftTask: nextGroupedDraftTask,
-              draftCreateSource:
-                options?.createSource ??
-                (options?.groupedDraftPlacement ? "group" : "session"),
+              draftCreateSource: options?.createSource ?? "session",
               draftRuntime: { status: "idle", error: null },
               // 从已有 task 点 New Task 时，草稿输入框必须继承当前 task 的完整配置。
               // 否则后续 workspace prepare 会按 Team Plan / 默认模型重建草稿，把已选的其他模型回弹成 GLM。
@@ -720,9 +611,6 @@ export function createWorkspaceSlice(set: SetFn) {
                 ? {
                     configOptions: inheritedDraftConfigOptions,
                     configOptionsStatus: inheritedConfigOptionsStatus,
-                    // 旧 deferred draft session 可能仍停在上一次默认模型。
-                    // 继承 active task 后必须重新创建 draft session，避免旧 session 回包覆盖新草稿。
-                    draftSessionId: null,
                   }
                 : {}),
               draftError: null,
@@ -741,39 +629,19 @@ export function createWorkspaceSlice(set: SetFn) {
               // 但以前这里每次“新建任务”都无条件清空，草稿态重复点击会把命令列表清空且不会触发回填。
               // 仅在“从 task 切到 draft”或“provider 真正切换”时清空，避免同草稿态重复点击误伤。
               ...(shouldClearSlashCommands ? { slashCommands: [] } : {}),
-              ...(normalizedProvider
-                ? { selectedProvider: nextSelectedProvider }
-                : {}),
+              ...(normalizedProvider ? { selectedProvider: nextSelectedProvider } : {}),
               ...(shouldResetSupplierForDraftProvider
                 ? {
                     // 某些“新建任务”入口会把当前 selectedProvider 透传回 startDraft。
                     // 如果 provider 实际没变化却强制重置 supplier，会出现“显示 custom 模型但 custom 选项被锁”的撕裂态。
                     // 这里只在 provider 真正切换时才回到 native，避免同 provider 新建草稿误伤现有 supplier 上下文。
-                    selectedSupplierKey:
-                      buildNativeSupplierKey(nextSelectedProvider),
+                    selectedSupplierKey: buildNativeSupplierKey(nextSelectedProvider),
                     isGhostSupplier: false,
                     supplierMismatchReason: null,
                   }
                 : {}),
             };
           },
-          workspaceIdentity,
-        ),
-      );
-    },
-
-    clearGroupedDraftTask: (
-      workspacePath: string,
-      workspaceIdentity?: string,
-    ) => {
-      set((state) =>
-        updateWorkspaceState(
-          state,
-          workspacePath,
-          (current) =>
-            current.groupedDraftTask
-              ? { ...current, groupedDraftTask: null }
-              : current,
           workspaceIdentity,
         ),
       );
@@ -955,11 +823,7 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
-    finishModelSwitch: (
-      workspacePath: string,
-      requestId: string,
-      workspaceIdentity?: string,
-    ) => {
+    finishModelSwitch: (workspacePath: string, requestId: string, workspaceIdentity?: string) => {
       set((state) =>
         updateWorkspaceState(
           state,
@@ -987,16 +851,9 @@ export function createWorkspaceSlice(set: SetFn) {
       workspaceIdentity?: string,
     ) => {
       set((state) => {
-        const current = getWorkspaceState(
-          state,
-          workspacePath,
-          workspaceIdentity,
-        );
+        const current = getWorkspaceState(state, workspacePath, workspaceIdentity);
         const normalizedOptions = normalizeConfigOptions(options);
-        const skipped = areConfigOptionsEquivalent(
-          current.configOptions,
-          normalizedOptions,
-        );
+        const skipped = areConfigOptionsEquivalent(current.configOptions, normalizedOptions);
         if (skipped) {
           // 无 API key / 旧模型不可用时，工具栏 recovery effect 会多次提交同一份空模型配置。
           // 等价配置不应触发 workspace 级 store 通知，否则 ChatInputToolbar 会在 effect 中再次 setConfigOptions。
@@ -1063,18 +920,11 @@ export function createWorkspaceSlice(set: SetFn) {
           state,
           workspacePath,
           (current) => {
-            const nextConfigOptions = updateCurrentModeConfigOption(
-              current.configOptions,
-              modeId,
+            const nextConfigOptions = updateCurrentModeConfigOption(current.configOptions, modeId);
+            const activeTaskPatch = updateActiveTaskConfigOptions(current, (options) =>
+              updateCurrentModeConfigOption(options, modeId),
             );
-            const activeTaskPatch = updateActiveTaskConfigOptions(
-              current,
-              (options) => updateCurrentModeConfigOption(options, modeId),
-            );
-            if (
-              nextConfigOptions === current.configOptions &&
-              !activeTaskPatch
-            ) {
+            if (nextConfigOptions === current.configOptions && !activeTaskPatch) {
               return current;
             }
             return {
@@ -1091,10 +941,7 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
-    bumpTaskListVersion: (
-      workspacePath: string,
-      workspaceIdentity?: string,
-    ) => {
+    bumpTaskListVersion: (workspacePath: string, workspaceIdentity?: string) => {
       set((state) =>
         updateWorkspaceState(
           state,
@@ -1140,16 +987,11 @@ export function createWorkspaceSlice(set: SetFn) {
           state,
           workspacePath,
           (current) => {
-            const optimisticTaskMeta =
-              current.optimisticTaskListByTaskId[taskId];
-            const cachedTaskMeta = current.taskListCache?.find(
-              (task) => task.taskId === taskId,
-            );
+            const optimisticTaskMeta = current.optimisticTaskListByTaskId[taskId];
+            const cachedTaskMeta = current.taskListCache?.find((task) => task.taskId === taskId);
             const baseTaskMeta = optimisticTaskMeta ?? cachedTaskMeta;
-            const currentHasUnread =
-              current.taskUnreadByTaskId[taskId] === true;
-            const currentUnreadAt =
-              optimisticTaskMeta?.unreadAt ?? cachedTaskMeta?.unreadAt;
+            const currentHasUnread = current.taskUnreadByTaskId[taskId] === true;
+            const currentUnreadAt = optimisticTaskMeta?.unreadAt ?? cachedTaskMeta?.unreadAt;
 
             if (hasUnread) {
               const nextUnreadAt = baseTaskMeta?.unreadAt ?? Date.now();

@@ -7,8 +7,7 @@ const GIT_MARKER = ".git";
 const HOME_PREFIX = "~/";
 const PRIORITY_STEP = 10;
 const SKILLS_DIR = "skills";
-const USER_ZCODE_DIR = ".zcodium";
-const PROJECT_ZCODE_DIR = ".zcode";
+const ZCODE_DIR = ".zcode";
 const AGENTS_DIR = ".agents";
 
 export interface SkillRootResolutionOptions {
@@ -86,7 +85,8 @@ async function resolveProjectSkillDirectories(workingDirectory: string): Promise
   return directories;
 }
 
-async function findWorktreeRoot(workingDirectory: string): Promise<string | null> {
+/** 从工作目录向上找最近的 `.git`；项目 skill 根只扫到这一层。 */
+export async function findWorktreeRoot(workingDirectory: string): Promise<string | null> {
   let current = workingDirectory;
   while (true) {
     if (await pathExists(join(current, GIT_MARKER))) return current;
@@ -113,7 +113,7 @@ function skillRootsForBase(
   // 合并而不是 fallback：用户可能同时安装原生 `.zcode` skill 和兼容 `.agents` skill。
   // 同一级别仍保持 `.zcode` 优先，后续同名按 root 顺序解析。
   return [
-    root(join(baseDirectory, scope === "user" ? USER_ZCODE_DIR : PROJECT_ZCODE_DIR, SKILLS_DIR), scope, "zcode", nextPriority()),
+    root(join(baseDirectory, ZCODE_DIR, SKILLS_DIR), scope, "zcode", nextPriority()),
     root(join(baseDirectory, AGENTS_DIR, SKILLS_DIR), scope, "agents", nextPriority()),
   ];
 }

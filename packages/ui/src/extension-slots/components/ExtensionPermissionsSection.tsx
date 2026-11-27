@@ -26,13 +26,10 @@ const WRITE_ACTION_LABEL_IDS: Record<string, string> = {
   "sessions.interruptSession": "extensions.permissions.action.interruptSession",
   "sessions.renameSession": "extensions.permissions.action.renameSession",
   "sessions.openSession": "extensions.permissions.action.openSession",
-  "sessions.setSessionArchived":
-    "extensions.permissions.action.setSessionArchived",
+  "sessions.setSessionArchived": "extensions.permissions.action.setSessionArchived",
   "sessions.setSessionPinned": "extensions.permissions.action.setSessionPinned",
-  "sessions.resolveInteraction":
-    "extensions.permissions.action.resolveInteraction",
-  "sessions.setPermissionMode":
-    "extensions.permissions.action.setPermissionMode",
+  "sessions.resolveInteraction": "extensions.permissions.action.resolveInteraction",
+  "sessions.setPermissionMode": "extensions.permissions.action.setPermissionMode",
 };
 
 const STATUS_LABEL_IDS = {
@@ -45,9 +42,7 @@ const STATUS_LABEL_IDS = {
  * 插件详情页的「权限」区块（docs/plugins/extension-host.md §17.7）：清单声明或已授予的会话权限、授权或撤销、
  * 系统通知开关（§18.1 H8）、最近操作（审计日志里该插件的行）。插件没有声明档位、也没有记录时不渲染；Web 与手机远控没有授权门面，也不渲染。
  */
-export function ExtensionPermissionsSection({
-  pluginId,
-}: ExtensionPermissionsSectionProps) {
+export function ExtensionPermissionsSection({ pluginId }: ExtensionPermissionsSectionProps) {
   const { intl, locale } = useZCodeIntl();
   const state = useExtensionGrantState(pluginId);
   const requestGrant = useRequestExtensionGrant();
@@ -62,10 +57,7 @@ export function ExtensionPermissionsSection({
       : state.status === "inactive"
         ? state.recorded
         : state.declared;
-  const time = new Intl.DateTimeFormat(locale, {
-    dateStyle: "short",
-    timeStyle: "short",
-  });
+  const time = new Intl.DateTimeFormat(locale, { dateStyle: "short", timeStyle: "short" });
   const actionLabel = (entry: NonNullable<typeof actions>[number]) => {
     const label = intl.formatMessage(
       {
@@ -82,18 +74,12 @@ export function ExtensionPermissionsSection({
                     "extensions.permissions.action.other"),
       },
       {
-        tiers:
-          entry.grant && entry.grant !== "none"
-            ? formatGrants([entry.grant])
-            : "",
+        tiers: entry.grant && entry.grant !== "none" ? formatGrants([entry.grant]) : "",
         capability: entry.capability,
       },
     );
     return entry.outcome === "error"
-      ? intl.formatMessage(
-          { id: "extensions.permissions.action.failed" },
-          { action: label },
-        )
+      ? intl.formatMessage({ id: "extensions.permissions.action.failed" }, { action: label })
       : label;
   };
   return (
@@ -147,22 +133,16 @@ export function ExtensionPermissionsSection({
         <div className="mt-3 flex min-w-0 items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="text-ui-base text-foreground">
-              {intl.formatMessage({
-                id: "extensions.permissions.notifications",
-              })}
+              {intl.formatMessage({ id: "extensions.permissions.notifications" })}
             </div>
             <div className="text-ui-sm text-foreground-subtle">
-              {intl.formatMessage({
-                id: "extensions.permissions.notificationsNote",
-              })}
+              {intl.formatMessage({ id: "extensions.permissions.notificationsNote" })}
             </div>
           </div>
           <Switch
             data-testid={TID_EXTENSION_PERMISSIONS_NOTIFICATIONS}
             data-plugin-id={pluginId}
-            aria-label={intl.formatMessage({
-              id: "extensions.permissions.notifications",
-            })}
+            aria-label={intl.formatMessage({ id: "extensions.permissions.notifications" })}
             checked={state.notificationsEnabled}
             onCheckedChange={(checked) => void setNotifications(state, checked)}
           />
@@ -182,12 +162,8 @@ export function ExtensionPermissionsSection({
               data-outcome={entry.outcome}
               className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-3 text-ui-base"
             >
-              <span className="text-foreground-subtle tabular-nums">
-                {time.format(entry.ts)}
-              </span>
-              <span className="min-w-0 truncate text-foreground">
-                {actionLabel(entry)}
-              </span>
+              <span className="text-foreground-subtle tabular-nums">{time.format(entry.ts)}</span>
+              <span className="min-w-0 truncate text-foreground">{actionLabel(entry)}</span>
             </li>
           ))}
         </ul>

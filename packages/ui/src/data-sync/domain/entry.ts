@@ -1,15 +1,9 @@
 import { getWorkspaceSourceServerId } from "@/conversation-workspace-target/sourceIdentity.js";
 
 /** 旧同步入口（连接向导、Header、侧栏项目菜单、设置页）只在这三种 Source 远端上显示。 */
-const DATA_SYNC_ENTRY_TARGET_KINDS: ReadonlySet<string> = new Set([
-  "ssh",
-  "wsl",
-  "docker",
-]);
+const DATA_SYNC_ENTRY_TARGET_KINDS: ReadonlySet<string> = new Set(["ssh", "wsl", "docker"]);
 
-export function isDataSyncEntryRemoteTarget(
-  target: { kind: string } | null | undefined,
-): boolean {
+export function isDataSyncEntryRemoteTarget(target: { kind: string } | null | undefined): boolean {
   return Boolean(target && DATA_SYNC_ENTRY_TARGET_KINDS.has(target.kind));
 }
 

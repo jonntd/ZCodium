@@ -1,27 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowRightLeft,
-  Info,
-  LoaderCircle,
-  Plug,
-  RotateCcw,
-  Server,
-  Upload,
-} from "lucide-react";
-import type {
-  DeviceSyncState,
-  SourceServerManagementSnapshot,
-} from "@zcode/shared";
+import { ArrowRightLeft, Info, LoaderCircle, Plug, RotateCcw, Server, Upload } from "lucide-react";
+import type { DeviceSyncState, SourceServerManagementSnapshot } from "@zcode/shared";
 import type {
   DeviceAdditionReturnTarget,
   RemoteConnectionOpenPreference,
 } from "@/app-shell/types.js";
 import { Button } from "@/components/ui/button.js";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover.js";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover.js";
 import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
@@ -29,10 +14,7 @@ import {
   resolveRemoteConnectionPresentation,
 } from "@/lib/remoteConnectionPresentation.js";
 import { logger } from "@/logger.js";
-import type {
-  DataSyncDeviceSummary,
-  IDeviceSyncStateService,
-} from "@/data-sync/contract.js";
+import type { DataSyncDeviceSummary, IDeviceSyncStateService } from "@/data-sync/contract.js";
 import { toDataSyncDeviceSummary } from "@/data-sync/ui/DataSyncDialogContainer.js";
 import { useDataSyncEntry } from "@/data-sync/ui/DataSyncEntry.js";
 import { useDataSyncResultVersion } from "@/data-sync/ui/DataSyncDialogProvider.js";
@@ -41,9 +23,7 @@ export interface DataSyncSectionProps {
   snapshot: SourceServerManagementSnapshot | null;
   deviceSyncStateService?: IDeviceSyncStateService;
   /** 打开已有的全局连接向导（Root 注入）；返回 false 表示向导正忙、未接受本次意图。 */
-  onOpenRemoteConnection?: (
-    preference: RemoteConnectionOpenPreference,
-  ) => boolean | void;
+  onOpenRemoteConnection?: (preference: RemoteConnectionOpenPreference) => boolean | void;
   /** 打开迁移向导（直接进入第一步「会话」），从其他 AI 工具导入本机。 */
   onOpenMigration?: () => void;
   now?: () => number;
@@ -59,11 +39,7 @@ interface DataSyncDeviceRow extends DataSyncDeviceSummary {
 }
 
 /** 设备行最终显示态，同时写在行的 data-device-state 上供 E2E 断言。 */
-type DataSyncDeviceDisplayState =
-  | "synced"
-  | "sync-failed"
-  | "connecting"
-  | "disconnected";
+type DataSyncDeviceDisplayState = "synced" | "sync-failed" | "connecting" | "disconnected";
 
 const CONNECTION_STATUS_CLASS: Record<DataSyncDeviceConnection, string> = {
   online: "text-success-surface-foreground",
@@ -100,19 +76,10 @@ function buildDataSyncDevices(
         ),
     )
     .map((server) => {
-      const input = getRemoteDevicePresentationInput(
-        snapshot,
-        server.sourceServerId,
-      );
+      const input = getRemoteDevicePresentationInput(snapshot, server.sourceServerId);
       return {
-        ...toDataSyncDeviceSummary(
-          server.sourceServerId,
-          input,
-          server.displayName,
-        ),
-        connection: toDeviceConnection(
-          resolveRemoteConnectionPresentation(input).status,
-        ),
+        ...toDataSyncDeviceSummary(server.sourceServerId, input, server.displayName),
+        connection: toDeviceConnection(resolveRemoteConnectionPresentation(input).status),
         profileId: input.profileId,
       };
     });
@@ -132,13 +99,8 @@ export function DataSyncSection(props: DataSyncSectionProps) {
   const resultVersion = useDataSyncResultVersion();
   const { intl, locale } = useZCodeIntl();
   const now = props.now ?? Date.now;
-  const devices = useMemo(
-    () => buildDataSyncDevices(props.snapshot),
-    [props.snapshot],
-  );
-  const [syncStates, setSyncStates] = useState<Record<string, DeviceSyncState>>(
-    {},
-  );
+  const devices = useMemo(() => buildDataSyncDevices(props.snapshot), [props.snapshot]);
+  const [syncStates, setSyncStates] = useState<Record<string, DeviceSyncState>>({});
   const deviceSyncStateService = props.deviceSyncStateService;
   const onOpenRemoteConnection = props.onOpenRemoteConnection;
   const mounted = useRef(false);
@@ -169,9 +131,7 @@ export function DataSyncSection(props: DataSyncSectionProps) {
         returnTarget,
       });
       if (accepted === false) {
-        logger.info("[DataSync] 连接向导正忙，未接受本次连接", {
-          preferredProfileId,
-        });
+        logger.info("[DataSync] 连接向导正忙，未接受本次连接", { preferredProfileId });
       }
     },
     [onOpenRemoteConnection],
@@ -194,8 +154,7 @@ export function DataSyncSection(props: DataSyncSectionProps) {
   }, [reloadSyncStates, resultVersion]);
 
   const formatSyncStatus = (state: DeviceSyncState | undefined): string => {
-    if (!state)
-      return intl.formatMessage({ id: "remoteSync.device.neverSynced" });
+    if (!state) return intl.formatMessage({ id: "remoteSync.device.neverSynced" });
     if (state.lastResult !== "success") {
       return intl.formatMessage({ id: "remoteSync.device.status.failed" });
     }
@@ -258,18 +217,12 @@ export function DataSyncSection(props: DataSyncSectionProps) {
                 variant="ghost"
                 size="icon-md"
                 data-testid="remote-sync-rules-trigger"
-                aria-label={intl.formatMessage({
-                  id: "remoteSync.rules.title",
-                })}
+                aria-label={intl.formatMessage({ id: "remoteSync.rules.title" })}
               >
                 <Info className="size-3.5" aria-hidden="true" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent
-              align="start"
-              className="gap-2 p-3"
-              data-testid="remote-sync-rules"
-            >
+            <PopoverContent align="start" className="gap-2 p-3" data-testid="remote-sync-rules">
               <div className="font-medium">
                 {intl.formatMessage({ id: "remoteSync.rules.title" })}
               </div>
@@ -285,10 +238,7 @@ export function DataSyncSection(props: DataSyncSectionProps) {
           data-testid="remote-sync-empty"
           className="rounded-xl border border-dashed border-border px-6 py-12 text-center"
         >
-          <Server
-            className="mx-auto size-8 text-foreground-subtlest"
-            aria-hidden="true"
-          />
+          <Server className="mx-auto size-8 text-foreground-subtlest" aria-hidden="true" />
           <div className="mt-3 text-ui-base font-medium text-foreground">
             {intl.formatMessage({ id: "remoteSync.empty.title" })}
           </div>
@@ -323,13 +273,9 @@ export function DataSyncSection(props: DataSyncSectionProps) {
                   : "synced";
             const statusText =
               displayState === "connecting"
-                ? intl.formatMessage({
-                    id: "remoteSync.device.status.connecting",
-                  })
+                ? intl.formatMessage({ id: "remoteSync.device.status.connecting" })
                 : displayState === "disconnected"
-                  ? intl.formatMessage({
-                      id: "remoteSync.device.status.offline",
-                    })
+                  ? intl.formatMessage({ id: "remoteSync.device.status.offline" })
                   : formatSyncStatus(state);
             const actionMessageId =
               displayState === "connecting"
@@ -359,9 +305,7 @@ export function DataSyncSection(props: DataSyncSectionProps) {
                 )}
               >
                 <div className="col-span-2 min-w-0 sm:col-span-1">
-                  <div className="text-ui-base font-medium text-foreground">
-                    {device.name}
-                  </div>
+                  <div className="text-ui-base font-medium text-foreground">{device.name}</div>
                   <div className="mt-0.5 break-words text-ui-sm text-remote-foreground-muted">
                     {device.description}
                   </div>
@@ -380,13 +324,9 @@ export function DataSyncSection(props: DataSyncSectionProps) {
                       aria-hidden="true"
                     />
                     {device.connection === "online" ? (
-                      intl.formatMessage({
-                        id: "remoteSync.device.status.online",
-                      })
+                      intl.formatMessage({ id: "remoteSync.device.status.online" })
                     ) : (
-                      <span data-testid="remote-sync-device-status">
-                        {statusText}
-                      </span>
+                      <span data-testid="remote-sync-device-status">{statusText}</span>
                     )}
                   </div>
                   {device.connection === "online" ? (
@@ -413,8 +353,7 @@ export function DataSyncSection(props: DataSyncSectionProps) {
                     (displayState === "disconnected" && !onOpenRemoteConnection)
                   }
                   onClick={() => {
-                    if (displayState === "disconnected")
-                      openConnectionWizard(device.profileId);
+                    if (displayState === "disconnected") openConnectionWizard(device.profileId);
                     else
                       syncEntry.open({
                         sourceServerId: device.sourceServerId,
@@ -423,10 +362,7 @@ export function DataSyncSection(props: DataSyncSectionProps) {
                   }}
                 >
                   <ActionIcon
-                    className={cn(
-                      "size-3.5",
-                      displayState === "connecting" && "animate-spin",
-                    )}
+                    className={cn("size-3.5", displayState === "connecting" && "animate-spin")}
                     aria-hidden="true"
                   />
                   {intl.formatMessage({ id: actionMessageId })}

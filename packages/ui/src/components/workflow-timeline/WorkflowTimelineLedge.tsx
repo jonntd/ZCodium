@@ -176,7 +176,7 @@ export function WorkflowLedge({
       )}
       className={cn(
         "wf-ledge pointer-events-auto absolute flex h-6 items-center",
-        side === "left" ? "start-0 ps-2" : "end-0 pe-2",
+        side === "left" ? "left-0 pl-2" : "right-0 pr-2",
       )}
       data-testid={`workflow-timeline-ledge-${side}`}
       role="group"

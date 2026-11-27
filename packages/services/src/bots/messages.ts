@@ -1,4 +1,4 @@
-import type { Locale } from "@zcode/shared";
+import { toZhOrEnLocale, type Locale } from "@zcode/shared";
 
 export type BotMessageLocale = Extract<Locale, "zh-CN" | "en-US">;
 
@@ -46,16 +46,10 @@ const messages = {
     attachmentRejected: "附件处理失败：{message}",
     attachmentDownloadUnavailable:
       "无法下载附件。文件可能已过期、已撤回，或机器人没有读取权限。请重新发送附件后再试。",
-    attachmentTooLarge: "附件超过 5MB，请压缩后重新发送。",
     selectionCancelled: "已取消。",
     selectionCancelOption: "取消",
     selectionTextHint: "回复数字选择，0 取消。",
     selectionTextHintNoCancel: "回复数字选择。",
-    // AstrBot 桥接的 canonical 文本提示：纯文本渠道需要把「对应命令」一起告诉用户。
-    selectionCommandHint: "回复 {command} <序号> 进行选择。",
-    permissionSelectionHint: "回复 /permission <序号>，或直接发送上方对应命令。",
-    elicitationReplyHint:
-      "回复 /elicitation {token} <序号> 进行选择；多选完成后回复 /elicitation {token} submit。",
     newTaskDraft: "已进入 {workspacePath} 的新任务草稿。",
     workspaceSelectTitle: "当前 workspace {workspace}\n选择 workspace",
     workspaceMissing: "未找到可用 workspace。",
@@ -63,6 +57,8 @@ const messages = {
     modelProviderSelectTitle: "当前模型 {model}\n选择模型供应商",
     modelModelSelectTitle: "当前模型 {model}\n选择模型",
     modelMissing: "未找到 model。",
+    modelSelectionBasisUnsupported:
+      "目标 CLI 版本过旧，无法安全接纳本次输入。请升级目标 CLI 后手动重试；本次输入未执行。",
     sessionModelUnavailable: "当前会话的模型选择不可用，请使用 /model 重新选择。原选择已保留。",
     modeSelectTitle: "当前模式 {mode}\n选择模式",
     modeMissing: "未找到模式。",
@@ -135,6 +131,10 @@ const messages = {
     replySelectTitle: "当前第三方回复颗粒度 {mode}\n选择第三方回复颗粒度",
     replyMissing: "未找到回复颗粒度。",
     replyChanged: "第三方回复颗粒度已切换为 {mode}。",
+    selectionCommandHint: "回复 {command} <序号> 进行选择。",
+    permissionSelectionHint: "回复 /permission <序号>，或直接发送上方对应命令。",
+    elicitationReplyHint:
+      "回复 /elicitation {token} <序号> 进行选择；多选完成后回复 /elicitation {token} submit。",
   },
   "en-US": {
     botDisabled: "This bot is not enabled.",
@@ -178,16 +178,10 @@ const messages = {
     attachmentRejected: "Failed to process attachment: {message}",
     attachmentDownloadUnavailable:
       "Could not download the attachment. The file may have expired, been removed, or the bot may not have permission to read it. Please send the attachment again and try once more.",
-    attachmentTooLarge: "The attachment exceeds 5MB. Compress it and send it again.",
     selectionCancelled: "Cancelled.",
     selectionCancelOption: "Cancel",
     selectionTextHint: "Reply with a number to choose, or 0 to cancel.",
     selectionTextHintNoCancel: "Reply with a number to choose.",
-    // Canonical-text hints for the AstrBot bridge: text-only channels must also show the command.
-    selectionCommandHint: "Reply with {command} <number> to choose.",
-    permissionSelectionHint: "Reply with /permission <number>, or send the command above.",
-    elicitationReplyHint:
-      "Reply with /elicitation {token} <number>; send /elicitation {token} submit when a multi-select is done.",
     newTaskDraft: "Entered a new task draft in {workspacePath}.",
     workspaceSelectTitle: "Current workspace {workspace}\nSelect workspace",
     workspaceMissing: "No available workspace found.",
@@ -195,6 +189,8 @@ const messages = {
     modelProviderSelectTitle: "Current model {model}\nSelect model provider",
     modelModelSelectTitle: "Current model {model}\nSelect model",
     modelMissing: "Model not found.",
+    modelSelectionBasisUnsupported:
+      "The target CLI is too old to safely accept this input. Upgrade the target CLI, then retry manually. This input was not executed.",
     sessionModelUnavailable:
       "The session's model selection is unavailable. Use /model to choose again. Your saved selection has been preserved.",
     modeSelectTitle: "Current mode {mode}\nSelect mode",
@@ -276,15 +272,18 @@ const messages = {
     replySelectTitle: "Current third-party reply detail {mode}\nSelect third-party reply detail",
     replyMissing: "Reply detail option not found.",
     replyChanged: "Third-party reply detail changed to {mode}.",
+    selectionCommandHint: "Reply with {command} <number> to choose.",
+    permissionSelectionHint: "Reply with /permission <number>, or send the command above.",
+    elicitationReplyHint:
+      "Reply with /elicitation {token} <number>; send /elicitation {token} submit when a multi-select is done.",
   },
 } as const;
 
 export type BotMessageId = keyof (typeof messages)[BotMessageLocale];
 
 export function normalizeBotMessageLocale(locale: Locale | undefined): BotMessageLocale {
-  // bot 文案只有 zh/en 两份；fa-IR 等其他界面语言跟随英文，undefined 保持 zh 默认。
-  if (locale === "fa-IR") return "en-US";
-  return locale === "en-US" ? "en-US" : DEFAULT_BOT_MESSAGE_LOCALE;
+  // 未知语言保持中文默认；ja-JP 等其它已知界面语言用英文。
+  return locale === undefined ? DEFAULT_BOT_MESSAGE_LOCALE : toZhOrEnLocale(locale);
 }
 
 export function formatBotMessage(

@@ -43,9 +43,9 @@ export function resolveRuntimePermissionContext(
 ): ToolRuntimePermissionCapabilityContext {
   return {
     runtimeScope: deps.runtimeScope,
+    // 能力事件也必须使用实际 shell，否则经审批的 CMD 命令会被重新标成只读。
+    bashShellSelection: deps.getBashShellSelection?.() ?? deps.bashShellSelection,
     workingDirectory: deps.getWorkingDirectory(),
     workspaceRoot: deps.getWorkspaceRoot(),
-    // 删除保护按 getter 实时读取：设置变更对下一次权限判定立即生效。
-    deleteProtection: deps.getDeleteProtection?.(),
   };
 }

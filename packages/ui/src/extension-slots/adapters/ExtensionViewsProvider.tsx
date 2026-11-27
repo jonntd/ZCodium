@@ -52,9 +52,7 @@ export function ExtensionViewsProvider({
   const viewsService = useExtensionViewsService();
   const { intl, locale } = useZCodeIntl();
   const platform = useOptionalPlatform();
-  const notificationEnabled = useZCodeStore(
-    (state) => state.notificationEnabled,
-  );
+  const notificationEnabled = useZCodeStore((state) => state.notificationEnabled);
   const notificationEnabledRef = useRef(notificationEnabled);
   notificationEnabledRef.current = notificationEnabled;
   const intlRef = useRef(intl);
@@ -98,9 +96,7 @@ export function ExtensionViewsProvider({
 
   useEffect(() => {
     if (!viewsService) return;
-    const subscription = viewsService.onDynamicViewOpenRequests(undefined)((
-      request,
-    ) => {
+    const subscription = viewsService.onDynamicViewOpenRequests(undefined)((request) => {
       const ok = openView(request.viewId);
       logger.lifecycle.info("[extension-slots] views.open", {
         viewId: request.viewId,
@@ -124,9 +120,7 @@ export function ExtensionViewsProvider({
 
   useEffect(() => {
     if (!viewsService) return;
-    const subscription = viewsService.onDynamicDraftRequests(undefined)((
-      request,
-    ) => {
+    const subscription = viewsService.onDynamicDraftRequests(undefined)((request) => {
       let ok = false;
       try {
         ok = onStartDraftRef.current({
@@ -153,12 +147,9 @@ export function ExtensionViewsProvider({
           ...(ok ? {} : { error: "this window cannot start a draft now" }),
         })
         .catch((error: unknown) => {
-          logger.lifecycle.warn(
-            "[extension-slots] workbench.startDraft ack failed",
-            {
-              message: error instanceof Error ? error.message : String(error),
-            },
-          );
+          logger.lifecycle.warn("[extension-slots] workbench.startDraft ack failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
         });
     });
     return () => subscription.dispose();
@@ -167,9 +158,7 @@ export function ExtensionViewsProvider({
   // notifications.show（§18.1 H8）：Window Host 已查档位、详情页开关与限额；这里查设置页开关，再交给 Main。
   useEffect(() => {
     if (!viewsService) return;
-    const subscription = viewsService.onDynamicNotificationRequests(undefined)((
-      request,
-    ) => {
+    const subscription = viewsService.onDynamicNotificationRequests(undefined)((request) => {
       const ack = (result: NotificationsShowResult) => {
         // 不记标题与正文。
         logger.lifecycle.info("[extension-slots] notifications.show", {
@@ -180,12 +169,9 @@ export function ExtensionViewsProvider({
         void viewsService
           .ackNotificationRequest({ requestId: request.requestId, result })
           .catch((error: unknown) => {
-            logger.lifecycle.warn(
-              "[extension-slots] notifications.show ack failed",
-              {
-                message: error instanceof Error ? error.message : String(error),
-              },
-            );
+            logger.lifecycle.warn("[extension-slots] notifications.show ack failed", {
+              message: error instanceof Error ? error.message : String(error),
+            });
           });
       };
       if (!notificationEnabledRef.current) {
@@ -224,9 +210,7 @@ export function ExtensionViewsProvider({
       const view = click.viewId
         ? viewsRef.current.find((candidate) => candidate.id === click.viewId)
         : undefined;
-      const opened = Boolean(
-        view && view.pluginId === click.pluginId && openView(view.id),
-      );
+      const opened = Boolean(view && view.pluginId === click.pluginId && openView(view.id));
       logger.lifecycle.info("[extension-slots] notification click", {
         pluginId: click.pluginId,
         view: Boolean(click.viewId),

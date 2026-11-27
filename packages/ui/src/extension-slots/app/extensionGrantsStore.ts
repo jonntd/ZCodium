@@ -21,9 +21,7 @@ export interface ExtensionGrantsStore {
 
 const stores = new WeakMap<IExtensionGrantsService, ExtensionGrantsStore>();
 
-export function getExtensionGrantsStore(
-  service: IExtensionGrantsService,
-): ExtensionGrantsStore {
+export function getExtensionGrantsStore(service: IExtensionGrantsService): ExtensionGrantsStore {
   const existing = stores.get(service);
   if (existing) return existing;
   const store = createStore<ExtensionGrantsState>(() => EMPTY_STATE);
@@ -43,9 +41,8 @@ export function getExtensionGrantsStore(
           logger.lifecycle.info("[extension-slots] grants", {
             rev: snapshot.rev,
             plugins: snapshot.plugins.length,
-            needsConsent: snapshot.plugins.filter(
-              (plugin) => plugin.status === "needs-consent",
-            ).length,
+            needsConsent: snapshot.plugins.filter((plugin) => plugin.status === "needs-consent")
+              .length,
           });
           store.setState({ snapshot });
         });

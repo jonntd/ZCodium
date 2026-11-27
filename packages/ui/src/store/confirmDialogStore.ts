@@ -18,7 +18,8 @@ export interface ConfirmDialogRequest {
   presentation?:
     | "automation-confirmation"
     | "source-server-boundary"
-    | "yolo-confirmation";
+    | "yolo-confirmation"
+    | "update-confirmation";
   confirmLabel?: string;
   confirmDisabled?: boolean;
   /** 弹窗挂载后开始只读检查；更新仅属于本次请求，关闭即取消。 */
@@ -26,10 +27,7 @@ export interface ConfirmDialogRequest {
     signal: AbortSignal;
     update: (
       patch: Partial<
-        Pick<
-          ConfirmDialogRequest,
-          "title" | "description" | "confirmLabel" | "confirmDisabled"
-        >
+        Pick<ConfirmDialogRequest, "title" | "description" | "confirmLabel" | "confirmDisabled">
       >,
     ) => void;
   }) => Promise<void>;
@@ -52,10 +50,7 @@ interface PendingConfirmDialogRequest extends ConfirmDialogRequest {
 
 interface ConfirmDialogState {
   pendingRequest?: PendingConfirmDialogRequest;
-  requestConfirmation: (
-    payload: ConfirmDialogRequest,
-    signal?: AbortSignal,
-  ) => Promise<boolean>;
+  requestConfirmation: (payload: ConfirmDialogRequest, signal?: AbortSignal) => Promise<boolean>;
   requestChoice: (
     payload: ConfirmDialogRequest,
     signal?: AbortSignal,
@@ -90,8 +85,7 @@ export const useConfirmDialogStore = create<ConfirmDialogState>((set, get) => ({
       };
       // 目标失效只能关闭自己的请求，不能结算后来打开的其他确认框。
       const abort = () => {
-        if (get().pendingRequest?.resolve === pendingRequest.resolve)
-          get().settleChoice("dismiss");
+        if (get().pendingRequest?.resolve === pendingRequest.resolve) get().settleChoice("dismiss");
       };
       signal?.addEventListener("abort", abort, { once: true });
       set({ pendingRequest });
@@ -103,32 +97,24 @@ export const useConfirmDialogStore = create<ConfirmDialogState>((set, get) => ({
     // StrictMode 或进度刷新不能启动第二份检查；迟到结果只可更新原请求。
     set({ pendingRequest: { ...request, prepare: undefined } });
     const isCurrent = () =>
-      !request.preparation.signal.aborted &&
-      get().pendingRequest?.resolve === request.resolve;
+      !request.preparation.signal.aborted && get().pendingRequest?.resolve === request.resolve;
     void request
       .prepare({
         signal: request.preparation.signal,
         update: (patch) => {
-          if (isCurrent())
-            set({ pendingRequest: { ...get().pendingRequest!, ...patch } });
+          if (isCurrent()) set({ pendingRequest: { ...get().pendingRequest!, ...patch } });
         },
       })
       .catch((error) => {
         if (!isCurrent()) return;
-        logger.warn("[ConfirmDialogStore] confirmation preparation failed", {
-          error,
-        });
+        logger.warn("[ConfirmDialogStore] confirmation preparation failed", { error });
         get().settleChoice("dismiss");
       });
   },
-  settleConfirmation: (confirmed) =>
-    get().settleChoice(confirmed ? "confirm" : "cancel"),
+  settleConfirmation: (confirmed) => get().settleChoice(confirmed ? "confirm" : "cancel"),
   settleChoice: (choice) => {
     const pendingRequest = get().pendingRequest;
-    if (
-      !pendingRequest ||
-      (choice === "confirm" && pendingRequest.confirmDisabled)
-    ) {
+    if (!pendingRequest || (choice === "confirm" && pendingRequest.confirmDisabled)) {
       return;
     }
 

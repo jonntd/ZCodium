@@ -1,3 +1,8 @@
+import { getLocalTtftObserver } from "@/v4/telemetry/local-ttft/contract.js";
+import { GenUiMessageResponse } from "@/gen-ui/index.js";
+import { ConversationUserInputBubble } from "@/v4/ConversationUserInputBubble.js";
+import { expandTopicInputMessages } from "@/v4/topicInputMessages.js";
+import { ConnectedBotGroupDeliveryAction } from "@/v4/BotGroupDeliveryAction.js";
 /* oxlint-disable eslint(max-lines) -- v4 逐行 row 渲染分发集中收口（每种 row 一个 memo 叶子 + timelineMarker 分隔线），拆分会打散行类型对照。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import {
@@ -5,45 +10,41 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
-  ArchiveIcon,
-  ArrowRightLeftIcon,
   CheckIcon,
+  Clock,
   CopyIcon,
-  FileClockIcon,
   FileIcon,
-  GitBranchIcon,
-  GoalIcon,
+  InfoIcon,
   PencilIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
   TrendingUpDownIcon,
   XIcon,
 } from "lucide-react";
+import { parseAutomationRunId } from "@zcode/shared";
 import {
   TID_V4_EDIT,
   TID_V4_EDIT_ATTACHMENT_REMOVE,
-  TID_V4_EDIT_CANCEL,
-  TID_V4_EDIT_INPUT,
-  TID_V4_EDIT_SUBMIT,
-  TID_V4_EDIT_REWIND_WORKSPACE,
+  TID_V4_EDIT_IN_COMPOSER_HINT,
   TID_V4_FEEDBACK_DISLIKE,
   TID_V4_FEEDBACK_LIKE,
   TID_V4_FORK,
   TID_V4_ROW,
   TID_V4_ROW_ATTACHMENTS,
   testId,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import type {
   AttachmentRef,
   ArtifactRow,
   AssistantTextRow,
-  CommandAck,
   ConversationRow,
+  ConversationInputSource,
   ConversationRowTarget,
   HookInvocationRow,
   ReasoningRow,
@@ -51,8 +52,8 @@ import type {
   TimelineMarkerRow,
   ToolCallRow,
   TurnHeaderRow,
+  UnreadableConversationRow,
   UserInputRow,
-  V4ConversationFileRewindPreviewResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import { AssistantPreviewCards } from "@/AssistantPreviewCards.js";
 import { AssistantCodeCommentCards } from "@/AssistantCodeCommentCards.js";
@@ -69,19 +70,14 @@ import {
   type ChatMediaAttachmentPreviewTarget,
 } from "@/ChatMediaAttachmentPreviewDialog.js";
 import type { PdfViewerRangeSource } from "@/components/ui/pdf-viewer.js";
-import {
-  MessageAction,
-  MessageActions,
-} from "@/components/ai-elements/message.js";
-import { GenUiMessageResponse } from "@/gen-ui/index.js";
+import { MessageAction, MessageActions } from "@/components/ai-elements/message.js";
 import {
   Reasoning,
   ReasoningContent,
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning.js";
 import { cn } from "@/components/lib/utils.js";
-import { Button } from "@/components/ui/button.js";
-import { ControlHintTooltip } from "@/ControlHintTooltip.js";
+import { composerEditSessionKey, useComposerEditStore } from "@/composer-edit-mode/index.js";
 import { WorkflowToolSummary } from "@/v4/WorkflowToolSummary.js";
 import {
   readWorkflowName,
@@ -89,12 +85,20 @@ import {
 } from "@/ToolCallBlocks/renderers/createWorkflowInput.js";
 import { WorkflowRetuneRow } from "@/ToolCallBlocks/renderers/WorkflowRetuneRow.js";
 import { workflowRunDefaultConcurrency } from "@/components/workflow-timeline/workflowRunSettings.js";
-import { isAmendWorkflowToolCall } from "@/lib/workflowToolNames.js";
+import { isAmendWorkflowToolCall, isFillWorkflowHoleToolCall } from "@/lib/workflowToolNames.js";
+import {
+  readWorkflowHoleTarget,
+  workflowFillCounts,
+} from "@/ToolCallBlocks/renderers/createWorkflowHoleInput.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { resolveWorkflowRunOpenToolCallId } from "@/v4/workflowRunCardJoin.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
+import { requestTaskNavigation } from "@/store/zcodeSessionStoreNavigation.js";
+import { useOptionalProjectDirectory } from "@/project-sidebar/ProjectDirectoryProvider.js";
+import type { ProjectTask } from "@/project-sidebar/contract.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { logger } from "@/logger.js";
+import { PluginUiModelContextChip, formatPluginDisplayName } from "@/plugin-ui/index.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
 import {
   FileDisplayIcon,
@@ -105,9 +109,6 @@ import {
   projectAssistantCodeComments,
   type AssistantCodeCommentCard,
 } from "@/lib/assistantCodeComment.js";
-import { resolveProviderLabel } from "@/lib/registryProviderView.js";
-import type { LexicalChatInputHandle } from "@/LexicalChatInput.js";
-import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import {
   isConversationReasoningRowVisible,
@@ -118,7 +119,6 @@ import { CodeCommentAttachmentChip } from "@/v4/composer/CodeCommentAttachmentCh
 import {
   countComposerPromptContexts,
   parseComposerPromptContexts,
-  serializeComposerPromptContexts,
 } from "@/v4/composer/composerPromptContexts.js";
 import { WebElementContextAttachmentChip } from "@/v4/composer/WebElementContextAttachmentChip.js";
 import { ConversationSelectionReferenceChip } from "@/v4/composer/ConversationSelectionReferenceChip.js";
@@ -184,6 +184,106 @@ const ArtifactRowView = memo(function ArtifactRowView({
   );
 });
 
+type SessionSource = Extract<ConversationInputSource, { kind: "session" }>;
+
+// 目录树的 tasks 是数组，而来源只有 sessionId。每个提示每次渲染都遍历一遍会随任务规模线性变差，
+// 所以按数组引用缓存一份反查表：stabilizeProjectTree 只在内容真变化时换引用，缓存因此自动失效。
+const taskByIdCache = new WeakMap<object, Map<string, ProjectTask>>();
+function findTaskById(tasks: readonly ProjectTask[], taskId: string): ProjectTask | undefined {
+  let index = taskByIdCache.get(tasks);
+  if (!index) {
+    index = new Map<string, ProjectTask>();
+    for (const task of tasks) if (!index.has(task.taskId)) index.set(task.taskId, task);
+    taskByIdCache.set(tasks, index);
+  }
+  return index.get(taskId);
+}
+
+/**
+ * 跨会话发送的来源提示（规格 0.13）。
+ *
+ * 标题按「当前事实 → 旧快照 → 身份」回落：持久化载荷只带 sessionId，标题在这里按 id 解析。
+ * 旧数据里的 `source.title` 是发送那一刻的快照，多半停在 titleSource=default 档（= 首条提示词
+ * 原文），所以只作为解析不到时的兜底，不优先于当前标题。
+ *
+ * 解析用项目目录树——侧栏与 App 控制工具的 OpenSession 用的是同一份跨项目权威列表，
+ * 不另起一份任务索引。全量目录 Context 会随任务活动变化，但只有带会话来源的行才挂这个组件，
+ * 重渲染面限于这几条提示本身。
+ *
+ * 解析不到来源会话（已删除、嵌入 pane 没有目录 owner）时保持可读但不可点击：
+ * 跳转需要的 workspacePath 与标题同源，猜路径会把「打不开」变成「打开了别的会话」。
+ */
+const SessionSourceHint = memo(function SessionSourceHint({ source }: { source: SessionSource }) {
+  const { intl } = useZCodeIntl();
+  const directory = useOptionalProjectDirectory();
+  const task = directory ? findTaskById(directory.tree.tasks, source.sessionId) : undefined;
+  const workspacePath = task?.workspacePath;
+  const workspaceIdentity = task?.workspaceIdentity;
+  const handleOpen = useCallback(() => {
+    if (!workspacePath) return;
+    requestTaskNavigation({
+      taskId: source.sessionId,
+      workspacePath,
+      ...(workspaceIdentity ? { workspaceIdentity } : {}),
+    });
+  }, [source.sessionId, workspaceIdentity, workspacePath]);
+  const label = intl.formatMessage(
+    { id: "conversation.fromSession" },
+    { name: task?.title || source.title || source.sessionId },
+  );
+  return (
+    <div
+      className="mt-1 text-right text-ui-sm text-foreground-subtlest"
+      data-v4-user-input-source="session"
+      data-source-session-id={source.sessionId}
+    >
+      {workspacePath ? (
+        <button
+          type="button"
+          onClick={handleOpen}
+          title={intl.formatMessage({ id: "conversation.fromSession.open" })}
+          data-source-session-navigable="true"
+          className="rounded-sm underline-offset-2 hover:text-foreground-subtle hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          {label}
+        </button>
+      ) : (
+        label
+      )}
+    </div>
+  );
+});
+
+/**
+ * 「这一行读不懂」的占位行（10-protocol-spec §4.4.9，04-sync-and-recovery 封闭规则 13）。
+ *
+ * 为什么必须画出来而不是返回 null：静默跳过会让用户以为消息丢了，那比显示一条说明更失真。
+ * rowId 与 turnId 都保留，所以它就停在原来那条消息的位置上，前后文不会错位。
+ *
+ * 用中性信息语义而不是 warning 色：会话本身没出错，只是这个 build 认不出其中一行——与
+ * ConversationShareReadonlyTimeline 的「部分内容需要更新 ZCode 查看」是同一视觉语言。
+ */
+const UnreadableRowView = memo(function UnreadableRowView({
+  row,
+}: {
+  row: UnreadableConversationRow;
+}) {
+  const { intl } = useZCodeIntl();
+  return (
+    <RowShell rowId={row.rowId} className="px-4 py-1">
+      <div
+        data-conversation-unreadable-row={row.sourceKind}
+        className="flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-ui-xs text-foreground-subtle"
+      >
+        <InfoIcon aria-hidden="true" className="size-3.5 shrink-0" />
+        <span className="min-w-0 break-words">
+          {intl.formatMessage({ id: "conversation.row.unreadable" })}
+        </span>
+      </div>
+    </RowShell>
+  );
+});
+
 /** 复制行文本：图标 ghost 按钮 + 1200ms 打勾态（对齐旧版 message copy）。
  *  label/tooltip 必须由调用方传入 i18n 文案，禁止硬编码语言。 */
 const CopyRowAction = memo(function CopyRowAction({
@@ -223,12 +323,8 @@ const CopyRowAction = memo(function CopyRowAction({
   );
 });
 
-export type UserInputEditHandler = (
-  target: ConversationRowTarget,
-  newText: string,
-  attachments?: readonly AttachmentRef[],
-  workspaceMode?: "preserve" | "rewind",
-) => Promise<CommandAck | boolean | void> | CommandAck | boolean | void;
+/** 请求在底部 composer 编辑该 user 行（docs/ui/composer-edit-mode.md）；提交由 composer 完成。 */
+export type UserInputEditHandler = (target: ConversationRowTarget) => Promise<void> | void;
 
 type AssistantMessageFeedback = "like" | "dislike";
 
@@ -259,7 +355,7 @@ export interface EditWorkspaceRewindAvailability {
   reason: "available" | "noFiles" | "reverted" | "running" | "unavailable";
 }
 
-interface ConversationRowViewProps {
+export interface ConversationRowViewProps {
   row: ConversationRow;
   /** 渲染上下文（theme/codePreviewSettings/workspacePath）；宿主保证引用稳定。 */
   context: ConversationRowRenderContext;
@@ -269,7 +365,7 @@ interface ConversationRowViewProps {
   onFeedbackChange?: AssistantFeedbackHandler;
   /** 协议兼容：上层仍可提供 retryTurn capability，但产品 UI 不渲染普通重试入口。 */
   onRetry?: (target: ConversationRowTarget) => void;
-  /** user 行的 edit 入口（editUserQuery command，用行内编辑文本替换该轮）。 */
+  /** user 行的 edit 入口：进入底部 composer 编辑态，提交走 editUserQuery。 */
   onEdit?: UserInputEditHandler;
   editWorkspaceRewindAvailability?: EditWorkspaceRewindAvailability;
   /** 嵌套在工具 Group 内时去掉 Reasoning 内容的重复左导线与缩进。 */
@@ -345,8 +441,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   const [videoPreviewRef, setVideoPreviewRef] = useState<string | null>(null);
   const [videoPreviewLoading, setVideoPreviewLoading] = useState(false);
   const [videoPreviewError, setVideoPreviewError] = useState(false);
-  const [textPreview, setTextPreview] =
-    useState<ChatMediaAttachmentPreviewTarget | null>(null);
+  const [textPreview, setTextPreview] = useState<ChatMediaAttachmentPreviewTarget | null>(null);
   const [textLoading, setTextLoading] = useState(false);
   const [textError, setTextError] = useState(false);
   const textReadAbort = useRef<AbortController | null>(null);
@@ -369,15 +464,11 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
         sessionId,
         ref: attachment.ref,
         mediaType: attachment.mime,
-        ...(entityId
-          ? { target: { rowId, entityId }, attachmentIndex: index }
-          : {}),
+        ...(entityId ? { target: { rowId, entityId }, attachmentIndex: index } : {}),
         signal: controller.signal,
       });
-      // 关闭/切换预览后，迟到结果不能重新打开旧材料。
       if (controller.signal.aborted) return;
-      if (!("bytes" in result))
-        throw new Error("Text attachment bytes unavailable");
+      if (!("bytes" in result)) throw new Error("Text attachment bytes unavailable");
       setTextPreview({
         filename: attachment.fileName,
         mediaType: "text/plain",
@@ -392,8 +483,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       if (!controller.signal.aborted) setTextLoading(false);
     }
   };
-  const [pdfPreview, setPdfPreview] =
-    useState<ChatMediaAttachmentPreviewTarget | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<ChatMediaAttachmentPreviewTarget | null>(null);
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const [pdfPreviewError, setPdfPreviewError] = useState(false);
   const [pdfPreviewRef, setPdfPreviewRef] = useState<string | null>(null);
@@ -811,8 +901,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   };
   const items = visibleAttachments.map(({ attachment, index }) => {
     const isTextMaterial =
-      attachment.sourceKind === "topic-history" ||
-      attachment.sourceKind === "clipboard-text";
+      attachment.sourceKind === "topic-history" || attachment.sourceKind === "clipboard-text";
     const ref = attachment.previewRef ?? attachment.ref;
     const isImage = attachment.mime.startsWith("image/");
     const isVideo = attachment.mime.startsWith("video/");
@@ -869,15 +958,9 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
           canOpen
             ? () =>
                 isTextMaterial
-                  ? void openTextPreview(
-                      attachment,
-                      attachmentIndices?.[index] ?? index,
-                    )
+                  ? void openTextPreview(attachment, attachmentIndices?.[index] ?? index)
                   : isPdf
-                    ? void openPdfPreview(
-                        attachment,
-                        attachmentIndices?.[index] ?? index,
-                      )
+                    ? void openPdfPreview(attachment, attachmentIndices?.[index] ?? index)
                     : selectPreviewItem(previewItemIndex)
             : undefined
         }
@@ -1012,14 +1095,6 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   );
 });
 
-// 「继续」按钮（chat.composer.continue.text）发出的纯继续消息不在对话流中展示：
-// 模型侧照常收到该文本（按钮语义不变），只是这条 user 行在 UI 上整体隐藏——
-// 否则每次点击都会在聊天窗口残留一条只有「继续」两个字的气泡。
-// 覆盖 zh/en 两个 token（fa 未覆盖该 key，回退 en）：历史行不会随 UI 语言切换重发，
-// 只按当前 locale 判定会漏掉历史消息；手输同词的消息语义相同，一并隐藏。
-// 带草稿正文、附件、上下文引用或引擎尾注的继续消息不在此列，照常展示。
-const CONTINUE_BUTTON_ROW_TOKENS = new Set(["继续", "Continue"]);
-
 const SingleUserInputRowView = memo(function SingleUserInputRowView({
   row,
   attachmentIndices,
@@ -1104,7 +1179,11 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
         });
   const visibleText = parsedPrompt.visibleContent;
   const codeCommentContexts = parsedPrompt.codeComments;
-  const webElementContexts = parsedPrompt.webElements;
+  // 设计稿元素在正文里已经画成 token，卡片只给普通网页「选择元素」的引用
+  const webElementContexts = useMemo(
+    () => parsedPrompt.webElements.filter((context) => !context.inline),
+    [parsedPrompt.webElements],
+  );
   const pptxElementReferences = parsedPrompt.pptxElements;
   const conversationSelections = parsedPrompt.conversationSelections;
   const hasAttachments = (row.attachments?.length ?? 0) > 0;
@@ -1121,13 +1200,15 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
         !attachment.mime.startsWith("video/"),
     ) ?? false;
   const hasVisibleText = visibleText.trim().length > 0;
+  const pluginUiContexts = parsedPrompt.pluginUiContexts;
   // nudge 轮整条都是引擎文本：正文为空但气泡仍要画，里面只有那一枚披露。
   const hasBubble = hasVisibleText || epilogue !== undefined;
   const hasContextReferences =
     codeCommentContexts.length > 0 ||
     webElementContexts.length > 0 ||
     pptxElementReferences.length > 0 ||
-    conversationSelections.length > 0;
+    conversationSelections.length > 0 ||
+    pluginUiContexts.length > 0;
   const hasAttachmentArea = hasAttachments || hasContextReferences;
   const hasAttachmentPills =
     hasFileAttachments ||
@@ -1135,6 +1216,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
     webElementContexts.length > 0 ||
     pptxElementReferences.length > 0 ||
     (!row.botGroupSource && conversationSelections.length > 0);
+  // Bug 根因：旧逻辑只接受 schedule runId，导致用户点击「立即运行」产生的 manual run
+  // 没有来源标识。两种合法 automation runId 都应展示；普通会话输入仍因解析失败而不展示。
+  const isScheduledAutomationPrompt = parseAutomationRunId(row.sourceCommandId ?? "") !== null;
   const openPptxElementReference = useOpenPptxElementReference({
     workspacePath: context.workspacePath,
     workspaceIdentity: context.workspaceIdentity,
@@ -1469,10 +1553,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           className="mb-2 flex max-w-xl flex-col items-end gap-2"
         >
           {row.botGroupSource && conversationSelections.length > 0 ? (
-            <div
-              data-v4-user-input-quotes="true"
-              className="flex max-w-full justify-end"
-            >
+            <div data-v4-user-input-quotes="true" className="flex max-w-full justify-end">
               <ConversationSelectionReferenceChip
                 references={conversationSelections}
                 contentAlign="end"
@@ -1528,11 +1609,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
               <PptxElementReferenceChip
                 references={pptxElementReferences}
                 contentAlign="end"
-                onOpen={
-                  context.onOpenCodeViewer
-                    ? openPptxElementReference
-                    : undefined
-                }
+                onOpen={context.onOpenCodeViewer ? openPptxElementReference : undefined}
               />
               {!row.botGroupSource ? (
                 <ConversationSelectionReferenceChip
@@ -1540,6 +1617,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                   contentAlign="end"
                 />
               ) : null}
+              <PluginUiModelContextChip contexts={pluginUiContexts} contentAlign="end" />
             </div>
           ) : null}
         </div>
@@ -1550,6 +1628,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
         // 气泡保留 flex item 的自动宽度；宿主至少 624px 时再以 36rem 封顶并保留 48px 余量。
         <ConversationUserInputBubble
           text={visibleText}
+          imagePreviewContext={context}
           contentParts={row.botGroupSource?.contentParts}
           rowId={row.rowId}
           epilogue={epilogue}
@@ -1557,14 +1636,26 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           contextAttachmentCount={countComposerPromptContexts(parsedPrompt)}
         />
       ) : null}
-      {row.source?.kind === "genUi" ? (
+      {row.source?.kind === "session" && <SessionSourceHint source={row.source} />}
+      {row.source?.kind === "genUi" && (
         <div
-          className="mt-1 text-end text-ui-sm text-foreground-subtlest"
+          className="mt-1 text-right text-ui-sm text-foreground-subtlest"
           data-v4-user-input-source="genUi"
         >
+          {intl.formatMessage({ id: "genUi.from" }, { name: row.source.title || "Gen UI" })}
+        </div>
+      )}
+      {row.source?.kind === "pluginUi" || row.source?.kind === "extension" ? (
+        // 插件 UI 或扩展（docs/plugins/extension-host.md §17.8）代发：来源标记来自 CLI 持久化的 intent.source，
+        // 不由 renderer 推断。两者同一句文案；名字取插件 id 的名字部分，手机没有扩展静态表，桌面与手机一致。
+        <div
+          data-v4-user-input-source={row.source.pluginId}
+          data-v4-user-input-source-kind={row.source.kind}
+          className="mt-1 text-right text-ui-sm text-foreground-subtlest"
+        >
           {intl.formatMessage(
-            { id: "genUi.from" },
-            { name: row.source.title || "Gen UI" },
+            { id: "pluginUi.fromPlugin" },
+            { name: formatPluginDisplayName(row.source.pluginId) },
           )}
         </div>
       ) : null}
@@ -1585,7 +1676,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           rowId={row.rowId}
           label={intl.formatMessage({ id: "chat.message.copy" })}
         />
-        {onEdit && row.entityId ? (
+        {onEdit && row.entityId && !editingInComposer ? (
           <MessageAction
             label={intl.formatMessage({ id: "chat.message.edit" })}
             tooltip={intl.formatMessage({ id: "chat.message.edit" })}
@@ -1601,6 +1692,17 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           </span>
         ) : null}
       </MessageActions>
+      {editingInComposer ? (
+        <button
+          type="button"
+          data-testid={testId(TID_V4_EDIT_IN_COMPOSER_HINT, String(row.rowId))}
+          className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-sm text-foreground-subtle hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+          onClick={handleFocusComposerEdit}
+        >
+          <PencilIcon className="size-3.5" aria-hidden />
+          {intl.formatMessage({ id: "chat.composerEdit.inComposerHint" })}
+        </button>
+      ) : null}
     </RowShell>
   );
 });
@@ -1893,16 +1995,65 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
         : row.text,
     [projectsCodeComments, row.text, streaming],
   );
-  const visiblePreviewCards =
-    previewCards && previewCards.length > 0 ? previewCards : null;
+  const visiblePreviewCards = previewCards && previewCards.length > 0 ? previewCards : null;
+  const textElement = useRef<HTMLDivElement>(null);
+  const paintFrames = useRef<number[]>([]);
+  useEffect(
+    () => () => {
+      for (const frame of paintFrames.current) cancelAnimationFrame(frame);
+    },
+    [],
+  );
+  useLayoutEffect(() => {
+    if (context.workspaceIdentity || !context.sessionId) return;
+    const observer = getLocalTtftObserver();
+    const args = [context.workspacePath, context.sessionId, row.turnId, row.rowId] as const;
+    if (!observer?.needsTextRender(...args)) return;
+    const element = textElement.current;
+    if (!element?.textContent?.trim()) return;
+    const visible = () => {
+      if (
+        !element.isConnected ||
+        document.visibilityState !== "visible" ||
+        !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
+      )
+        return false;
+      const rect = element.getBoundingClientRect();
+      return (
+        rect.bottom > 0 &&
+        rect.right > 0 &&
+        rect.top < window.innerHeight &&
+        rect.left < window.innerWidth
+      );
+    };
+    if (!observer.textRendered(...args, "committed", visible())) return;
+    // 接收帧早于 React 提交；两次 rAF 只代表经过绘制机会，不能声称像素已上屏。
+    // 流式文本更新不能取消首帧观察，仅组件卸载取消，避免高频更新把计时拖到整轮结束。
+    paintFrames.current.push(
+      requestAnimationFrame(() => {
+        paintFrames.current.push(
+          requestAnimationFrame(() => {
+            observer.textRendered(...args, "paint_estimate", visible());
+          }),
+        );
+      }),
+    );
+  }, [
+    context.workspaceIdentity,
+    context.workspacePath,
+    context.sessionId,
+    row.turnId,
+    row.rowId,
+    visibleText,
+  ]);
   return (
     <RowShell rowId={row.rowId} className="group/assistant-row">
-      {/* assistant 文本走 streamdown（MessageResponse），
+      {/* M5④ 阶段2：assistant 文本走 streamdown（MessageResponse），
           markdown/代码块正式渲染；streaming 模式对未闭合 markdown 容错。 */}
-      {/* MessageResponse 只消费自身声明的 props，不会把 data-* 透传到真实 DOM，
+      {/* Bugfix：MessageResponse 只消费自身声明的 props，不会把 data-* 透传到真实 DOM，
           导致 assistant 正文虽然在 JSX 上标了 selectable，框选逻辑却永远找不到该区域。
           selectable 语义必须放在稳定的 DOM 包装层上，完成态和 streaming 共用同一路径。 */}
-      <div data-conversation-selectable="true" className="w-full text-ui-base">
+      <div ref={textElement} data-conversation-selectable="true" className="w-full text-ui-base">
         <GenUiMessageResponse
           completed={row.state === "complete"}
           messageKey={`${row.rowId}:${row.entityId ?? ""}`}
@@ -1961,6 +2112,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           entityId={row.entityId}
           text={copyText ?? row.text}
           createdAt={row.createdAt}
+          compactForRemoteControl={context.compactForRemoteControl}
           feedback={readAssistantFeedback(row)}
           sessionId={context.sessionId}
           workspacePath={context.workspacePath}
@@ -2005,7 +2157,7 @@ const ReasoningRowView = memo(function ReasoningRowView({
           ? { duration: durationSeconds }
           : {})}
       >
-        {/* 附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
+        {/* Bug 原因：附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
         <ReasoningTrigger streamingText={row.text} />
         <div data-conversation-selectable="true">
           <ReasoningContent variant={contentVariant}>
@@ -2032,117 +2184,7 @@ const TurnHeaderRowView = memo(function TurnHeaderRowView({
   );
 });
 
-/** 分隔线图标（对齐旧版 synthetic-timeline dividers：size-3.5 subtle）。 */
-const MARKER_ARCHIVE_ICON = (
-  <ArchiveIcon
-    aria-hidden="true"
-    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
-  />
-);
-const MARKER_FORK_ICON = (
-  <GitBranchIcon
-    aria-hidden="true"
-    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
-  />
-);
-const MARKER_GOAL_ICON = (
-  <GoalIcon
-    aria-hidden="true"
-    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
-  />
-);
-const MARKER_MODEL_ICON = (
-  <ArrowRightLeftIcon
-    aria-hidden="true"
-    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
-  />
-);
-
-/**
- * 系统标记分隔线壳：两侧细横线 + 居中「图标 + 文案」pill，视觉对齐旧版
- * ChatMessage synthetic-timeline dividers（fork / compaction / goal 同款）。
- * running（压缩/校验进行中）隐藏图标、文案走 animated-gradient-text 流光（同旧版）。
- */
-function MarkerDividerRow({
-  rowId,
-  markerType,
-  markerStatus,
-  markerOrigin,
-  markerSourceCommandId,
-  icon,
-  label,
-  running = false,
-  onClick,
-}: {
-  rowId: number;
-  markerType: TimelineMarkerRow["marker"]["type"];
-  markerStatus: string;
-  markerOrigin?: string;
-  markerSourceCommandId?: string;
-  icon: React.ReactNode;
-  label: React.ReactNode;
-  running?: boolean;
-  /** 传入即整行可点（fork→跳父会话）；不传为静态分隔线。 */
-  onClick?: () => void;
-}) {
-  const clickable = Boolean(onClick);
-  const rowClassName =
-    "flex w-full items-center gap-3 px-4 py-2 text-ui-base text-[var(--color-foreground-subtle)]";
-  const inner = (
-    <>
-      <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
-      <span className="inline-flex min-w-0 shrink items-center justify-center gap-1.5 text-center leading-5">
-        {running ? null : icon}
-        <span
-          className={`min-w-0 break-words${running ? " animated-gradient-text font-medium" : ""}${clickable ? " underline-offset-4 group-hover/marker:underline" : ""}`}
-        >
-          {label}
-        </span>
-      </span>
-      <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
-    </>
-  );
-  if (onClick) {
-    // 整行 <button>（对齐旧版 fork divider）：hover 变亮 + 文案下划线示意可点。
-    return (
-      <button
-        type="button"
-        data-row-id={rowId}
-        data-row-kind="timelineMarker"
-        data-marker-type={markerType}
-        data-status={markerStatus}
-        data-origin={markerOrigin}
-        data-source-command-id={markerSourceCommandId}
-        data-testid={testId(TID_V4_ROW, String(rowId))}
-        onClick={onClick}
-        className={`group/marker ${rowClassName} text-start transition-colors hover:text-[var(--color-foreground)]`}
-      >
-        {inner}
-      </button>
-    );
-  }
-  return (
-    <div
-      data-row-id={rowId}
-      data-row-kind="timelineMarker"
-      data-marker-type={markerType}
-      data-status={markerStatus}
-      data-origin={markerOrigin}
-      data-source-command-id={markerSourceCommandId}
-      data-testid={testId(TID_V4_ROW, String(rowId))}
-      className={rowClassName}
-    >
-      {inner}
-    </div>
-  );
-}
-
-/**
- * timelineMarker 行渲染：compact / forkNotice / goalVerify / modelChange 画成分隔线。
- * modelChange 可见化 = 裁决（切换后实际发送出去的轮才落分隔，含
- * model-only 续跑轮）；goalSet/forkCreated 已在投影层停产（隐形行清零），
- * retryNotice·checkpointRestored 无 UI，default 分支兜底不渲染。
- */
+/** timelineMarker 分隔线与分享只读页共用；这里只注入 App 宿主能力。 */
 const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
   row,
   context,
@@ -2150,159 +2192,18 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
   row: TimelineMarkerRow;
   context: ConversationRowRenderContext;
 }) {
-  const { intl } = useZCodeIntl();
   const isOfficeMode = useIsOfficeMode();
-  const marker = row.marker;
-  const modelSelectionView = context.modelSelectionView ?? null;
-  const view = useMemo((): {
-    icon: React.ReactNode;
-    label: React.ReactNode;
-    running: boolean;
-  } | null => {
-    switch (marker.type) {
-      case "compact": {
-        const running = marker.status === "running";
-        const automaticOptimization = isOfficeMode && marker.origin === "auto";
-        const scope = automaticOptimization
-          ? "chat.contextOptimization"
-          : "chat.contextCompaction";
-        const statusMessage =
-          marker.status === "running"
-            ? "started"
-            : marker.status === "noop"
-              ? "skipped"
-              : marker.status === "cancelled"
-                ? "interrupted"
-                : marker.status === "failed"
-                  ? "failed"
-                  : marker.origin === "auto" && !automaticOptimization
-                    ? "completedAuto"
-                    : "completed";
-        return {
-          icon: MARKER_ARCHIVE_ICON,
-          label: intl.formatMessage({ id: `${scope}.${statusMessage}` }),
-          running,
-        };
-      }
-      case "forkNotice":
-        return {
-          icon: MARKER_FORK_ICON,
-          label: intl.formatMessage({ id: "chat.message.fork.derivedFrom" }),
-          running: false,
-        };
-      case "modelChange": {
-        // marker 已携带完整 provider/model 元组，旧渲染却只读取 model，
-        // 且没有订阅 provider snapshot，导致同名模型无差异、目录水合后名称不刷新。
-        // 这里保留 provider ID fallback，并让现有 marker 随目录更新。
-        const fromProvider = resolveProviderLabel(
-          marker.fromProvider,
-          modelSelectionView,
-        );
-        const toProvider = resolveProviderLabel(
-          marker.toProvider,
-          modelSelectionView,
-        );
-        const to = formatModelChangeLabel(
-          marker.toProvider,
-          toProvider,
-          marker.toModel,
-          intl,
-        );
-        if (
-          marker.fromProvider === undefined ||
-          marker.fromModel === undefined
-        ) {
-          return {
-            // source-less 表示首次使用的模型事实，不是模型切换，因此不显示切换箭头。
-            icon: null,
-            label: intl.formatMessage(
-              { id: "chat.modelChange.using" },
-              { model: to },
-            ),
-            running: false,
-          };
-        }
-        return {
-          icon: MARKER_MODEL_ICON,
-          label: intl.formatMessage(
-            { id: "chat.modelChange.switched" },
-            {
-              from: formatModelChangeLabel(
-                marker.fromProvider,
-                fromProvider,
-                marker.fromModel,
-                intl,
-              ),
-              to,
-            },
-          ),
-          running: false,
-        };
-      }
-      case "goalVerify": {
-        const running = marker.outcome === "running";
-        // pass→完成；notSatisfied/failed→未完成（沿用旧版 failed_closed 归「未完成」的处理）。
-        const statusId =
-          marker.outcome === "running"
-            ? "chat.goalVerification.checking"
-            : marker.outcome === "pass"
-              ? "chat.goalVerification.complete"
-              : "chat.goalVerification.incomplete";
-        return {
-          icon: MARKER_GOAL_ICON,
-          running,
-          // innerText 形如「第 1 次迭代 · 目标校验中」，对齐 goal-timeline 待命 e2e 断言。
-          label: (
-            <>
-              <span>
-                {intl.formatMessage(
-                  { id: "chat.summaryPanel.goalIterationValue" },
-                  { count: String(marker.iteration) },
-                )}
-              </span>
-              <span aria-hidden="true"> · </span>
-              {intl.formatMessage({ id: statusId })}
-            </>
-          ),
-        };
-      }
-      default:
-        return null;
-    }
-  }, [intl, isOfficeMode, marker, modelSelectionView]);
-
-  // fork 跳父会话（Tier 1）：仅 forkNotice 且宿主提供 onNavigateToRow 时可点，
-  // 切到 marker.parentSessionId（rowId 预留 Tier 2 精确滚动，当前恒 0 占位）。
-  const onNavigate = context.onNavigateToRow;
-  const handleClick = useMemo(() => {
-    if (marker.type !== "forkNotice" || !onNavigate) {
-      return undefined;
-    }
-    return () => onNavigate(marker.parentSessionId, marker.parentRowId);
-  }, [marker, onNavigate]);
-
-  if (!view) {
-    return null;
+  // "已创建 worktree"是可展开的输出块，不是分隔线（docs/git/worktree.md §3.3）。
+  // 它依赖 App 侧 managed-worktrees 能力，留在宿主这里，不进分享只读页共用的分隔线组件。
+  if (row.marker.type === "worktreeCreated") {
+    return <WorktreeCreatedMarker rowId={row.rowId} output={row.marker.output} />;
   }
   return (
-    <MarkerDividerRow
-      rowId={row.rowId}
-      markerType={marker.type}
-      markerStatus={
-        marker.type === "compact"
-          ? marker.status
-          : marker.type === "goalVerify"
-            ? marker.outcome
-            : marker.type === "forkNotice"
-              ? "created"
-              : "applied"
-      }
-      markerOrigin={marker.type === "compact" ? marker.origin : undefined}
-      markerSourceCommandId={row.sourceCommandId}
-      icon={view.icon}
-      label={view.label}
-      running={view.running}
-      onClick={handleClick}
+    <ConversationTimelineMarkerDivider
+      row={row}
+      isOfficeMode={isOfficeMode}
+      modelSelectionView={context.modelSelectionView ?? null}
+      onNavigateToRow={context.onNavigateToRow}
     />
   );
 });
@@ -2328,6 +2229,52 @@ const ToolCallRowView = memo(function ToolCallRowView({
     (row.display?.kind === "resume_workflow_run"
       ? context.workflowRunByRunId?.get(row.display.runId)
       : undefined);
+  // 已接进 run 的补全行（docs/dynamic-workflow/presentation.md「The fill row」）：「留白已补全 · {name} ·
+  // {k} 个阶段 · {m} 个子代理 ↗」。按入参的 `run_id` 联接投影（补全行的 toolCallId 不是发起行的），只认成功
+  // 且编过的行——编不过的补全走下面的编译反馈行，什么都没接进 run。卡下方随之长出新的站（轮尾摘要
+  // 取的是这一行的图）。
+  // 名字来自 display 的 `fill` 块（行的入参没有名字——transcript 只存模型自己的入参）。
+  const fillTarget = isFillWorkflowHoleToolCall(row)
+    ? readWorkflowHoleTarget(
+        row.input,
+        row.display?.kind === "create_workflow" ? row.display.fill : undefined,
+      )
+    : undefined;
+  const fillRun =
+    fillTarget?.runId === undefined ? undefined : context.workflowRunByRunId?.get(fillTarget.runId);
+  if (
+    fillTarget !== undefined &&
+    fillTarget.holeId !== undefined &&
+    fillRun !== undefined &&
+    row.status === "success" &&
+    row.display?.kind === "create_workflow" &&
+    row.display.ok
+  ) {
+    const sessionId = context.sessionId;
+    const counts = workflowFillCounts(row.display.causalityGraph, fillTarget.holeId);
+    return (
+      <RowShell rowId={row.rowId} className="py-0">
+        <WorkflowToolSummary
+          toolCallId={row.toolCallId}
+          summary={fillRun}
+          fill={{
+            name: fillTarget.name ?? fillTarget.holeId,
+            ...counts,
+          }}
+          onOpen={
+            context.onOpenWorkflowRun && sessionId
+              ? () =>
+                  context.onOpenWorkflowRun?.({
+                    parentSessionId: sessionId,
+                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, fillRun),
+                    runId: fillRun.runId,
+                  })
+              : undefined
+          }
+        />
+      </RowShell>
+    );
+  }
   // 原因：已启动的工具卡与轮尾摘要重复画同一条实时进度；上方改为普通摘要入口。
   // 只替换成功关联的发起行，编译诊断及 Resume 等其他工具仍走原有渲染。
   if (
@@ -2361,15 +2308,13 @@ const ToolCallRowView = memo(function ToolCallRowView({
       </RowShell>
     );
   }
-  // 就地生效的修订：只改并发上限、run 又在飞时这次调用
+  // 就地生效的修订（docs/dynamic-workflow/concurrency.md）：只改并发上限、run 又在飞时这次调用
   // 不编译、不铸新 run，结果只有一句话。判据全在已经上线的字段上——入参的形状、**没有** display、
   // 成功且非错误；工具的结构化输出不过 v4，而三处 create_workflow display schema 都是冻结字段集
   // 的 `.strict()`，多一个键会让旧端把整条工具结果丢掉，所以这条路不新增任何协议字段。
   // 退回真修订的那一条（run 已结算）两条判据都不成立：它有 display，也铸出一条按 toolCallId
   // 联接得上的 run，上面那个分支先接走它。
-  const retune = isAmendWorkflowToolCall(row)
-    ? readWorkflowRetuneCall(row.input)
-    : undefined;
+  const retune = isAmendWorkflowToolCall(row) ? readWorkflowRetuneCall(row.input) : undefined;
   if (
     retune !== undefined &&
     row.status === "success" &&
@@ -2377,29 +2322,24 @@ const ToolCallRowView = memo(function ToolCallRowView({
     !context.workflowRunByToolCallId?.has(row.toolCallId)
   ) {
     const sessionId = context.sessionId;
-    // 被调整那条 run 的投影：只为两件事——本机天花板（措辞据它不念出一个大于上限的数）与
+    // 被调整那条 run 的投影：只为两件事——默认并发（措辞据它把「等于默认」念成「恢复为默认」）与
     // 打开请求里那条 run 的发起行 id。它不进上面的 `workflowRun`：那个变量回答的是「这一行是不是
     // 某条 run 的发起行」，而这一行不是。
     const retuned = context.workflowRunByRunId?.get(retune.runId);
-    const ceiling =
-      retuned?.run === undefined
-        ? undefined
-        : workflowRunDefaultConcurrency(retuned.run);
+    const defaultConcurrency =
+      retuned?.run === undefined ? undefined : workflowRunDefaultConcurrency(retuned.run);
     return (
       <RowShell rowId={row.rowId} className="py-0">
         <WorkflowRetuneRow
           requested={retune.requested}
           runId={retune.runId}
-          {...(ceiling === undefined ? {} : { ceiling })}
+          {...(defaultConcurrency === undefined ? {} : { defaultConcurrency })}
           {...(context.onOpenWorkflowRun && sessionId
             ? {
                 onOpen: () =>
                   context.onOpenWorkflowRun?.({
                     parentSessionId: sessionId,
-                    toolCallId: resolveWorkflowRunOpenToolCallId(
-                      row.toolCallId,
-                      retuned,
-                    ),
+                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, retuned),
                     runId: retune.runId,
                   }),
               }
@@ -2610,6 +2550,8 @@ function ConversationRowViewImpl({
       return <SubagentRowView row={row} />;
     case "artifact":
       return <ArtifactRowView row={row} />;
+    case "unreadable":
+      return <UnreadableRowView row={row} />;
     default:
       return null;
   }

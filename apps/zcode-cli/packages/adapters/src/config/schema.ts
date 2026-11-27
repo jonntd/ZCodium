@@ -45,6 +45,8 @@ const memorySchema = z.object({
 
 const mcpServerBaseSchema = {
   alwaysLoad: z.boolean().optional(),
+  // Host DTO 和连接池已有 isolation；文件解析不能丢弃整条已支持的声明。
+  isolation: z.enum(["session", "workspace"]).optional(),
   // 设置页和 MCP adapter 已支持协议选择；配置入口漏掉该字段会因 strict 校验丢弃整个 server。
   protocolVersion: z.enum(["auto", "legacy", "2026-07-28"]).optional(),
   enabled: z.boolean().optional(),
@@ -211,7 +213,7 @@ const loggingSchema = z.object({
 });
 
 const uiSchema = z.object({
-  locale: z.enum(["auto", "en-US", "zh-CN", "fa-IR"]).optional(),
+  locale: z.enum(["auto", "en-US", "zh-CN"]).optional(),
   theme: z.enum(["auto", "dark", "light"]).optional(),
 });
 
@@ -240,6 +242,7 @@ export const hookProcessSchema = z
     args: z.array(z.string()).optional(),
     timeoutMs: positiveNumberSchema.optional(),
     statusMessage: z.string().min(1).optional(),
+    onError: z.enum(["allow", "deny"]).optional(),
   })
 
   .passthrough();
@@ -254,12 +257,17 @@ export const hookCommandSchema = z
     timeout: positiveNumberSchema.optional(),
     timeoutMs: positiveNumberSchema.optional(),
     statusMessage: z.string().min(1).optional(),
+    onError: z.enum(["allow", "deny"]).optional(),
   })
   .passthrough();
 
 export const hookMatcherSchema = z
   .object({
-    matcher: z.string().min(1).optional(),
+    // 旧配置用空串表示无筛选；拒绝空串会让整份用户配置失效。
+    matcher: z
+      .string()
+      .transform((matcher) => matcher || undefined)
+      .optional(),
     hooks: z.array(z.discriminatedUnion("type", [hookProcessSchema, hookCommandSchema])).min(1),
   })
   .strict();
@@ -305,6 +313,47 @@ export const ZCodeConfigFileSchema = z
     hooks: hooksSchema.optional(),
   })
   .passthrough();
+
+// 项目曾复用用户配置 schema，可改写代理、CA 和插件存储根目录。只开放扩展声明，
+// 在校验前剔除运行参数，防止新增用户字段自动向项目开放，也避免无效的禁用字段拖垮 MCP/Hook。
+const projectConfigFileSchema = ZCodeConfigFileSchema.pick({
+  mcp: true,
+  hooks: true,
+  skill: true,
+  command: true,
+})
+  .extend({
+    // 插件选项可展开为解释器、命令和环境变量；已安装插件不能替仓库输入建立信任。
+    // 项目级显式设置由用户私有存储提供，仓库 options 连校验也不参与，避免坏值拖垮其它声明。
+    plugins: pluginsSchema
+      .pick({ enabledPlugins: true })
+      .extend({
+        // 项目 plugins.dirs 只是待信任候选，不进入可执行配置（normalizeProjectConfig 再剥离）；
+        // 非法值按缺省处理，不能拖垮同文件的其它声明。
+        dirs: z
+          .preprocess(
+            (value) =>
+              Array.isArray(value)
+                ? value.filter((item) => typeof item === "string" && item.trim().length > 0)
+                : undefined,
+            z.array(z.string()).optional(),
+          )
+          .optional(),
+      })
+      .optional(),
+    skills: z
+      .preprocess(
+        (value) =>
+          isPlainRecord(value)
+            ? Object.fromEntries(
+                Object.entries(value).filter(([path]) => isAbsoluteConfigPath(path)),
+              )
+            : value,
+        z.record(z.string(), skillToggleSchema),
+      )
+      .optional(),
+  })
+  .strip();
 
 export type ZCodeConfigFile = z.infer<typeof ZCodeConfigFileSchema>;
 
@@ -386,10 +435,13 @@ function normalizeMcpServerConfigInput(value: unknown): unknown {
 
 export function parseConfigFileToRuntimePatchWithDiagnostics(
   value: unknown,
+  scope: "user" | "project" = "user",
 ): ParseConfigFileResult {
   const diagnostics: ConfigDiagnostic[] = [];
   const normalized = normalizeConfigFileInput(value, diagnostics);
-  const parsed = ZCodeConfigFileSchema.parse(normalized);
+  const parsed = (scope === "project" ? projectConfigFileSchema : ZCodeConfigFileSchema).parse(
+    normalized,
+  );
   return {
     config: parsedConfigFileToRuntimePatch(parsed),
     diagnostics,

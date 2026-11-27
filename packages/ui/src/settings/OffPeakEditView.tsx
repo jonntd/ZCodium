@@ -7,15 +7,17 @@ import type { ModelSelectionView } from "@zcode/services";
 import { completeNewModelSelection } from "@zcode/provider";
 import { FolderOpen } from "lucide-react";
 import {
-  TID_OFFPEAK_EDIT_SUBMIT,
-  TID_OFFPEAK_EDIT_VIEW,
-  TID_OFFPEAK_FORM_INSTRUCTIONS,
-  TID_OFFPEAK_FORM_TITLE,
   ZCODE_AGENT_PROVIDER,
   type ZCodeConfigOption,
   type ZCodeOffPeakTask,
   type ModelSelection,
 } from "@zcode/shared";
+import {
+  TID_OFFPEAK_EDIT_SUBMIT,
+  TID_OFFPEAK_EDIT_VIEW,
+  TID_OFFPEAK_FORM_INSTRUCTIONS,
+  TID_OFFPEAK_FORM_TITLE,
+} from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { Input } from "@/components/ui/input.js";
@@ -41,7 +43,7 @@ import { cn } from "@/components/lib/utils.js";
 import { SETTINGS_FRAME_CONTENT_CLASSNAME } from "@/settings/SettingsPageParts.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useSettings } from "@/hooks/useSettingService.js";
-import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
+import { useConfirmDialog, useYoloModeConfirmation } from "@/hooks/useConfirmDialog.js";
 import {
   AUTOMATION_DEFAULT_MODE,
   buildAutomationModeOption,
@@ -81,8 +83,7 @@ export function buildOffPeakSubmissionModelSelection(
 }
 
 export interface OffPeakEditSubmit {
-  projectId?: string;
-  hostId?: string;
+  projectId?: string | null;
   title: string;
   prompt: string;
   permissionMode: string;
@@ -217,9 +218,8 @@ export function OffPeakEditView({
       localWorkspaceOptions.some(
         (option) => resolveAutomationWorkspaceSelectionKey(option) === createProjectKey,
       )
-    ) {
+    )
       return;
-    }
     const key = preferredLocalWorkspace
       ? resolveAutomationWorkspaceSelectionKey(preferredLocalWorkspace)
       : "";
@@ -328,9 +328,7 @@ export function OffPeakEditView({
       });
     }
     const ok = await onSubmit({
-      ...(!editing && selectedProject
-        ? { projectId: selectedProject.projectId, hostId: selectedProject.hostId }
-        : {}),
+      ...(!editing && selectedProject ? { projectId: selectedProject.projectId } : {}),
       title: title.trim(),
       prompt: prompt.trim(),
       permissionMode: mode,
@@ -360,6 +358,10 @@ export function OffPeakEditView({
   ]);
 
   // 闲时与定时任务复用同一权限 option，并通过 provider 保持会话权限词表一致。
+  const confirmMode = useYoloModeConfirmation(
+    JSON.stringify([editing?.offPeakTaskId, createProjectKey, readOnly, saving, tab]),
+    mode,
+  );
   const modeOption = useMemo(() => buildAutomationModeOption(mode), [mode]);
   const createSubmitButton = (
     <Button
@@ -576,7 +578,7 @@ export function OffPeakEditView({
               />
               <AutomationInstructionsToolbar>
                 <div className="flex min-w-0 flex-wrap items-center gap-0">
-                  {/* 项目：创建态读取 Host 项目（包括空项目）；编辑态锁定原 cwd。 */}
+                  {/* 项目：创建态读取本机虚拟项目；编辑态锁定原项目。 */}
                   {/* 修复原因：UI 字号会随设置缩放，固定 18px 行高会在大字号下挤压项目文案。 */}
                   {editing ? (
                     <span className="flex h-7 min-w-0 items-center gap-1 rounded-full px-2 text-ui-base font-normal leading-snug text-foreground-subtle">
@@ -630,7 +632,7 @@ export function OffPeakEditView({
                   <ConfigSelect
                     option={modeOption}
                     provider={ZCODE_AGENT_PROVIDER}
-                    onValueChange={setMode}
+                    onValueChange={(value) => confirmMode(value, () => setMode(value))}
                     disabled={readOnly}
                     tooltipTitle={intl.formatMessage({
                       id: "chat.toolbar.mode.label",
@@ -641,7 +643,7 @@ export function OffPeakEditView({
                       AUTOMATION_INSTRUCTIONS_TOOLBAR_TRIGGER_CLASSNAME,
                       "w-fit max-w-56 min-w-0 shrink justify-start gap-1 px-2",
                     )}
-                    labelVisibilityClassName="inline-flex min-w-0 truncate text-start"
+                    labelVisibilityClassName="inline-flex min-w-0 truncate text-left"
                     restoreFocusSelector={null}
                   />
                 </div>
@@ -670,7 +672,7 @@ export function OffPeakEditView({
                       AUTOMATION_INSTRUCTIONS_TOOLBAR_TRIGGER_CLASSNAME,
                       "w-fit max-w-72 min-w-0 shrink justify-between px-2",
                     )}
-                    triggerLabelClassName="inline-flex min-w-0 truncate text-start"
+                    triggerLabelClassName="inline-flex min-w-0 truncate text-left"
                   />
                   {/* 推理档位（D34）：仅推理模型显示；缺省=workspace 默认 */}
                   {thoughtLevelOption ? (

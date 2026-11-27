@@ -70,9 +70,7 @@ function inlinePluginKey(manifest: PluginManifestInfo): string {
  * 按 `name@inline`（小写）对齐 plugins.dirs 中登记的 inline 插件；目录名只表示位置。
  * 同 id 重复时保留第一项，与 CLI 运行时「重复插件忽略」一致。
  */
-async function resolveInlinePlugins(): Promise<
-  Map<string, ResolvedInlinePlugin>
-> {
+async function resolveInlinePlugins(): Promise<Map<string, ResolvedInlinePlugin>> {
   const config = await readUserPluginConfigState();
   const pluginRoot = getUserZcodePluginRoot();
   const result = new Map<string, ResolvedInlinePlugin>();
@@ -108,20 +106,13 @@ export function createInlinePluginDataSyncMethods(options: {
 }): IDataSyncCategoryService<PluginDataSyncPayload> {
   const { maxItemBytes } = options;
 
-  async function listItem(
-    plugin: ResolvedInlinePlugin,
-  ): Promise<DataSyncListItem> {
-    const scan = await scanDirectoryContent(
-      plugin.contentRoot,
-      CONTENT_OPTIONS,
-    );
+  async function listItem(plugin: ResolvedInlinePlugin): Promise<DataSyncListItem> {
+    const scan = await scanDirectoryContent(plugin.contentRoot, CONTENT_OPTIONS);
     return {
       key: plugin.key,
       name: plugin.manifest.name,
       pluginId: plugin.manifest.pluginId,
-      ...(plugin.manifest.description
-        ? { description: plugin.manifest.description }
-        : {}),
+      ...(plugin.manifest.description ? { description: plugin.manifest.description } : {}),
       ...(plugin.manifest.version ? { version: plugin.manifest.version } : {}),
       signature: { fileCount: scan.fileCount, totalBytes: scan.totalBytes },
       enabled: plugin.enabled,
@@ -137,13 +128,8 @@ export function createInlinePluginDataSyncMethods(options: {
   }
 
   /** 超限项不计算哈希（性能措施 3）。 */
-  async function hashPlugin(
-    plugin: ResolvedInlinePlugin,
-  ): Promise<string | undefined> {
-    const scan = await scanDirectoryContent(
-      plugin.contentRoot,
-      CONTENT_OPTIONS,
-    );
+  async function hashPlugin(plugin: ResolvedInlinePlugin): Promise<string | undefined> {
+    const scan = await scanDirectoryContent(plugin.contentRoot, CONTENT_OPTIONS);
     return scan.totalBytes > maxItemBytes
       ? undefined
       : await hashDirectoryContent(plugin.contentRoot, CONTENT_OPTIONS);
@@ -170,9 +156,7 @@ export function createInlinePluginDataSyncMethods(options: {
     }
     const fallback = resolvePluginSyncPathWithin(
       targetRoot,
-      toSafeDirectoryName(
-        `${directoryName}-${createShortHash(randomUUID()).slice(0, 8)}`,
-      ),
+      toSafeDirectoryName(`${directoryName}-${createShortHash(randomUUID()).slice(0, 8)}`),
     );
     await rename(extractedPath, fallback);
     return fallback;
@@ -190,11 +174,7 @@ export function createInlinePluginDataSyncMethods(options: {
     keepTempRoot: () => void;
   }): Promise<DataSyncImportResultItem & { created?: CreatedPlugin }> {
     const { item, payloadItem, current } = params;
-    const failed = (error: string) => ({
-      key: item.key,
-      status: "failed" as const,
-      error,
-    });
+    const failed = (error: string) => ({ key: item.key, status: "failed" as const, error });
     if (!payloadItem) return failed("plugin is missing from the sync payload");
     const extractedPath = resolvePluginSyncPathWithin(
       params.incomingRoot,
@@ -206,10 +186,7 @@ export function createInlinePluginDataSyncMethods(options: {
       return failed("plugin id does not match the sync key");
     }
     // 防御：来源端导出已排除 data/，这里再删一次，保证不会带入或覆盖目标端的运行数据。
-    await rm(join(extractedPath, PLUGIN_DATA_DIRECTORY), {
-      recursive: true,
-      force: true,
-    });
+    await rm(join(extractedPath, PLUGIN_DATA_DIRECTORY), { recursive: true, force: true });
     const existing = current.get(item.key);
 
     if (item.mode === "createOnly") {
@@ -240,18 +217,12 @@ export function createInlinePluginDataSyncMethods(options: {
     // 父目录哈希包含子目录，expectedTargetHash 防不住。现在在哈希检查之前拒绝：该项失败，目录不动。
     const nested = [...current.values()].find(
       (plugin) =>
-        plugin !== existing &&
-        isPathWithin(existing.configuredPath, plugin.configuredPath),
+        plugin !== existing && isPathWithin(existing.configuredPath, plugin.configuredPath),
     );
     if (nested) {
-      return failed(
-        `target directory contains another plugin: ${nested.configuredPath}`,
-      );
+      return failed(`target directory contains another plugin: ${nested.configuredPath}`);
     }
-    const currentHash = await hashDirectoryContent(
-      existing.configuredPath,
-      CONTENT_OPTIONS,
-    );
+    const currentHash = await hashDirectoryContent(existing.configuredPath, CONTENT_OPTIONS);
     if (!item.expectedTargetHash || currentHash !== item.expectedTargetHash) {
       return { key: item.key, status: "conflict" };
     }
@@ -296,9 +267,7 @@ export function createInlinePluginDataSyncMethods(options: {
         kept,
         error: message,
       });
-      return failed(
-        `${message}; restoring the original failed, ${kept.join(", ")}`,
-      );
+      return failed(`${message}; restoring the original failed, ${kept.join(", ")}`);
     }
   }
 
@@ -306,9 +275,7 @@ export function createInlinePluginDataSyncMethods(options: {
     async listSyncItems() {
       const plugins = await resolveInlinePlugins();
       return {
-        items: await Promise.all(
-          [...plugins.values()].map((plugin) => listItem(plugin)),
-        ),
+        items: await Promise.all([...plugins.values()].map((plugin) => listItem(plugin))),
         homeDir: resolveUserHomeDir(),
       };
     },
@@ -341,17 +308,11 @@ export function createInlinePluginDataSyncMethods(options: {
         params.keys.map(async (key) => {
           const plugin = plugins.get(key);
           if (!plugin) throw new Error(`plugin sync item not found: ${key}`);
-          const scan = await scanDirectoryContent(
-            plugin.contentRoot,
-            CONTENT_OPTIONS,
-          );
+          const scan = await scanDirectoryContent(plugin.contentRoot, CONTENT_OPTIONS);
           if (scan.totalBytes > maxItemBytes) {
-            throw new Error(
-              `plugin exceeds the size limit: ${scan.totalBytes}/${maxItemBytes}`,
-            );
+            throw new Error(`plugin exceeds the size limit: ${scan.totalBytes}/${maxItemBytes}`);
           }
-          if (scan.containsSymlink)
-            throw new Error(`plugin contains a symbolic link: ${key}`);
+          if (scan.containsSymlink) throw new Error(`plugin contains a symbolic link: ${key}`);
           return plugin;
         }),
       );
@@ -391,9 +352,7 @@ export function createInlinePluginDataSyncMethods(options: {
         },
       });
       if (archive.byteLength > maxItemBytes) {
-        throw new Error(
-          `plugin sync archive exceeds limit: ${archive.byteLength}/${maxItemBytes}`,
-        );
+        throw new Error(`plugin sync archive exceeds limit: ${archive.byteLength}/${maxItemBytes}`);
       }
       return {
         archive,
@@ -403,10 +362,7 @@ export function createInlinePluginDataSyncMethods(options: {
           pluginId: plugin.manifest.pluginId,
           directoryName,
           enabled: plugin.enabled,
-          options: pickPortablePluginOptions(
-            plugin.options,
-            plugin.manifest.userConfig,
-          ),
+          options: pickPortablePluginOptions(plugin.options, plugin.manifest.userConfig),
         })),
       };
     },
@@ -428,12 +384,8 @@ export function createInlinePluginDataSyncMethods(options: {
           maxExtractedBytes: maxItemBytes,
         });
         const current = await resolveInlinePlugins();
-        const payloadByKey = new Map(
-          params.payload.items.map((item) => [item.key, item]),
-        );
-        const results: Array<
-          DataSyncImportResultItem & { created?: CreatedPlugin }
-        > = [];
+        const payloadByKey = new Map(params.payload.items.map((item) => [item.key, item]));
+        const results: Array<DataSyncImportResultItem & { created?: CreatedPlugin }> = [];
         for (const [index, item] of params.items.entries()) {
           results.push(
             await importOne({
@@ -451,9 +403,7 @@ export function createInlinePluginDataSyncMethods(options: {
           );
         }
         await registerCreatedPlugins(results);
-        return {
-          results: results.map(({ created: _created, ...result }) => result),
-        };
+        return { results: results.map(({ created: _created, ...result }) => result) };
       } finally {
         if (!keepTempRoot) await rm(tempRoot, { recursive: true, force: true });
       }
@@ -475,24 +425,16 @@ interface CreatedPlugin {
 async function registerCreatedPlugins(
   results: Array<DataSyncImportResultItem & { created?: CreatedPlugin }>,
 ): Promise<void> {
-  const created = results.filter(
-    (result) => result.status === "created" && result.created,
-  );
+  const created = results.filter((result) => result.status === "created" && result.created);
   if (created.length === 0) return;
   try {
     await updateJsonObjectFile(getUserZcodeConfigPath(), (config) => {
-      const plugins: Record<string, unknown> = isRecord(config.plugins)
-        ? config.plugins
-        : {};
+      const plugins: Record<string, unknown> = isRecord(config.plugins) ? config.plugins : {};
       const dirs = Array.isArray(plugins.dirs)
         ? plugins.dirs.filter((dir): dir is string => typeof dir === "string")
         : [];
-      const enabledPlugins = isRecord(plugins.enabledPlugins)
-        ? { ...plugins.enabledPlugins }
-        : {};
-      const pluginOptions = isRecord(plugins.options)
-        ? { ...plugins.options }
-        : {};
+      const enabledPlugins = isRecord(plugins.enabledPlugins) ? { ...plugins.enabledPlugins } : {};
+      const pluginOptions = isRecord(plugins.options) ? { ...plugins.options } : {};
       for (const { created: entry } of created) {
         const { path, manifest, payloadItem } = entry!;
         if (!dirs.some((dir) => resolve(dir) === path)) dirs.push(path);
@@ -504,10 +446,7 @@ async function registerCreatedPlugins(
           }
         }
         if (!payloadItem.enabled) enabledPlugins[id] = false;
-        const portable = pickPortablePluginOptions(
-          payloadItem.options,
-          manifest.userConfig,
-        );
+        const portable = pickPortablePluginOptions(payloadItem.options, manifest.userConfig);
         if (Object.keys(portable).length > 0) {
           pluginOptions[id] = {
             ...(isRecord(pluginOptions[id]) ? pluginOptions[id] : {}),
@@ -516,11 +455,9 @@ async function registerCreatedPlugins(
         }
       }
       const nextPlugins: Record<string, unknown> = { ...plugins, dirs };
-      if (Object.keys(enabledPlugins).length > 0)
-        nextPlugins.enabledPlugins = enabledPlugins;
+      if (Object.keys(enabledPlugins).length > 0) nextPlugins.enabledPlugins = enabledPlugins;
       else delete nextPlugins.enabledPlugins;
-      if (Object.keys(pluginOptions).length > 0)
-        nextPlugins.options = pluginOptions;
+      if (Object.keys(pluginOptions).length > 0) nextPlugins.options = pluginOptions;
       return { ...config, plugins: nextPlugins };
     });
   } catch (error) {

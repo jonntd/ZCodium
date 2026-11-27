@@ -112,20 +112,15 @@ describe("remote asset staging CLI", () => {
     expect(collect).toHaveBeenCalledWith(expect.objectContaining({ targets: allTargets }));
   });
 
-  it("stages the CI audit version injected through ZCODE_APP_VERSION", async () => {
-    // 修复原因：只读 package.json 时远端资源写到基础版本目录，发布链路随后找不到
-    // releases/<tag 版本>，预发布 job 在 Build GitHub release layout 步骤失败。
-    vi.stubEnv("ZCODE_APP_VERSION", "1.17.1-audit.20261026");
-    await runCli(["--linux"]);
-
-    expect(begin).toHaveBeenCalledWith({
-      versionReleaseDir: expect.stringContaining(
-        "/packages/desktop/mock-cdn/releases/1.17.1-audit.20261026",
-      ),
-    });
-    expect(collect).toHaveBeenCalledWith(
-      expect.objectContaining({ version: "1.17.1-audit.20261026" }),
-    );
+  // E2E onPrepare 已在本轮构建 agent bundle；调用方声明后，第一个 target 也复用，不再构建第二轮。
+  it("skips the agent build for every target when the caller already built it", async () => {
+    vi.stubEnv("ZCODE_ENV", "test");
+    await runCli(["--linux", "--skip-agent-build"]);
+    const stageCalls = spawn.mock.calls.slice(1).map((call) => call[1]);
+    expect(stageCalls).toHaveLength(2);
+    for (const args of stageCalls) {
+      expect(args.filter((arg: string) => arg === "--skip-agent-build")).toHaveLength(1);
+    }
   });
 
   it("rejects invalid Linux environments before invalidating or building", async () => {
@@ -134,6 +129,25 @@ describe("remote asset staging CLI", () => {
     expect(begin).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
     expect(collect).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["win32", true],
+    ["darwin", false],
+    ["linux", false],
+  ])("spawns pnpm through a shell only on Windows (platform=%s)", async (platform, shell) => {
+    const originalPlatform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { ...originalPlatform, value: platform });
+    try {
+      await runCli(["--linux"]);
+    } finally {
+      Object.defineProperty(process, "platform", originalPlatform);
+    }
+    expect(spawn).toHaveBeenCalledTimes(3);
+    for (const call of spawn.mock.calls) {
+      expect(call[0]).toBe("pnpm");
+      expect(call[2].shell).toBe(shell);
+    }
   });
 
   it("does not publish when the second Linux target fails", async () => {

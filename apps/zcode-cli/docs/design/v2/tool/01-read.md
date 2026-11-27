@@ -24,6 +24,26 @@
 - PDF `pages` 支持单页 `N`、闭区间 `N-M` 和开放尾区间语法 `N-`。页码从 1 开始；单次最多 20 页，因此开放尾区间会按“超过 20 页”拒绝，而不是在本地扩成任意上限。
 - 模型提示必须明确：当用户提供图片、截图或支持的图片路径时，必须优先使用 `Read`，不要用 `Bash` 读 base64、调用 `file`/`identify` 或写临时脚本来代替视觉读取。`Bash` 只用于列目录、查找路径或处理当前 `Read` 不支持的文件类型。
 - 当前实现支持文本、常见图片（`.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`）、视频（`.mp4`、`.m4v`、`.mov`、`.webm`、`.mkv`、`.avi`）和按模型能力条件开放的 PDF。Jupyter Notebook、SVG 和 device path 仍是后续实现项；未实现的能力不得写入 provider-visible prompt。
+- provider-visible 描述：范围读取一行写作 "When you already know which part of the file you need, only read that part…"；支持 PDF 时，PDF 句接在图片行末尾（同一行）。不提 Jupyter Notebook（未实现）；视频单独成行，放在图片行之后。
+
+### 输入修正
+
+模型常把 `offset` / `limit` 写成数组、字符串、负数或 `0`，或者用 `length` 代替 `limit`。`Read` 的 runtime schema 在校验之前
+按下面的顺序修正输入，结果再进入字段校验：
+
+1. `offset` 或 `limit` 是只有一个元素的数组时，换成这个元素。
+2. `offset`、`limit`、`length` 是字符串、去掉首尾空白后形如 `^[-+]?\d+(\.\d+)?$` 时，换成对应的数字（例如 `"50"`、`" -1 "`）。
+3. `offset` 是小于 `0` 的有限数时删除 `offset`。
+4. `limit` 是小于或等于 `0` 的有限数时删除 `limit`。
+5. 有 `length` 时：没有 `limit`（包括第 4 条刚删掉的情况）且 `length` 是大于 `0` 的有限数，把它写到 `limit`；`length` 总是删除。
+
+不改写其他字段，其他类型的值原样交给字段校验（例如 `limit: "abc"` 仍按类型错误返回，`limit: "1.5"` 按整数校验失败）。
+修正后的输入同时用于 JSON Schema 校验、hook、权限和 handler；provider-visible schema 不变。删除 `offset` 后从第 1 行读，
+删除 `limit` 后按默认行数读。
+
+修复原因：`limit: -1`、`limit: 0` 原来通过 JSON Schema（它不检查 `exclusiveMinimum`），然后在 handler 内被 runtime schema
+拒绝，模型收到原始 ZodError JSON；`offset: -5`、`limit: [50]`、`limit: "50"` 收到参数错误；`length` 被静默丢弃。这些输入的
+意图都清楚，修正后直接读取，不让模型多花一轮重试。
 
 ## 输出契约
 
@@ -48,7 +68,10 @@
 - 为兼容历史 session、日志回放和模型缓存，`Edit` 行号前缀剥离必须同时接受 `<lineNumber>\t<fileContentLine>` 和 `<lineNumber>: <fileContentLine>`；当前 `Read` 输出使用前者以保持 provider-visible 基线一致。
 - 成功读取非空文本后，provider-visible tool result 只包含按条件生成的 freshness / truncation reminder 和带行号正文，不追加 malware reminder 之类的历史后缀。
 - 用户提交的文本文件附件会合成 `Called the Read tool...` 与 `Result of calling the Read tool...` reminder。同一附件的 reminder body 使用单换行连接；不同附件在同一个 mid-conversation system turn 中仍使用双换行。附件超过默认行数上限时，提示必须明确截断到前 `2000` 行，并提示按需继续读取该文件。
-- 空文件返回 system reminder。
+- 正文为空时按读取结果区分（内容是 system reminder 包装的警告）：
+  - 空文件（`totalLines` 为 0，或只有 1 行且为空）：`Warning: the file exists but the contents are empty.`
+  - 文件有多行、offset 指向空行时：返回带行号的空行（例如 `3\t`），不发警告。
+  - offset 超出文件行数（`numLines = 0` 且 `totalLines > 0`）：`Warning: the file exists but is shorter than the provided offset (<offset>). The file has <totalLines> lines.`
 - 文本结构化输出应携带原始文件大小、实际读取字节数、是否截断等 metadata，供 UI/ZCode app-server/debug 展示；模型可见文本仍只展示行号内容或可操作错误。
 - 图片转成 provider-visible image content block。对 Anthropic wire format，
   `Read` 图片结果必须落到对应 tool result 的 `content` 数组里，例如
@@ -145,7 +168,9 @@ Read(file_path=.pdf)
 6. 对文本和 notebook 进行 token/size 限制。
 7. 文本文件由 `FileSystemPort` 统一完成 bytes 到 Unicode 的解码、LF 规范化、原始 `encoding` 和 `lineEndings` 记录；无法可靠判定为文本或包含混合/不支持编码时返回稳定 `unsupported` 错误，不向模型展示乱码。
 8. 记录 `readFileState`，用于后续 `Edit` 和 `Write` 的读前写入保护。
-9. 对同一文件同一范围重复读取做 dedup，如果 mtime 未变，返回 `file_unchanged`。
+9. 重复读取 dedup 只比较该文件最近一次记录的视图：这个视图来自 Read，offset/limit 与本次相同，
+   且文件 mtime/size 未变，才返回 `file_unchanged`。Edit/Write 写入后记录的状态不参与 dedup，
+   之后的 Read 返回文件内容（模型没看过写入后的内容）；中间读过其他范围后，再读原范围也返回内容。
 10. 对图片和 PDF 提取页复用现有尺寸、API byte budget 和 token budget 压缩。
 11. 对视频做格式识别和 `30MiB` 输入上限校验，不做转码或压缩。
 12. 对大 PDF 要求分页读取或走页面提取。
@@ -205,6 +230,13 @@ ZCode 文本 `Read` 使用两层预算：
 - `READ_MAX_FILE_SIZE_BYTES = 256 * 1024`。未显式传 `limit` 时，adapter 先按文件总大小检查；超过上限时返回 `too_large` / `read_file_too_large` 类错误，提示使用 `offset` 和 `limit`。
 - 显式传 `limit` 时，不用文件总大小拦截，而是按完整文件的真实行区间读取。实现不能先读文件头部再在 core 中切片，否则会导致大文件后半段永远不可读。
 - `READ_MAX_OUTPUT_TOKENS = 25_000`。范围读取后的选中内容仍要做模型输出预算校验；超过上限时返回 `read_output_too_many_tokens`，提示缩小范围。
+- 未传 offset/limit 的首次整文件读取和用户附件超过 token 上限时，不报错，返回部分视图：
+  - 保留行数 = `floor(行数 × 25_000 / 全文 token × 0.85)`，至少 1 行；仍超限时按 `0.7` 缩小，最多 6 次。
+  - 按行缩小 6 次后仍放不下时（例如单行过长，或文件前段很密），改为按字符截取前缀（同样按 `0.85` 估算、`0.7` 缩小）。
+  - 候选视图是否放得进上限，用与整文件判定相同的 token 估算重新计算，不按全文平均字符密度推算。文件前段比全文更密（例如前段中文多、后段 ASCII 多）时，部分视图也不超过 25_000 token。缩小次数用完仍放不下时，不返回部分视图，按 token 超限报错（`read_output_too_many_tokens`）。
+  - 部分视图提示以 `[Truncated: PARTIAL view — <path>: ` 开头：按行时给出 `showing lines 1-N of T total`、下一页的 `offset=N+1 limit=N`；按字符时说明无法按行分页，提示用 Grep 或 offset/limit。两种提示都以 `Do NOT answer from this … alone …]` 结尾。
+  - Read 工具结果的 tool_result 只含带行号正文；提示作为 `read_truncation_notice` 附件，紧跟在该工具批次的 tool result 之后发送（与其他工具批次后的附件一样投影，MCS 下进入同一条 system）。用户附件没有 tool_result，提示仍放在附件 Result 正文开头。
+  - Stop 打断该批次的文件 checkpoint 时，提示仍在取消上抛之前写入；历史顺序是 tool result → 提示 → 中断标记，live 与冷恢复一致。
 - `READ_DEFAULT_MAX_LINES = 2000`。未显式传 `limit` 且文件大小通过检查时，最多返回前 `2000` 行。
 - `resultBudget` 是最后兜底，不是正常路径。正常情况下 `Read` 自己应返回可操作错误或真实范围内容，不依赖 executor 截断巨大输出。
 
@@ -239,6 +271,27 @@ ZCode 应将路径权限做成统一 filesystem permission adapter，`Read` 只�
 
 这些错误应保留稳定错误码和结构化原因，CLI 入口层再格式化成人类提示。
 
+路径与页码的预检都在 Read `validateInput`，PreToolUse Hook 和权限检查之前完成，顺序是：`pages`（`errorCode=7` / `8`）→
+二进制扩展名（`errorCode=4`）→ 设备文件（`errorCode=9`）。executor 统一投影为 `<tool_use_error>…</tool_use_error>`；
+`error.message` 与 UI 只有原文，不带标签。这些检查不写进 runtime schema（`ReadInputSchema` 只做输入修正和字段校验），
+否则 runtime schema 失败会先返回 InputValidationError（根目录 `docs/model-tool-call-validation.md`）。handler 与压缩恢复读取
+仍调用同一个检查函数，覆盖 hook 改写后的输入。
+
+文字（2026-11-14）：
+
+```text
+Invalid pages parameter: "<pages>". Give one page ("3") or one range ("1-5"), not a list. To read several pages or ranges, read each one separately. Pages are 1-indexed.
+This tool cannot read binary files. The file appears to be a binary <ext> file. Use a skill for this file type if one is available, or a shell command or script that can read the format.
+Cannot read '<path>': this path names a device or process file that this tool does not read.
+```
+
+二进制扩展名表不变（19 项）。`pages` 不接受列表（`1,3`），只接受单页、闭区间与开放尾区间，所以文字写“不是列表”。
+handler 分页提取时的同类检查使用同一句。原来的文字分别是 `Use formats like "1-5", "3", or "10-20".`、
+`Please use appropriate tools for binary file analysis.` 与 `this device file would block or produce infinite output.`。
+
+修复原因：二进制和设备文件的检查原来在 runtime schema 的 superRefine 里，由 handler 抛出带 `<tool_use_error>` 标签的
+`error.message`，hook 与权限先跑一遍，UI 显示的错误也带着标签。
+
 ## ZCode 设计结论
 
 ## 实现状态（2026-05-08）
@@ -266,5 +319,5 @@ ZCode 应将路径权限做成统一 filesystem permission adapter，`Read` 只�
 - 文件系统 I/O 必须通过 `FileSystemPort`。
 - `FileSystemPort` 可由本地 Node adapter 或远程/ZCode protocol client adapter 实现；Read tool 不得直接 import `fs/promises`。
 - PDF、图片、notebook 处理应是可替换 adapter，避免核心 tool 直接依赖具体库。
-- `readFileState` 必须记录 `path`、`mtime`、`content`、`offset`、`limit`、是否 partial view。
+- `readFileState` 每个文件一条，记录 `path`、`mtime`、`content`、`offset`、`limit`、是否 partial view；每次 Read 覆盖同一文件的旧记录（规则见 `17-read-file-state-resume.md`）。
 - 所有读取和 cache 命中都要带 `traceId`，便于回放和审计。

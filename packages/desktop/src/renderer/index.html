@@ -107,42 +107,25 @@
   </head>
   <body>
     <div id="root"></div>
-    <div
-      id="loading"
-      class="[app-region:drag]"
-      role="status"
-      aria-busy="true"
-      aria-label="Loading..."
-    >
+    <div id="loading" class="[app-region:drag]" role="status" aria-busy="true" aria-label="Loading...">
       <div class="startup-logo-shell">
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="118"
           height="100"
           fill="none"
-          viewBox="176 224 712 608"
+          viewBox="0 0 256 218"
           class="startup-logo"
           aria-hidden="true"
         >
-          <!-- 品牌 Z 用图标同款对角渐变（天蓝→靛紫），不再使用白色 currentColor。 -->
-          <defs>
-            <linearGradient
-              id="startup-z-gradient"
-              x1="712"
-              y1="224"
-              x2="300"
-              y2="800"
-              gradientUnits="userSpaceOnUse"
-            >
-              <stop offset="0" stop-color="#38bdf8" />
-              <stop offset="1" stop-color="#818cf8" />
-            </linearGradient>
-          </defs>
-          <path fill="url(#startup-z-gradient)" d="M184 224H512L453 308Q439 328 415 328H184Z" />
-          <path fill="url(#startup-z-gradient)" d="M584 224H832L424 800H176Z" />
           <path
-            fill="url(#startup-z-gradient)"
-            d="M536 720L600 656L648 704L824 528L888 592L648 832Z"
+            fill="currentColor"
+            d="M134.4 0.130152L116.48 25.6022C113.665 29.5699 109.054 32.0019 104.064 32.0019H6.3999V0C6.3999 0.130149 134.4 0.130152 134.4 0.130152Z"
+          />
+          <path fill="currentColor" d="M256 0.130127L102.401 217.732H0L153.599 0.130127H256Z" />
+          <path
+            fill="currentColor"
+            d="M121.601 217.732L139.65 192.134C142.465 188.166 147.076 185.734 152.067 185.734H249.604V217.736H121.601V217.732Z"
           />
         </svg>
       </div>

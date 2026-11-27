@@ -35,10 +35,7 @@ export interface UsePluginUiHostInput {
   /** false 时不创建沙箱（如侧栏已接管同一作用域）；默认 true。 */
   enabled?: boolean;
   /** 会话交互回调：缺省时对应请求回 -32601，能力声明也不带该项。 */
-  interactions?: Pick<
-    PluginUiHostControllerDeps,
-    "onSendFollowUpMessage" | "onUpdateModelContext"
-  >;
+  interactions?: Pick<PluginUiHostControllerDeps, "onSendFollowUpMessage" | "onUpdateModelContext">;
 }
 
 export interface UsePluginUiHostResult {
@@ -65,10 +62,7 @@ export interface Page {
   start(): void;
   update(input: UsePluginUiHostInput): void;
   updateToolFeed(
-    input: Pick<
-      UsePluginUiHostInput,
-      "toolCallId" | "toolInput" | "toolResult" | "toolCancelled"
-    >,
+    input: Pick<UsePluginUiHostInput, "toolCallId" | "toolInput" | "toolResult" | "toolCancelled">,
   ): void;
   bind(node: HTMLElement, sidebar: boolean): () => void;
   busy(): boolean;
@@ -79,9 +73,7 @@ export interface Page {
     args?: Record<string, unknown>,
   ): Promise<import("@zcode/services").PluginUiCallToolResult>;
   /** 把工具结果经面板通知通道回投页面；未 attached 时由 controller 丢弃。 */
-  notifyPanelToolResult(
-    result: import("@zcode/shared/mcp-apps").McpAppsToolResultPayload,
-  ): void;
+  notifyPanelToolResult(result: import("@zcode/shared/mcp-apps").McpAppsToolResultPayload): void;
   suspend(force?: boolean): Promise<boolean>;
   destroy(): void;
 }

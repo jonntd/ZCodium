@@ -23,16 +23,11 @@ interface LaneResultMessage {
  *
  * Main 对每个请求都应答（无协调器时回「无 lane」），这里不设超时；Host 退出时请求随进程一起消失。
  */
-export function createHostProviderProvisioningStatus(
-  postMessage: (message: unknown) => void,
-): {
+export function createHostProviderProvisioningStatus(postMessage: (message: unknown) => void): {
   service: IProviderProvisioningStatusService;
   handleResult(message: LaneResultMessage): boolean;
 } {
-  const pending = new Map<
-    string,
-    (status: ProviderProvisioningLaneStatus) => void
-  >();
+  const pending = new Map<string, (status: ProviderProvisioningLaneStatus) => void>();
   let sequence = 0;
 
   const request = (
@@ -58,8 +53,7 @@ export function createHostProviderProvisioningStatus(
 
   return {
     service: {
-      getStatus: (params) =>
-        request(params.waitForIdle ? "wait" : "read", params.sourceServerId),
+      getStatus: (params) => request(params.waitForIdle ? "wait" : "read", params.sourceServerId),
       retry: (params) => request("retry", params.sourceServerId),
     },
     handleResult(message) {

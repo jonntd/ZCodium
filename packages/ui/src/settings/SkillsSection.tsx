@@ -192,7 +192,6 @@ export function SkillsSection({
   );
   const pluginWorkspacePath = usePluginManagementStore((state) => state.workspacePath);
   const pluginWorkspaceIdentity = usePluginManagementStore((state) => state.workspaceIdentity);
-  const pluginStoreAuthorityKey = usePluginManagementStore((state) => state.authorityKey);
   const pluginConfigScope = usePluginManagementStore((state) => state.configScope);
   const initializePlugins = usePluginManagementStore((state) => state.initialize);
   // useConfirmDialog 是纯 Zustand selector（不含 useState），放在这里不会影响 SkillsSection
@@ -473,25 +472,19 @@ export function SkillsSection({
 
   const scopedProviderSkills = useMemo(() => {
     const allProviderSkills = filterSkillsForProvider(skills, ZCODE_AGENT_PROVIDER);
-    // 插件 store 的绑定 key 必须与页面目标同格式比较（authority\0identity|path，见
-    // settingsSourceWorkspace.buildSourceSettingsProjectionKey）。Bug 根因：远端「用户」只有
-    // home 路径没有 identity，两台设备 home 同串（如同为 /root）时裸路径比较会误匹配，
-    // 把 A 设备的插件技能分组渲染进 B 设备的用户视图。与 MCP 页的对齐修法保持一致。
     const pluginStoreMatchesTarget =
-      buildSourceSettingsProjectionKey(
-        pluginWorkspacePath,
-        pluginWorkspaceIdentity,
-        pluginStoreAuthorityKey,
-      ) === activeSkillTargetKey && pluginConfigScope === scopeFilter;
+      (pluginWorkspaceIdentity?.trim() || pluginWorkspacePath || "") ===
+        (activeWorkspaceIdentity?.trim() || activeWorkspacePath || "") &&
+      pluginConfigScope === scopeFilter;
     return selectSkillsForScope(
       allProviderSkills,
       pluginStoreMatchesTarget ? selectPluginsForScope(plugins, installedPlugins, scopeFilter) : [],
       scopeFilter,
     );
   }, [
-    activeSkillTargetKey,
+    activeWorkspaceIdentity,
+    activeWorkspacePath,
     installedPlugins,
-    pluginStoreAuthorityKey,
     pluginWorkspaceIdentity,
     pluginWorkspacePath,
     pluginConfigScope,

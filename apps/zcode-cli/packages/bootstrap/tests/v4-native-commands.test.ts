@@ -3,7 +3,11 @@
 // 08-phasing M4 完成定义的 L2 层（命令 → core 调用 → 状态推进，不经旧协议代码）。
 import { SessionEventType, type SessionEvent } from "@zcode/contracts";
 import { describe, expect, it, vi } from "vitest";
-import type { CommandEnvelope } from "@zcode/shared/zcode-protocol-v4";
+import { V4InteractionRegistry } from "../src/zcode-protocol-v4/interaction-registry.js";
+import {
+  PERMISSION_FULL_ACCESS_OPTION_ID,
+  type CommandEnvelope,
+} from "@zcode/shared/zcode-protocol-v4";
 import { createInputFacade } from "../src/app/input-facade.js";
 import type { SendInputOptions } from "../src/app/types.js";
 import { V4CommandExecutor } from "../src/zcode-protocol-v4/commands/executor.js";
@@ -95,6 +99,25 @@ function envelope(type: string, payload: unknown): CommandEnvelope {
     baseRevision: 0,
   } as unknown as CommandEnvelope;
 }
+
+it("完全访问仅在实际授权后向发起端返回可保存的权限凭据", async () => {
+  const interactions = new V4InteractionRegistry();
+  interactions.register("permission", vi.fn(), {
+    sessionId: "s1",
+    kind: "other",
+    fullAccess: async () => {},
+  });
+  const executor = new V4CommandExecutor(makeHost(makeRecord(), { interactions }));
+  const command = envelope("resolveInteraction", {
+    interactionId: "permission",
+    answer: { optionId: PERMISSION_FULL_ACCESS_OPTION_ID },
+  });
+  expect(await executor.execute(command)).toMatchObject({
+    type: "resolveInteraction",
+    resolvedBy: { clientId: command.clientId, optionId: PERMISSION_FULL_ACCESS_OPTION_ID },
+  });
+  expect(await executor.execute({ ...command, commandId: "late" })).toBeUndefined();
+});
 
 async function settle() {
   // 后台 turn 是 void 起跑的微任务链，flush 两轮保证 finally 执行完。
@@ -625,10 +648,11 @@ describe("v4 原生 sendText", () => {
         }),
       },
     });
+    const listModels = vi.fn(() => [{ ref: ORDINARY_MODEL_SELECTION }]);
+    app.listModels = listModels;
     const record = makeRecord({ app });
     const retainQueuedTurnExecution = vi.fn();
     const host = makeHost(record, {
-      ensureModelReady: vi.fn(),
       getInputRoutingMode: () => "startNow",
       retainQueuedTurnExecution,
     });
@@ -682,7 +706,7 @@ describe("v4 原生 sendText", () => {
     );
     // 入队只下发普通 Selection 与卡元数据，不下发 execution 与凭据，仍按普通轮做 Session 模型
     // preflight：卡失效后提升使用 QueueItem 的普通 Selection，模型不可用必须在 admission 就暴露。
-    expect(host.ensureModelReady).toHaveBeenCalledWith(record);
+    expect(listModels).toHaveBeenCalled();
     expect(app.sendInput.mock.calls[0]?.[1]).not.toHaveProperty("modelExecution");
     expect(retainQueuedTurnExecution).toHaveBeenCalledWith("s1", "cmd-1", {
       modelSelection: {
@@ -715,9 +739,6 @@ describe("v4 原生 sendText", () => {
     });
     const record = makeRecord({ app });
     const host = makeHost(record, {
-      ensureModelReady: vi.fn().mockImplementation(async () => {
-        order.push(`preflight:${currentModel}`);
-      }),
       afterLegacyStateMutation: vi.fn().mockImplementation(async () => {
         order.push(`ready:${currentModel}`);
       }),
@@ -747,7 +768,6 @@ describe("v4 原生 sendText", () => {
     await settle();
 
     expect(order).toEqual(["send:user-provider/user-model", "ready:user-provider/user-model"]);
-    expect(host.ensureModelReady).not.toHaveBeenCalled();
     expect(capturedOptions?.intent?.modelSelection).toEqual({
       providerId: "account:zai-offpeak-idle-plan",
       modelId: "GLM-5.2",
@@ -773,7 +793,6 @@ describe("v4 原生 sendText", () => {
       restoreWarning: { message: "session model unavailable", type: "model_unavailable" },
     });
     const host = makeHost(record, {
-      ensureModelReady: vi.fn(),
       hasUsableRuntimeModelTarget: vi.fn().mockReturnValue(false),
     });
 
@@ -791,7 +810,6 @@ describe("v4 原生 sendText", () => {
     ).resolves.toBeDefined();
     await settle();
 
-    expect(host.ensureModelReady).not.toHaveBeenCalled();
     expect(record.restoreWarning).toEqual({
       message: "session model unavailable",
       type: "model_unavailable",
@@ -827,9 +845,7 @@ describe("v4 原生 sendText", () => {
         }),
       });
       const record = makeRecord({ app });
-      const host = makeHost(record, {
-        ensureModelReady: vi.fn(),
-      });
+      const host = makeHost(record);
 
       await new V4CommandExecutor(host).execute(
         envelope("sendText", {
@@ -1005,22 +1021,19 @@ describe("v4 原生 sendText", () => {
     expect(app.sendInput.mock.calls[1]?.[1]).not.toHaveProperty("toolDisallowlist");
   });
 
-  it("automation runId inputId 漏传 automationId 时也隐藏全部写工具", async () => {
+  it("调用方伪造 automation inputId 时不恢复任务身份", async () => {
     const app = makeApp();
     const record = makeRecord({ app });
     const host = makeHost(record);
 
     await new V4CommandExecutor(host).execute({
-      ...envelope("sendText", { text: "automation prompt" }),
-      commandId: "automation-parent:manual:run-1",
+      ...envelope("sendText", { text: "ordinary prompt" }),
+      commandId: "automation-other-task:manual:forged-run",
     });
     await settle();
 
-    expect(app.sendInput.mock.calls[0]?.[1]).toEqual(
-      expect.objectContaining({
-        toolDisallowlist: ["CronCreate", "CronUpdate", "CronDelete"],
-      }),
-    );
+    expect(app.sendInput.mock.calls[0]?.[1]).not.toHaveProperty("automationId");
+    expect(app.sendInput.mock.calls[0]?.[1]).not.toHaveProperty("toolDisallowlist");
     expect(record.activeAutomationId).toBeUndefined();
   });
 
@@ -1087,14 +1100,14 @@ describe("v4 原生 sendText", () => {
     expect(app.steerTurn).not.toHaveBeenCalled();
   });
 
+  // 立即发送是用户的新指令：实际抢占旧执行后，输入仍是普通用户消息，与空闲时发送相同。
   it.each([
-    { stopKind: "stopped", attachmentMime: undefined, expected: "user_steer" },
-    { stopKind: "idle", attachmentMime: undefined, expected: undefined },
-    { stopKind: "stopped", attachmentMime: "text/plain", expected: undefined },
-    { stopKind: "stopped", attachmentMime: "image/png", expected: undefined },
+    { stopKind: "stopped", attachmentMime: undefined },
+    { stopKind: "idle", attachmentMime: undefined },
+    { stopKind: "stopped", attachmentMime: "text/plain" },
   ])(
-    "startNow human 提示：$stopKind / $attachmentMime",
-    async ({ stopKind, attachmentMime, expected }) => {
+    "startNow 抢占后仍是普通用户输入：$stopKind / $attachmentMime",
+    async ({ stopKind, attachmentMime }) => {
       const app = makeApp({
         runtime: {
           acquireForegroundPromotionLease: vi.fn().mockReturnValue({ kind: "acquired" }),
@@ -1127,7 +1140,7 @@ describe("v4 原生 sendText", () => {
       expect(app.sendInput).toHaveBeenCalledTimes(1);
       const [input, options] = app.sendInput.mock.calls[0]!;
       expect(input.text).toBe("先处理这个短任务");
-      expect(options.inputPresentation).toBe(expected);
+      expect(options).not.toHaveProperty("inputPresentation");
       expect(options).toMatchObject({
         inputId: "cmd-1",
         requireIdle: true,
@@ -1136,7 +1149,7 @@ describe("v4 原生 sendText", () => {
     },
   );
 
-  it("startNow 的 human 标记经真实 input facade 进入新轮 Core admission", async () => {
+  it("抢占后的 startNow 经真实 input facade 以普通用户输入进入新轮 Core admission", async () => {
     const runtime = {
       acquireForegroundPromotionLease: vi.fn().mockReturnValue({ kind: "acquired" }),
       getActiveForegroundExecutionId: vi.fn().mockReturnValue(undefined),
@@ -1163,12 +1176,12 @@ describe("v4 原生 sendText", () => {
       "短任务",
       undefined,
       expect.objectContaining({
-        inputPresentation: "user_steer",
         inputId: "cmd-1",
         requireIdle: true,
         delivery: "start_turn",
       }),
     );
+    expect(runtime.admitPrompt.mock.calls[0]![2]).not.toHaveProperty("inputPresentation");
   });
 
   it("运行中 startNow：原子抢占后直接启动新 turn，不创建 queue item", async () => {
@@ -1212,11 +1225,11 @@ describe("v4 原生 sendText", () => {
     expect(releaseForegroundPromotionLease).toHaveBeenCalledWith("send-now:cmd-1");
   });
 
-  it("automation 运行中会话：Core queue 保留完整 automation denylist", async () => {
+  it("伪造 automation inputId 排队时仍保持普通用户轮", async () => {
     const app = makeApp({
       sendInput: vi.fn().mockResolvedValue({
         kind: "queued",
-        pendingInputId: "pending-automation-followup",
+        pendingInputId: "pending-ordinary-followup",
         queueLength: 1,
         turnId: "turn-1",
       }),
@@ -1225,18 +1238,19 @@ describe("v4 原生 sendText", () => {
     const host = makeHost(record);
 
     await new V4CommandExecutor(host).execute({
-      ...envelope("sendText", { text: "automation followup" }),
-      commandId: "automation-parent:manual:run-1",
+      ...envelope("sendText", { text: "ordinary followup" }),
+      commandId: "automation-other-task:manual:forged-run",
     });
 
     expect(app.sendInput).toHaveBeenCalledWith(
-      { text: "automation followup" },
+      { text: "ordinary followup" },
       expect.objectContaining({
         delivery: "start_turn",
-        inputId: "automation-parent:manual:run-1",
-        toolDisallowlist: ["CronCreate", "CronUpdate", "CronDelete"],
+        inputId: "automation-other-task:manual:forged-run",
       }),
     );
+    expect(app.sendInput.mock.calls[0]?.[1]).not.toHaveProperty("automationId");
+    expect(app.sendInput.mock.calls[0]?.[1]).not.toHaveProperty("toolDisallowlist");
     expect(app.steerTurn).not.toHaveBeenCalled();
   });
 
@@ -1415,6 +1429,7 @@ describe("v4 原生 sendText", () => {
     expect(app.sendInput).toHaveBeenCalledWith(
       { text: "automation busy prompt" },
       expect.objectContaining({
+        automationId: "automation-1",
         delivery: "start_turn",
         inputId: "cmd-1",
         queryId: "cmd-1",
@@ -2071,6 +2086,9 @@ describe("supports 分流", () => {
       "setHighspeedMetrics",
       "sendQueuedNow",
       "editQueueItem",
+      "applyQueueItemsConfig",
+      "lockQueueItemEdit",
+      "releaseQueueItemEdit",
       "reorderQueueItem",
       "deleteQueueItem",
       "setAutoDrain",

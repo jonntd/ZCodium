@@ -1,3 +1,4 @@
+import { createContext } from "react";
 // v4 行渲染上下文（ai-elements / ToolCallBlocks 回接所需的宿主注入面）。
 // 注入模式对齐 PermissionDialog（store 耦合剥离）：展示组件不自取 store，
 // theme / codePreviewSettings 在宿主（SessionPane）处取，向下走稳定 props。
@@ -65,12 +66,6 @@ export interface ConversationRowRenderContext {
   messageStreamFirstReasoningRowId?: number;
   /** 常规设置：是否在对话消息流中渲染 Todo 工具卡片。 */
   messageStreamShowTodos?: boolean;
-  /** 常规设置：是否聚合连续的 Explore-compatible 工具。 */
-  toolGroupingExploreEnabled?: boolean;
-  /** 常规设置：是否聚合连续的非只读 Shell 工具。 */
-  toolGroupingTerminalEnabled?: boolean;
-  /** 常规设置：是否聚合连续的文件写入工具。 */
-  toolGroupingChangesEnabled?: boolean;
   /**
    * Tier 1 fork 跳转：把当前 pane 切到目标会话（forkNotice → 父会话，复用 onSessionCreated
    * 原地切换）。rowId 预留 Tier 2 精确滚动——当前 forkNotice.parentRowId 恒为 0 占位、暂忽略。
@@ -198,11 +193,12 @@ export interface ConversationRowRenderContext {
   previewFileRewind?: (
     target: ConversationRowTarget,
   ) => Promise<V4ConversationFileRewindPreviewResult>;
-  /** 按文件撤销（docs/spec/per-file-rewind.md）：paths 缺省 = 整轮撤销。 */
-  applyFileRewind?: (
-    target: ConversationRowTarget,
-    paths?: readonly string[],
-  ) => Promise<CommandAck>;
+  applyFileRewind?: (target: ConversationRowTarget) => Promise<CommandAck>;
+  /**
+   * 文件撤销被 session 锁住（availability.rewindFiles 拒绝），且锁一解除就能撤销。锁住时 pane
+   * 不下发上面两个回调；只读 pane、运行时未就绪时为 false，禁用按钮不显示锁定提示。
+   */
+  fileRewindLocked?: boolean;
   /** 已发送 image/video 预览；由 pane 绑定的 workspace transport 注入。 */
   readAttachment?: (
     params: ConversationAttachmentReadParams,
@@ -220,11 +216,6 @@ export interface ConversationFileChangesRequestOptions {
   cachePolicy: "in-flight" | "terminal";
   /** rewind 会在同一 logEpoch 内切换 active/reverted，终态缓存必须按该语义状态隔离。 */
   fileChangesState?: ConversationFileChangesState;
-  /**
-   * 按文件撤销（docs/spec/per-file-rewind.md）后 state 仍是 active（剩余文件可继续
-   * 撤销），终态缓存必须随撤销账本长度失效（账本只增不减，长度即版本）。
-   */
-  revertedRevision?: string;
 }
 
 export type ConversationReasoningVisibility = Pick<
@@ -241,3 +232,12 @@ export function isConversationReasoningRowVisible(
     visibility.messageStreamFirstReasoningRowId === rowId
   );
 }
+
+// Context 独立于组件热更新边界，避免提供方和已挂载工具消费方持有不同实例，
+// 将整条工具摘要误渲染到统计组头的图标槽。
+export const SummaryIconOnlyContext = createContext(false);
+export const SummaryPreviewContext = createContext(false);
+export const SummaryGroupBoundaryContext = createContext<{
+  taskRunning: boolean;
+  tailRowId?: number;
+}>({ taskRunning: false });

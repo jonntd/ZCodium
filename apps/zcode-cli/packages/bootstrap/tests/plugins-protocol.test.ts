@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import type { PluginLoadOutcome } from "@zcode/contracts";
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // 协议 handler 只从 workspace 推导 storageRoot，user config 仍解析到 ~/.zcode/cli/config.json
@@ -31,13 +32,15 @@ import {
   zcodePluginsMarketplaceMutationResultSchema,
   zcodePluginsMarketplaceUpdateParamsSchema,
   zcodePluginsOverviewParamsSchema,
+  zcodePluginsOverviewResultSchema,
   zcodePluginsCancelOperationParamsSchema,
   zcodePluginsCancelOperationResultSchema,
   zcodePluginsSetEnabledParamsSchema,
   zcodePluginsValidateResultSchema,
 } from "@zcode/shared";
 import { getCliStorageRoot, getPluginStorageRoot } from "../src/app/paths.js";
-import { installZCodeMarketplacePlugin } from "../src/plugins.js";
+import { installZCodeMarketplacePlugin, resolveZCodePlugins } from "../src/plugins.js";
+import { createOfficialPluginPreparation } from "../src/app/bundled-plugins.js";
 import {
   addPluginMarketplace,
   describePlugin,
@@ -46,6 +49,8 @@ import {
   listPlugins,
   normalizePluginRootForComparison,
   restoreBuiltinPlugin,
+  setPluginEnabled,
+  setPluginWorkspaceTrust,
   updatePlugin,
 } from "../src/zcode-protocol/plugins.js";
 import { withPluginStorageLock } from "../src/lib/plugin-storage-lock.js";
@@ -55,9 +60,106 @@ afterAll(async () => {
   await rm(FAKE_HOME, { force: true, recursive: true });
 });
 
+const NODE_REPL_HOST_PLUGIN_ID = "node-repl-host@zcode-plugins-official";
+
 // 协议契约层面的回归: 确保 plugins/list 与 plugins/setEnabled 已注册且 schema 可用。
 // 端到端发现逻辑由 bootstrap/tests/plugins.test.ts (resolveZCodePlugins) 覆盖。
 describe("plugins protocol contracts", () => {
+  it.each([true, false])(
+    "normalizes external userConfig before strict list validation (enabled=%s)",
+    async (enabled) => {
+      const root = await mkdtemp(join(tmpdir(), "zcode-plugin-user-config-"));
+      const pluginRoot = join(root, "extension");
+      const userConfigPath = join(FAKE_HOME, ".zcode", "cli", "config.json");
+      const manifestPath = join(pluginRoot, ".claude-plugin", "plugin.json");
+      const userConfig = {
+        track: { type: "string", default: "auto", options: ["auto", "transform"] },
+        panel: { type: "string", default: "auto", options: ["auto", "off"] },
+        token: { type: "string", required: true, sensitive: true, title: "Token" },
+      };
+      const manifest = JSON.stringify({ name: "extension", userConfig });
+      try {
+        await writeTestFile(manifestPath, manifest);
+        await writeTestFile(
+          join(root, "healthy", ".claude-plugin", "plugin.json"),
+          JSON.stringify({ name: "healthy" }),
+        );
+        await writeTestFile(
+          userConfigPath,
+          JSON.stringify({
+            plugins: {
+              dirs: [pluginRoot, join(root, "healthy")],
+              enabledPlugins: { "extension@inline": enabled },
+              options: { "extension@inline": { token: "fixture-secret" } },
+            },
+          }),
+        );
+        const result = await listPlugins({} as ZCodeProtocolAgentServerContext, {
+          workspace: { workspacePath: root, workspaceKey: root },
+        });
+        const parsed = zcodePluginsListResultSchema.parse(result);
+        expect(parsed.plugins.map((plugin) => plugin.id)).toContain("healthy@inline");
+        expect(parsed.plugins.find((plugin) => plugin.id === "extension@inline")).toMatchObject({
+          enabled,
+          userConfig: {
+            track: { type: "string", default: "auto" },
+            panel: { type: "string", default: "auto" },
+            token: userConfig.token,
+          },
+        });
+        expect(JSON.stringify(parsed)).not.toContain("fixture-secret");
+        expect(await readFile(manifestPath, "utf8")).toBe(manifest);
+      } finally {
+        await rm(userConfigPath, { force: true });
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.each([
+    null,
+    [],
+    { token: null },
+    { token: { sensitive: "true" } },
+    { token: { type: "unknown" } },
+    { token: { default: [] } },
+  ])("isolates invalid known userConfig fields: %j", async (userConfig) => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-plugin-invalid-config-"));
+    const userConfigPath = join(FAKE_HOME, ".zcode", "cli", "config.json");
+    try {
+      for (const name of ["healthy", "invalid"]) {
+        await writeTestFile(
+          join(root, name, ".claude-plugin", "plugin.json"),
+          JSON.stringify({
+            name,
+            ...(name === "invalid" ? { userConfig } : {}),
+          }),
+        );
+      }
+      await writeTestFile(
+        userConfigPath,
+        JSON.stringify({ plugins: { dirs: [join(root, "invalid"), join(root, "healthy")] } }),
+      );
+      const result = zcodePluginsListResultSchema.parse(
+        await listPlugins({} as ZCodeProtocolAgentServerContext, {
+          workspace: { workspacePath: root, workspaceKey: root },
+        }),
+      );
+      expect(result.plugins.some((plugin) => plugin.id === "healthy@inline")).toBe(true);
+      expect(result.plugins.some((plugin) => plugin.id === "invalid@inline")).toBe(false);
+      expect(result.diagnostics).toContainEqual(
+        expect.objectContaining({
+          code: "plugin_manifest_invalid",
+          pluginId: "invalid@inline",
+          severity: "error",
+        }),
+      );
+    } finally {
+      await rm(userConfigPath, { force: true });
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   it("serializes marketplace mutations behind the workspace plugin storage lock", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-protocol-marketplace-lock-"));
     const previousStorageDir = process.env.ZCODE_STORAGE_DIR;
@@ -267,35 +369,244 @@ describe("plugins protocol contracts", () => {
     ).toBe(normalizePluginRootForComparison("c:/repo/plugin", "win32"));
   });
 
-  it("projects an inline plugin declared by the current Workspace into Workspace scope", async () => {
-    const root = await mkdtemp(join(tmpdir(), "zcode-workspace-plugin-root-source-"));
+  it("lists a Workspace directory plugin as pending until the user trusts its declarations", async () => {
+    // docs/plugins/workspace-plugin-dir-trust.md：项目 plugins.dirs 只产生候选；未信任时强制停用、
+    // 不解析 Hook/MCP/技能；信任写入用户域后，新的发现才启用。声明（manifest、Hook、MCP）变化
+    // 回到待信任，技能正文变化不影响。
+    const root = await mkdtemp(join(tmpdir(), "zcode-workspace-plugin-trust-"));
+    const copy = await mkdtemp(join(tmpdir(), "zcode-workspace-plugin-trust-copy-"));
     const pluginRoot = join(root, "plugins", "workspace-demo");
+    const pluginId = "workspace-demo@inline";
+    const context = {} as ZCodeProtocolAgentServerContext;
+    const workspace = { workspacePath: root, workspaceKey: root };
+    const list = async (target = workspace) =>
+      (await listPlugins(context, { workspace: target })).plugins.find(
+        (plugin) => plugin.id === pluginId,
+      );
+    const discover = (workingDirectory = root) =>
+      resolveZCodePlugins({ workingDirectory, env: {} });
     try {
       await writeTestFile(
         join(root, ".zcode", "config.json"),
-        JSON.stringify({ plugins: { dirs: [pluginRoot], enabledPlugins: { "workspace-demo@inline": false } } }),
+        JSON.stringify({ plugins: { dirs: ["./plugins/workspace-demo"] } }),
       );
       await writeTestFile(
         join(pluginRoot, ".claude-plugin", "plugin.json"),
         JSON.stringify({
-          name: "workspace-demo", mcpServers: { panel: { command: "node", args: ["panel.mjs"] } },
-          ui: { surfaces: [{ id: "panel", title: "Panel", server: "panel", resourceUri: "ui://demo/panel", availability: "session" }] },
+          name: "workspace-demo",
+          mcpServers: { panel: { command: "node", args: ["panel.mjs"] } },
         }),
+      );
+      const hooks = (command: string) =>
+        JSON.stringify({
+          hooks: { SessionStart: [{ hooks: [{ type: "command", command }] }] },
+        });
+      await writeTestFile(join(pluginRoot, "hooks", "hooks.json"), hooks("echo one"));
+      await writeTestFile(
+        join(pluginRoot, "skills", "demo", "SKILL.md"),
+        "---\nname: demo\ndescription: Demo\n---\nBody one\n",
+      );
+
+      const pending = await list();
+      expect(pending).toMatchObject({
+        enabled: false,
+        rootSource: "workspace",
+        mcpServerNames: [],
+        workspaceTrust: { state: "pending", pluginRoot: "plugins/workspace-demo" },
+      });
+      expect(() => zcodePluginsListResultSchema.parse({ plugins: [pending], diagnostics: [] })).not.toThrow();
+      const blocked = await discover();
+      expect(blocked.plugins.find((plugin) => plugin.id === pluginId)?.enabled).toBe(false);
+      expect(blocked.hooks.SessionStart ?? []).toEqual([]);
+      expect(Object.keys(blocked.mcpServers)).not.toContain("plugin:workspace-demo:panel");
+      expect(blocked.skillRoots.some((skillRoot) => skillRoot.path.startsWith(pluginRoot))).toBe(false);
+
+      const digest = pending!.workspaceTrust!.declarationDigest;
+      await expect(
+        setPluginWorkspaceTrust(context, {
+          workspace,
+          pluginRoot: "plugins/workspace-demo",
+          declarationDigest: digest,
+          trusted: true,
+        }),
+      ).resolves.toEqual({ accepted: true });
+      // 记录只写进用户域存储，项目文件不变。
+      expect(
+        JSON.parse(
+          await readFile(join(FAKE_HOME, ".zcode", "security", "workspace-plugin-trust-v1.json"), "utf8"),
+        ).records,
+      ).toEqual([
+        expect.objectContaining({ pluginRoot: "plugins/workspace-demo", declarationDigest: digest }),
+      ]);
+
+      const trusted = await list();
+      expect(trusted).toMatchObject({
+        enabled: true,
+        mcpServerNames: ["plugin:workspace-demo:panel"],
+        workspaceTrust: { state: "trusted", declarationDigest: digest },
+      });
+      const admitted = await discover();
+      expect(admitted.hooks.SessionStart?.length).toBeGreaterThan(0);
+      expect(Object.keys(admitted.mcpServers)).toContain("plugin:workspace-demo:panel");
+
+      // 技能正文不在声明摘要里，改动后仍保持信任。
+      await writeTestFile(
+        join(pluginRoot, "skills", "demo", "SKILL.md"),
+        "---\nname: demo\ndescription: Demo\n---\nBody two\n",
+      );
+      expect((await list())?.workspaceTrust?.state).toBe("trusted");
+
+      // Hook 声明变化后回到待信任，旧摘要也不能再写入信任。
+      await writeTestFile(join(pluginRoot, "hooks", "hooks.json"), hooks("echo two"));
+      const changed = await list();
+      expect(changed).toMatchObject({ enabled: false, workspaceTrust: { state: "pending" } });
+      expect(changed?.workspaceTrust?.declarationDigest).not.toBe(digest);
+      expect((await discover()).hooks.SessionStart ?? []).toEqual([]);
+      await expect(
+        setPluginWorkspaceTrust(context, {
+          workspace,
+          pluginRoot: "plugins/workspace-demo",
+          declarationDigest: digest,
+          trusted: true,
+        }),
+      ).resolves.toEqual({ accepted: false, reasonCode: "workspace_plugin_declaration_changed" });
+
+      // 信任只对这个工作区有效：同样内容的另一个目录仍是待信任。
+      await cp(root, copy, { recursive: true });
+      await setPluginWorkspaceTrust(context, {
+        workspace,
+        pluginRoot: "plugins/workspace-demo",
+        declarationDigest: changed!.workspaceTrust!.declarationDigest,
+        trusted: true,
+      });
+      expect((await list())?.workspaceTrust?.state).toBe("trusted");
+      expect(
+        (await list({ workspacePath: copy, workspaceKey: copy }))?.workspaceTrust?.state,
+      ).toBe("pending");
+
+      // 撤销后回到待信任。
+      await expect(
+        setPluginWorkspaceTrust(context, {
+          workspace,
+          pluginRoot: "plugins/workspace-demo",
+          declarationDigest: changed!.workspaceTrust!.declarationDigest,
+          trusted: false,
+        }),
+      ).resolves.toEqual({ accepted: true });
+      expect((await list())?.workspaceTrust?.state).toBe("pending");
+    } finally {
+      await rm(join(FAKE_HOME, ".zcode", "security"), { force: true, recursive: true });
+      await rm(root, { force: true, recursive: true });
+      await rm(copy, { force: true, recursive: true });
+    }
+  });
+
+  it("rejects a forged trust record that a repository writes into the project", async () => {
+    // 仓库只能改自己的文件；信任记录在用户域存储里，项目里同名文件不会被读取。
+    const root = await mkdtemp(join(tmpdir(), "zcode-workspace-plugin-forged-"));
+    const pluginRoot = join(root, "plugins", "forged");
+    try {
+      await writeTestFile(
+        join(root, ".zcode", "config.json"),
+        JSON.stringify({ plugins: { dirs: ["./plugins/forged"] }, storage: { dir: "./.zcode" } }),
+      );
+      await writeTestFile(
+        join(pluginRoot, ".claude-plugin", "plugin.json"),
+        JSON.stringify({ name: "forged" }),
+      );
+      const first = await listPlugins({} as ZCodeProtocolAgentServerContext, {
+        workspace: { workspacePath: root, workspaceKey: root },
+      });
+      const digest = first.plugins.find((plugin) => plugin.id === "forged@inline")!.workspaceTrust!
+        .declarationDigest;
+      await writeTestFile(
+        join(root, ".zcode", "security", "workspace-plugin-trust-v1.json"),
+        JSON.stringify({
+          schemaVersion: 1,
+          records: [
+            {
+              workspaceIdentity: root,
+              pluginRoot: "plugins/forged",
+              declarationDigest: digest,
+              grantedAt: new Date().toISOString(),
+            },
+          ],
+        }),
+      );
+      const second = await listPlugins({} as ZCodeProtocolAgentServerContext, {
+        workspace: { workspacePath: root, workspaceKey: root },
+      });
+      expect(second.plugins.find((plugin) => plugin.id === "forged@inline")).toMatchObject({
+        enabled: false,
+        workspaceTrust: { state: "pending" },
+      });
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("reports each plugin's data path for the App extension context", async () => {
+    // docs/plugins/extension-host.md §18.1 H6：ctx.extension.dataPath 只取 plugins/list 的 dataPath，
+    // 与 MCP server 的 ${ZCODE_PLUGIN_DATA} 同一个值（<CLI 插件存储根>/data/<插件 id>）。
+    const root = await mkdtemp(join(tmpdir(), "zcode-plugin-data-path-"));
+    const pluginRoot = join(root, "plugins", "data-demo");
+    const userConfigPath = join(FAKE_HOME, ".zcode", "cli", "config.json");
+    try {
+      await writeTestFile(
+        userConfigPath,
+        JSON.stringify({
+          plugins: { dirs: [pluginRoot], enabledPlugins: { "data-demo@inline": true } },
+        }),
+      );
+      await writeTestFile(
+        join(pluginRoot, ".zcode-plugin", "plugin.json"),
+        JSON.stringify({ name: "data-demo", version: "1.0.0" }),
       );
 
       const result = await listPlugins({} as ZCodeProtocolAgentServerContext, {
         workspace: { workspacePath: root, workspaceKey: root },
+        configScope: "user",
       });
 
-      expect(result.plugins.find((plugin) => plugin.id === "workspace-demo@inline")).toMatchObject({
-        rootPath: pluginRoot,
-        rootSource: "workspace",
-        enabled: false,
-        uiSurfaces: [{ pluginId: "workspace-demo@inline", pluginName: "workspace-demo", id: "panel", title: "Panel", server: "plugin:workspace-demo:panel", resourceUri: "ui://demo/panel", availability: "session" }],
-      });
+      expect(result.plugins.find((plugin) => plugin.id === "data-demo@inline")?.dataPath).toBe(
+        join(FAKE_HOME, ".zcode", "cli", "plugins", "data", "data-demo@inline"),
+      );
       expect(() => zcodePluginsListResultSchema.parse(result)).not.toThrow();
     } finally {
+      await rm(userConfigPath, { force: true });
       await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("reads back plugin toggles when user hooks have empty matchers", async () => {
+    const userConfigPath = join(FAKE_HOME, ".zcode", "cli", "config.json");
+    const workspace = { workspacePath: FAKE_HOME, workspaceKey: FAKE_HOME };
+    const context = {} as ZCodeProtocolAgentServerContext;
+    const pluginId = "android-emulator@zcode-plugins-official";
+    const group = [
+      { matcher: "", hooks: [{ type: "command", command: "echo test", enabled: false }] },
+    ];
+    try {
+      await writeTestFile(
+        userConfigPath,
+        JSON.stringify({ hooks: { events: { UserPromptSubmit: group, Stop: group } } }),
+      );
+      for (const enabled of [true, false]) {
+        const result = await setPluginEnabled(context, {
+          workspace,
+          pluginId,
+          enabled,
+          scope: "user",
+        });
+        expect(result.enabled).toBe(enabled);
+        const list = await listPlugins(context, { workspace, configScope: "user" });
+        expect(list.plugins.find((plugin) => plugin.id === pluginId)).toMatchObject({
+          enabled,
+          enabledSource: "user",
+        });
+      }
+    } finally {
+      await rm(userConfigPath, { force: true });
     }
   });
 
@@ -390,6 +701,80 @@ describe("plugins protocol contracts", () => {
     }
   });
 
+  it.each([
+    { name: "list", query: listPlugins, duringQuery: false },
+    { name: "overview", query: getPluginsOverview, duringQuery: false },
+    { name: "list", query: listPlugins, duringQuery: true },
+    { name: "overview", query: getPluginsOverview, duringQuery: true },
+  ])(
+    "rejects degraded management $name (duringQuery=$duringQuery)",
+    async ({ query, duringQuery }) => {
+      const root = await mkdtemp(join(tmpdir(), "zcode-plugin-degraded-query-"));
+      const previousStorage = process.env.ZCODE_STORAGE_DIR;
+      process.env.ZCODE_STORAGE_DIR = join(root, "storage");
+      const preparation = createOfficialPluginPreparation({ startupTimeoutMs: 3000 });
+      const pluginId = "skill-creator@zcode-plugins-official";
+      const entered = Promise.withResolvers<void>();
+      const pending = Promise.withResolvers<PluginLoadOutcome>();
+      const discoverPlugins = () => {
+        entered.resolve();
+        return pending.promise;
+      };
+      try {
+        await writeTestFile(
+          join(root, ".zcode", "config.json"),
+          JSON.stringify({ plugins: { enabledPlugins: { [pluginId]: true } } }),
+        );
+        const params = {
+          workspace: { workspacePath: root, workspaceKey: root },
+          configScope: "workspace",
+        };
+        const baseline = await listPlugins({} as ZCodeProtocolAgentServerContext, params);
+        const installed = baseline.plugins.find((p) => p.id === pluginId)!;
+        expect(installed.rootPath).toBeTruthy();
+        expect(installed.packageStatus).not.toBe("missing");
+        const markerPath = join(installed.rootPath, ".zcode-plugin-seed.json");
+        const marker = await readFile(markerPath, "utf8");
+        vi.useFakeTimers();
+        if (!duringQuery) {
+          const fallback = preparation.resolvePlugins(discoverPlugins);
+          await vi.advanceTimersByTimeAsync(3000);
+          expect((await fallback).diagnostics).toEqual(
+            expect.arrayContaining([expect.objectContaining({ code: "plugin_startup_timeout" })]),
+          );
+        }
+        const context = {
+          deps: { pluginPreparation: preparation, pluginDiscovery: { discoverPlugins } },
+        } as ZCodeProtocolAgentServerContext;
+        const result = query(context, params).then(
+          (value) => ({ value }),
+          (error) => ({ error }),
+        );
+        if (duringQuery) {
+          await entered.promise;
+          await vi.advanceTimersByTimeAsync(3000);
+        }
+        vi.useRealTimers();
+        expect(await result).toMatchObject({ error: { code: "ZCODE_PLUGIN_STARTUP_TIMEOUT" } });
+        expect(await readFile(markerPath, "utf8")).toBe(marker);
+      } finally {
+        vi.useRealTimers();
+        pending.resolve({
+          plugins: [],
+          diagnostics: [],
+          hooks: {},
+          mcpServers: {},
+          skillRoots: [],
+          commandRoots: [],
+        });
+        await preparation.dispose();
+        if (previousStorage === undefined) delete process.env.ZCODE_STORAGE_DIR;
+        else process.env.ZCODE_STORAGE_DIR = previousStorage;
+        await rm(root, { force: true, recursive: true });
+      }
+    },
+  );
+
   it("keeps a Workspace declaration visible when its package is missing", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-plugin-missing-package-view-"));
     const pluginId = "missing-fixture@personal-market";
@@ -423,7 +808,7 @@ describe("plugins protocol contracts", () => {
     }
   });
 
-  it("projects the host node_repl association for the official browser-use plugin", async () => {
+  it("hides the node-repl-host plugin and its host node_repl MCP from settings projections", async () => {
     const root = await mkdtemp(join(tmpdir(), "zcode-browser-host-mcp-protocol-"));
     const previousStorageDir = process.env.ZCODE_STORAGE_DIR;
     process.env.ZCODE_STORAGE_DIR = join(root, "cli");
@@ -432,10 +817,19 @@ describe("plugins protocol contracts", () => {
       const result = await listPlugins({} as ZCodeProtocolAgentServerContext, {
         workspace: { workspacePath: root, workspaceKey: root },
       });
+      expect(result.plugins.some((plugin) => plugin.hostMcpServerNames !== undefined)).toBe(false);
+      expect(result.plugins.map((plugin) => plugin.id)).not.toContain(NODE_REPL_HOST_PLUGIN_ID);
+
+      const overview = await getPluginsOverview({} as ZCodeProtocolAgentServerContext, {
+        workspace: { workspacePath: root, workspaceKey: root },
+      });
       expect(
-        result.plugins.find((plugin) => plugin.id === "browser-use@zcode-plugins-official")
-          ?.hostMcpServerNames,
-      ).toEqual(["node_repl"]);
+        [
+          ...overview.availablePlugins,
+          ...overview.installedPlugins,
+          ...overview.restorableBuiltins,
+        ].map((plugin) => plugin.id),
+      ).not.toContain(NODE_REPL_HOST_PLUGIN_ID);
     } finally {
       if (previousStorageDir === undefined) delete process.env.ZCODE_STORAGE_DIR;
       else process.env.ZCODE_STORAGE_DIR = previousStorageDir;
@@ -632,6 +1026,103 @@ describe("updatePlugin handler diagnostics", () => {
 
       expect(result.diagnostics.length).toBeGreaterThan(0);
       expect(result.installedPlugins).toHaveLength(0);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+});
+
+// 扩展摘要的版本兼容（docs/plugins/plugin-publishing.md §4.3）：商店信息与 overview 结果是 strict，
+// services 可能比 CLI 旧。CLI 只在参数带 includeExtensionSummary 时才写 listing.extensionSummary；
+// 安装等其他结果一律不带。componentTypes 的 "extension" 是开放字符串，照常透传。
+describe("plugins/overview extension summary", () => {
+  const noopContext = {} as unknown as ZCodeProtocolAgentServerContext;
+  let previousStorageDir: string | undefined;
+
+  beforeEach(() => {
+    previousStorageDir = process.env.ZCODE_STORAGE_DIR;
+  });
+
+  afterEach(() => {
+    if (previousStorageDir === undefined) delete process.env.ZCODE_STORAGE_DIR;
+    else process.env.ZCODE_STORAGE_DIR = previousStorageDir;
+  });
+
+  it("adds listing.extensionSummary only when the request asks for it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "zcode-bootstrap-extension-summary-"));
+    const storageDir = join(root, "cli");
+    const pluginStorageRoot = getPluginStorageRoot(getCliStorageRoot(storageDir));
+    const marketplaceRoot = join(root, "marketplace");
+    process.env.ZCODE_STORAGE_DIR = storageDir;
+    const summary = { engines: { zcode: "^1.4.0" }, grants: ["sessions.fullAccess"] };
+
+    try {
+      await writeKnownMarketplaces(pluginStorageRoot, [
+        {
+          id: "ext-market",
+          source: { source: "directory", path: marketplaceRoot },
+          name: "ext-market",
+          addedAt: "2026-01-01T00:00:00.000Z",
+          pluginCount: 0,
+        },
+      ]);
+      await writeTestFile(
+        join(marketplaceRoot, ".claude-plugin", "marketplace.json"),
+        JSON.stringify({
+          name: "ext-market",
+          plugins: [
+            {
+              name: "ext-ok",
+              source: "./plugins/ext-ok",
+              version: "1.0.0",
+              displayName: "Ext OK",
+              componentTypes: ["extension"],
+              extensionSummary: { ...summary, unknownKey: true },
+            },
+            { name: "plain", source: "./plugins/plain", version: "1.0.0" },
+          ],
+        }),
+      );
+      for (const name of ["ext-ok", "plain"]) {
+        const pluginRoot = join(marketplaceRoot, "plugins", name);
+        await writeTestFile(
+          join(pluginRoot, ".claude-plugin", "plugin.json"),
+          JSON.stringify({ name, skills: "skills", version: "1.0.0" }),
+        );
+        await writeTestFile(join(pluginRoot, "skills", name, "SKILL.md"), `# ${name}`);
+      }
+      const workspace = { workspacePath: root, workspaceKey: root };
+      const install = await installPlugin(noopContext, {
+        workspace,
+        marketplace: "ext-market",
+        pluginName: "ext-ok",
+      });
+      expect(install.installedPlugins.map((plugin) => plugin.id)).toContain("ext-ok@ext-market");
+      expect(JSON.stringify(install)).not.toContain("extensionSummary");
+
+      const legacy = await getPluginsOverview(noopContext, { workspace });
+      // 旧 services 的 strict schema 没有这个键；不要求时线上不能出现它。
+      expect(JSON.stringify(legacy)).not.toContain("extensionSummary");
+      expect(
+        legacy.availablePlugins.find((plugin) => plugin.id === "ext-ok@ext-market")
+          ?.componentTypes,
+      ).toContain("extension");
+
+      const params = { workspace, includeExtensionSummary: true };
+      expect(zcodePluginsOverviewParamsSchema.parse(params)).toEqual(params);
+      const overview = zcodePluginsOverviewResultSchema.parse(
+        await getPluginsOverview(noopContext, params),
+      );
+      const available = overview.availablePlugins.find(
+        (plugin) => plugin.id === "ext-ok@ext-market",
+      );
+      expect(available?.listing).toEqual({ displayName: "Ext OK", extensionSummary: summary });
+      expect(
+        overview.installedPlugins.find((plugin) => plugin.id === "ext-ok@ext-market")?.listing,
+      ).toEqual({ displayName: "Ext OK", extensionSummary: summary });
+      const plain = overview.availablePlugins.find((plugin) => plugin.id === "plain@ext-market");
+      expect(plain?.listing).toBeUndefined();
+      expect(plain?.componentTypes ?? []).not.toContain("extension");
     } finally {
       await rm(root, { force: true, recursive: true });
     }

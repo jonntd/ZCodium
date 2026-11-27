@@ -11,7 +11,6 @@ import { EditInlineDiffContent } from "@/ToolCallBlocks/renderers/EditInlineDiff
 import {
   getEditKindLabelMessageId,
   renderDiffCount,
-  renderFilePath,
   renderJoinedFileChips,
   renderFileChip,
   type EditKindSource,
@@ -115,13 +114,6 @@ export function EditToolCallBlock(context: ToolCallBlockRenderContext) {
         : null,
     [context.workspacePath, onOpenCodeViewer, openFilePreview, rawFileSummaries],
   );
-  const secondaryText = useMemo(
-    () =>
-      rawFileSummaries.length === 1
-        ? renderFilePath(rawFileSummaries[0]?.filePath, context.workspacePath)
-        : undefined,
-    [context.workspacePath, rawFileSummaries],
-  );
   const totalChangeStat = useMemo(
     () =>
       rawFileSummaries.reduce(
@@ -213,7 +205,7 @@ export function EditToolCallBlock(context: ToolCallBlockRenderContext) {
       ) : (
         <>
           {hasMultipleFiles ? (
-            <div className="ms-2 space-y-2 border-border border-s ps-3.5 border-border">
+            <div className="ml-2 space-y-2 border-border border-l pl-3.5 border-border">
               {/* 多文件 edit 的主体只展示一份总览，下面把每个文件拆成独立块，
               这样既能保留总 diff 预览，也能满足“每个文件一个 edit block”的展示。 */}
               {rawFileSummaries.map((summary, index) => (
@@ -323,7 +315,6 @@ export function EditToolCallBlock(context: ToolCallBlockRenderContext) {
         primaryText={primaryText}
         prioritizePrimaryText
         expandedPrimaryText={expandedPrimaryText}
-        secondaryText={secondaryText}
         diffCount={context.isOfficeMode ? undefined : diffCount}
         hideDiffCountWhenOpen={hasMultipleFiles}
         statusLabel={effectiveStatusLabel}
@@ -399,10 +390,6 @@ function EditFileSummaryBlock({
       }),
     [onOpenCodeViewer, openFilePreview, summary, workspacePath],
   );
-  const secondaryText = useMemo(
-    () => renderFilePath(summary.filePath, workspacePath),
-    [summary.filePath, workspacePath],
-  );
   const diffCount = useMemo(
     () =>
       renderDiffCount(summary.changeStat, {
@@ -466,7 +453,6 @@ function EditFileSummaryBlock({
         sourceLabel={sourceLabel}
         primaryText={primaryText}
         prioritizePrimaryText
-        secondaryText={secondaryText}
         diffCount={diffCount}
         statusLabel={statusLabel}
         statusTooltip={isFailed ? errorText : undefined}

@@ -17,25 +17,19 @@ const NAV_BADGE_DISPLAY_MAX = 99;
  * MCP App 条目不受影响。
  * 只在桌面本机 Host 提供扩展门面时有内容；Web 与手机远控不渲染。
  */
-export const NavPrimarySlot = memo(function NavPrimarySlot(
-  props: NavPrimarySlotProps,
-) {
+export const NavPrimarySlot = memo(function NavPrimarySlot(props: NavPrimarySlotProps) {
   const { intl } = useZCodeIntl();
   const model = useNavPrimarySlot(props);
   if (!model || model.items.length === 0) return null;
   // 导航行很窄：行内只放短标签「已停止」与「重新加载」，标题才放得下；完整的「扩展已停止」在悬停说明里。
   const stoppedTag = intl.formatMessage({ id: "extensions.nav.stopped" });
-  const stoppedLabel = intl.formatMessage({
-    id: "extensions.launcher.stopped",
-  });
+  const stoppedLabel = intl.formatMessage({ id: "extensions.launcher.stopped" });
   const reloadLabel = intl.formatMessage({ id: "extensions.launcher.reload" });
   return (
     <>
       {model.items.map((item) => {
         const Icon = resolveExtensionIcon(item.icon);
-        const hint = item.hostStopped
-          ? `${stoppedLabel} · ${reloadLabel}`
-          : item.tooltip;
+        const hint = item.hostStopped ? `${stoppedLabel} · ${reloadLabel}` : item.tooltip;
         // 未读标记（§18.1 H11）：数字用与「已停止」相同的小标签，"dot" 用任务列表的未读点。
         const badge = item.hostStopped ? undefined : item.badge;
         const badgeLabel =
@@ -43,10 +37,7 @@ export const NavPrimarySlot = memo(function NavPrimarySlot(
             ? null
             : badge === "dot"
               ? intl.formatMessage({ id: "extensions.nav.badge.dot" })
-              : intl.formatMessage(
-                  { id: "extensions.nav.badge.count" },
-                  { count: badge },
-                );
+              : intl.formatMessage({ id: "extensions.nav.badge.count" }, { count: badge });
         const accessibleName = item.hostStopped
           ? `${item.label} · ${hint}`
           : badgeLabel
@@ -68,22 +59,15 @@ export const NavPrimarySlot = memo(function NavPrimarySlot(
             onClick={() => model.open(item)}
           >
             <Icon className="size-4 shrink-0" aria-hidden />
-            <span className="min-w-0 flex-1 truncate text-left">
-              {item.label}
-            </span>
+            <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
             {badge === "dot" ? (
-              <span
-                aria-hidden
-                className="size-[7px] shrink-0 rounded-full bg-icon-blue"
-              />
+              <span aria-hidden className="size-[7px] shrink-0 rounded-full bg-icon-blue" />
             ) : badge !== undefined ? (
               <span
                 aria-hidden
                 className="inline-flex h-4 shrink-0 items-center rounded-sm bg-tag px-1 text-ui-xs font-medium tabular-nums"
               >
-                {badge > NAV_BADGE_DISPLAY_MAX
-                  ? `${NAV_BADGE_DISPLAY_MAX}+`
-                  : badge}
+                {badge > NAV_BADGE_DISPLAY_MAX ? `${NAV_BADGE_DISPLAY_MAX}+` : badge}
               </span>
             ) : null}
             {item.hostStopped ? (
@@ -91,9 +75,7 @@ export const NavPrimarySlot = memo(function NavPrimarySlot(
                 <span className="inline-flex h-4 shrink-0 items-center rounded-sm bg-tag px-1 text-ui-xs font-medium">
                   {stoppedTag}
                 </span>
-                <span className="shrink-0 text-ui-sm text-foreground-subtle">
-                  {reloadLabel}
-                </span>
+                <span className="shrink-0 text-ui-sm text-foreground-subtle">{reloadLabel}</span>
               </>
             ) : null}
           </Button>

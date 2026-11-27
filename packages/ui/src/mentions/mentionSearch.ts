@@ -135,17 +135,11 @@ function sortScoredItems<T>(
     .map((item) => item.item);
 }
 
-export function filterMentionItems(
-  items: MentionItem[],
-  query: string,
-): MentionItem[] {
+export function filterMentionItems(items: MentionItem[], query: string): MentionItem[] {
   return filterMentionItemsWithOptions(items, query);
 }
 
-function applyMentionItemLimit(
-  items: MentionItem[],
-  limit?: number,
-): MentionItem[] {
+function applyMentionItemLimit(items: MentionItem[], limit?: number): MentionItem[] {
   if (!Number.isFinite(limit)) {
     return items;
   }
@@ -163,15 +157,8 @@ function getDefaultMentionItemPriority(item: MentionItem): number {
 
 function sortDefaultMentionItems(items: MentionItem[]): MentionItem[] {
   return items
-    .map((item, index) => ({
-      index,
-      item,
-      priority: getDefaultMentionItemPriority(item),
-    }))
-    .sort(
-      (left, right) =>
-        left.priority - right.priority || left.index - right.index,
-    )
+    .map((item, index) => ({ index, item, priority: getDefaultMentionItemPriority(item) }))
+    .sort((left, right) => left.priority - right.priority || left.index - right.index)
     .map(({ item }) => item);
 }
 
@@ -198,9 +185,7 @@ export function filterMentionItemsWithOptions(
         const labelScore = scoreFuzzyMatch(item.label, normalizedQuery);
         // 插件长描述仅展示，避免子序列匹配把无关候选带入搜索（plugin-reference-mention）。
         const descriptionScore =
-          item.category === "plugins"
-            ? null
-            : scoreFuzzyMatch(item.description, normalizedQuery);
+          item.category === "plugins" ? null : scoreFuzzyMatch(item.description, normalizedQuery);
         const valueScore = scoreFuzzyMatch(item.value, normalizedQuery);
         const keywordScore = Math.min(
           ...(item.keywords ?? []).map((keyword) => {
@@ -212,9 +197,7 @@ export function filterMentionItemsWithOptions(
         const bestScore = Math.min(
           labelScore ?? Number.POSITIVE_INFINITY,
           valueScore !== null ? valueScore + 25 : Number.POSITIVE_INFINITY,
-          descriptionScore !== null
-            ? descriptionScore + 100
-            : Number.POSITIVE_INFINITY,
+          descriptionScore !== null ? descriptionScore + 100 : Number.POSITIVE_INFINITY,
           keywordScore,
         );
 

@@ -100,12 +100,16 @@ export type {
   WindowsCuaHelperHostOptions,
 } from "./windowsCuaDevHelperHost.js";
 
-export { buildCuaStatusLaunchOpenArgs } from "./cuaHelperInstaller.js";
 export {
   resolveStandaloneStatusLaunchAppPath,
   resolveStandaloneStatusLaunchCandidates,
 } from "./cuaStandaloneStatusLaunch.js";
-export { createCuaPipSessionService } from "./cuaPipSessionService.js";
+
+export {
+  createCuaPipSessionService,
+} from "./cuaPipSessionService.js";
 export { ICuaPipSessionService } from "./cuaPipSession.js";
-export type { CuaPipPresentationCredentials } from "./cuaPipSessionService.js";
+export type {
+  CuaPipPresentationCredentials,
+} from "./cuaPipSessionService.js";
 export type { CuaPipSessionService } from "./cuaPipSession.js";

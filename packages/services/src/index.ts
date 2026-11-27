@@ -1,8 +1,5 @@
 // Descriptors & collection (browser-safe)
-export {
-  type ServiceDescriptor,
-  createServiceDescriptor,
-} from "./descriptors.js";
+export { type ServiceDescriptor, createServiceDescriptor } from "./descriptors.js";
 export { ServiceCollection, type ServiceExposurePolicy } from "./collection.js";
 export {
   IModelSelectionService,
@@ -20,7 +17,6 @@ export {
   type AccountRequestAuthResolver,
 } from "./model-provider/accountRequestAuthService.js";
 export { IProviderProvisioningTargetService } from "./model-provider/providerProvisioning.js";
-export { IProviderProvisioningStatusService } from "./provider-provisioning-status/index.js";
 export {
   collectServiceMemoryDiagnostics,
   memoryDiagnosticsRegistry,
@@ -29,6 +25,8 @@ export {
 
 // Accessor
 export type { IServiceAccessor } from "./accessor.js";
+// Conversation share 的具体实现依赖 Node 文件系统，只能从 @zcode/services/node 引入；
+// 根入口必须保持 browser-safe，避免 renderer 解析到 node:* 模块。
 
 // File service — IFileService is both a type (interface) and value (descriptor)
 export { IFileService } from "./file/file.js";
@@ -95,35 +93,31 @@ export type {
   ZCodeTaskListWorkspaceScope,
   ZCodeTaskReadyOutcome,
 } from "./session/zcodeTaskService.js";
-export type {
-  ZCodeGroupedTaskRef,
-  ZCodeGroupedTaskView,
-  ZCodeGroupedTaskViewNode,
-  ZCodeGroupedTaskViewOrderInput,
-  ZCodeGroupedTaskViewQuery,
-  ZCodeGroupedTaskViewStructure,
-  ZCodeGroupedTaskViewStructureMember,
-  ZCodeGroupedTaskViewStructureTopOrder,
-  ZCodeGroupedTaskViewTopLevelNodeRef,
-  ZCodeTaskGroup,
-  ZCodeTaskGroupColor,
-  ZCodeTaskListItem,
-} from "./session/zcodeTaskListTypes.js";
+export type { ZCodeTaskListItem } from "./session/zcodeTaskListTypes.js";
 
-export { IWindowControllerService } from "./window-controller/windowController.js";
+export {
+  IWindowControllerService,
+  isArchivedTaskDeletionBatchUnsupported,
+} from "./window-controller/windowController.js";
 export {
   IWindowProjectService,
   IWindowRemoteProjectService,
   IWindowProjectChangesService,
   type WindowProjectDirectoryServices,
 } from "#src/window-project-directory/contract.js";
-export { createWindowProjectChangesService } from "#src/window-project-directory/index.js";
+export {
+  createWebRemoteProjectTreeActivityBridge,
+  createWindowProjectChangesService,
+  type WebRemoteProjectTask,
+} from "#src/window-project-directory/index.js";
 export type {
+  ProjectDisplayOrderKey,
   WindowHostControllerFrame,
   WindowHostControllerMutation,
   WindowHostControllerTaskListItem,
   WindowHostControllerTaskListResult,
   WindowHostTaskUnreadSignal,
+  WindowHostTasksRemovedSignal,
 } from "./window-controller/windowController.js";
 
 // ZCode agent service — IZCodeAgentService is both a type (interface) and value (descriptor)
@@ -133,6 +127,8 @@ export {
   ZCODE_AGENT_RUNTIME_UNAVAILABLE_CODE,
 } from "./zcode-agent/zcodeAgent.js";
 export {
+  isZCodeAgentModelSelectionBasisUnsupportedError,
+  ZCodeAgentModelSelectionBasisUnsupportedError,
   isZCodeAgentMcpStatusModeUnsupportedError,
   ZCODE_AGENT_MCP_STATUS_MODE_UNSUPPORTED_ERROR_CODE,
   ZCodeAgentMcpStatusModeUnsupportedError,
@@ -154,10 +150,12 @@ export type {
   ZCodeAgentCuaPermissionObservation,
   ZCodeAgentInitializeResult,
   ZCodeAgentStorageStartupSnapshot,
+  ZCodeAgentRuntimeExitedEvent,
   ZCodeAgentRuntimeLifecycleEvent,
   ZCodeAgentRuntimePolicy,
   ZCodeAgentReadSessionParams,
   ZCodeAgentRespondProviderRuntimeHeadersParams,
+  ZCodeAgentProviderRuntimeHeadersRequest,
   ZCodeAgentResumeSessionParams,
   ZCodeAgentRunAutomationNowResult,
   ZCodeAgentSavedWorkflowTarget,
@@ -211,10 +209,7 @@ export {
   PROJECT_MEMORY_FILE_CHANGED_ERROR_CODE,
   PROJECT_MEMORY_PREVIEW_LIMIT_EXCEEDED_ERROR_CODE,
 } from "./memory/memory.js";
-export type {
-  ProjectMemoryFileSummary,
-  ProjectMemoryWorkspaceSummary,
-} from "./memory/memory.js";
+export type { ProjectMemoryFileSummary, ProjectMemoryWorkspaceSummary } from "./memory/memory.js";
 
 // OutputStyle service — IOutputStyleService is both a type (interface) and value (descriptor).
 export { IOutputStyleService } from "./output-style/outputStyle.js";
@@ -225,12 +220,6 @@ export { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 
 // OAuth service — IOAuthService is both a type (interface) and value (descriptor)
 export { IOAuthService } from "./oauth/oauth.js";
-// IOrcaRouterService 的实现模块（orcarouter/service.js）顶层静态依赖 connect.js（node:crypto），
-// 以值导出的形式留在根 barrel 会把整条 node 依赖链拉进浏览器模块图（renderer 与 web 侧
-// 对 @zcode/services 的值导入会解析到它）。这里只导出类型（编译期擦除），需要描述符值的
-// 消费方（client 的 RemoteServiceAccess）改用 @zcode/shared 的 ServiceChannels.OrcaRouter
-// 取 channel 名。browserSafeBarrel.test.ts 守卫本约束。
-export type { IOrcaRouterService } from "./orcarouter/service.js";
 
 // UsageStats service — IUsageStatsService is both a type (interface) and value (descriptor)
 export { IUsageStatsService } from "./usage-stats/usageStats.js";
@@ -260,19 +249,17 @@ export type { OffPeakUpdateTaskParams } from "./session/offPeakTask.js";
 // Skills service — ISkillsService is both a type (interface) and value (descriptor)
 export { ISkillsService } from "./skills/skills.js";
 export { ISkillSyncService } from "./skill-sync/skillSync.js";
-export { IMcpSyncService } from "./mcp-sync/mcpSync.js";
-export { IPluginSyncService } from "./plugin-sync/pluginSync.js";
-export {
-  IDeviceSyncStateService,
-  IUserConfigSyncService,
-} from "./data-sync/index.js";
+export { IDeviceSyncStateService, IUserConfigSyncService } from "./data-sync/index.js";
 export type { IDataSyncCategoryService } from "./data-sync/index.js";
+export { IProviderProvisioningStatusService } from "./provider-provisioning-status/index.js";
 export {
   IExtensionGrantsService,
   IExtensionsService,
   IExtensionViewsService,
   type ExtensionsContributionsMessage,
 } from "./extensions/index.js";
+export { IMcpSyncService } from "./mcp-sync/mcpSync.js";
+export { IPluginSyncService } from "./plugin-sync/pluginSync.js";
 export {
   ICuaPermissionService,
   type CuaPermissionState,
@@ -291,9 +278,7 @@ export {
 // Plugins service — IPluginsService is both a type (interface) and value (descriptor)
 export { IPluginsService } from "./plugins/plugins.js";
 // 设置页插件管理薄服务（UI 平台能力面不再直触 zcodeAgentService）
-export {
-  IPluginManagementService,
-} from "./plugins/pluginManagement.js";
+export { IPluginManagementService, withPluginTelemetry } from "./plugins/pluginManagement.js";
 
 // Subagents service — ISubagentsService is both a type (interface) and value (descriptor)
 export { ISubagentsService } from "./subagents/subagents.js";
@@ -312,9 +297,6 @@ export type {
   PromptAttachmentTransferPhase,
   PromptAttachmentTransferProgress,
 } from "./prompt-attachment-transfer/promptAttachmentTransfer.js";
-export { IPromptAssistService } from "./prompt-assist/promptAssist.js";
-export { createPromptAssistService } from "./prompt-assist/promptAssistService.js";
-export { PromptEnhanceGenerator } from "./prompt-assist/promptEnhanceGenerator.js";
 export type {
   CreateFeedbackTicketInput,
   FeedbackAttachment,
@@ -333,10 +315,13 @@ export type {
   FeedbackTicketType,
 } from "@zcode/shared";
 
+export { IProjectService, LEGACY_SINGLE_ROOT_PROJECT_PREFIX } from "#src/project/contract.js";
 export {
-  IProjectService,
-  LEGACY_SINGLE_ROOT_PROJECT_PREFIX,
-} from "#src/project/contract.js";
+  IManagedWorktreeService,
+  type ManagedWorktreeGroup,
+  type ManagedWorktreeWorkspace,
+  type StartManagedWorktreeCreationResult,
+} from "#src/managed-worktree-tasks/contract.js";
 export type {
   ProjectTree,
   ProjectTask,
@@ -355,14 +340,8 @@ export type {
   RemoteProjectDirectory,
 } from "#src/remote-projects/contract.js";
 
-export {
-  readProjectCatalog,
-  projectSelectionId,
-} from "#src/project-catalog/index.js";
-export type {
-  ProjectCatalogPort,
-  ProjectCatalogSnapshot,
-} from "#src/project-catalog/contract.js";
+export { readProjectCatalog, projectSelectionId } from "#src/project-catalog/index.js";
+export type { ProjectCatalogPort, ProjectCatalogSnapshot } from "#src/project-catalog/contract.js";
 
 // 插件 UI 桥：描述符、参数类型与工厂；App-Provided Tools 另有独立描述符。
 export {
@@ -418,3 +397,10 @@ export type {
   GroupNode,
   MoveGroupNode,
 } from "#src/task-groups/contract.js";
+
+// fork/ZcodePro：OrcaRouter 只导出类型（实现模块顶层静态依赖 connect.js/node:crypto，
+// 值导出会把 node 依赖链拉进 browser-safe barrel；消费方用 @zcode/shared 的
+// ServiceChannels.OrcaRouter 取 channel 名）。browserSafeBarrel.test.ts 守卫本约束。
+export type { IOrcaRouterService } from "./orcarouter/service.js";
+export { IPromptAssistService } from "./prompt-assist/promptAssist.js";
+export { createPromptAssistService } from "./prompt-assist/promptAssistService.js";

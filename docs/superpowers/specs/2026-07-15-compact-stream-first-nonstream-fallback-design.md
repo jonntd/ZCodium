@@ -117,7 +117,7 @@ header refresh hook 仍可在每个物理 attempt 产生新 header；测试只�
 ### 隐藏 stream 聚合
 
 Compact summary 继续携带现有 runtime/MCP tool schema，以保持 provider-visible request 和 cache
-shape；但 `formatCompactSummaryOrThrow()` 会在 executor 之前拒绝任何 tool call，compact 不执行工具。
+shape；但 `formatCompactSummaryOrThrow()` 不把 tool call 交给 executor，只按文本生成摘要，compact 不执行工具（规则见 `apps/zcode-cli/docs/design/v2/compact/README.md`「摘要文本的选取」）。
 因此 compact 不需要普通主请求“参数 JSON 一完整就提前发布 tool call”的优化。Compact request 只做
 单向 opt-in：设置 runtime-only `preserveProviderStreamBoundaries: true`。该字段统一保留三组
 provider stream provenance：首个真实 provider event 结束 SSE retry 资格；provider response start、
@@ -139,23 +139,23 @@ Raw start/delta/stop 一旦非法便立即抛出；fallback gate 只按此前是
 
 事件处理：
 
-| `ModelStreamEvent`                                    | 隐藏聚合动作                         | SSE retry 资格                                                      | HTTP fallback commit             |
-| ----------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------- | -------------------------------- |
-| AI SDK synthetic `start`                              | 不保存                               | 保留                                                                | 否                               |
-| raw provider event（排除 `ping`）                     | 只观察；raw 正文不向 Core/UI 投影    | 结束                                                                | 否                               |
-| provider `response_start` 语义边界                    | 记录 provider response 已建立        | 结束                                                                | 否                               |
-| provider `content_block_start(index,type)` 语义边界   | 记录 raw block index/type            | 结束                                                                | 否                               |
-| provider `content_block_delta(index,type)` 语义边界   | 校验 block 存在及 delta 类型兼容     | 结束                                                                | 否                               |
-| provider `content_block_stop(index)` 语义边界         | 同 index 合法时固化真实 block commit | 结束                                                                | 是                               |
-| provider `message_delta.stop_reason` 语义边界         | 覆盖当前 stop reason truthy 状态     | 结束                                                                | 否                               |
-| `text_start` / `reasoning_start` / `tool_input_start` | 只观察 provider event                | 结束                                                                | 否                               |
-| `text_delta`                                          | 追加到对应 pending text block        | 结束                                                                | 否                               |
-| `reasoning_delta`                                     | 只记录出现过 partial delta           | 结束                                                                | 否                               |
-| `tool_input_delta`                                    | 不向 UI 投影，等待真实 input end     | 结束                                                                | 否                               |
-| `tool_input_end` / provider 完整 `tool_call`          | 聚合被 deny 的 tool call             | 结束                                                                | 仅无 raw block provenance 时推断 |
-| `text_end` / `reasoning_end`                          | 关闭 block；text 此时才合入 summary  | 结束                                                                | 仅无 raw block provenance 时推断 |
-| `tool_call`                                           | normalize、按 id 去重并保存          | 结束                                                                | 仅无 raw block provenance 时推断 |
-| `finish`                                              | 保存 usage/finish/provider metadata  | 结束                                                                | 否；还需满足 stream 完整性 gate  |
+| `ModelStreamEvent`                                    | 隐藏聚合动作                         | SSE retry 资格            | HTTP fallback commit             |
+| ----------------------------------------------------- | ------------------------------------ | ------------------------- | -------------------------------- |
+| AI SDK synthetic `start`                              | 不保存                               | 保留                      | 否                               |
+| raw provider event（排除 `ping`）                     | 只观察；raw 正文不向 Core/UI 投影    | 结束                      | 否                               |
+| provider `response_start` 语义边界                    | 记录 provider response 已建立        | 结束                      | 否                               |
+| provider `content_block_start(index,type)` 语义边界   | 记录 raw block index/type            | 结束                      | 否                               |
+| provider `content_block_delta(index,type)` 语义边界   | 校验 block 存在及 delta 类型兼容     | 结束                      | 否                               |
+| provider `content_block_stop(index)` 语义边界         | 同 index 合法时固化真实 block commit | 结束                      | 是                               |
+| provider `message_delta.stop_reason` 语义边界         | 覆盖当前 stop reason truthy 状态     | 结束                      | 否                               |
+| `text_start` / `reasoning_start` / `tool_input_start` | 只观察 provider event                | 结束                      | 否                               |
+| `text_delta`                                          | 追加到对应 pending text block        | 结束                      | 否                               |
+| `reasoning_delta`                                     | 只记录出现过 partial delta           | 结束                      | 否                               |
+| `tool_input_delta`                                    | 不向 UI 投影，等待真实 input end     | 结束                      | 否                               |
+| `tool_input_end` / provider 完整 `tool_call`          | 聚合被 deny 的 tool call             | 结束                      | 仅无 raw block provenance 时推断 |
+| `text_end` / `reasoning_end`                          | 关闭 block；text 此时才合入 summary  | 结束                      | 仅无 raw block provenance 时推断 |
+| `tool_call`                                           | normalize、按 id 去重并保存          | 结束                      | 仅无 raw block provenance 时推断 |
+| `finish`                                              | 保存 usage/finish/provider metadata  | 结束                      | 否；还需满足 stream 完整性 gate  |
 | `error`                                               | 归一化后进入 fallback gate           | 仅首 event 前 stale/watchdog 保留；SSE protocol/business error 结束 | 取决于 commit 状态               |
 
 `text_delta` / `reasoning_delta` / 可解析但尚未 provider block stop 的 tool JSON 即使已经到达，也不会

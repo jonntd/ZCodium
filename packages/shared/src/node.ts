@@ -29,6 +29,12 @@ export function resolveServerOsUser(): string {
   }
 }
 
+export {
+  discoverWindowsGitBash,
+  type WindowsGitBashDiscoveryOptions,
+  type WindowsGitBashInstallation,
+} from "./node/windowsGitBashDiscovery/contract.js";
+
 export { acquireFileLock } from "./node/atomicFileLock.js";
 export { createNodeNetworkCapture, withoutNetworkCapture } from "./node/networkCapture.js";
 export {
@@ -47,7 +53,14 @@ export {
   withFileLock,
   withCredentialFileRead,
   withCredentialFileMutation,
+  withCredentialGeneration,
   captureCredentialFileGuard,
   type CredentialFileGuard,
   type SharedFileLockOptions,
 } from "./node/privateFilePersistence.js";
+export {
+  createNodeSelfResourceSampler,
+  NODE_SELF_RESOURCE_SAMPLE_INTERVAL_MS,
+  type NodeSelfResourceSampler,
+  type NodeSelfResourceSamplerOptions,
+} from "./node/nodeSelfResourceTelemetry.js";

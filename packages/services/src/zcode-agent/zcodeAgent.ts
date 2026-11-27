@@ -2,6 +2,8 @@ import type {
   V4SessionDeletionParams,
   V4SessionDeletionExecuteParams,
   V4SessionDeletionPreview,
+  V4SessionDeletionPreviewBatchParams,
+  V4SessionDeletionPreviewBatchResult,
   V4SessionDeletionResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import type { PluginUiToolResultNotification } from "@zcode/shared/mcp-apps";
@@ -17,12 +19,10 @@ import type {
 } from "#src/zcode-agent/pluginHostQueriesClient.js";
 import type {
   BackgroundBashOutputResult,
-  CustomSystemSegments,
   SessionDebugSnapshot,
   ZCodeSessionContentProfile,
 } from "@zcode/shared";
 /* eslint-disable max-lines -- ZCode agent service 接口集中声明 protocol/session/workspace 方法，拆分会增加 service descriptor 迁移成本。 */
-import type { RemoteConversationTelemetryEvent } from "@zcode/shared/conversation-telemetry";
 import type { Event, IDisposable } from "@zcode/rpc";
 import { ServiceChannels } from "@zcode/shared";
 import type { AppUsageRange, AppUsageSnapshot, ZCodeTaskTokenUsageResult } from "@zcode/shared";
@@ -79,6 +79,7 @@ import type {
   ZCodePluginsDescribeResult,
   ZCodePluginsValidateResult,
   ZCodePluginsSetEnabledResult,
+  ZCodePluginsWorkspaceTrustResult,
   ZCodePluginsCancelOperationResult,
   ZCodePluginOperationProgressNotification,
   ZCodeProviderRuntimeHeadersRequestParams,
@@ -113,7 +114,7 @@ import type {
   CommandKey,
   CommandsQueryResult,
   ConversationTopicWireCandidate,
-  ConversationTelemetryFact,
+  ConversationTelemetryInput,
   CuaPermissionObservation,
   ConversationRowTarget,
   HelloMessage,
@@ -187,6 +188,7 @@ import type {
   ZCodeAgentRemovePluginMarketplaceParams,
   ZCodeAgentRestoreBuiltinPluginParams,
   ZCodeAgentSetPluginEnabledParams,
+  ZCodeAgentSetWorkspacePluginTrustParams,
   ZCodeAgentSetAutomationEnabledParams,
   ZCodeAgentUninstallPluginParams,
   ZCodeAgentUpdatePluginMarketplaceParams,
@@ -680,26 +682,6 @@ export type ZCodeAgentServiceEvent =
 export interface ZCodeAgentAppRuntimePreferences {
   askUserQuestionAutoResolutionEnabled: boolean;
   modelIoFullRetentionEnabled?: boolean;
-  /** 删除保护：Agent 删除文件优先移入系统废纸篓/回收站；缺省 true（fail-safe）。 */
-  deleteProtectionEnabled?: boolean;
-  /** 单条命令删除目标数达到该值时需要审批；缺省 50。 */
-  batchDeleteApprovalThreshold?: number;
-  /**
-   * 自定义系统提示词（docs/spec/custom-system-prompt.md）：整段替换内置身份段；
-   * 空串/缺席 = 内置默认。归一化保证非 undefined 时一定是 string（含清空用的空串）。
-   */
-  customSystemPrompt?: string;
-  /**
-   * 分段系统提示词（docs/spec/custom-system-prompt.md v2）：三段常用段落按
-   * 继承/覆盖/追加/清空组合，两作用域。**缺席 = 从未使用**（不同步，避免给旧 CLI 增加
-   * 必败往返）；`{}` = 已全部恢复继承（仍同步，让新建 CLI client 拿到清空态）。
-   */
-  customSystemSegments?: CustomSystemSegments;
-  /**
-   * 回复语言（docs/spec/response-language.md）：模型回复的首选语言；
-   * 空串/缺席 = 跟随用户消息（不注入提示）。
-   */
-  language?: string;
   pluginAutoRecommendationEnabled?: boolean;
 }
 
@@ -716,32 +698,12 @@ export interface ZCodeAgentStorageStartupSnapshot {
   state: ZCodeStorageStartupState | null;
 }
 
-/**
- * 协议 `runtime/capabilities` 的应答形状（FR-A13 / M2-8）。与
- * `zcodeRuntimeCapabilitiesSchema`（@zcode/shared，非 strict、字段全可选）一致：
- * 旧 CLI 会剥掉或整段缺席字段，消费方必须把「false / 缺席」都当不支持处理。
- */
-export interface ZCodeAgentRuntimeCapabilities {
-  independentPlanState?: boolean;
-  historyFirst?: boolean;
-}
-
 export interface IZCodeAgentService {
   /** 控制面不需要账号或模型，且不发送普通协议请求。 */
   prepareStorage(params: ZCodeAgentWorkspaceTarget): Promise<void>;
   getStorageStartupState(
     params: ZCodeAgentWorkspaceTarget,
   ): Promise<ZCodeAgentStorageStartupSnapshot | null>;
-  /**
-   * FR-A13（M2-8）：CLI runtime 能力位查询（协议 `runtime/capabilities`）。
-   * 控制面常量应答：不依赖 provider/model 就绪、不落持久化 store、不建立会话。
-   * CLI 未实现该方法时 -32601 原样上抛（ZCodeProtocolClientError 携带 code，RPC 层
-   * passthrough 透传），由调用方（VS Code 插件）统一判「能力缺失」并降级，这里不做
-   * 静默兜底；server dist 未重建时则会抛无 code 的 "Method not found" —— 两种形状
-   * 都是能力缺失，不得被调用方伪装成请求失败。
-   * 旧 server 可以不提供此能力（optional，同 reconcileSessionsIndexV4 先例）。
-   */
-  runtimeCapabilities?(params: ZCodeAgentWorkspaceTarget): Promise<ZCodeAgentRuntimeCapabilities>;
   onDynamicStorageStartupState(
     params: ZCodeAgentWorkspaceTarget,
   ): Event<ZCodeAgentStorageStartupSnapshot>;
@@ -768,6 +730,10 @@ export interface IZCodeAgentService {
   ): Promise<ZCodeSessionSubagentsResult>;
   getAppUsageStats(params: ZCodeAgentAppUsageParams): Promise<AppUsageSnapshot>;
   previewSessionDeletion?(params: V4SessionDeletionParams): Promise<V4SessionDeletionPreview>;
+  /** 批量预检：按 workspace 分组，每组整批一次 CLI 扫描；结果按 items 顺序逐项返回。 */
+  previewSessionDeletions?(
+    params: V4SessionDeletionPreviewBatchParams,
+  ): Promise<V4SessionDeletionPreviewBatchResult>;
   executeSessionDeletion?(params: V4SessionDeletionExecuteParams): Promise<V4SessionDeletionResult>;
   /** 项目数据删除前的测量：只读，用本机已有 runtime 或管理面进程，不为某个项目拉起 Agent。 */
   measureSessionData?(params: V4SessionDataParams): Promise<V4SessionDataMeasureResult>;
@@ -942,6 +908,9 @@ export interface IZCodeAgentService {
   validatePlugin(params: ZCodeAgentValidatePluginParams): Promise<ZCodePluginsValidateResult>;
   describePlugin(params: ZCodeAgentDescribePluginParams): Promise<ZCodePluginsDescribeResult>;
   setPluginEnabled(params: ZCodeAgentSetPluginEnabledParams): Promise<ZCodePluginsSetEnabledResult>;
+  setWorkspacePluginTrust(
+    params: ZCodeAgentSetWorkspacePluginTrustParams,
+  ): Promise<ZCodePluginsWorkspaceTrustResult>;
   // ---- 定时任务(automation)管理 ----
   listAutomations(params: ZCodeAgentWorkspaceTarget): Promise<ZCodeAutomation[]>;
   listAllAutomations(): Promise<ZCodeAutomation[]>;
@@ -1024,10 +993,6 @@ export interface IZCodeAgentService {
   onDynamicProcessResourceSample(): Event<AgentLaneResourceSample>;
   /** 插件启动超时的工作区提示；订阅时补投当前进程的降级事实。 */
   onDynamicPluginStartupDegraded(params: ZCodeAgentWorkspaceTarget): Event<void>;
-  /** MCP 进程生命周期与低频内存事件，仅供可信 Host relay 上报 ARMS。 */
-  /** 仅 trusted Host relay 订阅；手机统计不依赖 renderer 生命周期。 */
-  onDynamicRemoteConversationTelemetry(): Event<RemoteConversationTelemetryEvent>;
-
   onDynamicMcpTelemetry(): Event<ZCodeMcpTelemetryEvent>;
   /** MCP 进程树资源事实，只供可信 Host 汇总上报。 */
   onDynamicMcpResourceSamples(): Event<ZCodeMcpResourceSample[]>;
@@ -1142,7 +1107,7 @@ export interface IZCodeAgentService {
   ): Event<import("@zcode/shared").LocalTtftFacts>;
   onDynamicConversationTelemetryFact(
     params: ZCodeAgentWorkspaceTarget,
-  ): Event<ConversationTelemetryFact>;
+  ): Event<ConversationTelemetryInput>;
   /**
    * context 组成（apps/zcode-cli/docs/design/v2/model/context-composition.md §3.6）。
    * existing-only：工作区没有运行中的 CLI、会话不在内存、旧 CLI（method-not-found）都返回 null，不启动 CLI。

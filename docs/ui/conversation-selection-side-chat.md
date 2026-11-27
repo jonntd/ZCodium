@@ -2,12 +2,17 @@
 
 ## Feature summary
 
-桌面 Electron 与桌面 Web 的主会话时间线支持框选单行文字，并提供两个动作：
+桌面 Electron 与桌面 Web 的主会话时间线和辅助对话时间线都支持框选单行文字。主会话提供两个动作：
 
-1. **添加到当前任务**：把选区作为结构化引用 chip 追加到主 composer。
+1. **注释**：在选区旁打开注释输入框，评论可选；保存后把“选区 + 评论”作为一条注释追加到主 composer，
+   随下一条消息发给模型，并在正文原文处画编号标记。不写评论直接回车即只加原文，取代原“添加到当前任务”。
+   见下文「选区注释」。当前 CLI 未声明评论能力时不提供“注释”，回退为 **添加到当前任务**（只加原文）。
 2. **在辅助对话中提问**：优先把选区追加到当前激活的
    `selection_side_chat` child tab；当前未激活辅助对话时创建一个新的 hidden child，
    并在右侧 Side Pane 中继续多轮对话。
+
+辅助对话时间线只提供 **注释**（CLI 未声明评论能力时回退为 **添加到当前任务**），写入该辅助对话
+自己的 composer，不进主对话；不提供“在辅助对话中提问”。见下文「辅助对话选区」。
 
 右侧 Side Pane 的空面板启动页和顶部 `+` 菜单同时提供 **辅助对话** 入口。入口与框选动作
 共享主 `SessionPane` 的创建能力，但固定入口每次都创建并激活一个新的辅助对话 tab。
@@ -135,7 +140,17 @@ Side Pane 启动页 / 顶部 + 菜单 / 主 composer `/side`、`/btw`
 - 选区端点落在控件、菜单、状态标签或阻塞弹窗中时不产生入口；同一 selectable region 内从
   普通 Markdown 跨选到表格单元格时，DOM 顺序中夹着的 `select-none` 表格工具栏不算控件选区，
   仍产生入口。跨 row、纯空白和已经卸载的虚拟行不产生入口。
-- 滚动、Esc、选区折叠、切任务和进入主会话阻塞态关闭浮层。
+- Esc、选区折叠、切任务和进入主会话阻塞态关闭浮层。
+- 时间线容器尺寸变化（如打开、收起右侧面板导致文字重排）同样按当前选区重新定位浮层。
+- 用户主动关掉浮层（Esc，或点了浮层里的动作）之后，滚动和容器尺寸变化不再重新打开它；
+  只有再次操作选区（鼠标、触控、键盘，或选区折叠后重新框选）才会重新显示。
+  回答输出过程中按 Esc 仍按既有规则停止生成，这条规则不改变它。
+- 引用原文里的代码正文逐字保留，包括代码内部的连续空行；换行整理只作用在正文文字上。
+- 代码块横向滚动后，代码行的下划线按滚动后的位置重算。
+- 点“注释”后的输入卡片跟随正文里的标记：时间线滚动或容器尺寸变化后按标记当前位置更新卡片锚点。
+- 时间线滚动不关闭浮层：滚动后按当前选区重新定位；选区整体滚出时间线可视范围时隐藏，滚回后
+  重新显示。回答输出期间时间线自动跟随到底（位置不变时也会派发 scroll），选区仍在浮层就必须在，
+  用户可以在输出过程中完成注释。Markdown 预览的选区浮层仍然是滚动即关闭。
 - `ConversationSelectionReference` 包含 `id`、`sourceSessionId`、`sourceRowId`、
   `contentType` 与原始 `text`。去重键包含全部来源字段和文本；不同 row 的相同文字不是重复。
 - 单条最多 8,000 字符、每个 composer 最多 8 条、总计最多 16,000 字符。超限原子拒绝并
@@ -157,6 +172,153 @@ Side Pane 启动页 / 顶部 + 菜单 / 主 composer `/side`、`/btw`
 ```
 ````
 
+## 选区注释
+
+用户读助手回答时，常需要针对其中某一句、某个表格单元格或某段代码提问。注释让用户在选区上直接写下
+问题，模型同时收到被引原文与针对它的评论，不需要在输入框里手工复述上下文。注释复用上面的选区引用
+合同，不另建一套附件或 prompt 格式。
+
+2026-11-09 交互定稿（ZCode 3.0 群 11-06 话题）：原“批注”与“添加到当前任务”统一为 **注释**——
+选区内容无论是否附带评论，都作为一条注释提交。
+
+- **入口**：选区浮层动作为“注释”“在辅助对话中提问”。点“注释”后浮层换成输入卡片（编号、多行评论、
+  取消/添加注释），箭头指向选区；输入框抢走焦点会折叠浏览器选区，正文用同色底保留选区高亮，并在末尾以
+  虚线编号预占下一个号。评论可选：留空直接回车 = 只加原文；Shift+Enter 换行，输入法组字中的 Enter 不保存；
+  Esc、取消、点击浮层外、切会话、进入阻塞态或分享模式时丢弃未保存输入。Markdown 预览的选区浮层不提供注释，
+  继续是“添加到当前任务”。
+- **能力协商**：`conversationQuoteSchema` 与 `sendText` payload 都不是 strict，旧 CLI 会静默剥掉
+  `comment` / `agent`，用户看得到评论而模型收不到。新 CLI 在 `runtime/capabilities` 声明
+  `conversationQuoteComment: true`；Host 在启动屏障里记录声明者，renderer 经
+  `zcodeAgentService.supportsConversationQuoteComment` 查询当前 workspace 的 CLI，未声明、查询失败、
+  旧 Host 或远端未实现时不提供“注释”与编辑入口（不降级拼进正文），菜单回退为“添加到当前任务”。
+- **超限**：注释已满 8 条或原文总长超限时，保存会被原子拒绝；浮层保持打开、保留输入，并在浮层内
+  显示与 composer 相同的本地化上限提示。对已注释的同一段再次写评论属于更新，不受条数上限限制。
+- **数据**：评论是 `ConversationSelectionReference` 上的可选 `comment`（≤2,000 字符），来源字段、去重键、
+  条数与原文长度限制不变。对已注释的同一段（同来源同文本）再次写评论时更新原条目，不新增；不带评论的
+  重复注释不覆盖已有评论。消息来源的注释另带仅渲染层使用的 `anchor`（行内第几个 selectable region +
+  字符偏移），不进入发送载荷；同一句话在回答里出现多次时靠偏移指到用户真正框的那一处。
+- **正文标记**：主时间线消息层上叠一层绝对定位覆盖层（不改 Markdown 渲染树），按 `anchor` 还原 Range
+  画下划线与末尾编号气泡。编号 = 在 composer 注释列表里的位置，一条注释一个号。
+  有评论 = 实心气泡 + 实线下划线；仅原文 = 空心气泡 + 虚线下划线；已发送 = 同形态换中性灰。
+  行未挂载（虚拟滚动）、文字已变或锚点还原后文字对不上时不画，宁可少画也不画错位置；流式输出、
+  虚拟行挂载、窗口尺寸变化合并到下一帧重算。已发送标记只保存在当前 renderer 内存，刷新后消失。
+  下划线只画在选区内真实文字行的下方：按选区里各文本节点的矩形计算，同一块级容器（段落、列表项、
+  表格单元格）里的同一视觉行合并成一条线，加粗、链接、行内代码处不断开、不出现高低两条线；不使用元素盒子，
+  整段被选中的段落不会多出撑满整行的线；不可选的界面文字（表格工具栏、代码块语言标签）不画线，
+  也不进入引用原文。被选区整个跨过的代码块：正文渲染在 Shadow DOM 中，浏览器选区文本不含它，
+  由 UI 逐行补画下划线（裁在代码块可视宽度内），并把代码正文以围栏代码块形式补进引用原文。
+  公式在引用原文里替换为 TeX 源码（行内 `$…$`，独立 `$$…$$`）：浏览器选区文本给出的是隐藏的 MathML
+  与渲染层逐字符的内容，模型读不懂。替换与代码块插入都靠“把选区拆成段、逐段对着选区文本消费字符”，
+  前提是字符数一致；对不上时不做替换，只把代码块附在原文末尾。选区没变时复用上次算好的原文。
+  数学公式（KaTeX）整体算一段：行内公式并入所在行的线，独立公式单独一条、宽度为公式本身。
+  列表项从开头被选中时，首行下划线向左带上序号或圆点（仅标记排在行内的列表）。
+  正文里的角标是 18px 的气泡（列表和卡片里的编号仍为 16px），左下角收尖，贴在选区末尾右上方，
+  底边探入文字行约 4px；输入中、已保存、已发送三种形态位置一致。
+  标记位置在绘制前同步提交，正文重排（切回会话、虚拟行重新挂载）时划线与正文同一帧更新。
+  已发送的灰色标记保留在正文中；悬停其编号显示“已随消息发送”、当时的原文和评论，只读。
+  角标只有露在文字行上方的部分（14px）接收鼠标，探入文字行的底边不挡正文划词。
+- **编辑**：点正文编号，或 composer 列表行的铅笔 / “添加评论”，卡片就地变编辑态，箭头仍指向正文编号，
+  卡片不重复显示原文（原文就是正文里划线的那一段）；只有列表入口找不到正文编号时，卡片顶部才带上原文。
+  评论留空 = 回到只保留原文，不会因清空评论删掉注释。底部“删除注释”整条移除，
+  6 秒内可通过 toast 撤销并原位恢复，其余编号自动补位。列表入口找不到正文编号（行未挂载）时浮层指向列表行。
+  同一会话分屏时只由聚焦的时间线响应编辑请求。
+- **列表**：输入框 chip 统一显示“N 条注释”。详情标题为“下一条消息将携带 N 条注释 · 编号对应正文”；
+  每行编号气泡与正文一致，原文最多两行（悬停看全文），评论加重显示在原文下方；行尾铅笔 = 编辑/添加评论，
+  垃圾桶 = 删除（可撤销）。悬停列表行与正文气泡互相高亮。历史 user row 的 chip 同样显示“N 条注释”。
+- **子 agent 来源**：选区落在 Agent/Task 工具行（展示子 agent 输出）时，引用带 `agent`（该行配对 subagent
+  row 的 `subagentType`，缺失时取工具输入的 `subagent_type`）。
+- **协议**：`conversationQuoteSchema` 可选 `comment`、`agent`，随 `sendText.conversationQuotes` 进入
+  CLI，并随 user row 的 `conversationQuotes` 回放到历史。CLI `withConversationQuotes` 仍把引用数组原样
+  JSON 放进 `<conversation_quote>`；只要有非空评论，就追加一句说明：带 `comment` 的条目是用户针对该段
+  原文的问题或要求，`agent` 表示产出该段的子 agent。无评论时模型输入与原来逐字相同。本次交互调整不改协议。
+- **rewind**：edit/retry/回滚删除来源行后，带评论的注释失去所指回答，主 composer 同步删除这些注释。
+  判据只用权威 snapshot rows：rowId 在 session 内单调且不复用，已加载窗口（窗口内最小 rowId 及之后）
+  里缺失的来源行即为被删除；窗口之前尚未分页加载的历史不判删除；整条活动分支被删（窗口为空且
+  `firstRowId` 为 null）时删除该 session 的全部带评论注释。仅原文的注释是动作时冻结的文字，保持原行为不删。
+  编辑态 composer 的引用属于 edit scope，不参与该判定，也不提供正文编辑入口。
+- **未做**：已发送标记不持久化；子 agent 侧栏 tab 为只读会话，不提供选区浮层（辅助对话 tab 提供，见
+  「辅助对话选区」）；手机端不注册选区入口。
+
+| ID    | Setup / action                                                         | Expected evidence                                                                                                                                                                                  | Status   |
+| ----- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| SCM01 | 助手回答的表格单元格与正文段落分别框选，点“注释”，键盘输入评论后保存   | 输入过程中浮层不关闭；composer chip 为“2 条注释”，正文 ①② 实心编号                                                                                                                                 | accepted |
+| SCM02 | 两条注释分别挂在第一、二轮回答上，编辑第二轮用户问题触发 rewind        | 第二轮回答行被删除后其注释同步移除，其余编号补位                                                                                                                                                   | accepted |
+| SCM03 | 保留的注释随下一条消息发送                                             | 模型请求最后一条 user 消息含原文、评论与说明，不含已删除注释；发送后标记变灰                                                                                                                       | accepted |
+| SCM04 | 框选正文点“注释”，不写评论直接回车                                     | 菜单无“添加到当前任务”；虚线编号预占；保存后空心编号，列表行有“添加评论”                                                                                                                           | proposed |
+| SCM05 | 点正文里仅原文注释的编号，补写评论并保存                               | 编辑浮层指向该编号；空心变实心，列表同步显示评论                                                                                                                                                   | proposed |
+| SCM06 | 编辑浮层点“删除注释”，6 秒内点“撤销”                                   | 删除后编号补位、计数减一；撤销后原位恢复                                                                                                                                                           | proposed |
+| SCM07 | 回答分多步输出（正文、工具调用、思考、流式正文）时框选本轮已输出的正文 | 输出与跟随滚动期间选区保留、浮层跟随选区不消失；可在输出过程中输入评论并保存                                                                                                                       | proposed |
+| SCM08 | 选区从正文开始，跨过整段正文和代码块，到下一段正文中间结束，点“注释”   | 三段正文与被跨过的代码行各一条线，无整行宽的线，代码块标题不画线；代码正文逐字进入引用原文（含代码内部的连续空行）；代码块横向滚动后代码行的线随之重算；输入卡片不显示原文；角标 18px 且不压文字行 | proposed |
+| SCM09 | 选区覆盖加粗、行内代码、有序列表和自动换行的列表项，点“注释”           | 每个视觉行正好一条下划线，从该行第一个选中的字画到最后一个字；行内代码两侧不断线                                                                                                                   | proposed |
+| SCM10 | 注释随消息发出后，悬停正文里的灰色编号                                 | 显示“已随消息发送”、当时的原文与评论                                                                                                                                                               | proposed |
+| SCM11 | 选区含行内公式与独立公式，点“注释”并随消息发出                         | 带行内公式的一行、独立公式、其后一行各一条线，互不重叠；独立公式的线不撑满整行；引用原文里公式为 TeX 源码                                                                                          | proposed |
+| SCM12 | 框选后：滚到选区离开可视范围再滚回；打开右侧面板；切到别的会话再切回   | 滚出时浮层隐藏、选区保留，滚回后重新对准；面板打开文字重排后浮层跟到新位置；浮层不带到别的会话，切回后不留旧浮层                                                                                   | proposed |
+| SCM13 | 框选后按 Esc 再用滚轮滚动；或点“在辅助对话中提问”使右侧面板打开        | 用户关掉的浮层不因之后的滚动或时间线变窄重新出现；重新框选后照常出现                                                                                                                               | proposed |
+
+剪枝：代码块选区与表格/正文共用同一 selectable region 判定（SSC17/SSC24），不单独叉乘；注释与“在辅助
+对话中提问”组合、远程 identity、theme/locale 不做 E2E 叉乘，视觉以桌面深浅主题截图代表；列表铅笔入口与
+正文编号入口共用同一编辑浮层，E2E 只走正文编号入口。
+
+## 辅助对话选区
+
+2026-11-19 确认：辅助对话（`selection_side_chat` tab）的时间线复用主对话同一套选区浮层、注释输入卡片
+与正文编号标记（`ConversationSelectionTooltip` / `SelectionActionMenu` / `SelectionCommentEditor` /
+`ConversationAnnotationMarks`），不另写一套。
+
+- **动作**：只有“注释”；CLI 未声明 `conversationQuoteComment` 时回退为“添加到当前任务”。不提供
+  “在辅助对话中提问”，辅助对话里不能再开辅助对话。菜单只剩一个按钮，不留分隔线。
+- **写入目标**：选区动作写入本 pane 的会话，即辅助对话 child 自己的 composer（按 child sessionId +
+  workspaceKey 存引用）；主 composer 与兄弟辅助 tab 不受影响。正文编号标记画在辅助时间线上。
+- **可用条件**：浮层 enabled = Side Pane 可见 && 该 tab 是当前激活 tab && 该辅助对话无阻塞交互。
+  收起侧栏、切到其他 tab、出现阻塞都走同一条“enabled 变 false”路径：浮层关闭、未保存的注释输入丢弃；
+  恢复后不重弹，重新框选才出现。不新增状态、不加超时。
+- **焦点**：不改侧栏焦点逻辑。收起再展开侧栏后焦点不自动回到辅助输入框，用户点一下才回去。
+- **Esc**：框选后按 Esc 只关闭浮层；辅助对话输出中也不停止辅助对话（选区不在输入框，Esc 不属于该 pane
+  的输入焦点，沿用「Esc 停止的焦点归属」）。
+- 辅助对话输出中可以框选并保存注释，规则同主对话（SCM07）。
+
+```text
+Side Pane 可见 ── 否 ──┐
+   │ 是                │
+当前激活 tab 是该辅助对话 ── 否 ──┤
+   │ 是                │
+无阻塞交互 ── 否 ──────┤
+   │ 是                v
+enabled = true     enabled = false → 关浮层 + 丢弃未保存输入
+   │
+选区浮层（注释 / 回退添加到当前任务）
+   │ 保存
+child composer 引用（child sessionId + workspaceKey）→ 辅助正文编号标记
+   （收起/展开侧栏、切 tab 不影响已保存注释）
+```
+
+| #   | 前置                 | 动作               | 结果                                 |
+| --- | -------------------- | ------------------ | ------------------------------------ |
+| 1   | 辅助框选菜单已出     | 收起侧栏           | 菜单消失；展开后不重弹，重新框选才出 |
+| 2   | 注释输入中           | 收起侧栏           | 输入丢弃，展开不恢复                 |
+| 3   | 已保存注释           | 收起再展开         | 注释仍在辅助输入框，正文编号仍在     |
+| 4   | 菜单已出/输入中      | 切到另一个辅助 tab | 原 tab 菜单关、输入丢弃；切回不重弹  |
+| 5   | 已保存注释           | 切 tab 再切回      | 都在；另一个 tab 输入框没有这条      |
+| 6   | 菜单已出             | 关闭 tab           | 浮层随 tab 消失                      |
+| 7/8 | 辅助菜单已出或输入中 | 点主对话           | 菜单关 / 输入丢弃                    |
+| 9   | 主对话框选           | 在辅助对话中提问   | 行为不变                             |
+| 11  | 辅助对话输出中       | 框选并注释         | 可以保存                             |
+| 12  | 辅助对话框选后       | 按 Esc             | 只关浮层，不停止辅助对话             |
+| 14  | 辅助对话框选         | 查看浮层           | 不出现“在辅助对话中提问”             |
+
+| ID    | Setup / action                                                              | Expected evidence                                                                                | Status   |
+| ----- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ | -------- |
+| SSC37 | 辅助 tab 时间线框选，点“注释”写评论保存                                     | 浮层只有“注释”，无“在辅助对话中提问”；辅助 composer 1 条注释，主 composer 无；辅助正文有编号标记 | accepted |
+| SSC38 | 注释输入中收起再展开侧栏；输入中切到另一辅助 tab 再切回；菜单已出时关闭 tab | 展开/切回后无浮层、无输入卡片；关闭 tab 后浮层消失                                               | accepted |
+| SSC39 | 已保存注释后收起再展开侧栏、切到另一辅助 tab 再切回                         | 注释与正文编号仍在；另一个 tab 的 composer 没有这条注释                                          | accepted |
+| SSC40 | 辅助注释输入中点主对话输入框；随后主对话框选“在辅助对话中提问”              | 辅助输入卡片丢弃；主对话引用照常进入当前激活的辅助 tab                                           | accepted |
+| SSC41 | 辅助对话流式输出中框选，按 Esc；再框选并保存注释                            | Esc 只关浮层，辅助对话仍在运行；输出中保存的注释进入辅助 composer                                | accepted |
+| SSC42 | 收起再展开侧栏                                                              | 焦点不自动回到辅助输入框                                                                         | accepted |
+
+剪枝：阻塞弹窗组合（决策 #10）沿用主对话 SSC05 的 enabled 路径，不单独做 E2E；手机端无辅助对话入口；
+theme/locale、remote transport 不叉乘。SSC37–SSC42 合并在
+`conversation-session-selection-side-chat.test.ts` 的一个 desktop continuous 用例中。
+
 ## Protocol and runtime contract
 
 - V4 新增非 CAS 命令 `createSelectionSideSession`。父 session 由 command envelope 的
@@ -167,9 +329,12 @@ Side Pane 启动页 / 顶部 + 菜单 / 主 composer `/side`、`/btw`
   followup mode 与权限规则；UI 不传 workspace identity 拼装字段。
 - child task type 为 `selection_side_chat`，带 `parentSessionId`。不复制 goal、queue、后台任务、
   continuation inbox 或 pending interaction。
-- 复制的父历史逐条标记 `model-only`、`uiVisibility=hidden`、`providerVisibility=visible`；live 和
-  cold hydration 必须使用同一 projection policy。隐藏历史不进入 child 可见 rows、total count、
-  load-older、conversation find 或 turn navigator。
+- 复制的父历史逐条标记 `model-only`、`uiVisibility=hidden`、`providerVisibility=visible`，`semantics.kind`
+  保留原值；live 和 cold hydration 必须使用同一 projection policy。隐藏历史不进入 child 可见 rows、
+  total count、load-older、conversation find 或 turn navigator。
+- 父历史中的时间线标记（`kind=timeline_event`，如「已创建 worktree」「分叉自…」、上下文压缩）同样是
+  继承历史。projection policy 以 `uiVisibility=hidden` 为准，不能因 `kind=timeline_event` 把它归为
+  `timelineOnly`。child 的 cwd 与父任务相同，worktree 任务的辅助对话不新建 worktree。
 - copied history 之后写入 model-only boundary：继承历史只作参考，不继续父任务；仅处理副屏中新
   问题；修改工作区必须由用户在副屏明确请求。
 - boundary 作为 persisted `selection_side_chat` reminder 注册，channel 为 `history_continuity`、
@@ -204,7 +369,7 @@ wire (MCS / non-MCS): user [<system-reminder>boundary</system-reminder>, questio
 ```
 
 ```bash
-pnpm --filter @zcode/desktop test:e2e -- --spec './test/e2e/conversation-session/conversation-session-side-chat-reminder.test.ts'
+pnpm --filter @zcode/desktop test:e2e -- --spec './test/e2e/conversation-session/branching/conversation-session-side-chat-reminder.test.ts'
 ```
 
 正式回归仅保留 UI、持久化和 provider 请求断言；运行报告与网络证据由共享 E2E runner
@@ -271,7 +436,7 @@ relay / desktop main 仅鉴权、attachment 调度与 rpc-frame 透传
 | SSC16 | 副屏尝试 goal/edit/retry/fork                                       | UI 无入口，协议直接调用被统一 guard 拒绝                                                                        | accepted                                                                                          |
 | SSC17 | completed/streaming assistant 正文框选                              | 两个动作均出现；引用冻结为动作时文本，contentType=assistant                                                     | accepted                                                                                          |
 | SSC18 | 启动页或顶部 `+` 点击“辅助对话”                                     | 两处入口语义一致；每次创建并激活新的空 composer                                                                 | accepted                                                                                          |
-| SSC19 | child 继承父历史后首次打开或冷恢复                                  | provider 保留历史；所有 UI timeline/search/page/count 均为空                                                    | accepted                                                                                          |
+| SSC19 | child 继承父历史后首次打开或冷恢复                                  | provider 保留历史；所有 UI timeline/search/page/count 均为空，含父历史的时间线标记                              | accepted                                                                                          |
 | SSC20 | 父任务 running/blocked 时点击固定入口                               | 入口仍可用；无 active task 与手机端不出现                                                                       | accepted                                                                                          |
 | SSC21 | 框选浮层显示中英文动作                                              | 约 32px 高、12px 字号；中文统一“辅助对话”术语                                                                   | accepted                                                                                          |
 | SSC22 | 父任务有辅助对话后 fork 到 child                                    | child 展开侧栏显示启动页；切回父任务恢复同一 tab/child/草稿                                                     | accepted                                                                                          |
@@ -305,8 +470,42 @@ composer/parser tests 覆盖，不与每类结构化上下文做笛卡尔积。
 
 - SSC01/02/05/07/08/09/13/14/15/17/18/20/22/25/26/27/28/29/30/31 先进入 conversation-session
   `manual-review/pending`，使用稳定 `E2E_SSC_*` marker。
-- SSC03/04/06/10/11/12/16/19/21/23/24/32 以组件、协议、service/core focused tests 为主；SSC22 另用
+- SSC03/04/06/10/11/12/16/19/21/23/24/32 以组件、协议、service/core focused tests 为主；SSC19 中父历史
+  时间线标记的隐藏由 `apps/zcode-cli/packages/bootstrap/tests/selection-side-chat-sqlite-fork.test.ts`
+  用真实复制与冷恢复覆盖；SSC22 另用
   Side Pane 可见性 focused test 覆盖共享渲染分支；SSC28/29/30/31 的建议构建、参数解析与命令幂等细节另由单测/协议测试覆盖。
 - provider fixture 使用 case-local `fast-text`；SSC13 permission 使用已有交互 fixture，SSC07 使用
   确定性的 sessionNotFound 注入，不以 sleep 模拟。
 - 人工确认后再执行 promote、fixture check、默认 replay 与 Docker admission。
+
+## SQLite 批量创建
+
+辅助对话继续持有独立的 message/part 副本，删除、恢复、模型上下文和隐藏历史的语义不变。
+创建通过 `SessionStorePort.commitForkFromSource` 在同一写事务内读取父 session 与历史元数据，
+同步调用 core 的既有 active-branch、稳定边界和 child-local ID 改写，再提交完整 fork bundle。
+回调不得返回 Promise、执行外部 IO 或修改 source；事务中不让出执行权，避免父历史在选择和复制之间变化。
+
+```text
+BEGIN IMMEDIATE → 父 session + 历史元数据 → core 同步选择/改写
+                → INSERT SELECT 复制正文 → child 配置/命令事实 → COMMIT → runtime 注册
+```
+
+正文、推理、工具 input/output、文件 data URL 和附件 payload 留在 SQLite；core 只接收用于
+选择与改写的投影。旧 system_reminder 的模型选择仍可能按通知文字判断，该类文字保留供原选择器使用，
+不以截断前缀猜测语义。存储层比较投影与改写结果，只把实际变化的 JSON 路径应用到原记录；
+未改字段（包括未知字段、显式 null、旧版兼容字段）原样保留。按路径形状分组后分批执行
+`INSERT SELECT`，显式分配 child sequence，不逐条准备 SQL、回查正文或 touch session。
+复制计划作为 JOIN 外层，源记录按主键查找，避免每批重新扫描整个父历史；长 ID 数组整体改写，
+嵌套附件逐字段改写并分段限制 JSON 函数参数数量。创建后的 runtime 恢复沿用既有读取路径。
+
+保持 child/message/part/配置/命令去重事实同事务提交，复制失败、来源不符或 ID 冲突全部回滚。
+同 commandId 仍返回已提交 child，不制造第二份。父会话及兄弟 child 不可被覆盖。
+不新增持久化表或迁移，不使用共享历史引用，不改变 UI、Host owner 与 continuous/replayable 协议。
+
+验收：CLI 回归覆盖真实 SQLite 的大正文保持、嵌套引用改写、未知/null/兼容字段、稳定分支、
+父 turn 正在生成、Goal 排除、重复命令、跨会话来源拒绝、故障注入和冷重开；既有辅助对话
+E2E 验证空 timeline、独立 composer 与续发。压测同时报告核心复制和创建/订阅链路，不将延迟转移隐藏为收益。
+
+2026-11-04 本地 macOS 默认 replay：既有 `conversation-session-selection-side-chat.test.ts` 完整通过。
+用例显式固定 `zh-CN` 后校验中文 tab 标题。证据保存在
+`packages/desktop/.e2e-artifacts/desktop-e2e-20261104114322431-p31920-acbcdd89ba461c1a`；未验证其它 OS 实机。

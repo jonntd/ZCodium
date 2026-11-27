@@ -2,10 +2,7 @@ import type { ISubagentsService } from "@zcode/services";
 import type { ZCodeProvider } from "@zcode/shared";
 import { getServiceAuthorityId } from "@/store/serviceAuthorityKey.js";
 
-const inFlightAgentLoads = new Map<
-  string,
-  ReturnType<ISubagentsService["list"]>
->();
+const inFlightAgentLoads = new Map<string, ReturnType<ISubagentsService["list"]>>();
 let latestAgentLoadRequestId = 0;
 
 function getAgentLoadKey(
@@ -26,12 +23,7 @@ export function loadAgentsOnce(
   workspaceIdentity?: string,
   options: { bypassCache?: boolean } = {},
 ): ReturnType<ISubagentsService["list"]> {
-  const key = getAgentLoadKey(
-    workspacePath,
-    provider,
-    subagentsService,
-    workspaceIdentity,
-  );
+  const key = getAgentLoadKey(workspacePath, provider, subagentsService, workspaceIdentity);
   if (!options.bypassCache) {
     const current = inFlightAgentLoads.get(key);
     if (current) return current;
@@ -39,8 +31,7 @@ export function loadAgentsOnce(
   const request = subagentsService
     .list({ workspacePath, workspaceIdentity, provider })
     .finally(() => {
-      if (inFlightAgentLoads.get(key) === request)
-        inFlightAgentLoads.delete(key);
+      if (inFlightAgentLoads.get(key) === request) inFlightAgentLoads.delete(key);
     });
   inFlightAgentLoads.set(key, request);
   return request;

@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
-import { dirname, normalize, posix as posixPath, sep } from "node:path";
+import { dirname, join, normalize, posix as posixPath, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { ensureElectronRuntime } from "./ensure-electron-runtime.mjs";
 
 const require = createRequire(import.meta.url);
 
@@ -98,6 +99,7 @@ function runElectronRebuild() {
 }
 
 export async function main() {
+  await ensureElectronRuntime();
   const decision = await resolveNodePtyRebuildDecision();
 
   if (!decision.shouldRebuild) {

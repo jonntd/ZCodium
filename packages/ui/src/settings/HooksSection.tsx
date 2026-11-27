@@ -22,7 +22,7 @@ import { HookForm } from "./HookForm.js";
 import { SettingsBreadcrumbReporter } from "@/settings/SettingsHeaderBreadcrumb.js";
 import { SettingsSearchInput } from "@/settings/SettingsSearchInput.js";
 import { SettingsResourceHeaderActions } from "@/settings/SettingsResourceHeaderActions.js";
-import { buildSourceSettingsProjectionKey } from "@/settings/settingsSourceWorkspace.js";
+import { getWorkspaceKey } from "@/lib/workspaceKey.js";
 import { HooksList, type HookScope, type PluginHookRow } from "./HooksList.js";
 import { useWorkspaceHookInlineTrust } from "./useWorkspaceHookInlineTrust.js";
 import { useWorkspaceHookReviewStore } from "@/store/workspaceHookReviewStore.js";
@@ -40,6 +40,10 @@ import {
 interface HooksSectionProps {
   workspacePath?: string | null;
   workspaceIdentity?: string;
+  /** 导航意图指定的范围（项目 page scope key）。 */
+  initialScopeKey?: string;
+  /** 从受管 worktree 任务「去审核」时的会话 cwd；只作用于 initialScopeKey 对应的项目。 */
+  reviewWorkspacePath?: string;
 }
 
 function isEditableHook(hook: Hook): boolean {
@@ -156,16 +160,18 @@ export function filterPluginHooksByScope(
   );
 }
 
-export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionProps) {
+export function HooksSection({
+  workspacePath,
+  workspaceIdentity,
+  initialScopeKey,
+  reviewWorkspacePath,
+}: HooksSectionProps) {
   const { intl, locale } = useZCodeIntl();
   const confirmDialog = useConfirmDialog();
   const hooksState = useHooksStore();
   const plugins = usePluginManagementStore((state) => state.plugins);
   const availablePlugins = usePluginManagementStore((state) => state.availablePlugins);
   const installedPlugins = usePluginManagementStore((state) => state.installedPlugins);
-  const pluginStoreWorkspacePath = usePluginManagementStore((state) => state.workspacePath);
-  const pluginStoreWorkspaceIdentity = usePluginManagementStore((state) => state.workspaceIdentity);
-  const pluginStoreAuthorityKey = usePluginManagementStore((state) => state.authorityKey);
   const marketplaceAvailabilityKnown = usePluginManagementStore(
     (state) => state.marketplaceAvailabilityKnown,
   );
@@ -174,12 +180,27 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
   const initializePlugins = usePluginManagementStore((state) => state.initialize);
   const [query, setQuery] = useState("");
   // Scope 状态唯一 owner：默认选中当前 workspace 所在设备的「用户」；远端「用户」经 source-settings。
-  const scope = useSettingsScope({ workspacePath, workspaceIdentity });
+  const scope = useSettingsScope({ workspacePath, workspaceIdentity, initialScopeKey });
   // 表单归属打开它的设备（hook 为 null 表示新建），根因与修法见 useSettingsScopeForm。
   const { form, openForm, closeForm } = useSettingsScopeForm<{ hook: Hook | null }>(scope);
   const editingHook = form?.hook ?? null;
   const selectedScopeKey = scope.selectedScopeKey;
   const setSelectedScopeKey = scope.setSelectedScopeKey;
+  // ZP-20261110-06：worktree 任务的 Hook 声明来自会话 cwd，Settings 曾只按项目目录发现，
+  // 「去审核」后看到的是源仓库的声明（已信任），worktree 中待审核的那条无法信任。
+  // 这里只保存本次导航带来的 cwd；用户手动切换范围即丢弃，回到按项目目录发现。
+  const [worktreeReview, setWorktreeReview] = useState(() =>
+    initialScopeKey && reviewWorkspacePath
+      ? { scopeKey: initialScopeKey, workspacePath: reviewWorkspacePath }
+      : null,
+  );
+  const handleScopeKeyChange = useCallback(
+    (scopeKey: string) => {
+      setWorktreeReview(null);
+      setSelectedScopeKey(scopeKey);
+    },
+    [setSelectedScopeKey],
+  );
   const workspaceTabs = scope.deviceTargets;
   // 审核自动切换可指向任意设备上的在线项目（项目 key 在页面与设备内相同）。
   const allWorkspaceTargets = useMemo(
@@ -197,21 +218,24 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
   const userScope = scope.user.status === "ready" ? scope.user : null;
   const scopeBlocked = resolveSettingsScopeBlock(scope, !selectedWorkspace);
   const activeScope: HookScope = selectedWorkspace ? "project" : "user";
-  // hooksStore 的投影视图只有 user / workspace 两态；HookScope 的 "project" 对应 "workspace"。
-  const hookStoreScope: "user" | "workspace" = activeScope === "user" ? "user" : "workspace";
   const { workspacePath: targetWorkspacePath, workspaceIdentity: targetWorkspaceIdentity } =
     resolveHookScopeTarget(selectedWorkspace, userScope?.target);
-  const cacheAuthorityKey = selectedWorkspace ? undefined : userScope?.cacheAuthorityKey;
-  // Trust 提示的快照归属判定必须与 hooksStore 的投影 key 同格式（含 authority 与 scope），
-  // 否则本机「用户」与同路径项目的提示永远对不上（或错把用户钩子归因给项目）。
   const targetWorkspaceKey = targetWorkspacePath
-    ? getHooksCacheKey(
-        targetWorkspacePath,
-        targetWorkspaceIdentity,
-        cacheAuthorityKey,
-        hookStoreScope,
-      )
+    ? getWorkspaceKey(targetWorkspacePath, targetWorkspaceIdentity)
     : null;
+  // 按 worktree 发现时 identity 固定为项目 key：Runtime 的 admission、review request 与 Settings 行
+  // 都用项目 key（D23），Trust identity 由服务层按发现路径经 resolver 归一到源仓库。
+  const worktreeDiscoveryPath =
+    selectedWorkspace && targetWorkspaceKey && worktreeReview?.scopeKey === selectedScopeKey
+      ? worktreeReview.workspacePath
+      : undefined;
+  // CR-01：store 读写共用发现路径，审核模式下的配置写入会落到 worktree 的 config.json。
+  // 审核模式只允许信任；改配置须手动切换范围，回到按项目目录读写。
+  const reviewOnly = Boolean(worktreeDiscoveryPath);
+  const hooksTarget = worktreeDiscoveryPath
+    ? { workspacePath: worktreeDiscoveryPath, workspaceIdentity: targetWorkspaceKey ?? undefined }
+    : { workspacePath: targetWorkspacePath, workspaceIdentity: targetWorkspaceIdentity };
+  const cacheAuthorityKey = selectedWorkspace ? undefined : userScope?.cacheAuthorityKey;
   const resolvedTargetServices = useWorkspaceServicesResolution(
     targetWorkspacePath,
     selectedWorkspace?.remoteSessionId,
@@ -255,57 +279,42 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
     authorityKey: cacheAuthorityKey,
     hooksService: targetServiceResolution.rpcReady ? hooksService : undefined,
     rpcReady: targetServiceResolution.rpcReady,
+    ...(worktreeDiscoveryPath
+      ? {
+          hooksTarget: {
+            workspacePath: worktreeDiscoveryPath,
+            workspaceIdentity: hooksTarget.workspaceIdentity,
+          },
+        }
+      : {}),
   });
   const reviewBindings = useWorkspaceHookReviewStore((state) => state.bindings);
 
   const editableHooks = useMemo(
     () =>
-      hooksState.hooks.filter(
-        (hook) =>
-          (isEditableHook(hook) || isReadOnlyZCodeHook(hook)) &&
-          (hook.location?.scope ?? "user") === activeScope,
-      ),
-    [activeScope, hooksState.hooks],
+      hooksState.hooks
+        .filter(
+          (hook) =>
+            (isEditableHook(hook) || isReadOnlyZCodeHook(hook)) &&
+            (hook.location?.scope ?? "user") === activeScope,
+        )
+        .map((hook) => (reviewOnly ? { ...hook, editable: false } : hook)),
+    [activeScope, hooksState.hooks, reviewOnly],
   );
   const compatibilityHooks = useMemo(
     () =>
-      hooksState.hooks.filter(
-        (hook) =>
-          isInCompatibilitySection(hook) && (hook.location?.scope ?? "user") === activeScope,
-      ),
-    [activeScope, hooksState.hooks],
-  );
-  // 插件管理 store 是全局单例，绑定目标可能属于别的设备（异步初始化未完成或失败）。
-  // Bug 根因：插件贡献行不做目标比对时，两台设备 home 路径相同（如同为 /root）会把 A 设备的
-  // 插件钩子投影经 scope 过滤漏进 B 设备分区。只有绑定与页面目标一致（authority\0identity|path
-  // 同格式比较，见 settingsSourceWorkspace.buildSourceSettingsProjectionKey）才取投影，否则为空。
-  const pluginStoreMatchesTarget = useMemo(
-    () =>
-      buildSourceSettingsProjectionKey(
-        pluginStoreWorkspacePath,
-        pluginStoreWorkspaceIdentity,
-        pluginStoreAuthorityKey,
-      ) ===
-      buildSourceSettingsProjectionKey(
-        targetWorkspacePath,
-        targetWorkspaceIdentity,
-        cacheAuthorityKey,
-      ),
-    [
-      cacheAuthorityKey,
-      pluginStoreAuthorityKey,
-      pluginStoreWorkspaceIdentity,
-      pluginStoreWorkspacePath,
-      targetWorkspaceIdentity,
-      targetWorkspacePath,
-    ],
+      // 兼容行不参与 Trust 审核，其「导入」也是配置写入，审核模式下不展示。
+      reviewOnly
+        ? []
+        : hooksState.hooks.filter(
+            (hook) =>
+              isInCompatibilitySection(hook) && (hook.location?.scope ?? "user") === activeScope,
+          ),
+    [activeScope, hooksState.hooks, reviewOnly],
   );
   const pluginHooks = useMemo(
-    () =>
-      pluginStoreMatchesTarget
-        ? buildPluginHookRows(plugins, installedPlugins, marketplaceAvailabilityKnown)
-        : [],
-    [installedPlugins, marketplaceAvailabilityKnown, pluginStoreMatchesTarget, plugins],
+    () => buildPluginHookRows(plugins, installedPlugins, marketplaceAvailabilityKnown),
+    [installedPlugins, marketplaceAvailabilityKnown, plugins],
   );
   const pluginListingById = useMemo(
     () => new Map(availablePlugins.map((plugin) => [plugin.id, plugin.listing])),
@@ -349,20 +358,18 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
   useEffect(() => {
     if (!targetServiceResolution.rpcReady) return;
     void hooksState.initialize(
-      targetWorkspacePath ?? undefined,
-      targetWorkspaceIdentity,
+      hooksTarget.workspacePath ?? undefined,
+      hooksTarget.workspaceIdentity,
       hooksService,
       cacheAuthorityKey,
-      hookStoreScope,
     );
   }, [
     hooksService,
     cacheAuthorityKey,
     hooksState.initialize,
+    hooksTarget.workspaceIdentity,
+    hooksTarget.workspacePath,
     targetServiceResolution.rpcReady,
-    targetWorkspaceIdentity,
-    targetWorkspacePath,
-    hookStoreScope,
   ]);
 
   useEffect(() => {
@@ -386,11 +393,10 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
     if (!targetServiceResolution.rpcReady) return;
     await Promise.all([
       hooksState.initialize(
-        targetWorkspacePath ?? undefined,
-        targetWorkspaceIdentity,
+        hooksTarget.workspacePath ?? undefined,
+        hooksTarget.workspaceIdentity,
         hooksService,
         cacheAuthorityKey,
-        hookStoreScope,
       ),
       targetWorkspacePath
         ? initializePlugins({
@@ -405,12 +411,13 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
     hooksService,
     cacheAuthorityKey,
     hooksState.initialize,
+    hooksTarget.workspaceIdentity,
+    hooksTarget.workspacePath,
     initializePlugins,
     pluginManagementService,
     targetServiceResolution.rpcReady,
     targetWorkspaceIdentity,
     targetWorkspacePath,
-    hookStoreScope,
   ]);
 
   // workspace-hook-trust（修复）：会话区对 workspace B 发起审核时，把 scope 菜单
@@ -426,13 +433,18 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
   );
   const handledReviewInteractionRef = useRef<string | null>(null);
   useEffect(() => {
+    // CR-02：设置页按导航重挂载后 ref 归零，其他项目的旧绑定会被当作新审核抢走范围，
+    // worktree 审核的 cwd 随之失效。显式 worktree 审核期间不自动切换。
+    // 跳过时也要登记 interaction：手动切换会清空 worktreeReview 并重跑本 effect，
+    // 未登记的审核会被当作新审核，把用户刚选的范围拉回去（CR 二轮）。
     if (!latestReviewScopeTarget) return;
     if (handledReviewInteractionRef.current === latestReviewScopeTarget.interactionId) return;
     handledReviewInteractionRef.current = latestReviewScopeTarget.interactionId;
+    if (worktreeReview) return;
     if (latestReviewScopeTarget.scopeKey !== selectedScopeKey) {
       setSelectedScopeKey(latestReviewScopeTarget.scopeKey);
     }
-  }, [latestReviewScopeTarget, selectedScopeKey]);
+  }, [latestReviewScopeTarget, selectedScopeKey, worktreeReview]);
 
   const invalidateDraft = useCallback(
     async (reason: string) => {
@@ -543,7 +555,7 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
             defaultStorageLevel={activeScope}
             selectedScopeKey={scope.toLocalScopeKey(selectedScopeKey)}
             workspaceTabs={workspaceTabs}
-            onScopeKeyChange={(localKey) => setSelectedScopeKey(scope.toPageScopeKey(localKey))}
+            onScopeKeyChange={(localKey) => handleScopeKeyChange(scope.toPageScopeKey(localKey))}
             onSave={handleSaveHook}
             onDelete={editingHook ? handleDelete : undefined}
             onCancel={closeForm}
@@ -564,7 +576,14 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
     hooks: editableHooks,
     loadedWorkspaceKey: hooksState.loadedWorkspaceKey,
     rpcReady: targetServiceResolution.rpcReady,
-    targetWorkspaceKey,
+    // 与 hooksStore 同一 key 规则：按 worktree 发现时 key 含发现路径。
+    targetWorkspaceKey: hooksTarget.workspacePath
+      ? getHooksCacheKey(
+          hooksTarget.workspacePath,
+          hooksTarget.workspaceIdentity,
+          cacheAuthorityKey,
+        )
+      : null,
   });
   return (
     <div className="space-y-6" data-testid="hooks-settings-section">
@@ -575,7 +594,7 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
             groups={scope.groups}
             selectedScopeKey={selectedScopeKey}
             selectedDevice={scope.device}
-            onScopeKeyChange={setSelectedScopeKey}
+            onScopeKeyChange={handleScopeKeyChange}
           />
           <div className="hidden h-4 w-px bg-border sm:block" aria-hidden="true" />
           <div
@@ -598,7 +617,14 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
         />
       </div>
 
-      {showWorkspaceHookTrustNotice ? <WorkspaceHookTrustNotice hooks={editableHooks} /> : null}
+      {showWorkspaceHookTrustNotice ? (
+        <WorkspaceHookTrustNotice
+          hooks={editableHooks}
+          worktreeSourcePath={
+            worktreeDiscoveryPath ? (targetWorkspacePath ?? undefined) : undefined
+          }
+        />
+      ) : null}
 
       {targetServiceResolution.rpcReady && error ? (
         <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-ui-base text-destructive">
@@ -628,15 +654,17 @@ export function HooksSection({ workspacePath, workspaceIdentity }: HooksSectionP
             id: "settings.plugin.hooks.emptyInstalledDescription",
           })}
           installedEmptyActions={
-            <Button type="button" variant="default" size="lg" onClick={handleCreateHook}>
-              <Plus data-icon="inline-start" aria-hidden="true" />
-              {intl.formatMessage({ id: "settings.hooks.add" })}
-            </Button>
+            reviewOnly ? null : (
+              <Button type="button" variant="default" size="lg" onClick={handleCreateHook}>
+                <Plus data-icon="inline-start" aria-hidden="true" />
+                {intl.formatMessage({ id: "settings.hooks.add" })}
+              </Button>
+            )
           }
           installedAction={
             <SettingsResourceHeaderActions
               onRefresh={() => void handleRefresh()}
-              onNew={handleCreateHook}
+              onNew={reviewOnly ? undefined : handleCreateHook}
               newActionId="settings.hooks.add"
             />
           }

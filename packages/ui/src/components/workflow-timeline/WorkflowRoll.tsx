@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import { CircleCheckIcon, CircleXIcon, LoaderCircleIcon } from "lucide-react";
+import { CircleCheckIcon, CircleXIcon, LoaderCircle } from "lucide-react";
 import { cn } from "@/components/lib/utils.js";
 import type { StepRunStatus } from "@/components/workflow-graph/types.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -30,7 +30,7 @@ function GroupIcon({ status }: { status: StepRunStatus }) {
   if (status === "done") return <CircleCheckIcon aria-hidden className="size-2.5" />;
   if (status === "running") {
     return (
-      <LoaderCircleIcon aria-hidden className="size-2.5 animate-spin motion-reduce:animate-none" />
+      <LoaderCircle aria-hidden className="size-2.5 animate-spin motion-reduce:animate-none" />
     );
   }
   if (status === "failed") return <CircleXIcon aria-hidden className="size-2.5" />;
@@ -64,7 +64,7 @@ export function WorkflowRoll({
             <div
               aria-level={4}
               className={cn(
-                "col-span-2 mt-1 flex h-[22px] items-center gap-[5px] ps-1 font-mono text-ui-xs leading-none tabular-nums first:mt-0",
+                "col-span-2 mt-1 flex h-[22px] items-center gap-[5px] pl-1 font-mono text-ui-xs leading-none tabular-nums first:mt-0",
                 GROUP_TONE[group.status],
               )}
               data-roll-group={group.status}
@@ -80,7 +80,7 @@ export function WorkflowRoll({
                   <span>{split[2]!.trim()}</span>
                 </>
               )}
-              <span aria-hidden className="ms-[3px] h-px flex-1 bg-border" />
+              <span aria-hidden className="ml-[3px] h-px flex-1 bg-border" />
             </div>
             {group.pills.map((pill) =>
               renderRow(pill, Math.min(ROW_STAGGER_MS * index++, ROW_STAGGER_CAP_MS)),

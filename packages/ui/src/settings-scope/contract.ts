@@ -57,11 +57,7 @@ export type SettingsScopeResolution =
       target: ConfigWorkspaceTarget;
     }
   /** 选中的设备离线：该页读写一律失败并提示，不回退到本机，也不显示旧快照。 */
-  | {
-      status: "offline";
-      key: string;
-      device: Extract<SettingsScopeDevice, { kind: "remote" }>;
-    }
+  | { status: "offline"; key: string; device: Extract<SettingsScopeDevice, { kind: "remote" }> }
   /** 选中的项目已关闭（设备仍在线或为本机）：回退到同一设备的「用户」。 */
   | { status: "missing"; key: string; fallbackKey: string };
 

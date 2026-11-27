@@ -5,7 +5,7 @@
 // 先保留集中实现，后续再按“参数解析/构建执行/产物校验”拆分模块。
 
 import { spawn } from "node:child_process";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import process from "node:process";
@@ -23,6 +23,7 @@ import {
   runCommandAndReadStdout,
 } from "../../../scripts/spawn-command.mjs";
 import { resolveIntranetDepsBaseUrl } from "../../../scripts/intranetDefaults.mjs";
+import { stampMacosUpdateManifests } from "./macos-update-manifest.mjs";
 
 const desktopRoot = resolve(import.meta.dirname, "..");
 const workspaceRoot = resolve(desktopRoot, "../..");
@@ -107,11 +108,15 @@ const requiredRuntimeModules = [
   // app 自签 CA 生成用 node-forge，它内部动态 require("crypto") 内联进 ESM main bundle 会崩，
   // 因此作为外部依赖保留；生产包必须显式校验 app.asar 中存在该包，避免漏打导致启动即崩。
   "node-forge",
+  // Main 静态依赖 PKIjs；收集其完整闭包并校验产物，避免 pnpm 去重后漏包。
+  "pkijs",
   // 与 tsup external 对齐，保留 ZIP 解包器的 CommonJS 运行时边界。
   "yauzl",
   // Bugfix: 飞书 SDK 为了避开 Electron ESM 动态 require 崩溃会作为外部依赖保留，
   // 生产包必须显式校验 app.asar 中存在该 scoped 包。
   "@larksuiteoapi/node-sdk",
+  // 26.17.0 的 pnpm collector 仍可能漏掉 deduped 传递依赖；最终包从 updater 入口校验完整闭包。
+  "electron-updater",
   // ssh2 的关键依赖链（asn1/bcrypt-pbkdf/tweetnacl）若缺失，
   // 连接远程 workspace 时会在 keyParser 阶段直接抛 MODULE_NOT_FOUND。
   // 这里把 ssh2 关键依赖链纳入机械校验，避免坏包流出。
@@ -192,6 +197,9 @@ export function resolveElectronBuilderBinariesMirror(env = process.env) {
 
 export function createElectronBuilderBinariesMirrorEnv(mirror) {
   return {
+    // 26.17.0 默认拒绝非 localhost HTTP 工具镜像。只对明确的 HTTP builder 子进程放行，
+    // HTTPS 时清空父环境中的宽松开关，避免扩大到其他下载链路。
+    ELECTRON_BUILDER_BINARIES_ALLOW_HTTP: /^http:\/\//i.test(mirror.trim()) ? "true" : "",
     // electron-builder 的 DOWNLOAD_OVERRIDE_URL 优先级高于 mirror。
     // CI 若把它误配到 Electron runtime 目录，会完全绕过 mirror fallback 并继续 404。
     ELECTRON_BUILDER_BINARIES_DOWNLOAD_OVERRIDE_URL: "",
@@ -205,6 +213,27 @@ export function createElectronBuilderBinariesMirrorEnv(mirror) {
   };
 }
 
+export function createBundleProcessEnvs({ os, arch, electronMirror, electronBuilderMirror }) {
+  const commonEnv = {
+    ZCODE_TARGET_OS: os,
+    ZCODE_TARGET_ARCH: arch,
+    ...createElectronRuntimeMirrorEnv(electronMirror),
+  };
+  const clearedElectronBuilderEnv = createElectronBuilderBinariesMirrorEnv("");
+
+  return {
+    // 资产准备和常规编译不得继承 Builder 的 HTTP 授权或工具镜像。
+    buildEnv: {
+      ...commonEnv,
+      ...clearedElectronBuilderEnv,
+    },
+    electronBuilderEnv: {
+      ...commonEnv,
+      ...createElectronBuilderBinariesMirrorEnv(electronBuilderMirror),
+    },
+  };
+}
+
 export function shouldFallbackElectronBuilderBinariesMirror(output, mirror, env = process.env) {
   const normalizedOutput = output.toLowerCase();
   const normalizedMirror = mirror.trim().replace(/\/+$/, "");
@@ -214,16 +243,22 @@ export function shouldFallbackElectronBuilderBinariesMirror(output, mirror, env 
   );
   const isMissingBuilderBinary =
     normalizedOutput.includes("status code 404") || normalizedOutput.includes("response code 404");
+  const isDefaultDepsMirror = normalizedMirror === normalizedDefaultMirror;
+  // 26.17 + @electron/get 的并发下载失败经 AsyncTaskManager 聚合后只剩通用
+  // "HTTPError: Response code 404"，不再带完整镜像 URL；默认内网镜像缺新工具目录时
+  // 必须仍可切公共镜像重试，否则要到 ZIP/DMG 阶段才以 Cannot cleanup 暴露。
   const isDefaultDepsMirrorMissing =
-    normalizedMirror === normalizedDefaultMirror &&
-    normalizedOutput.includes("electron-builder-binaries/");
+    isDefaultDepsMirror && normalizedOutput.includes("electron-builder-binaries/");
+  const isDefaultDepsMirrorGenericTool404 = isDefaultDepsMirror && isMissingBuilderBinary;
   const isMisconfiguredNpmMirrorElectronRuntime =
     normalizedOutput.includes("npmmirror.com/binaries/electron/") &&
     !normalizedOutput.includes("electron-builder-binaries/");
 
   return (
     isMissingBuilderBinary &&
-    (isDefaultDepsMirrorMissing || isMisconfiguredNpmMirrorElectronRuntime)
+    (isDefaultDepsMirrorMissing ||
+      isDefaultDepsMirrorGenericTool404 ||
+      isMisconfiguredNpmMirrorElectronRuntime)
   );
 }
 
@@ -706,48 +741,6 @@ function verifyPackagedRuntimeDependencies(os, arch) {
   }
 }
 
-// CUA runtime 内置守卫（docs/spec/cua-runtime-builtin.md §A）：host 产物必须内联
-// runtimes/zcode-cua 真实现，workspace stub 的 fail-closed 文案不允许出现。
-// 沿入口的本地 chunk import 图检查而不是全扫 out/host——tsup 不清 outDir，
-// 上一轮构建的残留 chunk 会骗过朴素全扫（本次实施时实际踩到）。
-const ZCODE_CUA_STUB_MARKER = "Computer Use is not available in this build.";
-const HOST_LOCAL_CHUNK_IMPORT_PATTERN = /(?:from\s*|import\s*\(\s*)"\.\/(chunk-[^"']+\.js)"/g;
-
-export function collectHostChunkGraphFiles(hostOutDir = resolve(desktopRoot, "out", "host")) {
-  const entryFiles = ["index.js", "tasksStorageWorker.js"]
-    .map((name) => join(hostOutDir, name))
-    .filter((path) => existsSync(path));
-  const visited = new Set();
-  const queue = [...entryFiles];
-  while (queue.length > 0) {
-    const filePath = queue.pop();
-    if (visited.has(filePath)) continue;
-    visited.add(filePath);
-    const source = readFileSync(filePath, "utf8");
-    for (const match of source.matchAll(HOST_LOCAL_CHUNK_IMPORT_PATTERN)) {
-      queue.push(join(hostOutDir, match[1]));
-    }
-  }
-  return [...visited];
-}
-
-export function assertNoCuaStubMarkerInHostGraph(hostOutDir) {
-  const files = collectHostChunkGraphFiles(hostOutDir);
-  if (files.length === 0) {
-    throw new Error("打包守卫：out/host 下没有入口产物（先跑 pnpm build）");
-  }
-  const violations = files.filter((filePath) =>
-    readFileSync(filePath, "utf8").includes(ZCODE_CUA_STUB_MARKER),
-  );
-  if (violations.length > 0) {
-    throw new Error(
-      `打包守卫：host 产物含 workspace stub 残留（"${ZCODE_CUA_STUB_MARKER}"）：\n` +
-        `${violations.join("\n")}\n` +
-        "@zcode/zcode-cua 的 runtime alias 未生效，打包态 Computer Use 会整体失效。",
-    );
-  }
-}
-
 async function main() {
   const { os, arch, skipPrepare, skipBuild, dryRun } = parseArgs(process.argv.slice(2));
   const buildArgs = [
@@ -755,15 +748,6 @@ async function main() {
     "electron-builder",
     "--config",
     "electron-builder.config.js",
-    // 修复（2026-10-24 v3.15.1 发布失败，v3.15.0 draft 同因卡住）：electron-builder 配置
-    // 里的 github publish 块只用于生成 app-update.yml / latest*.yml 元数据（见
-    // electron-builder.config.js 头部约定），但 CI 环境下不带 --publish 时它会在构建阶段
-    // 直接尝试上传 GitHub Release——Bundle 步骤没有 GH_TOKEN（上传按 #76/#78 设计由
-    // release.yml 的 gh release upload 步骤负责），全平台构建在
-    // "GitHub Personal Access Token is not set" 上失败。--publish never 只禁用上传，
-    // 元数据文件仍会照常写入 dist 供 release-update-metadata stage 校验。
-    "--publish",
-    "never",
     osBuilderFlagMap[os],
     archBuilderFlagMap[arch],
   ];
@@ -771,18 +755,12 @@ async function main() {
   console.log(`[bundle] target=${os}/${arch}`);
   console.log(`[bundle] skipPrepare=${skipPrepare} skipBuild=${skipBuild}`);
 
-  const buildEnv = {
-    ZCODE_TARGET_OS: os,
-    ZCODE_TARGET_ARCH: arch,
-    // 打包链统一 NODE_ENV=production：node-repl-host（agent bundle 经 prepare:runtime-assets
-    // 子链构建，不经过 run-production-build.mjs 的注入）按构建机 NODE_ENV 折叠
-    // __ZCODE_LOCAL_DEVELOPMENT_RUNTIME__，缺这行正式包会把"编译期本地开发信任"带进 host 产物
-    // （docs/spec/cua-runtime-builtin.md §C；运行时另有 ZCODE_RUNTIME_ENV=production 兜底，
-    // 但 define 必须与打包语义一致）。
-    NODE_ENV: "production",
-    ...createElectronRuntimeMirrorEnv(resolveElectronMirror()),
-    ...createElectronBuilderBinariesMirrorEnv(resolveElectronBuilderBinariesMirror()),
-  };
+  const { buildEnv, electronBuilderEnv } = createBundleProcessEnvs({
+    os,
+    arch,
+    electronMirror: resolveElectronMirror(),
+    electronBuilderMirror: resolveElectronBuilderBinariesMirror(),
+  });
 
   if (dryRun) {
     console.log(`[bundle] dry-run: ${pnpmCommand} ${buildArgs.join(" ")}`);
@@ -793,19 +771,15 @@ async function main() {
     run(pnpmCommand, ["prepare:runtime-assets"], buildEnv);
   }
 
-  // prepare 完成后 staging 必然就位（新机器首次跑会现拉 helper）。buildEnv 是对象引用，
-  // build 子进程在 spawn 时才快照 env，这里 mutate 即可生效。helper buildId 不再注入构建
-  // （define 已退役，见 docs/spec/cua-runtime-builtin.md §C）：运行时由主进程实读随包
-  // helper Info.plist 后经 env 钉住配对，构建机无需知道 buildId。
   if (!skipBuild) {
     run(pnpmCommand, ["build"], buildEnv);
   }
 
-  runTimedSync("bundle:assert-no-cua-stub-marker", () => assertNoCuaStubMarkerInHostGraph());
-
   await runTimedAsync("bundle:electron-builder", () =>
-    runElectronBuilderWithRetry(buildArgs, buildEnv),
+    runElectronBuilderWithRetry(buildArgs, electronBuilderEnv),
   );
+
+  await stampMacosUpdateManifests({ outputDir: desktopDistRoot, platform: os });
 
   runTimedSync("bundle:verify-runtime-dependencies", () =>
     verifyPackagedRuntimeDependencies(os, arch),

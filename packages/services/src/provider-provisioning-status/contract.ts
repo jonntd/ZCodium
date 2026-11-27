@@ -14,9 +14,7 @@ export interface IProviderProvisioningStatusService {
     waitForIdle?: boolean;
   }): Promise<ProviderProvisioningLaneStatus>;
   /** 最近一次失败后的用户重试：复用同一条 lane；没有 lane 时不执行，返回「无 lane」。 */
-  retry(params: {
-    sourceServerId: string;
-  }): Promise<ProviderProvisioningLaneStatus>;
+  retry(params: { sourceServerId: string }): Promise<ProviderProvisioningLaneStatus>;
 }
 
 export const IProviderProvisioningStatusService =

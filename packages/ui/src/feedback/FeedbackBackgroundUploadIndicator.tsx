@@ -82,7 +82,7 @@ export function FeedbackBackgroundUploadIndicator({
   }
 
   return (
-    <div className="pointer-events-none fixed end-3 bottom-3 z-[9998] flex max-h-[calc(100vh-1.5rem)] max-w-[calc(100vw-1.5rem)] flex-col items-end gap-2 overflow-y-auto sm:end-4 sm:bottom-4">
+    <div className="pointer-events-none fixed right-3 bottom-3 z-[9998] flex max-h-[calc(100vh-1.5rem)] max-w-[calc(100vw-1.5rem)] flex-col items-end gap-2 overflow-y-auto sm:right-4 sm:bottom-4">
       {jobs.map((job) => (
         <FeedbackBackgroundUploadJobCard
           key={job.id}
@@ -188,7 +188,7 @@ export function FeedbackBackgroundUploadIndicatorView({
         <button
           type="button"
           onClick={onOpen}
-          className="min-w-0 flex-1 rounded-md text-start outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          className="min-w-0 flex-1 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
           aria-label={intl.formatMessage({ id: "feedback.background.open" })}
         >
           <div className="min-w-0 truncate text-ui-base font-medium leading-5 text-foreground">
@@ -255,11 +255,11 @@ export function FeedbackBackgroundUploadIndicatorView({
       </div>
       <div className={cn("bg-border", expanded ? "h-1" : "h-0.5")}>
         {progress.indeterminate ? (
-          <div className="h-full w-1/3 animate-pulse rounded-e-full bg-primary" />
+          <div className="h-full w-1/3 animate-pulse rounded-r-full bg-primary" />
         ) : (
           <div
             className={cn(
-              "h-full rounded-e-full transition-[width] duration-200",
+              "h-full rounded-r-full transition-[width] duration-200",
               isError
                 ? "bg-destructive"
                 : isSuccess

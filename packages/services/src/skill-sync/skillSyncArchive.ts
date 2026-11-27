@@ -27,11 +27,7 @@ export async function createSkillSyncArchive(
 ): Promise<Uint8Array> {
   const parts: Buffer[] = [];
   for (const entry of entries) {
-    await appendTarEntry(
-      parts,
-      entry.sourcePath,
-      normalizeArchivePath(entry.archivePath),
-    );
+    await appendTarEntry(parts, entry.sourcePath, normalizeArchivePath(entry.archivePath));
   }
   parts.push(Buffer.alloc(TAR_END_BLOCK_BYTES));
   return await gzipAsync(Buffer.concat(parts));
@@ -82,8 +78,7 @@ export async function extractSkillSyncArchive(
       const nextExtractedBytes = extractedBytes + size;
       if (
         !Number.isSafeInteger(nextExtractedBytes) ||
-        (maxExtractedBytes !== undefined &&
-          nextExtractedBytes > maxExtractedBytes)
+        (maxExtractedBytes !== undefined && nextExtractedBytes > maxExtractedBytes)
       ) {
         throw createSkillSyncSizeLimitError({
           actualBytes: nextExtractedBytes,
@@ -216,8 +211,8 @@ async function appendTarEntry(
         typeFlag: "5",
       }),
     );
-    const children = (await readdir(sourcePath, { withFileTypes: true })).sort(
-      (left, right) => left.name.localeCompare(right.name),
+    const children = (await readdir(sourcePath, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name),
     );
     for (const child of children) {
       await appendTarEntry(
@@ -243,10 +238,7 @@ async function appendTarEntry(
       typeFlag: "0",
     }),
     content,
-    Buffer.alloc(
-      Math.ceil(content.length / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE -
-        content.length,
-    ),
+    Buffer.alloc(Math.ceil(content.length / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE - content.length),
   );
 }
 
@@ -273,17 +265,11 @@ function createTarHeader(options: {
   writeTarString(header, "zcode", 265, 32);
   writeTarString(header, "zcode", 297, 32);
   writeTarString(header, prefix, 345, 155);
-  writeTarChecksum(
-    header,
-    header.reduce((sum, byte) => sum + byte, 0),
-  );
+  writeTarChecksum(header, header.reduce((sum, byte) => sum + byte, 0));
   return header;
 }
 
-function splitTarEntryPath(entryPath: string): {
-  name: string;
-  prefix: string;
-} {
+function splitTarEntryPath(entryPath: string): { name: string; prefix: string } {
   if (Buffer.byteLength(entryPath) <= 100) {
     return { name: entryPath, prefix: "" };
   }
@@ -332,9 +318,7 @@ function writeTarOctal(
   offset: number,
   length: number,
 ): void {
-  const encoded = Math.trunc(value)
-    .toString(8)
-    .padStart(length - 1, "0");
+  const encoded = Math.trunc(value).toString(8).padStart(length - 1, "0");
   writeTarString(buffer, encoded.slice(-(length - 1)), offset, length - 1);
 }
 

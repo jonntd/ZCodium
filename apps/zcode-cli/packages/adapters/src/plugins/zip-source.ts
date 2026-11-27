@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { isHttpClientPortError } from "@zcode/contracts";
 import * as yauzl from "yauzl";
 import { createNodeWebFetchHttpClientAdapter } from "../http/index.js";
 import {
@@ -93,6 +95,7 @@ export async function resolveHttpZipSource(
     throw new Error("Plugin zip source sha256 must be a 64 character hex string");
   }
   const tempRoot = await mkdtemp(join(tmpdir(), ZIP_TEMP_PREFIX));
+  const archivePath = join(tempRoot, "source.zip");
   const extractRoot = join(tempRoot, "extract");
   const cleanup = async (): Promise<void> => {
     await rm(tempRoot, { force: true, recursive: true });
@@ -112,8 +115,9 @@ export async function resolveHttpZipSource(
       );
     }
 
+    await writeFile(archivePath, zipBytes);
     const extracted = await extractZipArchive({
-      archiveBytes: zipBytes,
+      archivePath,
       signal: input.signal,
       targetRoot: extractRoot,
     });
@@ -178,16 +182,38 @@ async function downloadZipArchive(input: {
   for (let redirectCount = 0; redirectCount <= ZIP_MAX_REDIRECTS; redirectCount += 1) {
     throwIfAborted(input.signal);
     validateZipDownloadUrl(currentUrl);
-    const response = await client.request(
-      {
-        headers: currentHeaders,
-        maxResponseBytes: ZIP_DOWNLOAD_MAX_BYTES,
-        method: "GET",
-        redirect: "manual",
-        url: currentUrl,
-      },
-      { signal: input.signal },
-    );
+    const request = () =>
+      client.request(
+        {
+          headers: currentHeaders,
+          maxResponseBytes: ZIP_DOWNLOAD_MAX_BYTES,
+          method: "GET",
+          redirect: "manual",
+          url: currentUrl,
+        },
+        { signal: input.signal },
+      );
+    const response = await request().catch(async (error: unknown) => {
+      if (
+        !isHttpClientPortError(error) ||
+        (error.code !== "network_error" && error.code !== "proxy_error")
+      )
+        throw error;
+      // 代理 TLS 握手或正文传输可能偶发断开；GET 尚未激活缓存，可安全重试一次。
+      // 原生 fetch 比代理请求多包一层 cause；仅识别连接重置，不重试证书错误或取消。
+      const cause =
+        error.cause instanceof Error && error.cause.cause instanceof Error
+          ? error.cause.cause
+          : error.cause;
+      if (
+        !(cause instanceof Error) ||
+        !("code" in cause) ||
+        (cause.code !== "ECONNRESET" && cause.code !== "UND_ERR_SOCKET")
+      )
+        throw error;
+      await delay(250, undefined, { signal: input.signal });
+      return request();
+    });
 
     if (isRedirectStatus(response.status)) {
       const location = response.headers.location;
@@ -215,23 +241,14 @@ async function downloadZipArchive(input: {
   throw new Error(`Plugin zip download exceeded redirect limit: ${input.url}`);
 }
 
-/**
- * 从内存解压 zip。
- *
- * 修复依据：yauzl（3.3.0/3.4.0 均验证）的 fd 流式读取路径在解压部分 deflate 条目时会永久挂起
- * ——openReadStream 回调已触发，但 data/end/error 事件都不再出现（用 545KB PNG 构造的最小 zip
- * 可复现；同一份数据 stored 压缩、yauzl.fromBuffer 或系统 unzip 均正常）。
- * GitHub 源（zipball）随仓库体积增大更易命中，表现为市场添加静默卡死。
- * 整包下载本来已按 200MB 上限驻留内存，改为内存解压不引入新的内存开销。
- */
 async function extractZipArchive(input: {
-  archiveBytes: Uint8Array;
+  archivePath: string;
   signal?: AbortSignal;
   targetRoot: string;
 }): Promise<ZipExtractResult> {
   const targetRoot = resolve(input.targetRoot);
   await mkdir(targetRoot, { recursive: true });
-  const zipFile = await openZipFileFromBuffer(Buffer.from(input.archiveBytes));
+  const zipFile = await openZipFile(input.archivePath);
   const topLevelSegments = new Set<string>();
   let entryCount = 0;
   let extractedBytes = 0;
@@ -340,10 +357,9 @@ function hasPluginManifest(rootPath: string): boolean {
   );
 }
 
-// 关闭依据见 extractZipArchive 上的说明：避开 yauzl fd 读取路径的挂起缺陷，只用内存句柄打开。
-function openZipFileFromBuffer(bytes: Buffer): Promise<yauzl.ZipFile> {
+function openZipFile(path: string): Promise<yauzl.ZipFile> {
   return new Promise((resolvePromise, rejectPromise) => {
-    yauzl.fromBuffer(bytes, { lazyEntries: true, validateEntrySizes: true }, (error, zipFile) => {
+    yauzl.open(path, { lazyEntries: true, validateEntrySizes: true }, (error, zipFile) => {
       if (error) {
         rejectPromise(error);
         return;

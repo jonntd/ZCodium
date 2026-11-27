@@ -10,9 +10,7 @@ export type WebRemoteControlAuthPlatform = Pick<
   "notifyWebRemoteControlAuthStateChanged"
 >;
 export type WebRemoteControlAuthEvents = Pick<IOAuthService, "onDidChangeSession">;
-export type WebRemoteControlMobileTaskView = import("zod").infer<
-  typeof import("@zcode/shared").webRemoteControlMobileTaskViewSchema
->;
+export type { WebRemoteControlMobileTaskView } from "@zcode/shared";
 export type WebRemoteControlTaskViewSwitcher = Pick<
   WebRemoteControlWorkspaceSwitcherApi,
   "updateMobileTaskView" | "updateMobileViewState"

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertNonEmptyE2EScheduledSpecFiles,
+  resolveE2EMaxInstances,
   resolveE2EScheduledSpecFiles,
 } from "./e2e/helpers/e2e-spec-resolution.js";
 
@@ -46,20 +47,20 @@ describe("E2E spec scheduling resolution", () => {
   it("resolves a formal desktop CI spec list with a domain-specific single spec", () => {
     withFixture((baseDir) => {
       writeSpec(baseDir, "test/e2e/conversation-session/formal.test.ts");
-      writeSpec(baseDir, "test/e2e/workspace-file-tree-refresh.test.ts");
+      writeSpec(baseDir, "test/e2e/workspace/files/workspace-file-tree-refresh.test.ts");
 
       expect(
         resolveE2EScheduledSpecFiles({
           baseDir,
           specs: [
             "./test/e2e/conversation-session/*.test.ts",
-            "./test/e2e/workspace-file-tree-refresh.test.ts",
+            "./test/e2e/workspace/files/workspace-file-tree-refresh.test.ts",
           ],
           exclude: [],
         }),
       ).toEqual([
         "test/e2e/conversation-session/formal.test.ts",
-        "test/e2e/workspace-file-tree-refresh.test.ts",
+        "test/e2e/workspace/files/workspace-file-tree-refresh.test.ts",
       ]);
     });
   });
@@ -98,5 +99,24 @@ describe("E2E spec scheduling resolution", () => {
         }),
       ).toThrow(/Desktop E2E has no scheduled spec files after applying excludes/);
     });
+  });
+});
+
+// 回归（评审 CR-01，2026-11-18）：worker 共用 .e2e-home（beforeSession 递归删除）与 launcher 的账号
+// mock 状态（case-mode、Team 闲时灰度等），并行时后写入的 worker 会改掉先启动 worker 读到的配置。
+// 串行是这些共享资源的前提，所以在调度前拒绝其他取值，而不是运行中出现交错。
+describe("resolveE2EMaxInstances", () => {
+  it("defaults to one serial worker", () => {
+    expect(resolveE2EMaxInstances({})).toBe(1);
+    expect(resolveE2EMaxInstances({ ZCODE_E2E_MAX_INSTANCES: "1" })).toBe(1);
+    expect(resolveE2EMaxInstances({ ZCODE_E2E_MAX_INSTANCES: " " })).toBe(1);
+  });
+
+  it("rejects parallel or invalid worker counts before scheduling", () => {
+    for (const value of ["2", "4", "0", "abc"]) {
+      expect(() => resolveE2EMaxInstances({ ZCODE_E2E_MAX_INSTANCES: value })).toThrow(
+        /ZCODE_E2E_MAX_INSTANCES/u,
+      );
+    }
   });
 });

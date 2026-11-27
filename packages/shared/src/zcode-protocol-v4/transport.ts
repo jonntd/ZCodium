@@ -393,6 +393,9 @@ export const V4_METHODS = {
   sessionDataMeasure: "v4/storage/sessionData/measure",
   sessionDataPurge: "v4/storage/sessionData/purge",
   sessionDeletionPreview: "v4/storage/sessionData/deletionPreview",
+  // 归档永久删除批量预检：整批共用一次引用扫描，结果按顺序逐项返回。旧 CLI 返回 method-not-found，
+  // Host 据此回退逐项调用 deletionPreview。
+  sessionDeletionPreviewBatch: "v4/storage/sessionData/deletionPreviewBatch",
   sessionDeletionExecute: "v4/storage/sessionData/deletionExecute",
   // 附件事务：禁止 full-data RPC。每个 chunk 的 decoded bytes <=512KiB，
   // renderer->host Channel 与 host->CLI NDJSON 都必须逐 request 证明 <=1MiB。
@@ -447,6 +450,7 @@ export const V4_NOTIFICATIONS = {
   conversationContextCompositionChanged: "v4/conversation/contextCompositionChanged",
   // 模型请求指标（telemetry.ts 的 modelRequestMetricsFactSchema）：live-only，旧 App 不认识即忽略。
   modelRequestMetrics: "v4/telemetry/model-request-metrics",
+  turnAdmissionTelemetry: "v4/telemetry/turn-admission",
 } as const;
 
 /** 3.3.6 SSH 历史任务归属证明与 sessions-index 冷种子共享同一有界窗口。 */
@@ -828,9 +832,6 @@ export const v4ConversationFileRewindPreviewResultSchema = z
     ignoredFiles: z.array(v4WorkspaceFileRewindIgnoredFileSchema),
     safeFiles: z.array(v4WorkspaceFileRewindSafeFileSchema),
     unsafeFiles: z.array(v4WorkspaceFileRewindUnsafeFileSchema),
-    // 按文件撤销（docs/spec/per-file-rewind.md）：预览时已排除的「此前已撤销」路径
-    // （artifact 原始路径，与 fileChanges items 的 path 同形）。optional 偏斜安全。
-    revertedPaths: z.array(z.string().min(1)).optional(),
   })
   .strict();
 export type V4ConversationFileRewindPreviewResult = z.infer<
@@ -909,7 +910,6 @@ export const v4AttachmentBeginParamsSchema = z
       .string()
       .min(1)
       .max(255)
-      // oxlint-disable-next-line no-control-regex -- 有意排除 NUL/CR/LF 控制字符，防止文件名注入
       .regex(/^[^\0\r\n]+$/),
     mime: z
       .string()

@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import { readExternalEnvVar } from "@zcode/shared";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { findOfficialMcpReservedHeaders } from "@zcode/shared";
 import type {
@@ -13,32 +12,43 @@ import type {
 import { ZCODE_OFFICIAL_PLUGIN_MARKETPLACE } from "@zcode/contracts";
 import { ZCODE_PLUGIN_ID_ENV_KEY } from "@zcode/shared";
 import type { LoadedPlugin } from "./types.js";
-import { isNotFoundError, isPluginOptionValue, isRecord, resolveInside } from "./helpers.js";
+import {
+  isNotFoundError,
+  isPluginOptionValue,
+  isRecord,
+  resolveInside,
+  rethrowPluginMaterialInterrupt,
+} from "./helpers.js";
 import { buildOfficialProvenance, parseZCodeOfficialAuth } from "./mcp-official-auth.js";
 
 const SUPPORTED_MCP_TYPES = new Set(["stdio", "http", "sse"]);
 const TEMPLATE_PATTERN = /\$\{([^}]+)\}/g;
 const ENVIRONMENT_VARIABLE_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-export function loadPluginMcpServerDefinitions(input: {
+export async function loadPluginMcpServerDefinitions(input: {
   diagnostics: PluginDiagnostic[];
   loaded: LoadedPlugin;
-}): Record<string, unknown> {
-  const fromFile = loadMcpServersFromFile(join(input.loaded.rootPath, ".mcp.json"), input);
-  const fromManifest = loadMcpServersFromSpec(input.loaded.manifest.mcpServers, input);
-  return { ...fromFile, ...fromManifest };
+}): Promise<Record<string, unknown>> {
+  const servers: Record<string, unknown> = {};
+  // 按声明顺序串行读取，后声明的同名 server 覆盖先声明的。
+  for (const source of pluginMcpSources(input))
+    Object.assign(
+      servers,
+      typeof source === "string" ? await loadMcpServersFromFile(source, input) : source,
+    );
+  return servers;
 }
 
 export function resolvePluginMcpServers(input: {
   dataPath: string;
-  definitions?: Record<string, unknown>;
+  definitions: Record<string, unknown>;
   diagnostics: PluginDiagnostic[];
   env: Record<string, string | undefined>;
   loaded: LoadedPlugin;
   options: PluginOptionValues;
   workingDirectory: string;
 }): Record<string, McpServerConfig> {
-  const merged = input.definitions ?? loadPluginMcpServerDefinitions(input);
+  const merged = input.definitions;
   const context = createVariableContext(input);
   const result: Record<string, McpServerConfig> = {};
 
@@ -69,14 +79,25 @@ function toNamespacedServerName(loaded: LoadedPlugin, serverName: string): strin
   return `plugin:${loaded.manifest.name}:${serverName}`;
 }
 
-function loadMcpServersFromSpec(
+/** 插件发现与 MCP 配置加载共用声明顺序和路径校验，读取方式由调用方决定。 */
+export function pluginMcpSources(input: {
+  diagnostics: PluginDiagnostic[];
+  loaded: LoadedPlugin;
+}): Array<string | Record<string, unknown>> {
+  return [
+    join(input.loaded.rootPath, ".mcp.json"),
+    ...mcpSourcesFromSpec(input.loaded.manifest.mcpServers, input),
+  ];
+}
+
+function mcpSourcesFromSpec(
   spec: unknown,
   input: {
     diagnostics: PluginDiagnostic[];
     loaded: LoadedPlugin;
   },
-): Record<string, unknown> {
-  if (spec === undefined) return {};
+): Array<string | Record<string, unknown>> {
+  if (spec === undefined) return [];
   if (typeof spec === "string") {
     const path = resolveInside(input.loaded.rootPath, spec);
     if (!path) {
@@ -87,26 +108,32 @@ function loadMcpServersFromSpec(
         pluginId: input.loaded.id,
         severity: "error",
       });
-      return {};
+      return [];
     }
-    return loadMcpServersFromFile(path, input);
+    return [path];
   }
   if (Array.isArray(spec)) {
-    return Object.assign({}, ...spec.map((item) => loadMcpServersFromSpec(item, input)));
+    return spec.flatMap((item) => mcpSourcesFromSpec(item, input));
   }
-  return normalizeMcpServersShape(spec, input);
+  return [normalizeMcpServersShape(spec, input)];
 }
 
-function loadMcpServersFromFile(
+async function loadMcpServersFromFile(
   path: string,
   input: {
     diagnostics: PluginDiagnostic[];
     loaded: LoadedPlugin;
   },
-): Record<string, unknown> {
+): Promise<Record<string, unknown>> {
   try {
-    return normalizeMcpServersShape(JSON.parse(readFileSync(path, "utf8")), input);
+    return normalizeMcpServersShape(
+      input.loaded.materials
+        ? await input.loaded.materials.json(path)
+        : JSON.parse(await readFile(path, "utf8")),
+      input,
+    );
   } catch (error) {
+    rethrowPluginMaterialInterrupt(error);
     if (isNotFoundError(error)) return {};
     input.diagnostics.push({
       code: "plugin_mcp_read_failed",
@@ -119,7 +146,7 @@ function loadMcpServersFromFile(
   }
 }
 
-function normalizeMcpServersShape(
+export function normalizeMcpServersShape(
   value: unknown,
   input: {
     diagnostics: PluginDiagnostic[];
@@ -184,13 +211,18 @@ function resolveMcpServerConfig(
   if (!SUPPORTED_MCP_TYPES.has(type)) throw new Error(`Unsupported MCP transport: ${type}`);
   // 修复原因：各 transport 分别重建配置曾漏传 alwaysLoad，导致插件常驻工具被延迟。
   // 通用字段只在此解析；source 按 marketplace 归类，兼容 source 为 cache 的官方 CDN 插件。
+  const official = context.loaded.marketplace === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE;
   const baseConfig: McpServerConfigBase = {
     alwaysLoad: typeof server.alwaysLoad === "boolean" ? server.alwaysLoad : undefined,
     enabled: typeof server.enabled === "boolean" ? server.enabled : undefined,
+    // 工作区共享的 server 要自己按 _meta.session_id 划分状态，只信任官方插件这样做
+    // （文档插件查看面板 spec §8）；其他插件的声明忽略，保持 session isolation。
+    isolation:
+      official && (server.isolation === "workspace" || server.isolation === "session")
+        ? server.isolation
+        : undefined,
     timeoutMs: typeof server.timeoutMs === "number" ? server.timeoutMs : undefined,
-    source: {
-      kind: context.loaded.marketplace === ZCODE_OFFICIAL_PLUGIN_MARKETPLACE ? "builtin" : "plugin",
-    },
+    source: { kind: official ? "builtin" : "plugin" },
   };
 
   // zcode_official 允许 http 与 stdio，sse 出现即禁用该 MCP，不静默忽略——静默会让配置作者以为鉴权已生效。
@@ -433,7 +465,6 @@ function resolveTemplate(
       return envValue;
     }
     if (options.allowSensitive && ENVIRONMENT_VARIABLE_NAME_PATTERN.test(name)) {
-
       // token。只在敏感 sink 解析，避免 secret 被展开到 args、URL 或其它可见字段。
       const envValue = context.env[name];
       if (envValue === undefined)

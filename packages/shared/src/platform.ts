@@ -1,3 +1,7 @@
+import type {
+  PreinstalledToolsState,
+  PreinstalledToolsCommand,
+} from "@zcode/shared/preinstalled-tools";
 /* eslint-disable max-lines -- 跨端 platform contract 集中声明 renderer 能力；OAuth 与 browser lifecycle 必须保持 desktop/web 类型合同，本 MR 不拆分平台边界。 */
 import type {
   DockerConnectOptions,
@@ -798,6 +802,7 @@ export const DesktopCommandIds = {
   OpenChangelog: "openChangelog",
   CheckForUpdates: "checkForUpdates",
   RelaunchApp: "relaunchApp",
+  RestartAfterCrash: "restartAfterCrash",
   OpenFeedback: "openFeedback",
   OpenCommunity: "openCommunity",
   ExportLogs: "exportLogs",
@@ -847,13 +852,9 @@ export type RemoteConnectionContext = {
 };
 
 export interface IPlatformService {
-  /**
-   * VS Code 插件宿主：终端、帮助等由 IDE 原生提供。为 true 时 UI 隐藏应用内嵌的
-   * 终端面板/切换入口、帮助菜单与链路降级提示，避免与 IDE 原生能力重复且
-   * 在 node-pty 不可用的插件运行时里报错。桌面端/远控端不设置，行为不变。
-   */
-  readonly nativeTerminalHost?: boolean;
-
+  getPreinstalledToolsState?(): Promise<PreinstalledToolsState>;
+  executePreinstalledToolsCommand?(command: PreinstalledToolsCommand): Promise<void>;
+  onPreinstalledToolsState?(callback: (state: PreinstalledToolsState) => void): () => void;
   /** 是否支持当前客户端本机文件的默认应用与目录操作；Web 不具备此能力。 */
   canOpenLocalFiles?: boolean;
 
@@ -930,17 +931,6 @@ export interface IPlatformService {
   createTempTextAttachment?(
     payload: CreateTempTextAttachmentRequest,
   ): Promise<CreateTempTextAttachmentResult>;
-
-  /**
-  /**
-   * 模型拉取（zcode-patcher modelhub 原生版）：请求自定义渠道端点的 `/models` 列表。
-   * 必须在 **Node 侧**执行以绕过浏览器 CORS：桌面渲染进程走 main IPC，Web 端经 Host 的
-   * `IProviderSettingsService.fetchModels` 转发（该服务未实现时保持 undefined）。
-   */
-  modelhubFetchModels?(payload: ModelhubFetchModelsRequest): Promise<ModelhubFetchModelsResult>;
-
-  /** 模型视觉能力探测（modelhub）：Node 侧发送 1x1 图片按响应判定；Web 端暂不实现。 */
-  modelhubProbeVision?(payload: ModelhubProbeVisionRequest): Promise<ModelhubProbeVisionResult>;
 
   /**
    * 把 dwf 产物某一版的字节写成宿主本机上的一份副本（只在路径为空时写），返回其路径。
@@ -1482,6 +1472,12 @@ export interface IPlatformService {
 
   /** 同步应用菜单语言，驱动 main 进程重建原生菜单 */
   setApplicationLocale(locale: Locale): Promise<void>;
+
+  /**
+   * 保存 Agent 回复语言（空串清除）；Main 写盘后推送给各窗口 Host。
+   * 只有桌面端实现：Web 远控不写本机设置，设置页按方法缺失显示本机提示。
+   */
+  setReplyLanguage?(language: string): Promise<void>;
 
   /** 同步桌面标题栏亮/暗色，驱动原生窗口控制按钮配色 */
   setTitleBarTheme(theme: DesktopTitleBarTheme): Promise<void>;

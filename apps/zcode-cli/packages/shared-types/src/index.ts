@@ -13,7 +13,7 @@ export type RunContext = {
   stdout: NodeJS.WriteStream;
 };
 
-export type GlobalLocale = "auto" | "en-US" | "zh-CN" | "fa-IR";
+export type GlobalLocale = "auto" | "en-US" | "zh-CN";
 export type GlobalDetectedLocale = Exclude<GlobalLocale, "auto">;
 
 /**
@@ -27,8 +27,14 @@ export type GlobalDetectedLocale = Exclude<GlobalLocale, "auto">;
  */
 export type GlobalOutputFormat = "text" | "json" | "stream-json";
 
+export type GlobalBrowserStateSelection = {
+  source: "explicit" | "default";
+  path: string;
+};
+
 export type GlobalOptions = {
   browserExecutable?: string;
+  browserState?: GlobalBrowserStateSelection;
   browserUse?: "headless";
   detectedLocale?: GlobalDetectedLocale;
   force: boolean;

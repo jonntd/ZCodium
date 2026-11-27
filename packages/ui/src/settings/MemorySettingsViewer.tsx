@@ -14,7 +14,7 @@ import {
   TID_SETTINGS_MEMORY_SEARCH_INPUT,
   TID_SETTINGS_MEMORY_WORKSPACE,
   testId,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { Alert, AlertDescription } from "@/components/ui/alert.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
@@ -157,7 +157,7 @@ export function MemorySettingsViewer({
                 <div className="flex min-w-0 items-center hover:bg-hover">
                   <div
                     data-testid={testId(TID_SETTINGS_MEMORY_FILE, file.name)}
-                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-start"
+                    className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
                   >
                     <span
                       data-testid={testId(TID_SETTINGS_MEMORY_FILE_ICON, file.name)}
@@ -191,7 +191,7 @@ export function MemorySettingsViewer({
                   </div>
                   <span
                     data-testid={testId(TID_SETTINGS_MEMORY_FILE_EDITOR_ACTIONS, file.name)}
-                    className="me-3 shrink-0"
+                    className="mr-3 shrink-0"
                   >
                     <WorkspaceEditorButtonGroup workspaceAbsPath={file.path} />
                   </span>

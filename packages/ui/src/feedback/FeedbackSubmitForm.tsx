@@ -7,7 +7,6 @@ import {
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
 import {
-  toFeedbackLocale,
   type FeedbackTicketModule,
   type FeedbackTicketSeverity,
   type FeedbackTicketType,
@@ -267,8 +266,7 @@ export function FeedbackSubmitForm({
         ticketSeverity,
         ticketModule,
         modelContext,
-        // 反馈服务端只接受 zh/en 语言头，fa-IR 等按 en-US 透传。
-        locale: toFeedbackLocale(locale),
+        locale,
         copy: submissionCopy,
         formatMessage: intl.formatMessage,
         onTicketCreated: shouldCloseOnTicketCreated

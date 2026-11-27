@@ -1,4 +1,3 @@
-import { assertOfficialServiceRemoved } from "@zcode/shared";
 import {
   resolveBigModelApiOrigin,
   resolveZaiBusinessBaseUrl,
@@ -16,11 +15,15 @@ export function createLegacyTeamOrganizationResolver(dependencies: {
   apiClient: ApiClient;
   loadOAuthTokenSet: (
     family: ProviderFamilyDomain,
-  ) => Promise<{ accessToken: string; zcodeJwtToken?: string | null } | null>;
+  ) => Promise<{
+    accessToken: string;
+    zcodeJwtToken?: string | null;
+    sessionRevision?: string | null;
+    accountIdentity?: string;
+    zcodeUserId?: string;
+  } | null>;
 }): (connection: LegacyTeamConnection) => Promise<string | null> {
   return async ({ family, projectId }) => {
-    // 审计版不连接官方服务。
-    assertOfficialServiceRemoved("codingPlan");
     const tokens = await dependencies.loadOAuthTokenSet(family);
     const token = tokens?.accessToken.trim();
     if (!token || (family === "bigmodel" && token === tokens?.zcodeJwtToken)) return null;
@@ -41,7 +44,15 @@ export function createLegacyTeamOrganizationResolver(dependencies: {
     const payload = (await response.json()) as RemoteEnvelope<RemoteCustomerInfo>;
     if (payload.code !== undefined && payload.code !== 0 && payload.code !== 200) return null;
     // 账号切换使旧查询失去权威，即使项目 ID 碰巧相同也不能把组织写给新账号。
-    if ((await dependencies.loadOAuthTokenSet(family))?.accessToken.trim() !== token) return null;
+    const latest = await dependencies.loadOAuthTokenSet(family);
+    if (
+      latest?.accessToken.trim() !== token ||
+      latest?.zcodeJwtToken !== tokens?.zcodeJwtToken ||
+      latest?.sessionRevision !== tokens?.sessionRevision ||
+      latest?.accountIdentity !== tokens?.accountIdentity ||
+      latest?.zcodeUserId !== tokens?.zcodeUserId
+    )
+      return null;
     const organizations = new Set(
       (payload.data?.organizations ?? [])
         .filter((org) => org.projects?.some((project) => project.projectId?.trim() === projectId))

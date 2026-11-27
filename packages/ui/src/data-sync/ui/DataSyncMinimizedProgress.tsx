@@ -33,8 +33,7 @@ export function DataSyncMinimizedProgress(props: {
       />
       <span className="min-w-0">
         <span className="block truncate text-ui-base font-medium">
-          {intl.formatMessage({ id: "remoteSync.dialog.title" })} ·{" "}
-          {props.deviceName}
+          {intl.formatMessage({ id: "remoteSync.dialog.title" })} · {props.deviceName}
         </span>
         <span className="block text-ui-sm text-foreground-subtle" role="status">
           {intl.formatMessage({ id: status })}
@@ -45,10 +44,7 @@ export function DataSyncMinimizedProgress(props: {
   );
 }
 
-export function DataSyncMinimizeButton(props: {
-  pushing: boolean;
-  onMinimize(): void;
-}) {
+export function DataSyncMinimizeButton(props: { pushing: boolean; onMinimize(): void }) {
   const { intl } = useZCodeIntl();
   const label = intl.formatMessage({ id: "remoteSync.dialog.minimize" });
   return (

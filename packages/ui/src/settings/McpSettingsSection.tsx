@@ -74,7 +74,7 @@ import {
 import { useMcpStore } from "@/store/mcpStore.js";
 import { usePluginManagementStore } from "@/store/pluginManagementStore.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
-import { useConfigWorkspaceServicesResolution as useWorkspaceServices } from "@/workspace-config-catalog/index.js";
+import { useConfigWorkspaceServices as useWorkspaceServices } from "@/workspace-config-catalog/index.js";
 import type { ConfigWorkspaceTarget } from "@/workspace-config-catalog/index.js";
 import { getPluginWorkspaceKey } from "@/settings/PluginScopeMenu.js";
 import { ExternalLink, Import, Plus, UploadCloud } from "lucide-react";
@@ -270,30 +270,6 @@ export interface McpStatusListRefreshInput {
   isConfigLoaded: boolean;
   serverStatusListKey: string;
   storeWorkspaceKey: string;
-}
-
-/**
- * 配置加载结果的判定：ready（目标已就绪）/ failed（明确的加载失败）/ pending（等待或漂移）。
- * Bug 原因：ensure 以「未加载」结束时过去只留在无限 loading——远端「用户」目标的服务缺绑定、
- * 目录读取失败等都不会自愈，用户没有错误提示也没有重试入口。
- * 修法：目标仍归本页且连接已就绪（rpcReady）的未加载算 failed；等待连接是中间态保持 pending；
- * 目标已漂移（store 被其他绑定抢占）交回绑定翻转重试，不算失败。
- */
-export function resolveMcpConfigLoadOutcome({
-  loaded,
-  loadedWorkspaceKey,
-  requestedWorkspaceKey,
-  rpcReady,
-}: {
-  loaded: boolean;
-  loadedWorkspaceKey: string;
-  requestedWorkspaceKey: string;
-  rpcReady: boolean;
-}): "ready" | "failed" | "pending" {
-  if (!loaded) {
-    return rpcReady && loadedWorkspaceKey === requestedWorkspaceKey ? "failed" : "pending";
-  }
-  return loadedWorkspaceKey === requestedWorkspaceKey ? "ready" : "pending";
 }
 
 export function resolveMcpStatusListRefreshSkipReason({
@@ -610,14 +586,13 @@ export function McpSettingsSection({
 }: McpSettingsSectionProps) {
   const { intl, locale } = useZCodeIntl();
   const confirmDialog = useConfirmDialog();
-  const targetServiceResolution = useWorkspaceServices(
+  const services = useWorkspaceServices(
     workspacePath,
     remoteSessionId,
     workspaceIdentity,
     remoteTarget,
     { unscopedServices, forceUnscoped: Boolean(cacheAuthorityKey || unscopedServices) },
   );
-  const services = targetServiceResolution.services;
   const platform = usePlatform();
 
   const storedServers = useMcpStore((s) => s.servers);
@@ -665,9 +640,6 @@ export function McpSettingsSection({
   const query = searchQuery;
   const [editorMode, setEditorMode] = useState<McpEditorMode>("form");
   const [mcpConfigReadyWorkspaceKey, setMcpConfigReadyWorkspaceKey] = useState("");
-  // 配置加载明确的失败态：ensure 以「未加载」结束且目标仍归本页、连接已就绪时置位，
-  // 用失败提示 + 重试替代无限 loading。等待连接（rpcReady=false）与绑定被抢占不算失败。
-  const [mcpConfigLoadFailed, setMcpConfigLoadFailed] = useState(false);
   const [mcpOAuthAuthorizationFollowupRefresh, setMcpOAuthAuthorizationFollowupRefresh] =
     useState<McpOAuthAuthorizationFollowupRefresh | null>(null);
   const [mcpStatusOnlyUnsupported, setMcpStatusOnlyUnsupported] = useState(false);
@@ -887,8 +859,6 @@ export function McpSettingsSection({
         const loadedWorkspaceKey = `${state.currentAuthorityKey?.trim() || "workspace"}\0${state.currentWorkspaceIdentity?.trim() || state.currentProjectPath}`;
         if (loaded && loadedWorkspaceKey === activeWorkspaceKey) {
           setMcpConfigReadyWorkspaceKey(activeWorkspaceKey);
-          // 手动刷新加载成功，退出失败态（失败态的重试也走这里）。
-          setMcpConfigLoadFailed(false);
           // ref 只在 render 时同步；这里补写一次，否则同一 tick 内紧接着的请求仍会
           // 因为 config-not-ready 被跳过，用户就得再点一次刷新。
           latestStatusListRefreshInputRef.current = {
@@ -924,7 +894,6 @@ export function McpSettingsSection({
   useEffect(() => {
     let cancelled = false;
     setMcpConfigReadyWorkspaceKey("");
-    setMcpConfigLoadFailed(false);
     if (!activeWorkspacePath || !activeWorkspaceKey) {
       return;
     }
@@ -936,21 +905,13 @@ export function McpSettingsSection({
       cacheAuthorityKey,
     )
       .then((loaded) => {
-        if (cancelled) {
+        if (cancelled || !loaded) {
           return;
         }
         const state = useMcpStore.getState();
         const loadedWorkspaceKey = `${state.currentAuthorityKey?.trim() || "workspace"}\0${state.currentWorkspaceIdentity?.trim() || state.currentProjectPath}`;
-        const outcome = resolveMcpConfigLoadOutcome({
-          loaded,
-          loadedWorkspaceKey,
-          requestedWorkspaceKey: activeWorkspaceKey,
-          rpcReady: targetServiceResolution.rpcReady,
-        });
-        if (outcome === "ready") {
+        if (loadedWorkspaceKey === activeWorkspaceKey) {
           setMcpConfigReadyWorkspaceKey(activeWorkspaceKey);
-        } else if (outcome === "failed") {
-          setMcpConfigLoadFailed(true);
         }
       })
       .catch((error) => {
@@ -970,11 +931,6 @@ export function McpSettingsSection({
     cacheAuthorityKey,
     ensureLoadedForWorkspace,
     services.mcpSyncService,
-    targetServiceResolution.rpcReady,
-    // store 是单例：活动 tab 的 useEnsureWorkspaceMcpLoaded 会在 rpcReady 翻转时把绑定
-    // 抢回当前 tab，而上面的 props deps 不变、不会自动重新 ensure，页面停在死 loading。
-    // 把绑定比对纳入依赖：绑定被抢占（比对翻 false）时重新绑回本目标并恢复加载。
-    mcpStoreMatchesActiveWorkspace,
   ]);
 
   useEffect(() => {
@@ -1298,12 +1254,7 @@ export function McpSettingsSection({
   });
 
   async function handleToggle(id: string, enabled: boolean) {
-    const persisted = await toggleServer(id, enabled);
-    if (!persisted) {
-      // 开关的本地展示态已翻转但磁盘写入失败：必须明确提示，否则重载后开关回弹，
-      // 用户不知道刚才的切换没有生效。
-      toast(intl.formatMessage({ id: "settings.mcp.persistFailed" }), { durationMs: 8_000 });
-    }
+    await toggleServer(id, enabled);
 
     if (!enabled) {
       // 禁用后的 unknown 只是本地展示态；toggleServer 已经作废旧请求，
@@ -1610,26 +1561,7 @@ export function McpSettingsSection({
       ) : null}
 
       {!mcpProjectionReady ? (
-        mcpConfigLoadFailed ? (
-          // 配置加载失败的显式失败态：替代无限 loading。样式沿用设置页既有的
-          // destructive 横幅（Skills/Subagents 错误条同款），重试复用手动刷新链路。
-          <div
-            data-testid="mcp-config-load-failed"
-            className="flex flex-col items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-ui-base text-destructive"
-          >
-            <span>{intl.formatMessage({ id: "settings.mcp.configLoadFailed" })}</span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleManualRefresh()}
-            >
-              {intl.formatMessage({ id: "common.retry" })}
-            </Button>
-          </div>
-        ) : (
-          <PluginLoadingState label={intl.formatMessage({ id: "common.loading" })} />
-        )
+        <PluginLoadingState label={intl.formatMessage({ id: "common.loading" })} />
       ) : hasEmptySearchResult ? (
         <PluginSearchEmptyState
           label={intl.formatMessage({

@@ -1,6 +1,6 @@
 import type { KeyboardEvent as ReactKeyboardEvent, PointerEvent as ReactPointerEvent } from "react";
+import { BROWSER_VIEWPORT_LIMITS } from "@zcode/shared";
 import {
-  BROWSER_VIEWPORT_LIMITS,
   TID_BROWSER_RESPONSIVE_RESIZE_CORNER,
   TID_BROWSER_RESPONSIVE_RESIZE_CORNER_BOTTOM_LEFT,
   TID_BROWSER_RESPONSIVE_RESIZE_CORNER_TOP_LEFT,
@@ -9,7 +9,7 @@ import {
   TID_BROWSER_RESPONSIVE_RESIZE_LEFT,
   TID_BROWSER_RESPONSIVE_RESIZE_TOP,
   TID_BROWSER_RESPONSIVE_RESIZE_WIDTH,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { GripHorizontalIcon, GripVerticalIcon } from "lucide-react";
 import { cn } from "@/components/lib/utils.js";
 
@@ -24,7 +24,7 @@ export interface ResizeHandleDirections {
 
 const EDGE_RESIZE_HANDLES = [
   {
-    className: "top-0 -start-2 h-full w-4 cursor-ew-resize",
+    className: "top-0 -left-2 h-full w-4 cursor-ew-resize",
     dimension: "width",
     heightDirection: 0,
     key: "left",
@@ -33,7 +33,7 @@ const EDGE_RESIZE_HANDLES = [
     widthDirection: -1,
   },
   {
-    className: "top-0 -end-2 h-full w-4 cursor-ew-resize",
+    className: "top-0 -right-2 h-full w-4 cursor-ew-resize",
     dimension: "width",
     heightDirection: 0,
     key: "right",
@@ -42,7 +42,7 @@ const EDGE_RESIZE_HANDLES = [
     widthDirection: 1,
   },
   {
-    className: "-top-2 start-0 h-4 w-full cursor-ns-resize",
+    className: "-top-2 left-0 h-4 w-full cursor-ns-resize",
     dimension: "height",
     heightDirection: -1,
     key: "top",
@@ -51,7 +51,7 @@ const EDGE_RESIZE_HANDLES = [
     widthDirection: 0,
   },
   {
-    className: "-bottom-2 start-0 h-4 w-full cursor-ns-resize",
+    className: "-bottom-2 left-0 h-4 w-full cursor-ns-resize",
     dimension: "height",
     heightDirection: 1,
     key: "bottom",
@@ -61,32 +61,30 @@ const EDGE_RESIZE_HANDLES = [
   },
 ] as const;
 
-// 角手柄的定位用逻辑 start/end，RTL 下会自动镜像到另一侧；但对角线光标是按物理方向定义的
-// （nwse = ↖↘），不会随 dir 翻转，所以 RTL 下需要对调两个对角线光标，否则四角的光标指向反了。
 const CORNER_RESIZE_HANDLES = [
   {
-    className: "-top-2 -start-2 cursor-nwse-resize rtl:cursor-nesw-resize",
+    className: "-top-2 -left-2 cursor-nwse-resize",
     heightDirection: -1,
     key: "top-left",
     testId: TID_BROWSER_RESPONSIVE_RESIZE_CORNER_TOP_LEFT,
     widthDirection: -1,
   },
   {
-    className: "-top-2 -end-2 cursor-nesw-resize rtl:cursor-nwse-resize",
+    className: "-top-2 -right-2 cursor-nesw-resize",
     heightDirection: -1,
     key: "top-right",
     testId: TID_BROWSER_RESPONSIVE_RESIZE_CORNER_TOP_RIGHT,
     widthDirection: 1,
   },
   {
-    className: "-bottom-2 -start-2 cursor-nesw-resize rtl:cursor-nwse-resize",
+    className: "-bottom-2 -left-2 cursor-nesw-resize",
     heightDirection: 1,
     key: "bottom-left",
     testId: TID_BROWSER_RESPONSIVE_RESIZE_CORNER_BOTTOM_LEFT,
     widthDirection: -1,
   },
   {
-    className: "-end-2 -bottom-2 cursor-nwse-resize rtl:cursor-nesw-resize",
+    className: "-right-2 -bottom-2 cursor-nwse-resize",
     heightDirection: 1,
     key: "bottom-right",
     testId: TID_BROWSER_RESPONSIVE_RESIZE_CORNER,
@@ -95,7 +93,7 @@ const CORNER_RESIZE_HANDLES = [
 ] as const;
 
 const RESIZE_SEPARATOR_ICON_CLASS =
-  "pointer-events-none absolute top-1/2 start-1/2 size-4 -translate-x-1/2 rtl:translate-x-1/2 -translate-y-1/2 text-foreground-subtlest opacity-0 transition-[color,opacity] group-hover/resize-edge:text-foreground-subtle group-hover/resize-edge:opacity-100 group-focus-visible/resize-edge:text-foreground-subtle group-focus-visible/resize-edge:opacity-100";
+  "pointer-events-none absolute top-1/2 left-1/2 size-4 -translate-x-1/2 -translate-y-1/2 text-foreground-subtlest opacity-0 transition-[color,opacity] group-hover/resize-edge:text-foreground-subtle group-hover/resize-edge:opacity-100 group-focus-visible/resize-edge:text-foreground-subtle group-focus-visible/resize-edge:opacity-100";
 
 export function ResponsiveBrowserResizeHandles({
   height,

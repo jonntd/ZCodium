@@ -14,7 +14,7 @@ import {
   CheckCircle2Icon,
   ChevronDownIcon,
   CircleIcon,
-  LoaderIcon,
+  LoaderCircle,
   PaperclipIcon,
 } from "lucide-react";
 import type { ComponentProps } from "react";
@@ -60,7 +60,7 @@ export type QueueItemIndicatorProps = ComponentProps<"span"> & {
 
 const queueItemIndicatorIconMap = {
   pending: CircleIcon,
-  in_progress: LoaderIcon,
+  in_progress: LoaderCircle,
   completed: CheckCircle2Icon,
 } satisfies Record<QueueItemStatus, typeof CircleIcon>;
 
@@ -126,7 +126,7 @@ export const QueueItemDescription = ({
 }: QueueItemDescriptionProps) => (
   <div
     className={cn(
-      "ms-6 text-ui-base",
+      "ml-6 text-ui-base",
       completed ? "text-muted-foreground/40 line-through" : "text-muted-foreground",
       className,
     )}
@@ -216,7 +216,7 @@ export const QueueSectionTrigger = ({
   <CollapsibleTrigger asChild>
     <button
       className={cn(
-        "group flex w-full items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-start font-medium text-muted-foreground text-ui-base transition-colors hover:bg-muted",
+        "group flex w-full items-center justify-between rounded-md bg-muted/40 px-3 py-2 text-left font-medium text-muted-foreground text-ui-base transition-colors hover:bg-muted",
         className,
       )}
       type="button"

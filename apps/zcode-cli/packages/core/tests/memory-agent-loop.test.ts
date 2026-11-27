@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createModelId,
   createModelProviderId,
+  type ExecutionShellSelection,
   type Model,
   type ModelInputMessage,
   type ModelRequest,
@@ -14,8 +15,13 @@ import {
   runMemoryAgentLoop,
   type MemoryAgentModelRequest,
 } from "../src/memory/memory-agent-loop.js";
+import { setCmdReadonlyHostForTest } from "../src/tool/handlers/bash-cmd-readonly-policy.js";
+import {
+  isRuntimeAttachmentEntry,
+  type RuntimeMessageEntry,
+} from "../src/agent/message-history.js";
 import { DEFAULT_MODEL_REQUEST_MEDIA_BUDGET_BYTES } from "../src/runtime/helpers/media-budget.js";
-import type { ToolExecutionResult } from "../src/tool/types.js";
+import type { ExecutableToolCall, ToolExecutionResult } from "../src/tool/types.js";
 import { createTestInputFormat } from "./test-runtime-model.js";
 
 const modelSelection = {
@@ -37,7 +43,9 @@ describe("runMemoryAgentLoop", () => {
       tool("Agent", false, "session"),
     ]) satisfies readonly ModelToolContract[];
     const requests: MemoryAgentModelRequest[] = [];
-    const executeTool = vi.fn(async (call) => executionResult(call.id, call.name, "written"));
+    const executeToolCalls = vi.fn(async (calls: ExecutableToolCall[]) =>
+      calls.map((call) => executionResult(call.id, call.name, "written")),
+    );
     const model = generateOnlyModel(async (request) => {
       requests.push(request as MemoryAgentModelRequest);
       if (requests.length < 5) {
@@ -60,9 +68,12 @@ describe("runMemoryAgentLoop", () => {
 
     const result = await runMemoryAgentLoop({
       abortSignal: new AbortController().signal,
-      executeTool,
+      bashShellSelection: undefined,
+      entries: messageEntries(initialMessages),
+      executeToolCalls,
       maxTurns: 5,
-      request: { messages: initialMessages, tools, toolSearchEnabled: false },
+      registry: noBatchNoticeRegistry,
+      renderRequest: passthroughRender(tools),
       model,
       rootDir: memoryRoot,
       workingDirectory: "/workspace",
@@ -70,9 +81,9 @@ describe("runMemoryAgentLoop", () => {
     });
 
     expect(requests).toHaveLength(5);
-    expect(executeTool).toHaveBeenCalledTimes(5);
-    expect(executeTool).toHaveBeenLastCalledWith(
-      expect.objectContaining({ id: "write-last", name: "Write" }),
+    expect(executeToolCalls).toHaveBeenCalledTimes(5);
+    expect(executeToolCalls).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ id: "write-last", name: "Write" })],
       expect.objectContaining({ abortSignal: expect.any(AbortSignal) }),
     );
     expect(requests[0]?.messages).toEqual(initialMessages);
@@ -95,7 +106,7 @@ describe("runMemoryAgentLoop", () => {
       }),
     ]);
     expect(result.turns).toBe(5);
-    expect(result.messages.slice(-2)).toEqual([
+    expect(messagesOf(result.entries).slice(-2)).toEqual([
       expect.objectContaining({ role: "assistant", content: "last turn" }),
       expect.objectContaining({ role: "tool", toolCallId: "write-last", isError: false }),
     ]);
@@ -117,10 +128,12 @@ describe("runMemoryAgentLoop", () => {
       dataUrl: sharedImageDataUrl,
     };
     const requests: ModelRequest[] = [];
-    const executeTool = vi.fn(async (call) => ({
-      ...executionResult(call.id, call.name, "read media"),
-      modelContent: [unsupportedVideo, historicalImage],
-    }));
+    const executeToolCalls = vi.fn(async (calls: ExecutableToolCall[]) =>
+      calls.map((call) => ({
+        ...executionResult(call.id, call.name, "read media"),
+        modelContent: [unsupportedVideo, historicalImage],
+      })),
+    );
     const model = generateOnlyModel(
       async (request) => {
         requests.push(request);
@@ -137,23 +150,22 @@ describe("runMemoryAgentLoop", () => {
     );
 
     await runMemoryAgentLoop({
-      executeTool,
+      bashShellSelection: undefined,
+      entries: messageEntries([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "historical media" },
+            unsupportedVideo,
+            ...Array.from({ length: retainedImageCount + 2 }, () => historicalImage),
+          ],
+        },
+        { role: "user", content: "extract memory" },
+      ]),
+      executeToolCalls,
       maxTurns: 2,
-      request: {
-        tools: [tool("Read", true, "none")],
-        toolSearchEnabled: false,
-        messages: [
-          {
-            role: "user",
-            content: [
-              { type: "text", text: "historical media" },
-              unsupportedVideo,
-              ...Array.from({ length: retainedImageCount + 2 }, () => historicalImage),
-            ],
-          },
-          { role: "user", content: "extract memory" },
-        ],
-      },
+      registry: noBatchNoticeRegistry,
+      renderRequest: passthroughRender([tool("Read", true, "none")]),
       model,
       rootDir: memoryRoot,
       workingDirectory: "/workspace",
@@ -177,7 +189,7 @@ describe("runMemoryAgentLoop", () => {
   });
 
   it("returns the exact provider-visible denial text without invoking the executor", async () => {
-    const executeTool = vi.fn();
+    const executeToolCalls = vi.fn();
     const requests: ModelRequest[] = [];
     const model = generateOnlyModel(async (request) => {
       requests.push(request);
@@ -193,20 +205,22 @@ describe("runMemoryAgentLoop", () => {
     });
 
     const result = await runMemoryAgentLoop({
-      executeTool,
+      bashShellSelection: undefined,
+      entries: messageEntries([{ role: "user", content: "extract" }]),
+      executeToolCalls,
       maxTurns: 2,
-      request: {
-        messages: [{ role: "user", content: "extract" }],
-        tools: [tool("WebFetch", true, "network"), tool("Bash", false, "workspace")],
-        toolSearchEnabled: false,
-      },
+      registry: noBatchNoticeRegistry,
+      renderRequest: passthroughRender([
+        tool("WebFetch", true, "network"),
+        tool("Bash", false, "workspace"),
+      ]),
       model,
       rootDir: memoryRoot,
       workingDirectory: "/workspace",
       workspaceRoot: "/workspace",
     });
 
-    expect(executeTool).not.toHaveBeenCalled();
+    expect(executeToolCalls).not.toHaveBeenCalled();
     const deniedToolMessages = [
       {
         content:
@@ -227,11 +241,11 @@ describe("runMemoryAgentLoop", () => {
     ];
     expect(requests).toHaveLength(2);
     expect(requests[1]?.messages.slice(-2)).toEqual(deniedToolMessages);
-    expect(result.messages.slice(-3, -1)).toEqual(deniedToolMessages);
+    expect(messagesOf(result.entries).slice(-3, -1)).toEqual(deniedToolMessages);
   });
 
   it("returns the catalog-miss result before applying the Memory tool policy", async () => {
-    const executeTool = vi.fn();
+    const executeToolCalls = vi.fn();
     const requests: ModelRequest[] = [];
     const model = generateOnlyModel(async (request) => {
       requests.push(request);
@@ -247,20 +261,19 @@ describe("runMemoryAgentLoop", () => {
     });
 
     await runMemoryAgentLoop({
-      executeTool,
+      bashShellSelection: undefined,
+      entries: messageEntries([{ role: "user", content: "extract" }]),
+      executeToolCalls,
       maxTurns: 2,
-      request: {
-        messages: [{ role: "user", content: "extract" }],
-        tools: [tool("Read", true, "none")],
-        toolSearchEnabled: false,
-      },
+      registry: noBatchNoticeRegistry,
+      renderRequest: passthroughRender([tool("Read", true, "none")]),
       model,
       rootDir: memoryRoot,
       workingDirectory: "/workspace",
       workspaceRoot: "/workspace",
     });
 
-    expect(executeTool).not.toHaveBeenCalled();
+    expect(executeToolCalls).not.toHaveBeenCalled();
     expect(requests).toHaveLength(2);
     expect(requests[1]?.messages.slice(-2)).toEqual([
       {
@@ -282,7 +295,9 @@ describe("runMemoryAgentLoop", () => {
 
   it("executes tool calls returned by the fiftieth Dream turn", async () => {
     let requestCount = 0;
-    const executeTool = vi.fn(async (call) => executionResult(call.id, call.name, "done"));
+    const executeToolCalls = vi.fn(async (calls: ExecutableToolCall[]) =>
+      calls.map((call) => executionResult(call.id, call.name, "done")),
+    );
     const model = generateOnlyModel(async () => {
       requestCount += 1;
       return modelResult({
@@ -299,13 +314,15 @@ describe("runMemoryAgentLoop", () => {
     });
 
     const result = await runMemoryAgentLoop({
-      executeTool,
+      bashShellSelection: undefined,
+      entries: messageEntries([{ role: "user", content: "dream" }]),
+      executeToolCalls,
       maxTurns: 50,
-      request: {
-        messages: [{ role: "user", content: "dream" }],
-        tools: [tool("Read", true, "none"), tool("Write", false, "workspace")],
-        toolSearchEnabled: false,
-      },
+      registry: noBatchNoticeRegistry,
+      renderRequest: passthroughRender([
+        tool("Read", true, "none"),
+        tool("Write", false, "workspace"),
+      ]),
       model,
       rootDir: memoryRoot,
       workingDirectory: "/workspace",
@@ -313,11 +330,101 @@ describe("runMemoryAgentLoop", () => {
     });
 
     expect(result.turns).toBe(50);
-    expect(executeTool).toHaveBeenCalledTimes(50);
-    expect(executeTool).toHaveBeenLastCalledWith(
-      expect.objectContaining({ id: "write-fiftieth", name: "Write" }),
+    expect(executeToolCalls).toHaveBeenCalledTimes(50);
+    expect(executeToolCalls).toHaveBeenLastCalledWith(
+      [expect.objectContaining({ id: "write-fiftieth", name: "Write" })],
       expect.any(Object),
     );
+  });
+
+  it("gives every allowed call a tool result even when the executor returns none for it", async () => {
+    const requests: ModelRequest[] = [];
+    const executeToolCalls = vi.fn(async (calls: ExecutableToolCall[]) => [
+      executionResult(calls[0]!.id, calls[0]!.name, "read"),
+    ]);
+    const model = generateOnlyModel(async (request) => {
+      requests.push(request);
+      return requests.length === 1
+        ? modelResult({
+            toolCalls: [
+              { id: "read-1", name: "Read", input: {} },
+              { id: "read-2", name: "Read", input: {} },
+            ],
+          })
+        : modelResult({ text: "done" });
+    });
+
+    await runMemoryAgentLoop({
+      bashShellSelection: undefined,
+      entries: messageEntries([{ role: "user", content: "extract" }]),
+      executeToolCalls,
+      maxTurns: 2,
+      registry: noBatchNoticeRegistry,
+      renderRequest: passthroughRender([tool("Read", true, "none")]),
+      model,
+      rootDir: memoryRoot,
+      workingDirectory: "/workspace",
+      workspaceRoot: "/workspace",
+    });
+
+    // 每个 tool_use 都要有 tool_result，否则下一次请求会被 provider 拒绝。
+    expect(requests[1]?.messages.slice(-2)).toEqual([
+      expect.objectContaining({ role: "tool", toolCallId: "read-1", isError: false }),
+      expect.objectContaining({ role: "tool", toolCallId: "read-2", isError: true }),
+    ]);
+  });
+
+  it("keeps tool results in call order and appends the batch notices after them", async () => {
+    const tools = [tool("Read", true, "none"), tool("WebFetch", true, "network")];
+    const executeToolCalls = vi.fn(async (calls: ExecutableToolCall[]) =>
+      calls.map((call) => executionResult(call.id, call.name, { notice: `${call.id} notice` })),
+    );
+    const model = generateOnlyModel(async (request) =>
+      request.messages.length === 1
+        ? modelResult({
+            toolCalls: [
+              { id: "read-1", name: "Read", input: {} },
+              { id: "network", name: "WebFetch", input: {} },
+              { id: "read-2", name: "Read", input: {} },
+            ],
+          })
+        : modelResult({ text: "done" }),
+    );
+
+    const result = await runMemoryAgentLoop({
+      bashShellSelection: undefined,
+      entries: messageEntries([{ role: "user", content: "extract" }]),
+      executeToolCalls,
+      maxTurns: 2,
+      registry: {
+        get: (name: string) =>
+          name === "Read"
+            ? ({
+                formatBatchNotice: (output: unknown) => ({
+                  source: "read_truncation_notice",
+                  content: (output as { notice: string }).notice,
+                }),
+              } as never)
+            : undefined,
+      },
+      renderRequest: passthroughRender(tools),
+      model,
+      rootDir: memoryRoot,
+      workingDirectory: "/workspace",
+      workspaceRoot: "/workspace",
+    });
+
+    // 被拒绝的 call 不进入调度；结果按声明顺序，批次附件排在这批 tool result 之后。
+    expect(executeToolCalls).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: "read-1" }), expect.objectContaining({ id: "read-2" })],
+      expect.any(Object),
+    );
+    const batch = result.entries.slice(2, 7);
+    expect(
+      batch.map((entry) =>
+        isRuntimeAttachmentEntry(entry) ? entry.content : entry.message.toolCallId,
+      ),
+    ).toEqual(["read-1", "network", "read-2", "read-1 notice", "read-2 notice"]);
   });
 });
 
@@ -438,10 +545,125 @@ describe("evaluateMemoryAgentToolPolicy", () => {
   ])("denies %s", (_label, name, input) => {
     expect(decide(name, input, registeredTools)).toMatchObject({ allowed: false });
   });
+
+  describe("by session shell", () => {
+    afterEach(() => setCmdReadonlyHostForTest(undefined));
+
+    it.each([
+      ["posix", POSIX_SELECTION],
+      ["git-bash", GIT_BASH_SELECTION],
+    ])("keeps read-only Bash and Memory rm allowed in a %s session", (_label, selection) => {
+      for (const command of ["head -n 5 /workspace/notes.txt", `rm -f ${memoryRoot}/old.md`]) {
+        expect(decide("Bash", { command }, registeredTools, selection)).toMatchObject({
+          allowed: true,
+        });
+      }
+    });
+
+    // Bash AST 把 # 后面当注释，cmd.exe 却会执行 & 后面的命令。
+    it.each([
+      ["a command chained after #", String.raw`type # & python G:\temp\hello.py`],
+      ["Memory rm with a command chained after #", `rm -f ${memoryRoot}/old.md # & python x.py`],
+      ["Memory rm that only Bash AST can prove", `rm -f ${memoryRoot}/old.md`],
+    ])("denies %s when Bash runs through cmd.exe", (_label, command) => {
+      setCmdReadonlyHostForTest(WINDOWS_CMD_HOST);
+      for (const selection of [CMD_SELECTION, LEGACY_SHELL_SELECTION]) {
+        expect(decide("Bash", { command }, registeredTools, selection)).toMatchObject({
+          allowed: false,
+        });
+      }
+    });
+
+    // `DIR /b` 只有 CMD 规则放行（Bash AST 区分大小写，不认 DIR），能证明两种会经 cmd.exe 的
+    // shell 走的是 CMD 规则，而不是全部拒绝或退回 Bash AST。
+    it("allows what the foreground CMD read-only policy allows", () => {
+      setCmdReadonlyHostForTest(WINDOWS_CMD_HOST);
+      for (const selection of [CMD_SELECTION, LEGACY_SHELL_SELECTION]) {
+        for (const command of ["dir /b", "DIR /b"]) {
+          expect(decide("Bash", { command }, registeredTools, selection)).toMatchObject({
+            allowed: true,
+          });
+        }
+      }
+    });
+
+    // POSIX 上的 legacy-shell 回落到 /bin/sh，# 同样是注释，CMD 绕过不成立；保持修复前的 Bash AST 判定。
+    it.each(["darwin", "linux"])(
+      "keeps read-only Bash and Memory rm allowed in a %s legacy-shell session",
+      (platform) => {
+        setCmdReadonlyHostForTest({ platform, env: {} });
+        for (const command of ["head -n 5 /workspace/notes.txt", `rm -f ${memoryRoot}/old.md`]) {
+          expect(
+            decide("Bash", { command }, registeredTools, LEGACY_SHELL_SELECTION),
+          ).toMatchObject({ allowed: true });
+        }
+      },
+    );
+  });
 });
 
-function decide(name: string, input: unknown, tools: readonly ModelToolContract[]) {
+const POSIX_SELECTION: ExecutionShellSelection = {
+  dialect: "posix",
+  display: { name: "bash" },
+  path: "/bin/bash",
+  source: "auto-detected",
+};
+const GIT_BASH_SELECTION: ExecutionShellSelection = {
+  dialect: "git-bash",
+  display: { name: "Git Bash" },
+  path: "C:/Program Files/Git/bin/bash.exe",
+  source: "auto-detected",
+};
+const WINDOWS_CMD_PATH = String.raw`C:\Windows\System32\cmd.exe`;
+const WINDOWS_CMD_HOST = {
+  platform: "win32",
+  env: { ComSpec: WINDOWS_CMD_PATH, SystemRoot: String.raw`C:\Windows`, PATH: "" },
+  realpath: (path: string) => path,
+};
+const CMD_SELECTION: ExecutionShellSelection = {
+  dialect: "cmd",
+  display: { name: "CMD" },
+  id: "cmd",
+  path: WINDOWS_CMD_PATH,
+  source: "user-config",
+};
+const LEGACY_SHELL_SELECTION: ExecutionShellSelection = {
+  dialect: "legacy-shell",
+  display: { name: "system shell" },
+  source: "legacy-fallback",
+};
+
+const noBatchNoticeRegistry = { get: () => undefined };
+
+function messageEntries(messages: readonly ModelInputMessage[]): RuntimeMessageEntry[] {
+  return messages.map((message) => ({ message }));
+}
+
+function messagesOf(entries: readonly RuntimeMessageEntry[]): ModelInputMessage[] {
+  return entries.flatMap((entry) => (isRuntimeAttachmentEntry(entry) ? [] : [entry.message]));
+}
+
+/** 循环机制测试用：entries 原样作为请求消息；与 Main 渲染器的一致性在 runtime 测试里覆盖。 */
+function passthroughRender(tools: readonly ModelToolContract[]) {
+  return (entries: readonly RuntimeMessageEntry[]) => ({
+    messages: entries.map((entry) =>
+      isRuntimeAttachmentEntry(entry)
+        ? { role: "user" as const, content: entry.content }
+        : entry.message,
+    ),
+    tools: tools as ModelToolContract[],
+    toolSearchEnabled: false,
+  });
+}
+
+function decide(
+  name: string,
+  input: unknown,
+  tools: readonly ModelToolContract[],
+  bashShellSelection?: ExecutionShellSelection,
+) {
   return evaluateMemoryAgentToolPolicy({
+    bashShellSelection,
     rootDir: memoryRoot,
     toolCall: { id: "call", name, input },
     tools,

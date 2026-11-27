@@ -28,18 +28,14 @@ import {
 // 启用确认与「最近操作」。门面只在桌面本机 Host 注册；Web 与手机远控没有它，这些入口不显示。
 // 两个对话框复用全局 ConfirmDialog（同一套样式与键盘行为），不另做弹窗组件。
 
-const EMPTY_STORE = createStore<ExtensionGrantsState>(() => ({
-  snapshot: null,
-}));
+const EMPTY_STORE = createStore<ExtensionGrantsState>(() => ({ snapshot: null }));
 
 export function useExtensionGrantsService(): IExtensionGrantsService | null {
   return useOptionalBaseWorkspaceServices()?.extensionGrantsService ?? null;
 }
 
 /** 订阅授权状态，按 selector 取值（浅比较）。 */
-export function useExtensionGrantsState<T>(
-  selector: (state: ExtensionGrantsState) => T,
-): T {
+export function useExtensionGrantsState<T>(selector: (state: ExtensionGrantsState) => T): T {
   const service = useExtensionGrantsService();
   const entry = service ? getExtensionGrantsStore(service) : null;
   useEffect(() => entry?.retain(), [entry]);
@@ -47,27 +43,19 @@ export function useExtensionGrantsState<T>(
 }
 
 /** 一个插件的授权状态；没有声明档位、也没有记录时为 null。 */
-export function useExtensionGrantState(
-  pluginId: string,
-): ExtensionGrantState | null {
+export function useExtensionGrantState(pluginId: string): ExtensionGrantState | null {
   return useExtensionGrantsState(
-    (state) =>
-      state.snapshot?.plugins.find((plugin) => plugin.pluginId === pluginId) ??
-      null,
+    (state) => state.snapshot?.plugins.find((plugin) => plugin.pluginId === pluginId) ?? null,
   );
 }
 
 /** 档位的显示文字：`读取会话`、`读写会话`。 */
-export function useFormatGrants(): (
-  grants: readonly ExtensionGrant[],
-) => string {
+export function useFormatGrants(): (grants: readonly ExtensionGrant[]) => string {
   const { intl, locale } = useZCodeIntl();
   return useCallback(
     (grants) =>
       new Intl.ListFormat(locale, { type: "conjunction" }).format(
-        grants.map((grant) =>
-          intl.formatMessage({ id: `extensions.grants.tier.${grant}` }),
-        ),
+        grants.map((grant) => intl.formatMessage({ id: `extensions.grants.tier.${grant}` })),
       ),
     [intl, locale],
   );
@@ -82,9 +70,7 @@ export function useRequestExtensionGrant():
   | null {
   const service = useExtensionGrantsService();
   const { intl } = useZCodeIntl();
-  const requestConfirmation = useConfirmDialogStore(
-    (store) => store.requestConfirmation,
-  );
+  const requestConfirmation = useConfirmDialogStore((store) => store.requestConfirmation);
   const request = useCallback(
     async (state: ExtensionGrantState): Promise<boolean> => {
       if (!service || state.declared.length === 0) return false;
@@ -95,22 +81,12 @@ export function useRequestExtensionGrant():
       // 标题按会话档位；只申请通知时用通知标题。正文：会话档位的原文，申请了完全访问时单独写一行（§17.12），
       // 申请了通知时再加一段通知说明（§18.1 H8）。
       const description = [
-        ...(sessions
-          ? [intl.formatMessage({ id: "extensions.grants.dialog.body" })]
-          : []),
+        ...(sessions ? [intl.formatMessage({ id: "extensions.grants.dialog.body" })] : []),
         ...(fullAccess
-          ? [
-              intl.formatMessage({
-                id: "extensions.grants.dialog.fullAccessBody",
-              }),
-            ]
+          ? [intl.formatMessage({ id: "extensions.grants.dialog.fullAccessBody" })]
           : []),
         ...(notifications
-          ? [
-              intl.formatMessage({
-                id: "extensions.grants.dialog.notificationsBody",
-              }),
-            ]
+          ? [intl.formatMessage({ id: "extensions.grants.dialog.notificationsBody" })]
           : []),
       ].join("\n\n");
       const confirmed = await requestConfirmation({
@@ -133,20 +109,12 @@ export function useRequestExtensionGrant():
       });
       if (!confirmed) return false;
       try {
-        await service.grant({
-          pluginId: state.pluginId,
-          grants: [...state.declared],
-        });
+        await service.grant({ pluginId: state.pluginId, grants: [...state.declared] });
         logger.lifecycle.info("[extension-slots] grant", {
           pluginId: state.pluginId,
           grants: state.declared,
         });
-        toast(
-          intl.formatMessage(
-            { id: "extensions.grants.grantedToast" },
-            { plugin: state.name },
-          ),
-        );
+        toast(intl.formatMessage({ id: "extensions.grants.grantedToast" }, { plugin: state.name }));
         return true;
       } catch (error) {
         // 清单在对话框打开期间变了（请求过期）或写文件失败：不显示原始错误文本。
@@ -154,9 +122,7 @@ export function useRequestExtensionGrant():
           pluginId: state.pluginId,
           name: error instanceof Error ? error.name : typeof error,
         });
-        toast(intl.formatMessage({ id: "extensions.grants.failedToast" }), {
-          variant: "warning",
-        });
+        toast(intl.formatMessage({ id: "extensions.grants.failedToast" }), { variant: "warning" });
         return false;
       }
     },
@@ -179,15 +145,11 @@ export function useExtensionGrantRequests(): void {
     if (!service) return;
     const entry = getExtensionGrantsStore(service);
     const release = entry.retain();
-    const subscription = service.onDynamicGrantRequests(undefined)((
-      request,
-    ) => {
+    const subscription = service.onDynamicGrantRequests(undefined)((request) => {
       void (async () => {
         const state = entry.store
           .getState()
-          .snapshot?.plugins.find(
-            (plugin) => plugin.pluginId === request.pluginId,
-          );
+          .snapshot?.plugins.find((plugin) => plugin.pluginId === request.pluginId);
         const ask = requestGrantRef.current;
         const shown = Boolean(state && ask && state.status === "needs-consent");
         let granted = false;
@@ -226,10 +188,7 @@ export function useSetExtensionNotifications():
     async (state: ExtensionGrantState, enabled: boolean) => {
       if (!service) return;
       try {
-        await service.setNotificationsEnabled({
-          pluginId: state.pluginId,
-          enabled,
-        });
+        await service.setNotificationsEnabled({ pluginId: state.pluginId, enabled });
         logger.lifecycle.info("[extension-slots] notifications switch", {
           pluginId: state.pluginId,
           enabled,
@@ -239,9 +198,7 @@ export function useSetExtensionNotifications():
           pluginId: state.pluginId,
           name: error instanceof Error ? error.name : typeof error,
         });
-        toast(intl.formatMessage({ id: "extensions.grants.failedToast" }), {
-          variant: "warning",
-        });
+        toast(intl.formatMessage({ id: "extensions.grants.failedToast" }), { variant: "warning" });
       }
     },
     [intl, service],
@@ -250,9 +207,7 @@ export function useSetExtensionNotifications():
 }
 
 /** 撤销该插件的全部授权。 */
-export function useRevokeExtensionGrant():
-  | ((state: ExtensionGrantState) => Promise<void>)
-  | null {
+export function useRevokeExtensionGrant(): ((state: ExtensionGrantState) => Promise<void>) | null {
   const service = useExtensionGrantsService();
   const { intl } = useZCodeIntl();
   const revoke = useCallback(
@@ -260,23 +215,14 @@ export function useRevokeExtensionGrant():
       if (!service) return;
       try {
         await service.revoke({ pluginId: state.pluginId });
-        logger.lifecycle.info("[extension-slots] revoke", {
-          pluginId: state.pluginId,
-        });
-        toast(
-          intl.formatMessage(
-            { id: "extensions.grants.revokedToast" },
-            { plugin: state.name },
-          ),
-        );
+        logger.lifecycle.info("[extension-slots] revoke", { pluginId: state.pluginId });
+        toast(intl.formatMessage({ id: "extensions.grants.revokedToast" }, { plugin: state.name }));
       } catch (error) {
         logger.lifecycle.warn("[extension-slots] revoke failed", {
           pluginId: state.pluginId,
           name: error instanceof Error ? error.name : typeof error,
         });
-        toast(intl.formatMessage({ id: "extensions.grants.failedToast" }), {
-          variant: "warning",
-        });
+        toast(intl.formatMessage({ id: "extensions.grants.failedToast" }), { variant: "warning" });
       }
     },
     [intl, service],
@@ -295,9 +241,7 @@ export function useConfirmExtensionEnable(): (
   const service = useExtensionGrantsService();
   const { intl, locale } = useZCodeIntl();
   const formatGrants = useFormatGrants();
-  const requestConfirmation = useConfirmDialogStore(
-    (store) => store.requestConfirmation,
-  );
+  const requestConfirmation = useConfirmDialogStore((store) => store.requestConfirmation);
   return useCallback(
     async (pluginId, pluginName) => {
       if (!service) return true;
@@ -313,9 +257,7 @@ export function useConfirmExtensionEnable(): (
         impact = null;
       }
       if (impact && !impact.confirm) return true;
-      const holders = new Intl.ListFormat(locale, {
-        type: "conjunction",
-      }).format(
+      const holders = new Intl.ListFormat(locale, { type: "conjunction" }).format(
         (impact?.holders ?? []).map((holder) =>
           intl.formatMessage(
             { id: "extensions.grants.holder" },
@@ -328,21 +270,12 @@ export function useConfirmExtensionEnable(): (
         holders: impact?.holders.length ?? null,
       });
       return requestConfirmation({
-        title: intl.formatMessage(
-          { id: "extensions.grants.enable.title" },
-          { plugin: pluginName },
-        ),
+        title: intl.formatMessage({ id: "extensions.grants.enable.title" }, { plugin: pluginName }),
         description: intl.formatMessage(
-          {
-            id: impact
-              ? "extensions.grants.enable.body"
-              : "extensions.grants.enable.bodyUnknown",
-          },
+          { id: impact ? "extensions.grants.enable.body" : "extensions.grants.enable.bodyUnknown" },
           { plugin: pluginName, holders },
         ),
-        confirmLabel: intl.formatMessage({
-          id: "extensions.grants.enable.confirm",
-        }),
+        confirmLabel: intl.formatMessage({ id: "extensions.grants.enable.confirm" }),
         testId: TID_EXTENSION_ENABLE_CONFIRM_DIALOG,
         intent: "extension-enable",
         showKeyboardHints: false,
@@ -377,9 +310,7 @@ export function useDecideExtensionActivation():
         });
         impact = null;
       }
-      const holders = new Intl.ListFormat(locale, {
-        type: "conjunction",
-      }).format(
+      const holders = new Intl.ListFormat(locale, { type: "conjunction" }).format(
         (impact?.holders ?? []).map((holder) =>
           intl.formatMessage(
             { id: "extensions.grants.holder" },
@@ -388,10 +319,7 @@ export function useDecideExtensionActivation():
         ),
       );
       const choice = await requestChoice({
-        title: intl.formatMessage(
-          { id: "extensions.activation.dialog.title" },
-          { plugin: name },
-        ),
+        title: intl.formatMessage({ id: "extensions.activation.dialog.title" }, { plugin: name }),
         description: intl.formatMessage(
           {
             id: impact
@@ -401,9 +329,7 @@ export function useDecideExtensionActivation():
           { plugin: name, holders },
         ),
         confirmLabel: intl.formatMessage({ id: "extensions.activation.allow" }),
-        cancelLabel: intl.formatMessage({
-          id: "extensions.activation.decline",
-        }),
+        cancelLabel: intl.formatMessage({ id: "extensions.activation.decline" }),
         testId: TID_EXTENSION_ACTIVATION_DIALOG,
         intent: "extension-activation",
         scrollableDescription: true,
@@ -414,10 +340,7 @@ export function useDecideExtensionActivation():
       const allow = choice === "confirm";
       try {
         await service.decideActivation({ pluginId, allow });
-        logger.lifecycle.info("[extension-slots] activation decided", {
-          pluginId,
-          allow,
-        });
+        logger.lifecycle.info("[extension-slots] activation decided", { pluginId, allow });
         toast(
           intl.formatMessage(
             {
@@ -449,9 +372,7 @@ export function useDecideExtensionActivation():
  * 「最近操作」：读该插件最近的审计行。授权状态（rev）变化时重新读：P3a 的审计行只有授权与撤销，
  * 都会改变授权状态，所以不需要轮询。
  */
-export function useExtensionRecentActions(
-  pluginId: string,
-): ExtensionAuditEntry[] | null {
+export function useExtensionRecentActions(pluginId: string): ExtensionAuditEntry[] | null {
   const service = useExtensionGrantsService();
   const rev = useExtensionGrantsState((state) => state.snapshot?.rev ?? null);
   const [result, setResult] = useState<{

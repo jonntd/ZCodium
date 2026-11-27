@@ -1,45 +1,36 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  parseRemoteWorkspaceIdentity,
-  type ConfigCatalogSnapshot,
-} from "./contract.js";
-import { readConfigCatalog, projectConfigTargets } from "./catalog.js";
+import { type ConfigCatalogSnapshot } from "@/workspace-config-catalog/contract.js";
+import { readConfigCatalog, projectConfigTargets } from "@/workspace-config-catalog/catalog.js";
 import { useBaseWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useTabStore } from "@/store/TabStoreProvider.js";
 import { isWorkspaceTab } from "@/store/tabStore.js";
+import { filterWorkspaceTabsForSettingsSource } from "@/settings/settingsSourceWorkspace.js";
 import { logger } from "@/logger.js";
+const EMPTY: ConfigCatalogSnapshot = { projects: [], directory: { hosts: [], entries: [] } };
 
-const EMPTY: ConfigCatalogSnapshot = {
-  projects: [],
-  directory: { hosts: [], entries: [] },
-};
-
-export function useConfigWorkspaceCatalog(sourceServerId?: string | null) {
+export function useConfigWorkspaceTargets(sourceServerId?: string | null) {
   const services = useBaseWorkspaceServices();
   const tabs = useTabStore((state) => state.tabs);
-  const [owned, setOwned] = useState({
-    services,
-    snapshot: EMPTY,
-    loaded: false,
-  });
-  // 旧 Host 的投影不能在新 owner 的首帧继续充当可写配置目标。
-  const snapshot = owned.services === services ? owned.snapshot : EMPTY;
+  const [loaded, setLoaded] = useState<{
+    services: typeof services;
+    snapshot: ConfigCatalogSnapshot;
+  } | null>(null);
+  const current = loaded?.services === services ? loaded : null;
+  const snapshot = current?.snapshot ?? EMPTY;
   useEffect(() => {
     let serial = 0;
     const refresh = async () => {
       const request = ++serial;
       try {
-        if (!services.projectService)
-          throw new Error("project.service-unavailable");
+        if (!services.projectService) throw new Error("project.service-unavailable");
         const result = await readConfigCatalog({
           projectService: services.projectService,
           remoteProjectService: services.remoteProjectService,
         });
-        if (serial === request)
-          setOwned({ services, snapshot: result, loaded: true });
+        if (serial === request) setLoaded({ services, snapshot: result });
       } catch (error) {
         if (serial !== request) return;
-        setOwned({ services, snapshot: EMPTY, loaded: true });
+        setLoaded({ services, snapshot: EMPTY });
         logger.error("[workspace-config-catalog] 读取配置目录失败", error);
       }
     };
@@ -54,27 +45,9 @@ export function useConfigWorkspaceCatalog(sourceServerId?: string | null) {
   }, [services]);
   const targets = useMemo(() => {
     const targets = projectConfigTargets(snapshot, tabs.filter(isWorkspaceTab));
-    if (sourceServerId === undefined) return targets;
-    return targets.filter((target) => {
-      const identity = target.workspaceIdentity?.trim();
-      if (!identity) return sourceServerId === null;
-      const parsed = parseRemoteWorkspaceIdentity(identity);
-      return (
-        parsed?.kind === "server" && parsed.sourceServerId === sourceServerId
-      );
-    });
+    return sourceServerId === undefined
+      ? targets
+      : filterWorkspaceTabsForSettingsSource(targets, sourceServerId);
   }, [snapshot, sourceServerId, tabs]);
-  return { targets, loading: owned.services !== services || !owned.loaded };
-}
-
-export function useConfigWorkspaceTargets(sourceServerId?: string | null) {
-  return useConfigWorkspaceCatalog(sourceServerId).targets;
-}
-
-/** fork 适配：settings-scope（上游域）需要「目录是否已就绪」信号；不改变原 hook 的裸数组契约。 */
-export function useConfigWorkspaceCatalogReadiness(
-  sourceServerId?: string | null,
-): boolean {
-  const { loading } = useConfigWorkspaceCatalog(sourceServerId);
-  return !loading;
+  return { targets, loaded: current !== null };
 }

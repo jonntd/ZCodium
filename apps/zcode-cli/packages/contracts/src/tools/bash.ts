@@ -14,6 +14,8 @@ const FALSE_BOOLEAN_STRINGS = new Set(["false", "0", "no", "n", "off"]);
 const BASH_DESCRIPTION_FIELD_PROMPT = [
   'Clear, concise description of what this command does in active voice. Never use words like "complex" or "risk" in the description - just describe what it does.',
   "",
+  "Say what the command does in plain words: do not echo the command's text, its flags, or file paths - the user reads this description, often without seeing the command.",
+  "",
   "For simple commands (git, npm, standard CLI tools), keep it brief (5-10 words):",
   '- ls → "List files in current directory"',
   '- git status → "Show working tree status"',
@@ -33,11 +35,13 @@ export const BashInputSchema = z
   .object({
     command: z.string().describe("The command to execute"),
     /**
-     * Optional timeout in milliseconds (max 600000)
+     * Optional timeout in milliseconds (max 600000 for a foreground command)
      */
     timeout: semanticNumber(z.number())
       .optional()
-      .describe(`Optional timeout in milliseconds (max ${MAX_BASH_TIMEOUT_MS})`),
+      .describe(
+        `Optional timeout in milliseconds (max ${MAX_BASH_TIMEOUT_MS} for a foreground command)`,
+      ),
     /**
      * Clear, concise description of what this command does in active voice.
      * Never use words like "complex" or "risk" in the description - just describe what it does.
@@ -75,7 +79,7 @@ export type BashInput = z.infer<typeof BashInputSchema>;
 
 export const BashInputJsonSchema = toToolJsonSchema(BashInputSchema);
 
-function semanticNumber(schema: z.ZodNumber): z.ZodEffects<z.ZodNumber, number, unknown> {
+function semanticNumber(schema: z.ZodNumber): z.ZodPreprocess<z.ZodNumber> {
   return z.preprocess((value) => {
     if (typeof value !== "string") return value;
     const trimmed = value.trim();
@@ -85,7 +89,7 @@ function semanticNumber(schema: z.ZodNumber): z.ZodEffects<z.ZodNumber, number, 
   }, schema);
 }
 
-function semanticBoolean(): z.ZodEffects<z.ZodBoolean, boolean, unknown> {
+function semanticBoolean(): z.ZodPreprocess<z.ZodBoolean> {
   return z.preprocess((value) => {
     if (typeof value === "boolean") return value;
     if (typeof value === "number") {
@@ -176,6 +180,19 @@ export interface BashOutput {
    */
   assistantAutoBackgrounded?: boolean;
   /**
+   * 前台命令超过超时时间后被转到后台时，记录当时的超时毫秒数
+   */
+  timedOutAfterMs?: number;
+  /**
+   * 转后台的命令会改目录（cd / pushd / popd / chdir）时，记录转后台时的会话 cwd；
+   * 模型文案据此说明会话 cwd 不变。
+   */
+  backgroundSessionCwd?: string;
+  /**
+   * 后台命令属于同步启动的子代理；模型文案据此说明最终回复之后不会再有通知。
+   */
+  backgroundInSyncSubagent?: boolean;
+  /**
    * Flag to indicate if sandbox mode was overridden
    */
   dangerouslyDisableSandbox?: boolean;
@@ -246,6 +263,10 @@ export const BashOutputSchema = z
     backgroundTaskId: z.string().optional(),
     backgroundedByUser: z.boolean().optional(),
     assistantAutoBackgrounded: z.boolean().optional(),
+    // 输入 timeout 允许小数，这里原样记录；修复原因：带 .int() 时小数 timeout 超时转后台会被判为工具失败。
+    timedOutAfterMs: z.number().positive().optional(),
+    backgroundSessionCwd: z.string().optional(),
+    backgroundInSyncSubagent: z.boolean().optional(),
     dangerouslyDisableSandbox: z.boolean().optional(),
     returnCodeInterpretation: z.string().optional(),
     noOutputExpected: z.boolean().optional(),

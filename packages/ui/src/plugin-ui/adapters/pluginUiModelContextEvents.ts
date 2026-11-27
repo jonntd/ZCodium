@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useSyncExternalStore } from "react";
-import {
-  buildPluginUiSessionKey,
-  type PluginUiSessionScope,
-} from "@/plugin-ui/contract.js";
+import { buildPluginUiSessionKey, type PluginUiSessionScope } from "@/plugin-ui/contract.js";
 import type { PluginUiModelContext } from "@/plugin-ui/domain/pluginUiModelContext.js";
 
 // 待发送上下文随 session 保存在窗口内；卸载 Composer 只撤销投递能力。
@@ -94,10 +91,5 @@ export function usePluginUiModelContexts(
   const clearContexts = useCallback(() => {
     if (key) update(key, empty);
   }, [key]);
-  return {
-    contexts,
-    hasContexts: contexts.length > 0,
-    removeContext,
-    clearContexts,
-  };
+  return { contexts, hasContexts: contexts.length > 0, removeContext, clearContexts };
 }

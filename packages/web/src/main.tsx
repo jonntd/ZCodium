@@ -1,8 +1,30 @@
-/* eslint-disable max-lines -- Web 入口集中编排启动、路由与 workspace shell wiring，与 Root.tsx 同样先保持入口收口，避免跨层状态拆散。 */
+// 远控 / 分享网页运行在用户自己的浏览器里，版本不受我们控制。
+// ZCT-2118215639243444224：Chrome 109 没有 Array.prototype.toSorted，Hook 详情组件渲染时抛
+// TypeError，区域错误边界显示“这块界面出了点问题”。Vite 只降级语法、不补运行时 API，
+// 这里只补产物实际用到、且高于构建语法基线的 API；core-js 会先检测原生实现，不覆盖新版浏览器。
+// 必须放在最前面：ES module 按 import 顺序求值，其他模块执行前 API 需已就绪。
+// 范围与新增规则见 docs/web-remote-control/web-browser-support.md。
+import "core-js/stable/array/to-sorted";
+import "core-js/stable/array/to-reversed";
+import "core-js/stable/object/group-by";
+import { createWebPlatform } from "#src/platform/index.js";
+import { mobilePluginDiscoveryTelemetrySchema } from "@zcode/shared";
+import {
+  sessionCreateTelemetrySchema,
+  WEB_REMOTE_CONTROL_WORKSPACE_RECONNECT_TIMEOUT_MS,
+  createWebRemoteControlConnectionRecoveryTimeoutFailure,
+  resolveWebRemoteControlRelayWsUrl,
+  matchesWebRemoteControlRoutePath,
+  resolveWebRemoteControlWorkspaceKey,
+} from "@zcode/shared";
+/* eslint-disable max-lines -- Web 远程控制启动、错误页和 web 平台桥接暂时集中在入口编排。 */
+import type { ComponentProps } from "react";
 import { createRoot } from "react-dom/client";
 import {
   AppErrorBoundary,
-  Button,
+  ensurePendingTaskDraft,
+  readPendingTaskDraft,
+  readComposerWorkspaceScope,
   Root,
   RootStartupLoading,
   ZCodeIntlProvider,
@@ -12,6 +34,7 @@ import {
   setStreamClientId,
   useZCodeIntl,
   type Theme,
+  type WebRemoteControlTerminalTransportState as UiWebRemoteControlTerminalTransportState,
 } from "@zcode/ui";
 import "@zcode/ui/styles.css";
 import { connectViaWebSocket } from "@zcode/client";
@@ -36,9 +59,125 @@ import type {
 } from "@zcode/shared";
 import { WEB_DEFAULT_THEME, resolveWebInitialTheme } from "./webThemeSeed.js";
 
-function resolveWebThemePreference(defaultTheme: Theme = WEB_DEFAULT_THEME): Theme {
+import {
+  WebRemoteControlEntry,
+  isWebRemoteControlOAuthCallback,
+  type WebRemoteControlEntryConnection,
+  createWebRemoteControlV2TokenClient,
+  readKnownDevices,
+  createWebRemoteControlDeviceClient,
+  createWebRemoteControlBridgeRecoveryRunner,
+  acceptWebRemoteControlBridgeInvalidation,
+  resolveWebRemoteControlRecoveryTarget,
+  getWebRemoteControlBridgeRecoveryRetryDelay,
+  WebRemoteControlTerminalTransport,
+  type WebRemoteControlTerminalTransportDiagnostic,
+  type WebRemoteControlTerminalTransportState,
+  createWebRemoteControlAppPayloadRequester,
+  createWebRemoteControlRelayRequestRecovery,
+  createWebRemoteControlLifecycleRecovery,
+  WEB_REMOTE_CONTROL_DEFAULT_THEME,
+  resolveWebRemoteControlInitialTheme,
+  collectWebRemoteControlMobileDeviceInfo,
+  createWebRemoteControlVersionGuard,
+  resolveWebRemoteControlRoutePath,
+  registerWebRemoteControlWorkspaceBridgeServices,
+  connectWebRemoteControlWorkspaceBridgeServices,
+  replayWebRemoteControlWorkspaceBridgeFrames,
+  createWebRemoteControlTaskViewPublisher,
+  type WebRemoteControlWorkspaceBridgeServiceRegistration,
+  markWebRemoteControlBridgeTaskRead,
+  markWebRemoteControlTaskRead,
+} from "#src/web-remote-control/index.js";
+
+import {
+  WebRemoteControlDeviceListPage,
+  WebRemoteControlLoadingScreen,
+  type WebRemoteControlConnectingDevice,
+  WebRemoteControlFailureScreen,
+  resolveWebRemoteControlScreenLocale,
+  showWebRemoteControlVersionNotice,
+} from "#src/web-remote-control/views.js";
+
+type RootServices = Parameters<typeof Root>[0]["services"];
+type ServiceMethod = (...args: any[]) => unknown;
+
+function logWebRemoteControlTaskReadFailure(
+  error: unknown,
+  context: { taskId: string; workspaceKey: string },
+): void {
+  console.warn("[web-remote-control] 标记手机端 task 已读失败", {
+    error: error instanceof Error ? error.message : String(error),
+    taskId: context.taskId,
+    workspaceKey: context.workspaceKey,
+  });
+}
+
+async function markCurrentWebRemoteControlBridgeTaskRead({
+  bridge,
+  services,
+  task,
+}: {
+  bridge: WebRemoteControlExternalWorkspaceBridge | WebRemoteControlWorkspaceBridge;
+  services: RootServices;
+  task: WebRemoteControlTaskTarget;
+}): Promise<void> {
+  const taskWorkspaceKey = resolveWebRemoteControlWorkspaceKey(task);
+  if (taskWorkspaceKey !== bridge.workspaceKey) {
+    // 修复原因：同路径 remote workspace 可能属于不同 identity，禁止误用当前 bridge 写另一条连接。
+    console.warn("[web-remote-control] 跳过跨 workspace 的 task 已读写入", {
+      taskId: task.taskId,
+      taskWorkspaceKey,
+      bridgeWorkspaceKey: bridge.workspaceKey,
+    });
+    return;
+  }
+  if (typeof task.unreadAt !== "number") {
+    return;
+  }
+
+  const result = await markWebRemoteControlTaskRead({
+    service: services.zcodeTaskService,
+    target: {
+      taskId: task.taskId,
+      workspacePath: task.workspacePath,
+      ...(task.workspaceIdentity ? { workspaceIdentity: task.workspaceIdentity } : {}),
+      expectedUnreadAt: task.unreadAt,
+    },
+  });
+  if (!result.ok) {
+    logWebRemoteControlTaskReadFailure(result.error, {
+      taskId: task.taskId,
+      workspaceKey: taskWorkspaceKey,
+    });
+  }
+}
+
+async function markOpenedWebRemoteControlBridgeTaskRead({
+  bridge,
+  expectedUnreadAt,
+  services,
+}: {
+  bridge: WebRemoteControlExternalWorkspaceBridge | WebRemoteControlWorkspaceBridge;
+  expectedUnreadAt?: number;
+  services: RootServices;
+}): Promise<void> {
+  const result = await markWebRemoteControlBridgeTaskRead({
+    bridge,
+    expectedUnreadAt,
+    service: services.zcodeTaskService,
+  });
+  if (!result.ok) {
+    logWebRemoteControlTaskReadFailure(result.error, {
+      taskId: bridge.initialTaskId ?? "unknown",
+      workspaceKey: bridge.workspaceKey,
+    });
+  }
+}
+
+function resolveWebThemePreference(defaultTheme: Theme = WEB_REMOTE_CONTROL_DEFAULT_THEME): Theme {
   const saved = localStorage.getItem("zcode-theme");
-  return resolveWebInitialTheme({ storedTheme: saved, defaultTheme });
+  return resolveWebRemoteControlInitialTheme({ storedTheme: saved, defaultTheme });
 }
 
 // 初始化主题：默认 Zai dark，后续由 useTheme hook 接管
@@ -68,16 +207,18 @@ function resolveWebThemePreference(defaultTheme: Theme = WEB_DEFAULT_THEME): The
   document.documentElement.classList.toggle("theme-zai-dark", appliedTheme === "zai-dark");
 }
 
-async function resolveFeedbackUrl(): Promise<string | undefined> {
-  return (await resolveWebHelpConfig()).feedback_url;
-}
-
 const root = createRoot(document.getElementById("root")!);
+const webAuthService = createWebAuthService();
+let isPageUnloading = false;
 
 // 初始化 Web 端流式 clientId，确保所有 hook 在首次渲染前就使用稳定 ID
 {
   setStreamClientId(generateMobileDeviceFingerprint());
 }
+
+window.addEventListener("beforeunload", () => {
+  isPageUnloading = true;
+});
 
 interface WebBootstrapResult {
   wsUrl: string;
@@ -202,88 +343,58 @@ function createWebPlatform(
         return;
       }
 
-      if (
-        typeof window.Notification === "undefined" ||
-        window.Notification.permission !== "granted"
-      ) {
-        return;
-      }
+// 访问 window.localStorage 本身在部分浏览器会抛错，统一包在方法里交给调用方兜底。
+const webRemoteControlStorage: Pick<Storage, "getItem" | "setItem"> = {
+  getItem: (key) => window.localStorage.getItem(key),
+  setItem: (key, value) => window.localStorage.setItem(key, value),
+};
 
-      try {
-        new window.Notification(payload.title, {
-          body: payload.body,
-          silent: true,
-        });
-        void playTaskNotificationSound();
-      } catch {
-        // 浏览器通知不可用时静默忽略，避免打断主流程
-      }
-    },
-    // Web 端不需要跨窗口 tab 管理
-    syncWindowTabs: () => {},
-    // Web 端没有宿主层 Dock / 任务栏徽标，保持空实现以兼容统一平台接口
-    syncWindowUnreadCount: () => {},
-    syncActiveTaskSession: () => {},
-    onFocusTab: () => () => {},
-    onNewTab: () => () => {},
-    onCloseActiveContextRequest: () => () => {},
-    onOpenBrowserUrl: () => () => {},
-    onNewTask: () => () => {},
-    onOpenWorkspace: () => () => {},
-    onWindowFullscreenChanged: () => () => {},
-    onTaskNotificationClick: () => () => {},
-    exportLogs: () => Promise.resolve({ success: false, error: "Not supported in web mode" }),
-    captureWindowScreenshot: () => Promise.resolve(null),
-    importChromeBrowserData: (_options) =>
-      Promise.resolve({
-        success: false,
-        cookies: { imported: 0, skipped: 0, failed: 0 },
-        localStorage: {
-          originsImported: 0,
-          entriesImported: 0,
-          originsSkipped: 0,
-          originsFailed: 0,
-        },
-        error: "chrome_import_not_supported" as const,
-      }),
-    clearEmbeddedBrowserData: () =>
-      Promise.resolve({ success: false, error: "Not supported in web mode" }),
-    // IPlatformService 新增更新提示能力后，Web fallback 没有同步补齐空实现，
-    // 根级 typecheck 会直接失败，连与桌面端无关的改动都没法完成校验。
-    // Web 端当前没有桌面更新器，先显式 no-op，保持接口完整且不改变现有行为。
-    onUpdateReady: () => () => {},
-    onUpdateCheckResult: () => () => {},
-    onUpdateStateChanged: () => () => {},
-    getUpdateState: () => Promise.resolve({ kind: "idle", enabled: true }),
-    downloadUpdate: () => Promise.resolve(),
-    cancelUpdateDownload: () => Promise.resolve(),
-    getDesktopSessionActivity: () => Promise.resolve({ runningAgentSessionCount: 0 }),
-    getDesktopZoomLevel: () => Promise.resolve({ zoomLevel: 0 }),
-    onDesktopZoomLevelChanged: () => () => {},
-    onPostUpdateReleaseNotes: () => () => {},
-    acknowledgePostUpdateReleaseNotes: () => Promise.resolve(),
-    skipUpdateVersion: () => Promise.resolve(),
-    quitAndInstallUpdate: () => Promise.resolve(),
-    getInstalledEditors: () => Promise.resolve([]),
-    openInEditor: () => Promise.resolve({ success: false, error: "Not supported in web mode" }),
-    executeDesktopCommand: () => Promise.resolve(),
-    setApplicationLocale: (_locale) => Promise.resolve(),
-    setTitleBarTheme: () => Promise.resolve(),
-    getDeviceId: () => {
-      const nav = globalThis.navigator as Navigator & { platform?: string };
-      const platform = nav?.platform ?? "";
-      const screenWidth = globalThis.screen?.width;
-      const screenHeight = globalThis.screen?.height;
-      const colorDepth = globalThis.screen?.colorDepth;
-      const parts = [
-        platform,
-        screenWidth !== undefined ? String(screenWidth) : "",
-        screenHeight !== undefined ? String(screenHeight) : "",
-        colorDepth !== undefined ? String(colorDepth) : "",
-      ];
-      return parts.filter(Boolean).join("|");
-    },
-  };
+const remoteEntry = new WebRemoteControlEntry({
+  auth: webAuthService,
+  getHref: () => window.location.href,
+  replaceHref: (href) => window.history.replaceState(window.history.state, "", href),
+  storage: webRemoteControlStorage,
+  locale: resolveWebRemoteControlScreenLocale(navigator.language),
+  devices: createWebRemoteControlDeviceClient(window.location.origin),
+  subscribeVisible: (listener) => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") listener();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  },
+  loginOptions: { devReturnTo: resolveWebAuthDevReturnTo(WEB_ZAI_OAUTH_CONFIG) },
+  token: createWebRemoteControlV2TokenClient(window.location.origin),
+  connect: (connection) => {
+    void bootstrapExternalRelayWebRemoteControl(connection);
+  },
+  onView: (view) => {
+    if (view.kind === "callback") renderWebAuthCallbackPage();
+    else if (view.kind === "login") renderWebLoginPage();
+    else if (view.kind === "devices") {
+      document.title = "ZCode - Web Remote Control";
+      root.render(
+        <WebRemoteControlDeviceListPage
+          view={view}
+          onSelect={(sid) => remoteEntry.selectDevice(sid)}
+          onRefresh={() => {
+            void remoteEntry.refreshDevices();
+          }}
+          onSwitchAccount={() => {
+            void remoteEntry.switchAccount();
+          }}
+          locale={resolveWebRemoteControlScreenLocale(navigator.language)}
+        />,
+      );
+    } else if (view.kind === "failure") renderWebRemoteControlFailure(view.failure);
+  },
+});
+
+function toWebRemoteControlFailure(
+  reason: WebRemoteControlFailureReason,
+  message?: string,
+): WebRemoteControlFailure {
+  return { reason, message };
 }
 
 function resolveDefaultWsOrigin(): string {
@@ -673,7 +784,14 @@ async function bootstrapWebApp() {
   try {
     bootstrap = await resolveWebBootstrap();
   } catch (error) {
-    renderWebBootstrapError(error);
+    renderWebRemoteControlFailure(
+      error && typeof error === "object" && "reason" in error
+        ? (error as WebRemoteControlFailure)
+        : toWebRemoteControlFailure(
+            "unexpected-error",
+            error instanceof Error ? error.message : String(error),
+          ),
+    );
     return;
   }
 
@@ -743,7 +861,14 @@ async function bootstrapWebApp() {
       </AppErrorBoundary>,
     );
   } catch (error) {
-    renderWebBootstrapError(error);
+    renderWebRemoteControlFailure(
+      error && typeof error === "object" && "reason" in error
+        ? (error as WebRemoteControlFailure)
+        : toWebRemoteControlFailure(
+            "unexpected-error",
+            error instanceof Error ? error.message : String(error),
+          ),
+    );
   }
 }
 

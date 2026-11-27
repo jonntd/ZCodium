@@ -1,16 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createDefaultFileWorkspaceHookTrustStore } from "@zcode/adapters/storage";
-import { getDefaultConfigPath } from "@zcode/adapters/config";
+import {
+  getDefaultConfigPath,
+  resolveWorkspaceHookTrustIdentityForWorkspace,
+} from "@zcode/adapters/config";
 import {
   DefaultRuntimeConfig,
   createWorkspaceHookBundleSnapshot,
+  isWorkspaceHookScriptUnavailable,
   type WorkspaceHookBundleSnapshot,
   type WorkspaceHookTrustRecord,
 } from "@zcode/contracts";
 import {
   buildWorkspaceHookBundleSnapshot,
   readWorkspaceHookProjectSources,
+  readWorkspaceHookScriptStates,
   resolveWorkspaceHookRuntimeRoot,
   workspaceHooksConfigSchema,
   type WorkspaceHooksConfig,
@@ -20,6 +25,8 @@ export interface WorkspaceHookTrustCliTarget {
   workspacePath: string;
   workspaceIdentity?: string;
   userConfigPath?: string;
+  /** 解析受管 worktree 的数据根目录（ZCODE_DATA_BASE_DIR）；缺省 process.env。 */
+  env?: Record<string, string | undefined>;
 }
 
 export interface WorkspaceHookTrustCliItem {
@@ -30,7 +37,8 @@ export interface WorkspaceHookTrustCliItem {
   sourcePath: string;
   configuredEnabled: boolean;
   hookDeclarationDigest: string;
-  trustState: "trusted_persistent" | "pending_trust";
+  /** blocked_untrusted：入口脚本不存在或无法读取，不能授权（D24）。 */
+  trustState: "trusted_persistent" | "pending_trust" | "blocked_untrusted";
 }
 
 export interface WorkspaceHookTrustCliStatus {
@@ -46,14 +54,15 @@ export interface WorkspaceHookTrustCliStatus {
     | "workspace_hooks_require_trust_capable_host"
     // status 必须与 grant/revoke 的失败语义一致——损坏 store 若伪装成
     // pending_trust，用户按提示 grant 只会撞上 trust_store_corrupt，恢复指引矛盾。
-    | "workspace_hooks_trust_store_corrupt";
+    | "workspace_hooks_trust_store_corrupt"
+    | "workspace_hook_script_unavailable";
   items: WorkspaceHookTrustCliItem[];
 }
 
 export async function inspectWorkspaceHookTrust(
   input: WorkspaceHookTrustCliTarget,
 ): Promise<WorkspaceHookTrustCliStatus> {
-  const target = normalizeTarget(input);
+  const target = await normalizeTarget(input);
   const snapshot = await discoverSnapshot(target);
   const store = await createDefaultFileWorkspaceHookTrustStore({
     userConfigPath: target.userConfigPath,
@@ -104,9 +113,11 @@ export async function inspectWorkspaceHookTrust(
     sourcePath: entry.sourceRelativePath,
     configuredEnabled: entry.configuredEnabled,
     hookDeclarationDigest: entry.hookDeclarationDigest,
-    trustState: trusted.has(entry.hookDeclarationDigest)
-      ? ("trusted_persistent" as const)
-      : ("pending_trust" as const),
+    trustState: isWorkspaceHookScriptUnavailable(entry)
+      ? ("blocked_untrusted" as const)
+      : trusted.has(entry.hookDeclarationDigest)
+        ? ("trusted_persistent" as const)
+        : ("pending_trust" as const),
   }));
   const enabled = items.filter((item) => item.configuredEnabled);
   const reasonCode =
@@ -114,7 +125,9 @@ export async function inspectWorkspaceHookTrust(
       ? "workspace_hooks_no_enabled_hooks"
       : enabled.every((item) => item.trustState === "trusted_persistent")
         ? "workspace_hooks_trusted_persistent"
-        : "workspace_hooks_pending_trust";
+        : enabled.some((item) => item.trustState === "pending_trust")
+          ? "workspace_hooks_pending_trust"
+          : "workspace_hook_script_unavailable";
   return {
     workspacePath: target.workspacePath,
     workspaceIdentity: target.workspaceIdentity,
@@ -132,9 +145,19 @@ export async function grantWorkspaceHookTrust(
     appVersion?: string;
   },
 ): Promise<WorkspaceHookTrustCliStatus> {
-  const target = normalizeTarget(input);
+  const target = await normalizeTarget(input);
   const snapshot = await requireSnapshot(target);
   const selected = selectGrantEntries(snapshot, input);
+  // 入口脚本不存在或无法读取时没有可审核的内容（D24）：整条命令拒绝，不写 store。
+  // message 保持公开 reason code（协议侧按它收敛）；被拒条目放在 unavailableItems 供 CLI 列出（第二轮 SG-02）。
+  const unavailable = selected.filter(isWorkspaceHookScriptUnavailable);
+  if (unavailable.length > 0) {
+    throw Object.assign(new Error("workspace_hook_script_unavailable"), {
+      unavailableItems: unavailable.map(
+        (entry) => `${entry.event} ${formatCommand(entry)} (${entry.sourceRelativePath})`,
+      ),
+    });
+  }
   const grantedAt = new Date().toISOString();
   const records: WorkspaceHookTrustRecord[] = selected.map((entry) => ({
     workspaceIdentity: snapshot.workspaceIdentity,
@@ -172,7 +195,7 @@ export async function revokeWorkspaceHookTrustCli(
     all?: boolean;
   },
 ): Promise<WorkspaceHookTrustCliStatus> {
-  const target = normalizeTarget(input);
+  const target = await normalizeTarget(input);
   const digests = unique(input.hookDeclarationDigests ?? []);
   if ((input.all === true) === digests.length > 0) {
     throw new Error("Specify exactly one of --all or --hook-digest.");
@@ -210,12 +233,16 @@ async function discoverSnapshot(
     workspacePath: target.workspacePath,
     sources: discovery.sources,
     runtimeRoot,
+    scriptStates: await readWorkspaceHookScriptStates({
+      workspacePath: target.workspacePath,
+      sources: discovery.sources,
+    }),
   });
   return data ? createWorkspaceHookBundleSnapshot(data) : undefined;
 }
 
 async function requireSnapshot(
-  target: ReturnType<typeof normalizeTarget>,
+  target: Awaited<ReturnType<typeof normalizeTarget>>,
 ): Promise<WorkspaceHookBundleSnapshot> {
   const snapshot = await discoverSnapshot(target);
   if (!snapshot) throw new Error("No Workspace Hook declarations were discovered.");
@@ -262,12 +289,21 @@ async function readUserHooks(path: string): Promise<WorkspaceHooksConfig | undef
   }
 }
 
-function normalizeTarget(input: WorkspaceHookTrustCliTarget) {
+async function normalizeTarget(input: WorkspaceHookTrustCliTarget) {
   const workspacePath = resolve(input.workspacePath);
   return {
     workspacePath,
-    workspaceIdentity: input.workspaceIdentity?.trim() || workspacePath,
+    // Trust record 的读写键是 Trust identity（D23）：受管 worktree 归一为源仓库路径，
+    // 与 Runtime snapshot、Host Settings 走同一个共享 resolver；远程 identity 原样。
+    workspaceIdentity: await resolveWorkspaceHookTrustIdentityForWorkspace({
+      workspacePath,
+      ...(input.workspaceIdentity?.trim()
+        ? { workspaceIdentity: input.workspaceIdentity.trim() }
+        : {}),
+      ...(input.env ? { env: input.env } : {}),
+    }),
     ...(input.userConfigPath ? { userConfigPath: input.userConfigPath } : {}),
+    ...(input.env ? { env: input.env } : {}),
   };
 }
 

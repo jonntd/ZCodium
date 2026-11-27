@@ -51,8 +51,7 @@ export function useExtensionMentionGroups(
               : group.state === "error"
                 ? intl.formatMessage({
                     id:
-                      group.errorCode ===
-                      ZCODE_PLUGIN_MENTION_ERROR_CODES.toolDenied
+                      group.errorCode === ZCODE_PLUGIN_MENTION_ERROR_CODES.toolDenied
                         ? "extensions.mention.denied"
                         : "extensions.mention.failed",
                   })

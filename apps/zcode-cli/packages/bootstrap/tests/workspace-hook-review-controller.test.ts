@@ -14,6 +14,7 @@ import {
   WorkspaceHookReviewController,
   type WorkspaceHookReviewLifecycleEvent,
 } from "../src/app/workspace-hook-review-controller.js";
+import { toWorkspaceHookReviewTarget } from "../src/app/workspace-hook-review-request.js";
 
 const WORKSPACE = "local:/workspace";
 const DIGEST = "a".repeat(64);
@@ -98,6 +99,8 @@ function fixture(
     initialSnapshot?: WorkspaceHookBundleSnapshot;
     rebuildError?: Error;
     policyProvider?: InMemoryWorkspaceHookPolicyProvider;
+    resolveTargetTrustIdentity?: (workspaceIdentity: string) => Promise<string>;
+    workspaceKey?: string;
   } = {},
 ) {
   const coordinator = new WorkspaceHookTrustCoordinator({
@@ -163,6 +166,10 @@ function fixture(
     mutation,
     sessionId: "session-1",
     store: Promise.resolve(store),
+    ...(input.resolveTargetTrustIdentity
+      ? { resolveTargetTrustIdentity: input.resolveTargetTrustIdentity }
+      : {}),
+    ...(input.workspaceKey ? { workspaceKey: input.workspaceKey } : {}),
   });
   return {
     admission,
@@ -658,6 +665,92 @@ describe("WorkspaceHookReviewController", () => {
     expect(value.store.grant).not.toHaveBeenCalled();
   });
 
+  it("D23：worktree target（workspaceKey）经 resolver 归一后与 Trust identity snapshot 匹配，不再误判 mismatch", async () => {
+    const WORKTREE_KEY = "/data/.zcode/worktrees/3f2a/workspace";
+    const resolveTargetTrustIdentity = vi.fn(async (identity: string) =>
+      identity === WORKTREE_KEY ? WORKSPACE : identity,
+    );
+    const value = fixture({ resolveTargetTrustIdentity });
+    void value.admission.activate("startup");
+
+    await expect(
+      value.controller.requestReview({
+        workspaceIdentity: WORKTREE_KEY,
+        bundleDigest: "b".repeat(64),
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+    await expect(
+      value.controller.revokeCurrent({
+        sessionId: "session-1",
+        workspaceIdentity: WORKTREE_KEY,
+        bundleDigest: "b".repeat(64),
+        hookDeclarationDigests: [DIGEST],
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+    // revoke 写入的仍是 Trust identity（源仓库），不是 worktree 的 workspaceKey。
+    expect(value.store.revoke).toHaveBeenCalledWith({
+      workspaceIdentity: WORKSPACE,
+      hookDeclarationDigests: [DIGEST],
+    });
+    expect(resolveTargetTrustIdentity).toHaveBeenCalledWith(WORKTREE_KEY);
+
+    // resolver 不认的其他路径仍按 mismatch 拒绝。
+    await expect(
+      value.controller.requestReview({
+        workspaceIdentity: "/other/workspace",
+        bundleDigest: "b".repeat(64),
+      }),
+    ).resolves.toEqual({ accepted: false, reasonCode: "workspace_hooks_snapshot_mismatch" });
+  });
+
+  it("D23：对外 request 与 AdmissionUpdated 只发会话 workspaceKey，Trust identity 只留在内部", async () => {
+    const WORKTREE_KEY = "/data/.zcode/worktrees/3f2a/workspace";
+    const value = fixture({
+      workspaceKey: WORKTREE_KEY,
+      resolveTargetTrustIdentity: async (identity) =>
+        identity === WORKTREE_KEY ? WORKSPACE : identity,
+    });
+    const activation = value.admission.activate("startup");
+    // UI Banner 用自己的 workspaceKey（worktree 路径）发起 requestReview。
+    await expect(
+      value.controller.requestReview({
+        workspaceIdentity: WORKTREE_KEY,
+        bundleDigest: "b".repeat(64),
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+    await vi.waitFor(() => {
+      expect(
+        value.events.some((event) => event.type === SessionEventType.WorkspaceHookReviewRequested),
+      ).toBe(true);
+    });
+    const requested = value.events.find(
+      (event) => event.type === SessionEventType.WorkspaceHookReviewRequested,
+    );
+    if (!requested || !("request" in requested.payload)) throw new Error("expected review request");
+    const request = requested.payload.request;
+    // UI 的 matchesWorkspaceBinding 用 request.workspaceIdentity 与 workspaceKey 比较。
+    expect(request.workspaceIdentity).toBe(WORKTREE_KEY);
+
+    // UI 回显 request 构造 respond target：flow 校验通过，Trust 仍写入源仓库 Trust identity。
+    await expect(
+      value.controller.respond(toWorkspaceHookReviewTarget(request), {
+        action: "trust_selected",
+        reviewItemIds: ["item-0"],
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+    await activation;
+    expect(value.store.grant).toHaveBeenCalledWith([
+      expect.objectContaining({ workspaceIdentity: WORKSPACE, hookDeclarationDigest: DIGEST }),
+    ]);
+    const admissionUpdates = value.events.filter(
+      (event) => event.type === SessionEventType.WorkspaceHookAdmissionUpdated,
+    );
+    expect(admissionUpdates.length).toBeGreaterThan(0);
+    for (const event of admissionUpdates) {
+      expect(event.payload).toMatchObject({ workspaceIdentity: WORKTREE_KEY });
+    }
+  });
+
   it("Settings 可在没有 pending generation 时按当前 snapshot 精确撤销 persistent Trust", async () => {
     const value = fixture();
 
@@ -1017,5 +1110,43 @@ describe("WorkspaceHookReviewController", () => {
     expect(failure?.context?.errorMessage).toBe(
       "trust store disk write failed",
     );
+  });
+});
+
+/**
+ * D24（ZP-20261110-06）：入口脚本不可用的条目没有可审核的内容。
+ * 即使与其他 pending 条目处于同一个 flow，选中它的 decision 也整体拒绝且不写 store。
+ */
+describe("WorkspaceHookReviewController 入口脚本不可用（D24）", () => {
+  it("选中入口不可用的条目时整体拒绝，不写 Trust store", async () => {
+    const base = snapshot();
+    const withUnavailable = createWorkspaceHookBundleSnapshot({
+      ...base,
+      hooks: [
+        ...base.hooks,
+        {
+          ...base.hooks[0]!,
+          reviewItemId: "item-1",
+          hookIndex: 1,
+          command: "./missing.sh",
+          scriptEntry: { path: "missing.sh", state: { kind: "missing" } },
+          hookDeclarationDigest: "e".repeat(64),
+        },
+      ],
+    });
+    const value = fixture({ initialSnapshot: withUnavailable });
+    const { request } = await pendingRequest(value);
+    expect(request.summary.pendingCount).toBe(1);
+    expect(request.items.find((item) => item.reviewItemId === "item-1")?.trustState).toBe(
+      "blocked_untrusted",
+    );
+
+    await expect(
+      value.controller.respond(toWorkspaceHookReviewTarget(request), {
+        action: "trust_selected",
+        reviewItemIds: ["item-0", "item-1"],
+      }),
+    ).resolves.toEqual({ accepted: false, reasonCode: "workspace_hook_script_unavailable" });
+    expect(value.store.grant).not.toHaveBeenCalled();
   });
 });

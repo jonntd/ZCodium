@@ -15,7 +15,6 @@ export function exampleSidePaneFullView(controller: SidePaneFullViewController):
   const fullView = controller.fullView;
   return {
     mode: !fullView ? "normal" : fullView.surface === "conversation" ? "conversation" : "floating",
-    // 完整视图只接管任务列表以外的内容区，不能顺带改变用户的侧栏显隐偏好。
-    sidebarVisible: (isSidebarVisible) => isSidebarVisible,
+    sidebarVisible: (isSidebarVisible) => isSidebarVisible && fullView === null,
   };
 }

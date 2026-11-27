@@ -1,8 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type {
-  ZCodeInstalledPluginSummary,
-  ZCodePluginInfo,
-} from "@zcode/shared";
+import type { ZCodeInstalledPluginSummary, ZCodePluginInfo } from "@zcode/shared";
 import type { IPluginManagementService } from "@zcode/services";
 import { usePluginManagementStore } from "@/store/pluginManagementStore.js";
 
@@ -50,9 +47,7 @@ export function usePluginUninstall({
 
   const uninstalling =
     pendingId !== null &&
-    activeOperations.some(
-      (operation) => operation.id === `plugin:uninstall:${pendingId}`,
-    );
+    activeOperations.some((operation) => operation.id === `plugin:uninstall:${pendingId}`);
 
   const requestUninstall = useCallback((pluginId: string) => {
     setPendingId(pluginId);
@@ -70,11 +65,5 @@ export function usePluginUninstall({
     setPendingId(null);
   }, [pluginService, onAfterUninstall, pendingId, store, uninstallPlugin]);
 
-  return {
-    pendingPlugin,
-    uninstalling,
-    requestUninstall,
-    cancelUninstall,
-    confirmUninstall,
-  };
+  return { pendingPlugin, uninstalling, requestUninstall, cancelUninstall, confirmUninstall };
 }

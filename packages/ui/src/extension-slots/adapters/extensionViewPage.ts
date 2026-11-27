@@ -1,7 +1,4 @@
-import {
-  AppBridge,
-  type McpUiHostContext,
-} from "@modelcontextprotocol/ext-apps/app-bridge";
+import { AppBridge, type McpUiHostContext } from "@modelcontextprotocol/ext-apps/app-bridge";
 import type {
   CallToolResult,
   ListResourceTemplatesResult,
@@ -136,10 +133,7 @@ export function createExtensionViewPage(input: {
     attributeFilter: ["class", "style", "data-theme"],
   });
 
-  const request = async (
-    method: ExtensionViewRequestMethod,
-    params?: object,
-  ) => {
+  const request = async (method: ExtensionViewRequestMethod, params?: object) => {
     if (disposed || !instanceId) throw new Error("Extension view was closed");
     return service.viewRequest({
       instanceId,
@@ -160,17 +154,13 @@ export function createExtensionViewPage(input: {
       update({ phase: "running" });
       pushContext();
     };
-    active.oncalltool = async (params) =>
-      (await request("tools/call", params)) as CallToolResult;
+    active.oncalltool = async (params) => (await request("tools/call", params)) as CallToolResult;
     active.onreadresource = async (params) =>
       (await request("resources/read", params)) as ReadResourceResult;
     active.onlistresources = async (params) =>
       (await request("resources/list", params ?? {})) as ListResourcesResult;
     active.onlistresourcetemplates = async (params) =>
-      (await request(
-        "resources/templates/list",
-        params ?? {},
-      )) as ListResourceTemplatesResult;
+      (await request("resources/templates/list", params ?? {})) as ListResourceTemplatesResult;
     active.setRequestHandler("resources/subscribe", async (message) => {
       await request("resources/subscribe", { uri: message.params.uri });
       subscribed.add(message.params.uri);
@@ -210,12 +200,7 @@ export function createExtensionViewPage(input: {
   };
 
   const offPorts = platform.onPorts((event) => {
-    if (
-      disposed ||
-      event.sandboxId !== handle?.sandboxId ||
-      event.initId !== handle.initId
-    )
-      return;
+    if (disposed || event.sandboxId !== handle?.sandboxId || event.initId !== handle.initId) return;
     void bridge?.close();
     attached = false;
     logger.lifecycle.info("[extension-view] port attached", {
@@ -244,9 +229,7 @@ export function createExtensionViewPage(input: {
       () => fail(new Error("Extension view handshake timed out")),
       MCP_APPS_HANDSHAKE_TIMEOUT_MS,
     );
-    void active
-      .connect(createPluginUiMessagePortTransport(event.port))
-      .catch(fail);
+    void active.connect(createPluginUiMessagePortTransport(event.port)).catch(fail);
   });
 
   const preparation = (async () => {
@@ -260,19 +243,19 @@ export function createExtensionViewPage(input: {
     // 先记下句柄：准备期间标签页已卸载时，dispose 仍要释放这份沙箱登记。
     handle = prepared.sandbox;
     if (disposed) return;
-    stopNotifications = service.onDynamicViewNotifications({
-      instanceId: prepared.instanceId,
-    })((notification) => {
-      if (!attached || !bridge) return;
-      const uri = notification.params?.uri;
-      // 资源变更只投给订阅了该 uri 的页面。
-      if (
-        notification.method === "notifications/resources/updated" &&
-        (typeof uri !== "string" || !subscribed.has(uri))
-      )
-        return;
-      void bridge.notification(notification).catch(() => undefined);
-    });
+    stopNotifications = service.onDynamicViewNotifications({ instanceId: prepared.instanceId })(
+      (notification) => {
+        if (!attached || !bridge) return;
+        const uri = notification.params?.uri;
+        // 资源变更只投给订阅了该 uri 的页面。
+        if (
+          notification.method === "notifications/resources/updated" &&
+          (typeof uri !== "string" || !subscribed.has(uri))
+        )
+          return;
+        void bridge.notification(notification).catch(() => undefined);
+      },
+    );
     logger.lifecycle.info("[extension-view] prepared", {
       viewId: input.viewId,
       instanceId: prepared.instanceId,
@@ -312,9 +295,7 @@ export function createExtensionViewPage(input: {
       await preparation;
       // 页面先拿到 ui/resource-teardown 的清理窗口，再关桥、释放沙箱登记；实例随后在扩展进程关闭。
       await runPluginUiHostTeardown({
-        bridge: bridge as unknown as Parameters<
-          typeof runPluginUiHostTeardown
-        >[0]["bridge"],
+        bridge: bridge as unknown as Parameters<typeof runPluginUiHostTeardown>[0]["bridge"],
         transport: null,
         wasAttached: attached,
         handle,

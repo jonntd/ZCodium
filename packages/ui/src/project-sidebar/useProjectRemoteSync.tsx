@@ -49,15 +49,11 @@ export function useProjectRemoteSync(directory: RemoteProjectDirectory) {
   const actions = useCallback(
     (project: VirtualProject): ProjectRowAction[] => {
       const host = directory.hosts.find(
-        (item) =>
-          item.id === project.hostId && item.connectionStatus === "online",
+        (item) => item.id === project.hostId && item.connectionStatus === "online",
       );
       if (!host || !available) return [];
       return project.roots.flatMap((root, index) => {
-        const identity = buildRemoteHostWorkspaceIdentity(
-          host.id,
-          root.rootPath,
-        );
+        const identity = buildRemoteHostWorkspaceIdentity(host.id, root.rootPath);
         const sourceServerId = resolveDataSyncEntrySourceServerId({
           workspacePath: root.rootPath,
           workspaceIdentity: identity,

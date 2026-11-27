@@ -8,9 +8,7 @@ import type { WorkbenchPaneReport } from "@/extension-slots/contract.js";
  * 变化时更新，卸载时注销。传 null 表示这个窗格不报告（只读观察视图、远程工作区等）。
  * 没有扩展门面（Web、手机远控）时什么都不做。
  */
-export function useExtensionWorkbenchPane(
-  entry: WorkbenchPaneReport | null,
-): void {
+export function useExtensionWorkbenchPane(entry: WorkbenchPaneReport | null): void {
   const service = useExtensionsService();
   // 以序列化值做依赖：同一内容的新对象不触发重新登记。
   const serialized = entry ? JSON.stringify(entry) : null;

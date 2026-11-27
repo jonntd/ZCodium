@@ -2,7 +2,7 @@
 
 ## 目标
 
-父 Session 的子智能体状态使用一份只读投影，同时驱动 composer 实时入口、右上角摘要、
+父 Session 的子智能体状态使用一份只读投影，同时驱动 Activity 胶囊及浮层、
 子智能体目录和失效 tab 清理。目录只展示当前有效 conversation branch 中能够可靠关联到
 已持久化 `subagent_child` session 的 Agent/Task 调用，不创建占位 session，也不新增数据库表。
 
@@ -48,6 +48,9 @@ CLI ProductProjection V4 snapshot.subagents
   或历史记录无法可靠证明 child 关联，则不展示 stub。
 - `running` 包含 foreground、background、blocked 和 waiting；success、failed、cancelled、lost
   统一属于 `ended`，每项继续保留具体状态。
+- 上一代 runtime 进程退出时仍在运行的 child（启动早于本进程、本进程无活事实、child 在本进程启动后
+  没有落盘）不再算 running；旧进程写在输出目录 `metadata.json` 里的终态（正常关闭时的停止、失败、完成）照常显示为 cancelled / failed / success，没有终态的标 `lost`。判据与给模型的中断提醒见
+  [Subagent 工具「上一代 runtime 遗留的 Agent」](../apps/zcode-cli/docs/design/v2/tool/07-subagent.md)。
 - 冷恢复先从持久 transcript 重建 row，再以 session store 中已验证的
   `taskType=subagent_child` 事实校验成员；旧历史里模糊、未持久或已被 branch cut 移除的引用不能进入
   `snapshot.subagents`。运行中的恢复态由 runtime overlay 补齐，不能仅凭历史标题或时间猜测。
@@ -57,14 +60,13 @@ CLI ProductProjection V4 snapshot.subagents
 ## UI 合同
 
 ```text
-mini capsule
-├─ subagent-only -> 只统计 running subagent；不显示 ended；显示“{count} 运行”
-└─ Bash/Subagent mixed -> 统计两类 running item；显示“{count} 运行”
+Activity capsule
+├─ 运行项：Bash / 独立 Subagent / Workflow 顶层计数；Workflow 内部 Agent 去重
+└─ 本批全部结束：保留结果到下次成功发送
 
-expanded status panel
-└─ 智能体（统一折叠分组，标题尾部显示“{count} 运行”）
-   ├─ 正在运行 -> 现有运行项，可直接打开 child 详情；可控 background 项保留 Stop
-   └─ 已结束 · N -> 打开或复用 Subagent 目录 tab
+Activity 浮层
+├─ 当前运行项与本批已结束项；可打开详情，可控运行项提供 Stop
+└─ Subagents · N -> 打开或复用 Subagent 目录 tab（N 为完整已结束总数）
 
 Subagent directory（桌面 / 普通 Web）
 ├─ 正在运行（不分页）
@@ -73,25 +75,34 @@ Subagent directory（桌面 / 普通 Web）
    └─ 再显示 20 个
 ```
 
-- “{count} 运行”统计 `snapshot.subagents.running` 的成员数量，表达当前仍在运行的
-  subagent 数量；不得显示为“{count} 后台”，因为该集合同时包含 foreground、background、
-  blocked 和 waiting。
-- mini capsule 的计数只要包含 running subagent，也必须使用“{count} 运行”；只有纯
-  background terminal 计数继续使用“{count} 后台”。
-- 只有 ended 且没有 Git/plan/goal/running 等其它摘要内容时，mini 可以消失；不为目录增加
-  单独常驻胶囊。
-- expanded panel 中“已结束”必须位于“智能体”折叠内容内，不能与“智能体”作为两个并列的
-  顶层 section；没有 running、但 panel 因其它摘要内容存在时，仍可显示只含“已结束”的
-  “智能体”分组。
-- expanded panel 的运行项以 V4 `snapshot.subagents.running` 作为 child 身份和展示事实，但 Stop
-  控制权继续来自父 snapshot 的 `backgroundWorks`。两者只能按完全相同的 `childSessionId`
-  关联；命中 `status=running`、`kind=subagent` 且有 `workId`、`cancellable !== false` 时显示
-  Stop，并继续发送 `cancelBackgroundWork(workId)`。Stop 必须阻止详情点击冒泡；没有可靠
-  background work 关联的 foreground child 不显示伪造的单项 Stop，也不得按标题或时间猜测。
-- 目录项展示 Agent description、最终摘要或错误、相对时间、状态图标；目录只读，不新增
-  stop/cancel 控件。
+- Activity 的运行计数为 Bash、独立 Subagent 与 Workflow 顶层项总数，显示“活动 N”；
+  `snapshot.subagents.running` 同时包含 foreground、background、blocked 和 waiting，
+  不能把它缩窄为“后台”。Workflow 内部 Agent 按协议身份去重。
+- 本批全部结束后保留完成／停止／失败摘要；下次成功发送清除，失败发送保留。
+  只有已清除历史时不显示胶囊，不为目录增加常驻胶囊。
+- 历史目录入口位于 Activity 浮层列表底部，不再建立“智能体”折叠分区。
+- Activity 的运行项以 V4 `snapshot.subagents.running` 作为 child 身份、展示和 Stop
+  能力的事实源。仅 runtime 确认当前执行支持单项停止时，running 项携带 `stopControl`
+  （`taskId` 与本次执行的 `executionId`）；UI 不再关联 `backgroundWorks` 推断 Agent Stop，
+  也不得用 agentId、标题或时间猜测。点击发送父会话的 `stopSubagent`，由该会话 runtime
+  校验 task 归属、执行身份和未结束状态；迟到命令不能停止同一 agentId 经 `SendMessage`
+  恢复的新执行。没有能力字段时不显示 Stop。按钮阻止详情点击冒泡；请求期间禁用重复操作，
+  失败反馈可见，成功后等权威投影移除运行项，不在 UI 提前删除。`cancelBackgroundWork`
+  仍用于 Bash/Workflow 的既有控制，不扩大其语义。
+- Stop 只结束目标 child，不取消父 turn 或其它 child。前台取消经原 Agent 工具调用返回停止
+  结果，不发后台终态通知，也不把已停止任务重新写为 failed；后台沿用 killed 通知和
+  `SubagentStopped(stopped)`。产物写入或通知入队失败仍取消目标并发布结束事件，再明确
+  报告失败，不回滚 killed。
+  结束事件携带 `executionId`，投影拒绝旧执行的迟到终态。完成与停止竞争时只提交先到的
+  终态，另一侧不得覆盖或重复通知。
+- `stopControl` 是当前 runtime 能力，不持久化为历史权限。冷恢复仅重建成员和展示；旧事件、
+  失效 child、已结束任务及没有活 runtime 证明的 running 行不提供 Stop。桌面 continuous 和
+  手机 replayable 消费同一投影，命令执行时仍做 runtime 校验。
+- 目录项使用 20px `WorkflowAgentFace`（完成徽标随同一 SVG 等比例缩放），沿用代理配置颜色（缺席按类型名取色）。running 使用运行表情，waiting／blocked 使用等待表情，success 使用完成徽标，failed 使用失败表情，cancelled／lost 静态显示；完成状态仅显示头像完成徽标，不重复显示状态文字；其他状态保留本地化文字。
+- 头像与第一行内容垂直居中，按实际行高对齐，不使用固定顶部偏移。标题、状态和相对时间在第一行，摘要或错误在第二行；标题 `text-ui-base`，状态、摘要和时间 `text-ui-sm`。移除页内重复标题；无运行项时隐藏运行中分组和其空状态，已结束列表直接置顶。目录只读，不新增 stop/cancel 控件；数据、排序、分页和原会话导航不变。
 - live completion 由 V4 投影把同一项移出 running 并更新 `endedTotal`；目录随后按 ended-only
   查询把该项合并到顶部，但保留已加载页面和滚动位置。
+- 目录 tab 使用 16px 中性静态 `SubagentCollectionIcon`，与标题垂直居中，不显示单个代理状态或完成徽标。
 - 目录 tab 稳定身份为
   `subagent-directory:{workspaceKey}:{rootSessionId}:{parentSessionId}`；child tab 为
   `subagent-session:{workspaceKey}:{rootSessionId}:{childSessionId}`。
@@ -116,3 +127,10 @@ Subagent directory（桌面 / 普通 Web）
 - 目录 section 和 item 使用语义标题、button、可见 focus；状态不能只靠颜色表达。
 - 使用 `DESIGN.md` 的 surface/text/border/semantic token，兼容 Zai Light/Dark。
 - 文案通过 zh-CN/en-US locale；标题和摘要允许长文本换行或截断，不依赖中文长度。
+
+## 持久化 workspace 与执行目录（2026-10-26）
+
+- Bash `cd` 只修改执行 cwd。Agent 子运行时继承父运行时稳定的 workspacePath / workspaceIdentity，正文和父子关系仍由 CLI 持久化。
+- 历史辅助会话若缺 workspace identity，允许沿持久化 parentID 找到目录 owner，旧 cwd 可以与 owner 不同。只有最终 owner 的路径和身份均匹配请求 workspace 才允许打开；显式外部身份、删除、断链、环一律拒绝。不得把 child 写成 Host 普通任务。
+- 元数据查询、显式 resume、桌面 continuous 和手机 replayable 冷订阅使用同一父链判定。Host 反向回调只消费 CLI 已验证的 directorySessionId，不反向查询阻塞中的 CLI 队列。
+- 回归须实际执行 Bash cd 后创建 Agent、检查 SQLite 身份，再重启打开历史正文；历史错误 cwd 单独覆盖，不以新数据测试替代。

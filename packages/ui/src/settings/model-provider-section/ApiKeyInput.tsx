@@ -1,5 +1,5 @@
 import { EyeIcon, EyeOffIcon } from "lucide-react";
-import { TID_MODEL_PROVIDER_API_KEY_INPUT } from "@zcode/shared";
+import { TID_MODEL_PROVIDER_API_KEY_INPUT } from "@zcode/shared/test-ids";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -35,7 +35,7 @@ export function ApiKeyInput({
         type={visible && !readOnly ? "text" : "password"}
         size="lg"
         data-testid={TID_MODEL_PROVIDER_API_KEY_INPUT}
-        className="pe-10 h-9"
+        className="pr-10 h-9"
         placeholder={intl.formatMessage({
           id: "settings.modelProvider.apiKeyPlaceholder",
         })}
@@ -57,7 +57,7 @@ export function ApiKeyInput({
         variant="ghost"
         size="icon-sm"
         disabled={readOnly}
-        className="absolute top-1/2 end-1.5 -translate-y-1/2"
+        className="absolute top-1/2 right-1.5 -translate-y-1/2"
         onClick={onToggleVisibility}
       >
         {visible ? <EyeOffIcon className="size-3.5" /> : <EyeIcon className="size-3.5" />}

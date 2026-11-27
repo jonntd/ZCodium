@@ -100,6 +100,8 @@ describe("resolveRuntimeDisallowedTools", () => {
       RESUME_WORKFLOW_RUN_TOOL_NAME,
       RESOLVE_WORKFLOW_QUESTION_TOOL_NAME,
       FILL_WORKFLOW_HOLE_TOOL_NAME,
+      LIST_WORKFLOW_RUNS_TOOL_NAME,
+      GET_WORKFLOW_RUN_TOOL_NAME,
     ]);
   });
 
@@ -116,6 +118,8 @@ describe("resolveRuntimeDisallowedTools", () => {
       RESUME_WORKFLOW_RUN_TOOL_NAME,
       RESOLVE_WORKFLOW_QUESTION_TOOL_NAME,
       FILL_WORKFLOW_HOLE_TOOL_NAME,
+      LIST_WORKFLOW_RUNS_TOOL_NAME,
+      GET_WORKFLOW_RUN_TOOL_NAME,
     ]);
   });
 
@@ -131,11 +135,40 @@ describe("resolveRuntimeDisallowedTools", () => {
       RESUME_WORKFLOW_RUN_TOOL_NAME,
       RESOLVE_WORKFLOW_QUESTION_TOOL_NAME,
       FILL_WORKFLOW_HOLE_TOOL_NAME,
+      LIST_WORKFLOW_RUNS_TOOL_NAME,
+      GET_WORKFLOW_RUN_TOOL_NAME,
     ]);
   });
 
+  // 修复原因：run 内省两件套经 dwf run 端口读取，子 runtime 按不变式不持有端口，在那里只会报
+  // workflow_introspection_unavailable（线上 10-20：workflow child 调用 155 次全部失败）。
+  it.each(["subagent_child", "nested_workflow_child"] as const)(
+    "removes the run introspection tools from a %s runtime, which holds no run port",
+    (taskType) => {
+      expect(
+        resolveRuntimeDisallowedTools(config({ taskType, toolDisallowlist: ["CronCreate"] })),
+      ).toEqual(["CronCreate", LIST_WORKFLOW_RUNS_TOOL_NAME, GET_WORKFLOW_RUN_TOOL_NAME]);
+    },
+  );
+
+  it("keeps the run introspection tools registered in a main runtime", () => {
+    const main = createToolRegistry();
+    registerBuiltInTools(main, { disallowedTools: resolveRuntimeDisallowedTools(config({})) });
+    expect(main.has(LIST_WORKFLOW_RUNS_TOOL_NAME)).toBe(true);
+    expect(main.has(GET_WORKFLOW_RUN_TOOL_NAME)).toBe(true);
+
+    const child = createToolRegistry();
+    registerBuiltInTools(child, {
+      disallowedTools: resolveRuntimeDisallowedTools(config({ taskType: "subagent_child" })),
+    });
+    expect(child.has(LIST_WORKFLOW_RUNS_TOOL_NAME)).toBe(false);
+    expect(child.has(GET_WORKFLOW_RUN_TOOL_NAME)).toBe(false);
+    // ListSavedWorkflows 读的是定义清单，不经 run 端口，子 runtime 照常保留。
+    expect(child.has(LIST_SAVED_WORKFLOWS_TOOL_NAME)).toBe(true);
+  });
+
   it("leaves other task types on their configured disallowlist", () => {
-    expect(resolveRuntimeDisallowedTools(config({ taskType: "subagent_child" }))).toBeUndefined();
+    expect(resolveRuntimeDisallowedTools(config({}))).toBeUndefined();
     expect(resolveRuntimeDisallowedTools(config({ toolDisallowlist: ["CronCreate"] }))).toEqual([
       "CronCreate",
     ]);
@@ -194,13 +227,34 @@ describe("resolveRuntimeDisallowedTools", () => {
   });
 });
 
+// workflow 子会话只读一次回合的回复，后台子代理之后的完成通知没有读取方，所以不看开关、固定按关闭
+// 运行（07-subagent.md「ZCode 当前实现」）。走公开构造而不是直接调 helper：要证明首次装配用了这条规则。
+describe("AgentRuntime：workflow 子会话的 Agent 固定按开关关闭运行", () => {
+  it.each([
+    { taskType: "workflow_child", optionalBackground: true },
+    { taskType: "interactive", optionalBackground: false },
+  ] as const)("taskType $taskType", ({ taskType, optionalBackground }) => {
+    const runtime = new AgentRuntime(
+      createSessionId(`agent-always-background-${taskType}`),
+      { taskType, subagents: { alwaysBackground: true } },
+      { eventStore: createTestSessionEventStore(), toolRegistry: createToolRegistry() },
+    );
+    const agentInput = runtime.getToolRegistry().get("Agent")?.inputSchema as
+      | { properties?: Record<string, unknown> }
+      | undefined;
+    expect(agentInput?.properties).toBeDefined();
+    expect(Object.hasOwn(agentInput!.properties!, "run_in_background")).toBe(optionalBackground);
+  });
+});
+
 // docs/dynamic-workflow/launch.md「Gray release」DWG-03 / DWG-04。
+// 规格 0.14 / 0.15：ListModels **不在**这份名单里——这份名单同时是冷恢复激活判据，而只为挑模型
+// 调过一次 ListModels 不说明会话用过工作流。它的注册另有条件：有消费者才注册（见下方用例）。
 const GATED_DYNAMIC_WORKFLOW_TOOL_NAMES = [
   CREATE_WORKFLOW_TOOL_NAME,
   AMEND_WORKFLOW_TOOL_NAME,
   SAVE_WORKFLOW_TOOL_NAME,
   LIST_SAVED_WORKFLOWS_TOOL_NAME,
-  LIST_MODELS_TOOL_NAME,
   EVAL_WORKFLOW_SNIPPET_TOOL_NAME,
   LIST_WORKFLOW_RUNS_TOOL_NAME,
   GET_WORKFLOW_RUN_TOOL_NAME,
@@ -219,12 +273,26 @@ describe("registerBuiltInTools：动态工作流灰度门", () => {
     for (const name of GATED_TOOL_NAMES) {
       expect({ name, registered: registry.has(name) }).toEqual({ name, registered: false });
     }
+    // 规格 0.15：灰度关闭又没有会话控制时，ListModels 的两个消费者都不在，它也不注册。
+    expect(registry.has(LIST_MODELS_TOOL_NAME)).toBe(false);
   });
+
+  // 规格 0.15：会话控制在场就有 CreateSession 这个消费者，灰度关闭也照常注册。
+  it.each(["cli", "app"] as const)(
+    "会话控制（%s）在场时，灰度关闭也注册 ListModels",
+    (sessionControlKind) => {
+      const registry = createToolRegistry();
+      registerBuiltInTools(registry, { includeDynamicWorkflow: false, sessionControlKind });
+      expect(registry.has(LIST_MODELS_TOOL_NAME)).toBe(true);
+      for (const name of GATED_TOOL_NAMES) expect(registry.has(name)).toBe(false);
+    },
+  );
 
   // 灰度关闭只针对动态工作流：开门与关门之间的差集必须**恰好**是这十个。
   // 反向地也守住了旧 `Workflow`（/expert 脚本通道）——它的门始终只有 includeWorkflow，
   // 不因灰度多一道或少一道。
-  it("关门与开门的差集恰好是十个，不多剃一件工具", () => {
+  // 无会话控制时，ListModels 随灰度一起进出（它此时唯一的消费者是 CreateWorkflow），差集是十一个。
+  it("关门与开门的差集是十个工作流工具加 ListModels，不多剃一件工具", () => {
     const enabled = createToolRegistry();
     registerBuiltInTools(enabled, { includeDynamicWorkflow: true, includeWorkflow: true });
     const disabled = createToolRegistry();
@@ -236,7 +304,7 @@ describe("registerBuiltInTools：动态工作流灰度门", () => {
         .list()
         .filter((name) => !registeredWhenDisabled.has(name))
         .toSorted(),
-    ).toEqual([...GATED_TOOL_NAMES].toSorted());
+    ).toEqual([...GATED_TOOL_NAMES, LIST_MODELS_TOOL_NAME].toSorted());
   });
 
   // 缺席即全开（进程内嵌入方）；独立 CLI 的 TUI / headless 按 --workflow-mode 显式传 true/false（DWG-04）。
@@ -272,7 +340,7 @@ describe("AgentRuntime：dynamicWorkflowEnabled 到工具注册表", () => {
 });
 
 // 回归（2026-09-16）：注册面有两个入口，第二个（分支刷新）当初漏了灰度门，于是十个工具
-// 在 Bash shell 快照初始化时被原样加回来。真实触发路径就是 initializeSessionShellEnvironmentIfNeeded，
+// 在 Bash shell 初始化时被原样加回来。真实触发路径就是 initializeSessionShellEnvironmentIfNeeded，
 // 所以这里走公开方法而不是直接调内部的 refreshBranchAwareBuiltInTools。
 describe("AgentRuntime：分支刷新后灰度门仍然成立", () => {
   const CMD_SHELL_SELECTION = {
@@ -296,17 +364,104 @@ describe("AgentRuntime：分支刷新后灰度门仍然成立", () => {
     // 首次装配后的形态。
     expect(runtime.getToolRegistry().has(CREATE_WORKFLOW_TOOL_NAME)).toBe(registered);
 
-    // 第一次真实用户执行前的 shell 快照初始化，内部走 refreshBranchAwareBuiltInTools。
+    // 第一次真实用户执行前的 shell 初始化，内部走 refreshBranchAwareBuiltInTools。
     expect(runtime.initializeSessionShellEnvironmentIfNeeded(CMD_SHELL_SELECTION)).toBe(true);
 
     const registry = runtime.getToolRegistry();
     for (const name of GATED_DYNAMIC_WORKFLOW_TOOL_NAMES) {
       expect({ name, registered: registry.has(name) }).toEqual({ name, registered });
     }
+    // 规格 0.15：这里的 runtime 没有会话控制，ListModels 唯一的消费者是 CreateWorkflow，
+    // 所以首次装配与分支刷新后都跟随灰度——刷新不能产出与首次装配不同的工具面。
+    expect(registry.has(LIST_MODELS_TOOL_NAME)).toBe(registered);
     // 反向断言：刷新本身的职责（embedded search 分支下的 Glob/Grep）不受影响，
     // 普通工具面在三种取值下都还在。
     expect(registry.has("Read")).toBe(true);
   });
+});
+
+// 回归（Z-011）：结构性禁用（按 taskType 推导）当初只接到了首次装配，分支刷新那个入口只传了
+// 用户配置的 toolDisallowlist，于是 shell 初始化或按需激活之后，子 runtime 在会话中途重新拿到
+// 被剃掉的工作流工具（线上 3.17.x：workflow child 工具数中途 +5，子代理 +2，run 内省工具必然报
+// workflow_introspection_unavailable）。两条真实的刷新路径都走公开方法，与上面的灰度门用例同理。
+describe("AgentRuntime：分支刷新后结构性禁用仍然成立", () => {
+  const CMD_SHELL_SELECTION = {
+    dialect: "cmd",
+    display: { name: "CMD" },
+    id: "cmd",
+    label: "CMD",
+    path: "cmd.exe",
+    source: "user-config",
+  } as const;
+
+  const RUN_INTROSPECTION_TOOL_NAMES = [LIST_WORKFLOW_RUNS_TOOL_NAME, GET_WORKFLOW_RUN_TOOL_NAME];
+  const WORKFLOW_CHILD_BANNED_TOOL_NAMES = [
+    CREATE_WORKFLOW_TOOL_NAME,
+    AMEND_WORKFLOW_TOOL_NAME,
+    SAVE_WORKFLOW_TOOL_NAME,
+    RESUME_WORKFLOW_RUN_TOOL_NAME,
+    RESOLVE_WORKFLOW_QUESTION_TOOL_NAME,
+    FILL_WORKFLOW_HOLE_TOOL_NAME,
+    ...RUN_INTROSPECTION_TOOL_NAMES,
+  ];
+
+  const TASK_TYPES = [
+    { taskType: "workflow_child", banned: WORKFLOW_CHILD_BANNED_TOOL_NAMES },
+    { taskType: "subagent_child", banned: RUN_INTROSPECTION_TOOL_NAMES },
+    { taskType: "nested_workflow_child", banned: RUN_INTROSPECTION_TOOL_NAMES },
+    // 反向：主会话刷新后十个工具一个不少，结构性禁用不能误伤。
+    { taskType: undefined, banned: [] },
+  ] as const;
+
+  function registeredWorkflowTools(runtime: AgentRuntime): string[] {
+    const registry = runtime.getToolRegistry();
+    return GATED_DYNAMIC_WORKFLOW_TOOL_NAMES.filter((name) => registry.has(name));
+  }
+
+  function modelVisibleWorkflowTools(runtime: AgentRuntime): string[] {
+    const visible = new Set(runtime.getTools().map((tool) => tool.name));
+    return GATED_DYNAMIC_WORKFLOW_TOOL_NAMES.filter((name) => visible.has(name));
+  }
+
+  function expectedWorkflowTools(banned: readonly string[]): string[] {
+    return GATED_DYNAMIC_WORKFLOW_TOOL_NAMES.filter((name) => !banned.includes(name));
+  }
+
+  it.each(TASK_TYPES)("shell 初始化后 $taskType 的工具面不变", ({ taskType, banned }) => {
+    const runtime = new AgentRuntime(
+      createSessionId(`structural-disallow-shell-${taskType ?? "main"}`),
+      { taskType },
+      { eventStore: createTestSessionEventStore(), toolRegistry: createToolRegistry() },
+    );
+    // 首次装配后的形态，同时读一次 getTools 把缓存填上：刷新必须让缓存失效。
+    expect(registeredWorkflowTools(runtime)).toEqual(expectedWorkflowTools(banned));
+    expect(modelVisibleWorkflowTools(runtime)).toEqual(expectedWorkflowTools(banned));
+
+    // 第一次真实用户执行前的 shell 初始化，内部走 refreshBranchAwareBuiltInTools。
+    expect(runtime.initializeSessionShellEnvironmentIfNeeded(CMD_SHELL_SELECTION)).toBe(true);
+
+    expect(registeredWorkflowTools(runtime)).toEqual(expectedWorkflowTools(banned));
+    expect(modelVisibleWorkflowTools(runtime)).toEqual(expectedWorkflowTools(banned));
+    expect(runtime.getToolRegistry().has("Read")).toBe(true);
+  });
+
+  it.each(TASK_TYPES)(
+    "按需激活后 $taskType 只拿到未被禁用的工作流工具",
+    async ({ taskType, banned }) => {
+      const runtime = new AgentRuntime(
+        createSessionId(`structural-disallow-activate-${taskType ?? "main"}`),
+        { taskType, dynamicWorkflowEnabled: true, dynamicWorkflowToolsOnDemand: true },
+        { eventStore: createTestSessionEventStore(), toolRegistry: createToolRegistry() },
+      );
+      expect(registeredWorkflowTools(runtime)).toEqual([]);
+
+      // 激活同样经 refreshBranchAwareBuiltInTools 重注册全部内置工具。
+      await expect(runtime.activateDynamicWorkflowTools({ source: "command" })).resolves.toBe(true);
+
+      expect(registeredWorkflowTools(runtime)).toEqual(expectedWorkflowTools(banned));
+      expect(modelVisibleWorkflowTools(runtime)).toEqual(expectedWorkflowTools(banned));
+    },
+  );
 });
 
 // 灰度门不止管注册面，也管**描述**（docs/dynamic-workflow/launch.md「Gray release」）：
@@ -339,4 +494,21 @@ describe("Agent / Task 描述随灰度门增删工作流那一行", () => {
     expect(agent).toContain("CreateWorkflow");
     expect(task).toContain("CreateWorkflow");
   });
+});
+
+it("normalizes LocalToolSearch scope rules to the existing search capability", () => {
+  const allowedTools = resolveBuiltInToolAllowlist(
+    config({
+      toolset: "explore",
+      toolAllowlist: ["LocalToolSearch", "Read"],
+    }),
+  );
+  expect(allowedTools).toEqual(["ToolSearch", "Read"]);
+  const registry = createToolRegistry();
+  registerBuiltInTools(registry, { allowedTools });
+  expect(registry.get("LocalToolSearch")).toBe(registry.get("ToolSearch"));
+  const denied = createToolRegistry();
+  registerBuiltInTools(denied, { disallowedTools: ["LocalToolSearch"] });
+  expect(denied.has("ToolSearch")).toBe(false);
+  expect(denied.has("LocalToolSearch")).toBe(false);
 });

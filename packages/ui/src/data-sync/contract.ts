@@ -13,13 +13,7 @@ import type {
 import type { WorkspaceTabState } from "@/store/tabStore.js";
 
 /** 当前已接入的数据同步分类；新分类在 categories.ts 注册适配器后加入这里。 */
-export type DataSyncCategoryId =
-  | "skills"
-  | "plugins"
-  | "subagents"
-  | "mcp"
-  | "commands"
-  | "hooks";
+export type DataSyncCategoryId = "skills" | "plugins" | "subagents" | "mcp" | "commands" | "hooks";
 
 /** 弹窗顶部与设备行共用的设备展示信息（来自 Source Server 管理快照）。 */
 export interface DataSyncDeviceSummary {

@@ -14,7 +14,6 @@ import {
 } from "@zcode/provider";
 import { logger } from "@/logger.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { useServices } from "@/hooks/useServices.js";
 import { Switch } from "@/components/ui/switch.js";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { isImeComposingKeyEvent } from "@/lib/imeComposition.js";
@@ -29,7 +28,6 @@ import { resolveModelProviderDisplayName } from "./constants.js";
 import { useProviderDetailFeedback } from "./ProviderDetailFeedback.js";
 import { MODEL_PROVIDER_TEXT_IDLE_TRIGGER_MS, useIdleTrigger } from "./useIdleTrigger.js";
 import { useOptimisticReorder } from "./useOptimisticReorder.js";
-import { recordDeletedModel } from "./modelhubTombstones.js";
 
 export type ProviderNameEditKeyAction = "commit" | "cancel";
 export type ProviderDraftCleanupAction = "commit" | "skip-delete";
@@ -153,7 +151,6 @@ export function InlineEditableProviderCard({
   presetApiKeyUrl,
   onOpenPresetApiKey,
   statusSection,
-  statusSectionSuppressesHeader = true,
   nameEditable,
   headerVisible = true,
   headerActionsVisible,
@@ -181,13 +178,6 @@ export function InlineEditableProviderCard({
   presetApiKeyUrl?: string;
   onOpenPresetApiKey?: () => void;
   statusSection?: ReactNode;
-  /**
-   * `statusSection` 是否替代卡片头部（默认 true，保持既有 plan/账号分支语义：
-   * 外层 ProviderFamilyDetailShell 已提供头部，内层卡片不再重复渲染）。
-   * 余额卡这类需要与头部共存的内联内容必须显式传 false——否则会出现
-   * "传了 statusSection 就丢头部"：即使内容组件自身返回 null，元素本身也非 undefined。
-   */
-  statusSectionSuppressesHeader?: boolean;
   nameEditable?: boolean;
   headerVisible?: boolean;
   headerActionsVisible?: boolean;
@@ -195,7 +185,6 @@ export function InlineEditableProviderCard({
 }) {
   const { intl } = useZCodeIntl();
   const { dismissFeedback, showFeedback } = useProviderDetailFeedback();
-  const { providerSettingsService } = useServices();
   const [editingName, setEditingName] = useState(false);
   const [nameValue, setNameValue] = useState(getProviderFormLabel(provider));
   const [apiFormat, setApiFormat] = useState<ProviderApiType>(
@@ -215,7 +204,6 @@ export function InlineEditableProviderCard({
   );
   const reorderModelIdsTargetRef = useRef(onReorderModelIds);
   reorderModelIdsTargetRef.current = onReorderModelIds;
-  const nameInputRef = useRef<HTMLInputElement | null>(null);
   const nameCompositionActiveRef = useRef(false);
   const nameEditProviderIdRef = useRef<string | null>(null);
   const technicalInputCompositionActiveRef = useRef(false);
@@ -579,7 +567,6 @@ export function InlineEditableProviderCard({
     nameEditProviderIdRef.current = provider.providerId;
     nameCompositionActiveRef.current = false;
     setEditingName(true);
-    requestAnimationFrame(() => nameInputRef.current?.focus());
   }, [provider.providerId]);
 
   const saveConnection = useCallback(
@@ -686,8 +673,6 @@ export function InlineEditableProviderCard({
         return;
       }
       if (!model.builtin) {
-        // 拉取模型删除墓碑：删除过的模型不再被「拉取模型」列为可添加项。
-        recordDeletedModel(provider.providerId, modelId);
         void runSaveOperation(
           async () => {
             if (!onDeletePersonalModel)
@@ -753,27 +738,6 @@ export function InlineEditableProviderCard({
     [onReorderModelIds, optimisticModelOrder, provider.providerId],
   );
 
-  // 请求头模拟（modelhub）：把预设勾选结果写入 api.headers 叶子。与连接草稿保存
-  // 同一合并约束——只动 headers 叶子（展开旧 api 保留其它字段），不物化继承字段，
-  // 也不重建整个 api 导致隐藏 headers 丢失。
-  const handleSaveProviderHeaders = useCallback(
-    async (headers: Record<string, string>): Promise<void> => {
-      const headersChanged =
-        JSON.stringify(headers) !== JSON.stringify(provider.config.api?.headers ?? null);
-      if (!headersChanged) return;
-      const api = { ...provider.config.api, headers };
-      await saveProviderWithCleanupGuard({
-        ...provider,
-        config: { ...provider.config, api },
-        personalConfig: {
-          ...provider.personalConfig,
-          api: { ...provider.personalConfig.api, headers },
-        },
-      });
-    },
-    [provider, saveProviderWithCleanupGuard],
-  );
-
   const handleDeleteProvider = useCallback(() => {
     runProviderDeleteWithDraftCleanupGuard({
       deleteRequestedRef,
@@ -784,22 +748,7 @@ export function InlineEditableProviderCard({
   const headerProviderName = providerDisplayName;
   const isAccountProvider = provider.config.access?.type === "zhipu-account";
   const isApiKeyProvider = isApiKeyAccess(provider.config.access);
-  // 检测入口只装配给 standard-personal 的 API Key Provider：套餐账号没有草稿 Key，
-  // zai/bigmodel 家族使用内置模型名单，不需要从远端拉取候选。
-  const detectRemoteModels =
-    isApiKeyProvider && provider.config.group === "standard-personal"
-      ? () =>
-          providerSettingsService.listRemoteModels({
-            apiType: apiFormat,
-            baseUrl: baseUrlValue,
-            apiKey: apiKeyValue,
-            ...(provider.config.api?.headers ? { headers: provider.config.api.headers } : {}),
-          })
-      : undefined;
-  // 修复说明：之前只看 statusSection 是否存在，导致自定义 Provider 传余额卡后头部
-  // （名称/开关/重命名/删除）被整体隐藏。这里把"是否替代头部"变成显式开关，调用方决定。
-  const effectiveHeaderVisible =
-    headerVisible && !(statusSection !== undefined && statusSectionSuppressesHeader);
+  const effectiveHeaderVisible = headerVisible && statusSection === undefined;
 
   return (
     <div className="space-y-3">
@@ -809,7 +758,6 @@ export function InlineEditableProviderCard({
           logo={provider.config.logo}
           editingName={editingName}
           nameValue={nameValue}
-          nameInputRef={nameInputRef}
           nameEditable={nameEditable}
           onNameChange={handleNameValueChange}
           onNameBlur={handleNameBlur}
@@ -905,16 +853,6 @@ export function InlineEditableProviderCard({
           onAddModel={handleAddModel}
           onReorderModelIds={onReorderModelIds ? handleReorderModelIds : undefined}
           settingsRevision={settingsRevision ?? 0}
-          // 拉取模型（modelhub）用当前表单的连接事实；空 baseUrl 时入口自动隐藏。
-          modelhubEndpoint={{
-            apiType: apiFormat,
-            baseUrl: baseUrlValue,
-            apiKey: apiKeyValue,
-          }}
-          providerHeaders={provider.config.api?.headers ?? null}
-          onSaveProviderHeaders={handleSaveProviderHeaders}
-          onDetectRemoteModels={detectRemoteModels}
-          discoveryTemplateId={provider.templateId}
         />
       </div>
     </div>

@@ -227,6 +227,8 @@ export {
   sanitizeTelemetryErrorMessage,
   sanitizeTelemetrySkillName,
   sanitizeTelemetryEventDetail,
+  normalizeToolErrorCode,
+  sanitizeToolErrorCode,
 } from "./telemetry.js";
 export type {
   RedactTelemetryTextOptions,
@@ -250,8 +252,6 @@ export { LAUNCH_MARKS_QUERY_KEY, parseLaunchMarks, serializeLaunchMarks } from "
 export type {
   BrowserViewSurfaceScaleMode,
   CancelPendingRemoteConnectionRequest,
-  FileApplicationInfo,
-  FileApplicationTarget,
   BindRemoteWorkspaceSessionContextRequest,
   BindRemoteWorkspaceSessionContextIpcResult,
   BindRemoteWorkspaceSessionContextResult,
@@ -272,18 +272,17 @@ export type {
   ChromeBrowserDataImportOptions,
   ChromeBrowserDataImportResult,
   ConnectRemoteRequest,
+  FileApplicationInfo,
+  FileApplicationTarget,
   CreateTempTextAttachmentRequest,
   CreateTempTextAttachmentResult,
-  ModelhubFetchModelsRequest,
-  ModelhubFetchModelsResult,
-  ModelhubModelSummary,
-  ModelhubProbeVisionRequest,
-  ModelhubProbeVisionResult,
   MaterializeWorkflowArtifactFileRequest,
   MaterializeWorkflowArtifactFileResult,
   SaveFileRequest,
   SaveFileResult,
   PrintPageToPdfResult,
+  ModelhubFetchModelsRequest,
+  ModelhubFetchModelsResult,
   CaptureBrowserGuestPageClip,
   CaptureBrowserGuestPageRequest,
   CaptureBrowserGuestPageResult,
@@ -310,7 +309,6 @@ export type {
   EmbeddedBrowserSitePermissionUpdateRequest,
   EmbeddedBrowserSitePermissionsSnapshot,
   IPlatformService,
-  RemoteConnectionContext,
   AppNavigationTarget,
   AppNavigationResult,
   AppNavigationHandler,
@@ -437,6 +435,7 @@ export * from "./session-debug.js";
 export { redactFeedbackText } from "./feedbackPrivacy.js";
 export { API_KEY_USAGE_SCENE, type ApiKeyCreationUsageScene } from "./api-key-usage-scene.js";
 export {
+  isProjectTokenTransportFailureCode,
   projectAccessTokenFingerprint,
   projectAccessTokenRetryAfterMs,
   ProjectAccessTokenError,

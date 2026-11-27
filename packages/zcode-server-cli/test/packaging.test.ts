@@ -7,13 +7,19 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
+import { list as listTar } from "tar";
 import {
   collectBareModuleSpecifiers,
   isNodePtyRuntimePath,
   resolveProductionPackageClosure,
   stageRelease,
 } from "../src/packaging/stage.js";
+import {
+  assertNodePtyNativeMatchesJs,
+  isTargetSpecificPackage,
+} from "../src/packaging/stageDependencies.js";
 import { resolveHostTarCommand } from "../src/packaging/tarCommand.js";
+import { runPackagingCommand } from "../src/packaging/stageArchives.js";
 
 const execFileAsync = promisify(execFile);
 async function runTar(args: string[]): Promise<void> {
@@ -22,6 +28,42 @@ async function runTar(args: string[]): Promise<void> {
 
 const temporaryDirs: string[] = [];
 const macIt = process.platform === "darwin" ? it : it.skip;
+
+describe("POSIX archive executable modes", () => {
+  it.each([".", "zcode-server-linux-x64"])(
+    "writes executable metadata without relying on host file modes (%s)",
+    async (prefix) => {
+      const cwd = await makeTempDir();
+      const archivePath = join(await makeTempDir(), "release.tar.gz");
+      const executables = [
+        "bin/zcode",
+        "runtime/node",
+        "runtime/tools/bfs/bfs",
+        "runtime/tools/ripgrep/rg",
+        "runtime/tools/ugrep/ugrep",
+        "runtime/node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper",
+      ];
+      for (const path of [...executables, "runtime/server-cli.js", "runtime/tools/bfs/LICENSE"]) {
+        const file = join(cwd, prefix, path);
+        await mkdir(join(file, ".."), { recursive: true });
+        // 模拟 Windows staging：NTFS 无 POSIX 执行位，归档必须按目标布局写入它。
+        await writeFile(file, "fixture", { mode: 0o644 });
+      }
+      await runPackagingCommand("tar", ["-czf", archivePath, prefix], cwd);
+      const modes = new Map<string, number>();
+      await listTar({
+        file: archivePath,
+        onReadEntry: (entry) => {
+          modes.set(entry.path.replace(/^\.\//u, ""), entry.mode ?? 0);
+        },
+      });
+      const archiveName = (path: string) => (prefix === "." ? path : `${prefix}/${path}`);
+      for (const path of executables) expect(modes.get(archiveName(path))! & 0o777).toBe(0o755);
+      for (const path of ["runtime/server-cli.js", "runtime/tools/bfs/LICENSE"])
+        expect(modes.get(archiveName(path))! & 0o111).toBe(0);
+    },
+  );
+});
 
 async function makeTempDir(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "zcode-server-stage-test-"));
@@ -36,6 +78,7 @@ afterEach(async () => {
 });
 
 interface FakePackageSpec {
+  version?: string;
   dependencies?: Record<string, string>;
   optionalDependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
@@ -53,7 +96,7 @@ async function writeFakePackage(
     join(packageDir, "package.json"),
     JSON.stringify({
       name,
-      version: "0.0.1",
+      version: spec.version ?? "0.0.1",
       main: "./index.js",
       dependencies: spec.dependencies,
       optionalDependencies: spec.optionalDependencies,
@@ -146,6 +189,31 @@ describe("isNodePtyRuntimePath", () => {
   });
 });
 
+describe("assertNodePtyNativeMatchesJs", () => {
+  it("rejects a native prebuild whose source version differs from the node-pty JS", () => {
+    // 现场组合：官方 node-pty 1.1.0 JS + @lydell 1.2.0-beta.10 native。
+    expect(() =>
+      assertNodePtyNativeMatchesJs({
+        target: "linux-x64",
+        jsVersion: "1.1.0",
+        nativeSource: "@lydell/node-pty-linux-x64",
+        nativeVersion: "1.2.0-beta.10",
+      }),
+    ).toThrow(/node-pty JS 1\.1\.0 .*@lydell\/node-pty-linux-x64 1\.2\.0-beta\.10/);
+  });
+
+  it("accepts JS and native from the same version", () => {
+    expect(() =>
+      assertNodePtyNativeMatchesJs({
+        target: "linux-x64",
+        jsVersion: "1.2.0-beta.10",
+        nativeSource: "@lydell/node-pty-linux-x64",
+        nativeVersion: "1.2.0-beta.10",
+      }),
+    ).not.toThrow();
+  });
+});
+
 describe("stageRelease", () => {
   async function makeStageFixture(): Promise<{
     distDir: string;
@@ -172,9 +240,10 @@ describe("stageRelease", () => {
     });
     await writeFakePackage(workspaceNodeModulesDir, "fake-transitive");
     await writeFakePackage(workspaceNodeModulesDir, "node-pty", {
+      version: "1.1.0",
       files: {
         LICENSE: "node-pty license\n",
-        "lib/index.js": "module.exports = {};\n",
+        "lib/index.js": "// official node-pty js\n",
         "typings/node-pty.d.ts": "export {};\n",
         "build/Release/pty.node": "host-binary",
         "prebuilds/darwin-arm64/pty.node": "darwin-binary",
@@ -182,12 +251,13 @@ describe("stageRelease", () => {
         "prebuilds/win32-x64/pty.node": "windows-binary",
       },
     });
+    // 平台包是同版本 node-pty 的 linux 子集：JS 与 native 同在一个包里。
     await writeFakePackage(workspaceNodeModulesDir, "@lydell/node-pty-linux-x64", {
+      version: "1.2.0-beta.10",
       files: {
+        LICENSE: "platform license\n",
+        "lib/index.js": "// platform node-pty js\n",
         "prebuilds/linux-x64/pty.node": "linux-binary",
-        // 上游 v3.17.1 起整包替换平台包，要求平台包自带与 native 配对的 JS 与许可声明。
-        "lib/index.js": "module.exports = {};\n",
-        LICENSE: "node-pty license\n",
       },
     });
 
@@ -247,6 +317,11 @@ describe("stageRelease", () => {
 
     const releaseDir = staged.releaseDir;
     expect(releaseDir.endsWith("zcode-server-linux-x64")).toBe(true);
+    expect(
+      JSON.parse(await readFile(join(releaseDir, "runtime", "package.json"), "utf8")),
+    ).toMatchObject({
+      zcodeCredentialFormat: 2,
+    });
 
     const launcher = await readFile(join(releaseDir, "bin", "zcode"), "utf8");
     expect(launcher).toContain('"$DIR/runtime/node"');
@@ -295,6 +370,16 @@ describe("stageRelease", () => {
       "utf8",
     );
     expect(linuxPty).toBe("linux-binary");
+    // Bug 回归：旧 staging 只拷平台包的 pty.node（1.2.0-beta.10，resize 要 5 个参数），
+    // JS 仍是官方 1.1.0（只传 3 个参数），远端终端 resize 必然失败。JS 必须与 native 同包同版本。
+    const stagedNodePty = JSON.parse(
+      await readFile(join(releaseDir, "runtime/node_modules/node-pty/package.json"), "utf8"),
+    ) as { version: string };
+    expect(stagedNodePty.version).toBe("1.2.0-beta.10");
+    await expect(
+      readFile(join(releaseDir, "runtime/node_modules/node-pty/lib/index.js"), "utf8"),
+    ).resolves.toBe("// platform node-pty js\n");
+    await expect(stat(join(releaseDir, "runtime/node_modules/node-pty/typings"))).rejects.toThrow();
 
     const manifest = JSON.parse(await readFile(join(releaseDir, "manifest.json"), "utf8")) as {
       product: string;
@@ -317,7 +402,51 @@ describe("stageRelease", () => {
     expect(staged.archivePath).toBeNull();
   });
 
-  it("keeps official darwin prebuilds including spawn-helper for darwin targets", async () => {
+  it("fails closed when the linux platform package cannot supply matching node-pty JS", async () => {
+    const fixture = await makeStageFixture();
+    // 只有 pty.node、没有 lib 的平台包无法提供同版本 JS；不能退回“官方 JS + 平台 native”混装。
+    await rm(join(fixture.workspaceNodeModulesDir, "@lydell", "node-pty-linux-x64", "lib"), {
+      recursive: true,
+      force: true,
+    });
+    await expect(
+      stageRelease({ target: "linux-x64", appVersion: "9.9.9-test", archive: false, ...fixture }),
+    ).rejects.toThrow(/@lydell\/node-pty-linux-x64 does not ship node-pty JS/);
+  });
+
+  it("takes the whole linux platform package even when the workspace node-pty already has a linux native", async () => {
+    const fixture = await makeStageFixture();
+    // Bug 场景：同一 checkout 先做桌面 Linux 打包，beforePack 把平台包的 pty.node 回填进共享的
+    // 官方 node-pty。旧逻辑看到 pty.node 已存在就跳过整包替换，产出官方 1.1.0 JS + 1.2.0-beta.10 native。
+    const backfilledDir = join(
+      fixture.workspaceNodeModulesDir,
+      "node-pty",
+      "prebuilds",
+      "linux-x64",
+    );
+    await mkdir(backfilledDir, { recursive: true });
+    await writeFile(join(backfilledDir, "pty.node"), "desktop-backfilled-binary", "utf8");
+
+    const staged = await stageRelease({
+      target: "linux-x64",
+      appVersion: "9.9.9-test",
+      archive: false,
+      ...fixture,
+    });
+    const stagedNodePtyDir = join(staged.releaseDir, "runtime/node_modules/node-pty");
+    const stagedNodePty = JSON.parse(
+      await readFile(join(stagedNodePtyDir, "package.json"), "utf8"),
+    ) as { version: string };
+    expect(stagedNodePty.version).toBe("1.2.0-beta.10");
+    await expect(readFile(join(stagedNodePtyDir, "lib/index.js"), "utf8")).resolves.toBe(
+      "// platform node-pty js\n",
+    );
+    await expect(
+      readFile(join(stagedNodePtyDir, "prebuilds/linux-x64/pty.node"), "utf8"),
+    ).resolves.toBe("linux-binary");
+  });
+
+  it("keeps official darwin JS and prebuilds including spawn-helper for darwin targets", async () => {
     const fixture = await makeStageFixture();
     const staged = await stageRelease({
       target: "darwin-arm64",
@@ -330,6 +459,10 @@ describe("stageRelease", () => {
       "runtime/node_modules/node-pty/prebuilds/darwin-arm64",
     );
     await expect(stat(join(prebuildDir, "pty.node"))).resolves.toBeTruthy();
+    // darwin 官方包自带同版本 prebuild，JS 保持官方包，不受 linux 平台包影响。
+    await expect(
+      readFile(join(staged.releaseDir, "runtime/node_modules/node-pty/lib/index.js"), "utf8"),
+    ).resolves.toBe("// official node-pty js\n");
     const helperStat = await stat(join(prebuildDir, "spawn-helper"));
     // Bugfix: 同上，NTFS 无 POSIX exec 位，可执行性断言只在 POSIX 宿主生效。
     if (process.platform !== "win32") expect(helperStat.mode & 0o111).not.toBe(0);
@@ -339,12 +472,39 @@ describe("stageRelease", () => {
     const fixture = await makeStageFixture();
     const toolsDir = join(await makeTempDir(), "tools");
     await writeFakeNativeTools(toolsDir, { ripgrep: "rg.exe", ugrep: "ugrep.exe" });
+    // Job 宿主属于必需的 server-runtime；漏包时必须在发布前失败。
+    await expect(
+      stageRelease({
+        target: "win32-x64",
+        appVersion: "9.9.9-test",
+        nativeToolsDir: toolsDir,
+        ...fixture,
+      }),
+    ).rejects.toThrow(/runtime-host/);
+    await mkdir(join(toolsDir, "runtime-host"), { recursive: true });
+    await writeFile(join(toolsDir, "runtime-host/zcode-runtime-host.exe"), "fixture runtime host");
     const staged = await stageRelease({
       target: "win32-x64",
       appVersion: "9.9.9-test",
       nativeToolsDir: toolsDir,
       ...fixture,
     });
+    await expect(
+      readFile(
+        join(staged.releaseDir, "runtime/tools/runtime-host/zcode-runtime-host.exe"),
+        "utf8",
+      ),
+    ).resolves.toBe("fixture runtime host");
+    const manifest = JSON.parse(await readFile(join(staged.releaseDir, "manifest.json"), "utf8"));
+    expect(
+      manifest.components.find((component: { id: string }) => component.id === "server-runtime")
+        .paths,
+    ).toContain("runtime/tools/runtime-host");
+    expect(
+      manifest.components.find(
+        (component: { id: string }) => component.id === "native-search-tools",
+      ).paths,
+    ).not.toContain("runtime/tools");
     expect(staged.archivePath).toMatch(/\.zip$/u);
     expect(await readFile(join(staged.releaseDir, "bin", "zcode.cmd"), "utf8")).toContain(
       "node.exe",
@@ -796,10 +956,10 @@ describe("stageRelease", () => {
     async (target) => {
       const fixture = await makeStageFixture();
       await writeFakePackage(fixture.workspaceNodeModulesDir, "@lydell/node-pty-linux-arm64", {
+        version: "1.2.0-beta.10",
         files: {
+          "lib/index.js": "// platform node-pty js\n",
           "prebuilds/linux-arm64/pty.node": "linux-arm64-binary",
-          "lib/index.js": "module.exports = {};\n",
-          LICENSE: "node-pty license\n",
         },
       });
       const options = { ...fixture, target, appVersion: "9.9.9-test" };
@@ -850,4 +1010,10 @@ describe("stageRelease", () => {
       );
     },
   );
+});
+
+it("stages only the target OS keyring binary", () => {
+  expect(isTargetSpecificPackage("@napi-rs/keyring-linux-x64-gnu", "linux-x64")).toBe(true);
+  expect(isTargetSpecificPackage("@napi-rs/keyring-win32-x64-msvc", "linux-x64")).toBe(false);
+  expect(isTargetSpecificPackage("@napi-rs/keyring-linux-arm64-gnu", "linux-x64")).toBe(false);
 });

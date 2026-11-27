@@ -11,15 +11,13 @@ import type {
   CodingPlanResetStatusSnapshot,
   CodingPlanResetUseRequest,
   CodingPlanResetUseResult,
-  ProviderBalanceRequest,
-  ProviderBalanceSnapshot,
   UsageEntitlementRequest,
   UsageEntitlementSnapshot,
   UsageStatsRequest,
   UsageStatsSnapshot,
 } from "@zcode/shared";
 import { isCodingPlanModelProviderId } from "@zcode/shared";
-import type { ICredentialService } from "../credential/credential.js";
+import type { OAuthAccountMaterial } from "#src/oauth/repo/oauthCredentialRepo.js";
 import type { IAccountRequestAuthService } from "../model-provider/accountRequestAuthService.js";
 import type { IZCodeAgentService } from "../zcode-agent/zcodeAgent.js";
 import type { IUsageStatsService } from "./usageStats.js";
@@ -29,26 +27,17 @@ import {
   type UsageApiAuthorization,
 } from "./providers/bigmodelUsageQuotaProvider.js";
 import type { OfficialMcpCredentialSource } from "./providers/zcodeMcpQuotaProvider.js";
-import {
-  ProviderBalanceProvider,
-  type ProviderBalanceTarget,
-} from "./providers/providerBalanceProvider.js";
 
 interface UsageStatsServiceDependencies {
   apiClient: ApiClient;
+  loadOAuthAccountMaterial(family: "zai" | "bigmodel"): Promise<OAuthAccountMaterial | null>;
   accountRequestAuthService: Pick<
     IAccountRequestAuthService,
-    "resolveAccessCurrent" | "resolveCurrent" | "assertCurrent"
+    "resolveAccessCurrent" | "resolveCurrent"
   >;
   resolveApiAuthorization?: (
     request: UsageApiAuthorizationRequest,
   ) => Promise<UsageApiAuthorization | null>;
-  /**
-   * 外部 API Key Provider 的余额查询目标解析器。
-   * 缺省时 `getProviderBalanceSnapshot` 一律返回 `unsupported`。
-   */
-  resolveProviderBalanceTarget?: (providerId: string) => Promise<ProviderBalanceTarget | null>;
-  credentialService?: Pick<ICredentialService, "load">;
   env?: NodeJS.ProcessEnv;
   /** App Usage 经 ZCode Protocol 读取 agent 数据库真实统计。 */
   zcodeAgentService: Pick<IZCodeAgentService, "getAppUsageStats">;
@@ -68,17 +57,11 @@ function isCodingPlanProviderId(providerId: string | undefined): boolean {
 export function createUsageStatsService(
   dependencies: UsageStatsServiceDependencies,
 ): IUsageStatsService {
-  const providerBalanceProvider = new ProviderBalanceProvider({
-    apiClient: dependencies.apiClient,
-    ...(dependencies.resolveProviderBalanceTarget
-      ? { resolveTarget: dependencies.resolveProviderBalanceTarget }
-      : {}),
-  });
   const quotaProvider = new BigModelUsageQuotaProvider({
     apiClient: dependencies.apiClient,
+    loadOAuthAccountMaterial: dependencies.loadOAuthAccountMaterial,
     accountRequestAuthService: dependencies.accountRequestAuthService,
     resolveApiAuthorization: dependencies.resolveApiAuthorization,
-    credentialService: dependencies.credentialService,
     env: dependencies.env,
     ...(dependencies.officialMcpCredentialSource
       ? { officialMcpCredentialSource: dependencies.officialMcpCredentialSource }
@@ -182,11 +165,6 @@ export function createUsageStatsService(
       request: UsageEntitlementRequest = {},
     ): Promise<UsageEntitlementSnapshot> {
       return quotaProvider.getSnapshotForRequest(request);
-    },
-    async getProviderBalanceSnapshot(
-      request: ProviderBalanceRequest,
-    ): Promise<ProviderBalanceSnapshot> {
-      return providerBalanceProvider.getSnapshot(request);
     },
   };
 }

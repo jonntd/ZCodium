@@ -12,12 +12,18 @@ import {
   resolveOffPeakFailureDecision,
 } from "../src/model/offpeak-retry.js";
 import type { ClassifiedModelFailure } from "../src/model/failure-classifier.js";
-import { ModelErrorCode, ModelFailureReason, ModelRetryReason } from "@zcode/contracts";
+import {
+  ModelErrorCode,
+  ModelFailureReason,
+  ModelRetryReason,
+  type ModelNetworkStatusEvent,
+  type ModelRequestAdmission,
+} from "@zcode/contracts";
 import { executeAdapterGenerateText, executeAdapterStreamText } from "./test-adapter-model.js";
 
 const TEST_QUEUE_PROVIDER_ID = "configured-queue-provider";
 
-// off-peak 排队协议（D24/D26）：429/3105 豁免重试预算无限探测；400/3102 稳定标记触发续跑。
+// off-peak 排队协议：429/3105 豁免重试预算；3102/3106 保留原码并通知 Host 结束任务。
 // 语义仅对 idle plan provider 生效，普通 provider 走既有预算——两侧都要有回归证明。
 
 function offPeakRegistryConfig() {
@@ -54,7 +60,7 @@ function queue429(retryAfterSeconds: number): ProviderBusinessError {
   });
 }
 
-function ticketUnavailable(code = "3102"): ProviderBusinessError {
+function ticketUnavailable(code: string | number = "3102"): ProviderBusinessError {
   return new ProviderBusinessError({
     providerCode: code,
     providerId: TEST_QUEUE_PROVIDER_ID,
@@ -136,10 +142,10 @@ describe("off-peak 排队重试（generate 路径）", () => {
     expect(calls).toBe(5);
   });
 
-  it("400/3102 立即以稳定标记落败（触发 desktop 续跑，非普通失败）", async () => {
+  it.each(["3102", "3106"])("400/%s 以稳定标记落败，保留原错误码", async (code) => {
     const runtime: AiSdkModelRuntime = {
       async generateText() {
-        throw ticketUnavailable();
+        throw ticketUnavailable(code);
       },
       streamText() {
         throw new Error("not used");
@@ -154,6 +160,7 @@ describe("off-peak 排队重试（generate 路径）", () => {
     }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).message).toContain(OFF_PEAK_TICKET_EXPIRED_MARKER);
+    expect(error).toMatchObject({ context: { providerCode: code } });
   });
 
   it("回归：普通 provider 的 429 仍受 maxAttempts 预算约束", async () => {
@@ -222,7 +229,7 @@ describe("off-peak 排队重试（stream 路径）", () => {
     expect(events.some((e) => (e as { type: string }).type === "text_delta")).toBe(true);
   });
 
-  it("stream 3102 落败信息携带续跑标记", async () => {
+  it.each(["3102", "3106"])("stream %s 落败信息携带过期标记", async (code) => {
     const runtime: AiSdkModelRuntime = {
       generateText() {
         throw new Error("not used");
@@ -231,7 +238,7 @@ describe("off-peak 排队重试（stream 路径）", () => {
         return {
           // eslint-disable-next-line require-yield -- 模拟流启动即抛错
           fullStream: (async function* () {
-            throw ticketUnavailable();
+            throw ticketUnavailable(code);
           })(),
         } as never;
       },
@@ -249,6 +256,97 @@ describe("off-peak 排队重试（stream 路径）", () => {
     };
     const error = await iterate().catch((e: unknown) => e);
     expect((error as Error).message).toContain(OFF_PEAK_TICKET_EXPIRED_MARKER);
+    expect(error).toMatchObject({ context: { providerCode: code } });
+  });
+});
+
+describe("off-peak 排队等待不叠加准入冷却（主代理重试参考冷却只作用于普通重试）", () => {
+  /** 报 60 秒冷却的准入端口：被读就会把排队探测拖成一分钟，所以断言它一次都没被读。 */
+  function cooldownPort() {
+    const reads: number[] = [];
+    const admission: ModelRequestAdmission = {
+      acquire: () => Promise.resolve({ publish() {}, release() {} }),
+      retryCooldownMs: () => {
+        reads.push(Date.now());
+        return 60_000;
+      },
+    };
+    return { admission, reads };
+  }
+  const retryDelays = (events: ModelNetworkStatusEvent[]) =>
+    events.flatMap((event) => (event.type === "model_retry_scheduled" ? [event.delayMs] : []));
+
+  it("generate：排队 429 照旧按 Retry-After 探测，不读冷却", async () => {
+    let calls = 0;
+    const runtime: AiSdkModelRuntime = {
+      async generateText() {
+        calls += 1;
+        if (calls <= 2) throw queue429(0);
+        return {
+          text: "done",
+          finishReason: "stop",
+          usage: usage(1, 1),
+          totalUsage: usage(1, 1),
+        } as never;
+      },
+      streamText() {
+        throw new Error("not used");
+      },
+    };
+    const { admission, reads } = cooldownPort();
+    const events: ModelNetworkStatusEvent[] = [];
+    const result = await executeAdapterGenerateText(makeAdapter(runtime, 2), {
+      providerId: TEST_QUEUE_PROVIDER_ID as never,
+      modelId: "GLM-5.2" as never,
+      accountMode: "off-peak",
+      messages: [{ role: "user", content: "ping" }],
+      modelRequestAdmission: admission,
+      statusSink: { publish: (event) => void events.push(event) },
+    });
+    expect(result.text).toBe("done");
+    expect(reads).toEqual([]);
+    expect(retryDelays(events)).toEqual([0, 0]);
+  });
+
+  it("stream：排队 429 照旧按 Retry-After 探测，不读冷却", async () => {
+    let calls = 0;
+    const runtime: AiSdkModelRuntime = {
+      generateText() {
+        throw new Error("not used");
+      },
+      streamText() {
+        calls += 1;
+        if (calls <= 2) {
+          return {
+            // eslint-disable-next-line require-yield -- 模拟流启动即抛错
+            fullStream: (async function* () {
+              throw queue429(0);
+            })(),
+          } as never;
+        }
+        return {
+          fullStream: (async function* () {
+            yield { type: "text-delta", id: "t1", text: "done" };
+            yield { type: "finish", finishReason: "stop", totalUsage: usage(1, 1) };
+          })(),
+        } as never;
+      },
+    };
+    const { admission, reads } = cooldownPort();
+    const events: ModelNetworkStatusEvent[] = [];
+    for await (const _event of executeAdapterStreamText(makeAdapter(runtime, 2), {
+      providerId: TEST_QUEUE_PROVIDER_ID as never,
+      modelId: "GLM-5.2" as never,
+      accountMode: "off-peak",
+      messages: [{ role: "user", content: "ping" }],
+      modelRequestAdmission: admission,
+      statusSink: { publish: (event) => void events.push(event) },
+    })) {
+      // drain
+    }
+    expect(calls).toBe(3);
+    expect(reads).toEqual([]);
+    expect(retryDelays(events)).toEqual([0, 0]);
   });
 });
 
@@ -294,6 +392,33 @@ describe("resolveOffPeakFailureDecision 纯函数", () => {
         offPeak: false,
         failure: baseFailure,
         error: queue429(10),
+      }),
+    ).toBeNull();
+  });
+
+  it.each(["3102", 3102, "3106", 3106])("过期码 %s 兼容数字和字符串响应", (code) => {
+    expect(
+      resolveOffPeakFailureDecision({
+        offPeak: true,
+        failure: { ...baseFailure, statusCode: 400 },
+        error: ticketUnavailable(code),
+      }),
+    ).toEqual({ kind: "ticketExpired" });
+  });
+
+  it("3104 无效票据不是过期，普通 provider 的 3106 不走闲时协议", () => {
+    expect(
+      resolveOffPeakFailureDecision({
+        offPeak: true,
+        failure: { ...baseFailure, statusCode: 400 },
+        error: ticketUnavailable("3104"),
+      }),
+    ).toBeNull();
+    expect(
+      resolveOffPeakFailureDecision({
+        offPeak: false,
+        failure: { ...baseFailure, statusCode: 400 },
+        error: ticketUnavailable("3106"),
       }),
     ).toBeNull();
   });

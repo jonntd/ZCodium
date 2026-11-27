@@ -3,7 +3,6 @@ import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import type {
   ProjectTaskRef,
   WebRemoteControlStatus,
-  WebRemoteControlMobileTaskView,
   WindowHostTaskUnreadSignal,
 } from "@/project-sidebar/contract.js";
 import { mutateProjectTask, readProjectTaskMeta } from "@/project-sidebar/task-mutation.js";
@@ -13,8 +12,6 @@ import { isWorkspaceTab } from "@/store/tabStore.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
 import { onTaskNavigationCommitted } from "@/store/zcodeSessionStoreNavigation.js";
 import { logger } from "@/logger.js";
-import { webRemoteControlMobileTaskViewSchema } from "@zcode/shared";
-import { z } from "zod";
 
 /** 前台完成补记记录：written=已补写，marker=补写回包的未读版本（自动清除的 CAS 凭据）。 */
 interface ForegroundCompletionEntry {
@@ -52,7 +49,10 @@ export function useProjectUnreadSignals(
   const taskKey = (target: ProjectTaskRef) =>
     JSON.stringify([target.workspaceIdentity?.trim() || target.workspacePath, target.taskId]);
   // 队列挂在组件级 ref 上：跨 effect 串行；命令自身负责校验当前记录是否仍然有效。
-  const enqueueForegroundCommand = (target: ProjectTaskRef, command: () => Promise<void>) => {
+  const enqueueForegroundCommand = (
+    target: ProjectTaskRef,
+    command: () => Promise<void>,
+  ) => {
     const key = taskKey(target);
     const previous = foregroundQueuesRef.current.get(key) ?? Promise.resolve();
     const current = previous.then(command);
@@ -164,7 +164,7 @@ export function useProjectUnreadSignals(
           });
       }
     };
-    let remoteView: WebRemoteControlMobileTaskView | null | undefined;
+    let remoteView: WebRemoteControlStatus["mobileTaskView"];
     let statusEventSeen = false;
     let statusReady = !platform;
     let releaseStatus!: () => void;
@@ -185,13 +185,7 @@ export function useProjectUnreadSignals(
       const previousViewKey = remoteView
         ? JSON.stringify([taskKey(remoteView), remoteView.remoteSessionId])
         : null;
-      // 旧 Host 不发布实时查看字段；缺席不能拿最后导航位置冒充当前实际查看。
-      const view = webRemoteControlMobileTaskViewSchema
-        .extend({ remoteSessionId: z.string().min(1).optional() })
-        .nullable()
-        .optional()
-        .safeParse("mobileTaskView" in status ? status.mobileTaskView : undefined);
-      remoteView = view.success ? view.data : undefined;
+      remoteView = status.mobileTaskView;
       statusReady = true;
       releaseStatus();
       let pendingWrite = false;

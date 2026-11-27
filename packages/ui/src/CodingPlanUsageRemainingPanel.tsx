@@ -10,7 +10,7 @@ import {
   type OAuthProviderId,
   ZAI_PROVIDER_ID,
 } from "@zcode/shared";
-import { ChevronRightIcon, Loader2 } from "lucide-react";
+import { ChevronRightIcon, LoaderCircle } from "lucide-react";
 import { useMemo } from "react";
 import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
@@ -71,7 +71,7 @@ function UsageLimitRow({
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-1.5">
       <div className="min-w-0 truncate text-ui-sm text-foreground">{label}</div>
-      <div className="flex min-w-0 max-w-36 items-center gap-2 text-end text-ui-sm">
+      <div className="flex min-w-0 max-w-36 items-center gap-2 text-right text-ui-sm">
         <span className="min-w-0 truncate font-medium text-foreground">{value}</span>
         {resetTime ? (
           <span className="min-w-0 truncate text-foreground-subtle">{resetTime}</span>
@@ -374,7 +374,7 @@ export function CodingPlanUsageRemainingPanel({
       <div className="px-3 py-2">
         {state.loading && !state.visibleSnapshot ? (
           <div className="flex items-center gap-2 p-2 text-ui-base text-foreground-subtle">
-            <Loader2 className="size-3.5 animate-spin" />
+            <LoaderCircle className="size-3.5 animate-spin" />
             {intl.formatMessage({ id: "sidebar.usage.plan.loading" })}
           </div>
         ) : state.displayedEntitlement?.error ? (

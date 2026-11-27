@@ -1,9 +1,6 @@
 import { LoaderCircle, WifiOff } from "lucide-react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import type {
-  SettingsScopeDevice,
-  SettingsScopeState,
-} from "@/settings-scope/contract.js";
+import type { SettingsScopeDevice, SettingsScopeState } from "@/settings-scope/contract.js";
 
 export type SettingsScopeBlock = "offline" | "connecting";
 
@@ -36,8 +33,7 @@ export function SettingsScopeBlockedNotice({
   const name =
     device.kind === "local"
       ? intl.formatMessage({ id: "settings.scope.localDevice" })
-      : device.name ||
-        intl.formatMessage({ id: "settings.machine.unknownRemote" });
+      : device.name || intl.formatMessage({ id: "settings.machine.unknownRemote" });
   const Icon = state === "offline" ? WifiOff : LoaderCircle;
   return (
     <div

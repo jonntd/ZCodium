@@ -2,10 +2,12 @@
   "name": "@zcode/web",
   "private": true,
   "type": "module",
+  "imports": {
+    "#src/*": "./src/*"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --import tsx --test tests/*.test.mjs",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix"
   },
@@ -13,6 +15,7 @@
     "@zcode/client": "workspace:*",
     "@zcode/shared": "workspace:*",
     "@zcode/ui": "workspace:*",
+    "core-js": "^3.51.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },

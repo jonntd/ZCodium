@@ -5,14 +5,12 @@ import type {
   CreateTaskRequest,
   RemoteWorkspaceRecoveryStatus,
 } from "@/app-shell/types.js";
-import type { CodeViewerSource } from "@/lib/codeViewer.js";
 import type { Theme } from "@/useTheme.js";
-export { LEGACY_SINGLE_ROOT_PROJECT_PREFIX } from "@zcode/services";
-export type { WebRemoteControlStatus } from "@zcode/shared";
-/** 复用已经发布的运行时 schema，不在 UI 伪造旧 Host 尚未提供的查看事实。 */
-export type WebRemoteControlMobileTaskView = import("zod").infer<
-  typeof import("@zcode/shared").webRemoteControlMobileTaskViewSchema
-> & { remoteSessionId?: string };
+export {
+  LEGACY_SINGLE_ROOT_PROJECT_PREFIX,
+  isArchivedTaskDeletionBatchUnsupported,
+} from "@zcode/services";
+export type { WebRemoteControlMobileTaskView, WebRemoteControlStatus } from "@zcode/shared";
 export interface ProjectDevice {
   id: string;
   label: string;
@@ -27,6 +25,8 @@ export interface ProjectRowAction {
   run(): void;
   disabled?: boolean;
   destructive?: boolean;
+  /** 与上一组操作之间画分隔线；首项忽略。 */
+  separatorBefore?: boolean;
 }
 export {
   buildRemoteHostWorkspaceIdentity,
@@ -61,7 +61,13 @@ export type {
   RemoteProjectDirectory,
   RemoteProjectEntry,
   RemoteProjectHost,
+  IManagedWorktreeService,
+  ManagedWorktreeGroup,
 } from "@zcode/services";
+export type {
+  ManagedWorktreeEntry,
+  ManagedWorktreeTaskRef as ManagedWorktreeTask,
+} from "@zcode/shared";
 export interface ProjectAvailability {
   entryId?: string;
   /** 仅首次升级入口用于替换旧排序键，不改变项目身份。 */
@@ -70,7 +76,7 @@ export interface ProjectAvailability {
   unresolved?: boolean;
 }
 export type { Locale, Theme };
-export type ProjectSidebarView = "projects" | "grouped" | "timeline";
+export type ProjectSidebarView = "projects" | "grouped" | "timeline" | "unread";
 export interface SidebarFileTreeTarget {
   workspacePath: string;
   workspaceName: string;
@@ -83,6 +89,20 @@ export interface SidebarFileTreeOpenRequest {
   id: number;
   target: SidebarFileTreeTarget;
 }
+export type { AppNavigationTarget, AppNavigationHandler } from "@zcode/shared";
+
+export type ProjectTaskNavigationResult =
+  | { status: "opened" }
+  | { status: "unavailable"; reason: string };
+export type ProjectTaskNavigation = (
+  targetWorkspacePath: string,
+  taskId: string,
+  targetWorkspaceIdentity?: string,
+  targetRemoteSessionId?: string,
+  expectedUnreadAt?: number,
+  options?: { signal?: AbortSignal },
+) => Promise<ProjectTaskNavigationResult>;
+
 /** 项目、时间线共用同一 Host 行集合；回调只负责现有导航，不维护组织状态。 */
 export interface ProjectSidebarProps {
   workspacePath: string;
@@ -96,17 +116,8 @@ export interface ProjectSidebarProps {
     targetWorkspaceIdentity?: string,
     targetRemoteSessionId?: string,
     expectedUnreadAt?: number,
-  ) => void;
+  ) => void | Promise<void>;
   onStartDraftInWorkspace: (targetWorkspacePath: string, targetWorkspaceIdentity?: string) => void;
-  // options 携带 preview/open 意图（单击预览 / 双击正式打开），由文件树透传（spec
-  // docs/spec/sidebar-file-viewer.md §2 入口 A）。
-  onOpenCodeViewer?: (
-    source: CodeViewerSource,
-    options?: { intent?: import("@/lib/workspaceSidePane.js").CodeViewerOpenIntent },
-  ) => void;
-  // 入口 B（spec §2）：项目行「打开文件面板」直达右侧面板文件树；跨工作区切换时序由
-  // App 层挂起意图处理，这里只上抛目标（位置参数约定与 App.handleOpenSidePaneFilesForWorkspace 一致）。
-  onOpenSidePaneFiles?: (targetWorkspacePath?: string, targetWorkspaceIdentity?: string) => void;
   onOpenBrowserUrl?: (url: string) => void;
   fileTreeOpenRequest?: SidebarFileTreeOpenRequest | null;
   onCreateTask: (request?: CreateTaskRequest) => void;
@@ -128,8 +139,6 @@ export interface ProjectSidebarProps {
     localWorkspacePath?: string,
     preparedWorkspaceIdentity?: string,
     isCurrent?: () => boolean | Promise<boolean>,
-    /** 取代默认草稿激活；history owner 在绑定完成后的唯一导航边界调用。 */
-    onWorkspaceActivated?: () => void,
   ) => Promise<void>;
   onCancelRemoteProject: (sessionId: string) => Promise<void>;
   onReconnectRemoteWorkspace: (workspaceKey: string) => Promise<void>;
@@ -159,6 +168,8 @@ export interface ProjectSidebarProps {
   onOpenPluginStore?: () => void;
   automationsActive?: boolean;
   pluginStoreActive?: boolean;
+  /** 「插件市场」之后的扩展导航条目（docs/plugins/extension-host.md §16.4）；Shell 提供打开入口。 */
+  navPrimarySlot?: import("@/extension-slots/contract.js").NavPrimarySlotHost;
   onFileTreeOpenChange?: (open: boolean) => void;
   onWebRemoteTaskOpen?: (options: { crossWorkspace: boolean }) => void;
   onWebRemoteTaskSwitchingChange?: (switching: boolean) => void;

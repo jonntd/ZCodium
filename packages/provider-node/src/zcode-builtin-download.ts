@@ -1,5 +1,9 @@
-import { isOfficialServiceEnabled } from "@zcode/shared";
 import { z } from "zod";
+import {
+  resolveClientConfigRefreshIntervalMs,
+  resolveOptionalZCodeAuthorization,
+  type ZCodeJwtTokenResolver,
+} from "@zcode/shared";
 import { decodeZCodeBuiltinRelease, type ZCodeBuiltinRelease } from "./zcode-builtin-release.js";
 
 const clientConfigSchema = z
@@ -14,7 +18,12 @@ const clientConfigSchema = z
               .url()
               .refine((value) => {
                 const url = new URL(value);
-                return url.protocol === "https:" && !url.username && !url.password;
+                // 内网和测试部署也会提供 HTTP 配置地址；协议准入不按产品环境区分。
+                return (
+                  (url.protocol === "https:" || url.protocol === "http:") &&
+                  !url.username &&
+                  !url.password
+                );
               })
               .optional(),
           })
@@ -30,15 +39,26 @@ export interface ZCodeBuiltinDownloadOptions {
   readonly platform: string;
   readonly request: (url: string | URL, init: RequestInit) => Promise<Response>;
   readonly signal?: AbortSignal;
+  readonly resolveZcodeJwtToken?: ZCodeJwtTokenResolver;
+  /** 第一跳下发的地址与它相同时不请求 CDN；何时需要兜底重下由调用方决定。 */
+  readonly reuseUrl?: string;
 }
+
+/** 每种结果都带第一跳下发的刷新间隔，供同步器排下一轮。 */
+export type ZCodeBuiltinDownloadResult =
+  | {
+      readonly kind: "release";
+      readonly release: ZCodeBuiltinRelease;
+      readonly url: string;
+      readonly refreshIntervalMs: number;
+    }
+  | { readonly kind: "not-modified"; readonly url: string; readonly refreshIntervalMs: number }
+  | { readonly kind: "missing"; readonly refreshIntervalMs: number };
 
 /** App/CLI 共用下载边界。总预算包含两次请求正文，不依赖 ApiClient 的响应头超时。 */
 export async function downloadZCodeBuiltinRelease(
   options: ZCodeBuiltinDownloadOptions,
-): Promise<ZCodeBuiltinRelease | null> {
-  // 审计版不连接官方服务：必须在凭证读取与网络请求前短路。
-  if (!isOfficialServiceEnabled("clientConfig")) return null;
-
+): Promise<ZCodeBuiltinDownloadResult> {
   const controller = new AbortController();
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -54,11 +74,18 @@ export async function downloadZCodeBuiltinRelease(
     const url = new URL("/api/v1/client/configs", options.endpointOrigin);
     url.searchParams.set("app_version", options.appVersion);
     url.searchParams.set("platform", options.platform);
-    const payload = clientConfigSchema.parse(await readJson(url));
+    const authorization = await resolveOptionalZCodeAuthorization(options.resolveZcodeJwtToken);
+    const payload = clientConfigSchema.parse(await readJson(url, authorization));
+    // 间隔与地址各自校验：间隔写错只回落默认值，不能让整次 Built-in 刷新失败。
+    const refreshIntervalMs = resolveClientConfigRefreshIntervalMs(payload.data.configs);
     const downloadUrl = payload.data.configs.builtin_provider_config_json;
-    if (downloadUrl === undefined) return null;
+    if (downloadUrl === undefined) return { kind: "missing", refreshIntervalMs };
+    if (downloadUrl === options.reuseUrl) {
+      return { kind: "not-modified", url: downloadUrl, refreshIntervalMs };
+    }
     stage = "cdn";
-    return decodeZCodeBuiltinRelease(await readJson(new URL(downloadUrl)));
+    const release = decodeZCodeBuiltinRelease(await readJson(new URL(downloadUrl)));
+    return { kind: "release", release, url: downloadUrl, refreshIntervalMs };
   } catch (error) {
     // 不能把带 query 的 URL、响应正文或 Schema 输入（可能含凭据）交给上层日志。
     const reason = signal.aborted
@@ -75,12 +102,18 @@ export async function downloadZCodeBuiltinRelease(
     clearTimeout(timer);
   }
 
-  async function readJson(url: URL): Promise<unknown> {
+  async function readJson(url: URL, authorization?: string | null): Promise<unknown> {
     signal.throwIfAborted();
-    // 每次新建请求选项，不继承控制面鉴权；不跟随重定向把下载变成任意新来源。
+    // 只有第一跳配置请求接收可选登录头；CDN 调用不传入，避免向资源源站泄露 JWT。
     const response = await abortable(
       options
-        .request(url, { method: "GET", signal, credentials: "omit", redirect: "error" })
+        .request(url, {
+          method: "GET",
+          signal,
+          credentials: "omit",
+          redirect: "error",
+          ...(authorization ? { headers: { Authorization: authorization } } : {}),
+        })
         .then((value) => {
           if (signal.aborted) {
             void value.body?.cancel().catch(() => {});

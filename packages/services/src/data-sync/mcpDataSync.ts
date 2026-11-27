@@ -52,11 +52,7 @@ async function resolveUserMcp(): Promise<ResolvedUserMcp> {
 function hashMcpConfig(config: unknown): string {
   const comparable =
     config && typeof config === "object" && !Array.isArray(config)
-      ? Object.fromEntries(
-          Object.entries(config).filter(
-            ([key]) => !ENABLED_STATE_KEYS.has(key),
-          ),
-        )
+      ? Object.fromEntries(Object.entries(config).filter(([key]) => !ENABLED_STATE_KEYS.has(key)))
       : config;
   return createHash("sha256").update(stableStringify(comparable)).digest("hex");
 }
@@ -71,19 +67,12 @@ function applyImportItem(
   payloadItem: McpDataSyncPayload["items"][number] | undefined,
   paths: McpPathRewrite,
 ): DataSyncImportResultItem {
-  const failed = (error: string) => ({
-    key: item.key,
-    status: "failed" as const,
-    error,
-  });
-  if (!payloadItem)
-    return failed("mcp server is missing from the sync payload");
+  const failed = (error: string) => ({ key: item.key, status: "failed" as const, error });
+  if (!payloadItem) return failed("mcp server is missing from the sync payload");
   if (normalizeMcpNameKey(payloadItem.name) !== item.key) {
     return failed("mcp server name does not match the sync key");
   }
-  const existingName = Object.keys(servers).find(
-    (name) => normalizeMcpNameKey(name) === item.key,
-  );
+  const existingName = Object.keys(servers).find((name) => normalizeMcpNameKey(name) === item.key);
   const config = rewriteFilesystemMcpConfig(
     payloadItem.name,
     cloneMcpConfig(payloadItem.config),
@@ -91,26 +80,22 @@ function applyImportItem(
   );
   if (item.mode === "createOnly") {
     // 列表加载后目标端出现同名 server：不写入，提示刷新后重试。
-    if (existingName !== undefined)
-      return { key: item.key, status: "conflict" };
-    servers[payloadItem.name] = setServerEnabled(
-      config,
-      payloadItem.enabled,
-    ) as Record<string, unknown>;
+    if (existingName !== undefined) return { key: item.key, status: "conflict" };
+    servers[payloadItem.name] = setServerEnabled(config, payloadItem.enabled) as Record<
+      string,
+      unknown
+    >;
     return { key: item.key, status: "created" };
   }
   if (existingName === undefined) return { key: item.key, status: "conflict" };
   const existing = servers[existingName]!;
-  if (
-    !item.expectedTargetHash ||
-    hashMcpConfig(existing) !== item.expectedTargetHash
-  ) {
+  if (!item.expectedTargetHash || hashMcpConfig(existing) !== item.expectedTargetHash) {
     return { key: item.key, status: "conflict" };
   }
-  servers[existingName] = setServerEnabled(
-    config,
-    readServerEnabled(existing),
-  ) as Record<string, unknown>;
+  servers[existingName] = setServerEnabled(config, readServerEnabled(existing)) as Record<
+    string,
+    unknown
+  >;
   return { key: item.key, status: "updated" };
 }
 
@@ -127,9 +112,7 @@ export function createMcpDataSyncMethods(): IDataSyncCategoryService<McpDataSync
           enabled: record.enabled,
         })),
         homeDir: resolveUserHomeDir(),
-        ...(usesCompatConfig
-          ? { importBlockedReason: "target-compat-config" as const }
-          : {}),
+        ...(usesCompatConfig ? { importBlockedReason: "target-compat-config" as const } : {}),
       };
     },
 
@@ -142,16 +125,12 @@ export function createMcpDataSyncMethods(): IDataSyncCategoryService<McpDataSync
         if (!record) continue;
         // 来源端：先把配置改写成目标端路径再计算，filesystem 类 MCP 不会因 home 不同被判为不一致。
         const config: McpServerConfig = params.targetHomeDir
-          ? rewriteFilesystemMcpConfig(
-              record.name,
-              cloneMcpConfig(record.config),
-              {
-                sourceHomeDir,
-                targetHomeDir: params.targetHomeDir,
-                sourceWorkspacePath: params.workspace?.sourceWorkspacePath,
-                targetWorkspacePath: params.workspace?.targetWorkspacePath,
-              },
-            )
+          ? rewriteFilesystemMcpConfig(record.name, cloneMcpConfig(record.config), {
+              sourceHomeDir,
+              targetHomeDir: params.targetHomeDir,
+              sourceWorkspacePath: params.workspace?.sourceWorkspacePath,
+              targetWorkspacePath: params.workspace?.targetWorkspacePath,
+            })
           : record.config;
         hashes[key] = hashMcpConfig(config);
       }
@@ -159,9 +138,7 @@ export function createMcpDataSyncMethods(): IDataSyncCategoryService<McpDataSync
     },
 
     async checkSyncWriteAccess() {
-      return await checkRemoteSyncDirectoryWriteAccess(
-        dirname(getUserZcodeMcpConfigPath()),
-      );
+      return await checkRemoteSyncDirectoryWriteAccess(dirname(getUserZcodeMcpConfigPath()));
     },
 
     async exportSyncItems(params) {
@@ -190,19 +167,12 @@ export function createMcpDataSyncMethods(): IDataSyncCategoryService<McpDataSync
 
     async importSyncItems(params): Promise<DataSyncImportResult> {
       const failAll = (error: string): DataSyncImportResult => ({
-        results: params.items.map((item) => ({
-          key: item.key,
-          status: "failed",
-          error,
-        })),
+        results: params.items.map((item) => ({ key: item.key, status: "failed", error })),
       });
       try {
         // 远端只在使用 ~/.agents 兼容配置时，写入 .zcode 会让它整体失效：整类拒绝。
-        if ((await resolveUserMcp()).usesCompatConfig)
-          return failAll(COMPAT_CONFIG_ERROR);
-        const payloadByKey = new Map(
-          params.payload.items.map((item) => [item.key, item]),
-        );
+        if ((await resolveUserMcp()).usesCompatConfig) return failAll(COMPAT_CONFIG_ERROR);
+        const payloadByKey = new Map(params.payload.items.map((item) => [item.key, item]));
         const paths: McpPathRewrite = {
           sourceHomeDir: params.payload.sourceHomeDir,
           sourceWorkspacePath: params.payload.sourceWorkspacePath,
@@ -217,8 +187,7 @@ export function createMcpDataSyncMethods(): IDataSyncCategoryService<McpDataSync
             applyImportItem(servers, item, payloadByKey.get(item.key), paths),
           );
           const changed = results.some(
-            (result) =>
-              result.status === "created" || result.status === "updated",
+            (result) => result.status === "created" || result.status === "updated",
           );
           return changed ? writeZcodeServerMap(config, servers) : config;
         });

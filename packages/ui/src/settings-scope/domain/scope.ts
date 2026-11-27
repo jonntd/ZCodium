@@ -42,14 +42,10 @@ export function getPluginWorkspaceKey(tab: ConfigWorkspaceTarget): string {
 }
 
 function isRemoteScopeTarget(tab: ConfigWorkspaceTarget): boolean {
-  return Boolean(
-    tab.workspaceIdentity?.trim() || tab.remoteTarget || tab.remoteSessionId,
-  );
+  return Boolean(tab.workspaceIdentity?.trim() || tab.remoteTarget || tab.remoteSessionId);
 }
 
-export function isPluginScopeWorkspaceConnected(
-  tab: ConfigWorkspaceTarget,
-): boolean {
+export function isPluginScopeWorkspaceConnected(tab: ConfigWorkspaceTarget): boolean {
   // Bug 根因：持久化 tab 会保留已经断开的远端项目和已失效的本地目录；Scope 若继续展示，
   // 用户会选中一个没有可用 service target 的项目。远端必须有当前 session，本地必须仍可用。
   if (tab.configOnline !== undefined) return tab.configOnline;
@@ -59,10 +55,7 @@ export function isPluginScopeWorkspaceConnected(
 }
 
 function remoteDeviceOf(
-  target: Pick<
-    ConfigWorkspaceTarget,
-    "workspacePath" | "workspaceIdentity" | "remoteTarget"
-  > & {
+  target: Pick<ConfigWorkspaceTarget, "workspacePath" | "workspaceIdentity" | "remoteTarget"> & {
     hostId?: string;
   },
   devices: readonly SettingsScopeDeviceState[],
@@ -89,9 +82,7 @@ function remoteDeviceOf(
  * 数据来自配置目录目录表；Source 设备的在线状态只看管理快照，离线设备整组不列出。
  * 没有设备记录的远端（旧格式 identity、Direct URL）只列出在线项目，不提供「用户」。
  */
-export function buildSettingsScopeGroups(
-  context: SettingsScopeContext,
-): SettingsScopeGroup[] {
+export function buildSettingsScopeGroups(context: SettingsScopeContext): SettingsScopeGroup[] {
   const local: SettingsScopeGroup = {
     device: { kind: "local" },
     options: [{ key: LOCAL_USER_SCOPE_KEY, kind: "user" }],
@@ -124,19 +115,14 @@ export function buildSettingsScopeGroups(
     }
     const device = remoteDeviceOf(target, context.devices);
     const known = device.sourceServerId
-      ? context.devices.find(
-          (item) => item.sourceServerId === device.sourceServerId,
-        )
+      ? context.devices.find((item) => item.sourceServerId === device.sourceServerId)
       : undefined;
     if (known && !known.online) continue;
     const group = remote.get(device.id) ?? { device, options: [] };
     group.options.push(option);
     remote.set(device.id, group);
   }
-  return [
-    local,
-    ...[...remote.values()].filter((group) => group.options.length > 0),
-  ];
+  return [local, ...[...remote.values()].filter((group) => group.options.length > 0)];
 }
 
 function remoteUserDevice(
@@ -147,9 +133,7 @@ function remoteUserDevice(
     kind: "remote",
     id: sourceServerId,
     sourceServerId,
-    name:
-      devices.find((device) => device.sourceServerId === sourceServerId)
-        ?.name ?? null,
+    name: devices.find((device) => device.sourceServerId === sourceServerId)?.name ?? null,
   };
 }
 
@@ -173,29 +157,19 @@ export function resolveSettingsScope(
       ? { status: "ready", key, kind: "user", device }
       : { status: "offline", key, device };
   }
-  const target = context.targets.find(
-    (candidate) => getPluginWorkspaceKey(candidate) === key,
-  );
+  const target = context.targets.find((candidate) => getPluginWorkspaceKey(candidate) === key);
   const owner = target ?? { workspacePath: key, workspaceIdentity: key };
   if (!target && !remoteHostIdFromWorkspaceIdentity(key)) {
     return { status: "missing", key, fallbackKey: LOCAL_USER_SCOPE_KEY };
   }
   if (target && !isRemoteScopeTarget(target)) {
     return isPluginScopeWorkspaceConnected(target)
-      ? {
-          status: "ready",
-          key,
-          kind: "workspace",
-          device: { kind: "local" },
-          target,
-        }
+      ? { status: "ready", key, kind: "workspace", device: { kind: "local" }, target }
       : { status: "missing", key, fallbackKey: LOCAL_USER_SCOPE_KEY };
   }
   const device = remoteDeviceOf(owner, context.devices);
   const known = device.sourceServerId
-    ? context.devices.find(
-        (item) => item.sourceServerId === device.sourceServerId,
-      )
+    ? context.devices.find((item) => item.sourceServerId === device.sourceServerId)
     : undefined;
   if (known && !known.online) return { status: "offline", key, device };
   if (target && isPluginScopeWorkspaceConnected(target)) {
@@ -228,7 +202,6 @@ export function resolveDefaultSettingsScopeKey(params: {
     workspaceIdentity: identity,
     remoteTarget: params.remoteTarget,
   });
-  if (sourceServerId && params.remoteUserAvailable)
-    return remoteUserScopeKey(sourceServerId);
+  if (sourceServerId && params.remoteUserAvailable) return remoteUserScopeKey(sourceServerId);
   return getWorkspaceKey(params.workspacePath, identity);
 }

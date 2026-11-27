@@ -1,30 +1,10 @@
 import {
   buildRemoteHostWorkspaceIdentity,
-  resolveWorkspaceKey,
-  type WorkflowRunProjectTask,
-  type WorkflowRunProjectOrigin,
   type ConfigCatalogSnapshot,
   type ConfigWorkspaceTarget,
-} from "./contract.js";
+} from "@/workspace-config-catalog/contract.js";
 
 export { readProjectCatalog as readConfigCatalog } from "@zcode/services";
-
-/** 父会话归属来自现有 Host 树；同 cwd 的多个虚拟项目不能按目录反查。 */
-export function resolveWorkflowRunProjectOwnership(
-  host: WorkflowRunProjectOrigin,
-  tasks: readonly WorkflowRunProjectTask[],
-): { projectId: string | null; hostId?: string } {
-  if (host.projectId !== undefined)
-    return { projectId: host.projectId, ...(host.hostId ? { hostId: host.hostId } : {}) };
-  const task = host.sessionId
-    ? tasks.find(
-        (candidate) =>
-          candidate.taskId === host.sessionId &&
-          resolveWorkspaceKey(candidate) === resolveWorkspaceKey(host),
-      )
-    : undefined;
-  return task ? { projectId: task.projectId, hostId: task.hostId } : { projectId: null };
-}
 
 export function projectConfigTargets(
   snapshot: ConfigCatalogSnapshot,

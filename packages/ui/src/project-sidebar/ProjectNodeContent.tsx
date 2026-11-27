@@ -1,12 +1,12 @@
 import { SidebarNativeTooltip, ControlHintTooltip } from "@/ControlHintTooltip.js";
-import { RemoteIdentityHoverCard } from "@/project-sidebar/RemoteIdentityHoverCard.js";
+import { ProjectIdentityHoverCard } from "@/project-sidebar/ProjectIdentityHoverCard.js";
 import { remoteHostLabel } from "@/project-sidebar/RemoteHostSection.js";
 import { memo } from "react";
 import type { useSortable } from "@dnd-kit/sortable";
 import {
   Ellipsis,
   FolderMinus,
-  FolderOpen,
+  Folders,
   ListTree,
   Pin,
   PinOff,
@@ -16,10 +16,7 @@ import {
   MessageCirclePlus,
 } from "lucide-react";
 import { ProjectFolderIcon } from "@/project-sidebar/ProjectFolderIcon.js";
-import {
-  TID_WORKSPACE_SIDE_PANE_FILES_BUTTON,
-  sourceServerConnectionStateSchema,
-} from "@zcode/shared";
+import { sourceServerConnectionStateSchema } from "@zcode/shared";
 import type {
   ProjectTask,
   VirtualProject,
@@ -36,18 +33,21 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu.js";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu.js";
 import { ProjectTaskRows } from "@/project-sidebar/ProjectTaskRows.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { resolveRemoteConnectionPresentation } from "@/lib/remoteConnectionPresentation.js";
 import { RemoteConnectionStateIcon } from "@/remote-connection/RemoteConnectionStateIcon.js";
+import { ManagedWorktreeCreatingRows } from "@/managed-worktrees/index.js";
 
 // 修复原因：memo 内容的内联默认对象/数组会在每次渲染时新建引用，触发引用稳定性门禁。
 const DEFAULT_AVAILABILITY: ProjectAvailability = { online: true };
@@ -57,6 +57,7 @@ export type ProjectNodeProps = {
   project: VirtualProject;
   remoteHost?: RemoteProjectHost;
   deviceLabel?: string;
+  hideDeviceName?: boolean;
   diagnostics?: { error?: string };
   expanded: boolean;
   onExpandedChange(value: boolean): void;
@@ -65,8 +66,6 @@ export type ProjectNodeProps = {
   additionalActions?: ProjectRowAction[];
   onCreate(): void;
   onViewFiles?(rootPath: string): void;
-  /** 入口 B（spec sidebar-file-viewer.md §2）：打开右侧面板文件树；绑定到本项目主 root。 */
-  onOpenSidePaneFiles?(): void;
   onEdit(): void;
   onDelete(): void;
   onPin(): void;
@@ -77,6 +76,8 @@ export type ProjectNodeProps = {
   onRemoveEntry?(): void;
   /** 仅桌面端远程项目提供：从菜单或待处理详情跳到“设置 › 远程设备”。 */
   onOpenDeviceSettings?(): void;
+  /** 仅桌面端提供：跳到“设置 › 项目”批量管理。 */
+  onManageProjects?(): void;
 };
 
 // 原因：useSortable 的激活/测量/落点更新曾让 41 个项目的菜单和 Tooltip 连续重渲染。
@@ -85,12 +86,12 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
   project,
   remoteHost,
   deviceLabel,
+  hideDeviceName = false,
   diagnostics,
   tasks,
   hasUnread = false,
   onCreate,
   onViewFiles,
-  onOpenSidePaneFiles,
   onEdit,
   onDelete,
   onPin,
@@ -99,6 +100,7 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
   availability = DEFAULT_AVAILABILITY,
   onRemoveEntry,
   onOpenDeviceSettings,
+  onManageProjects,
   additionalActions = EMPTY_ADDITIONAL_ACTIONS,
   editable,
   isOpen,
@@ -163,10 +165,22 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
     ...(!editable && availability.entryId && onRemoveEntry
       ? [{ id: "remove-entry", label: msg("removeEntry"), icon: FolderMinus, run: onRemoveEntry }]
       : []),
+    ...(onManageProjects
+      ? [
+          {
+            id: "manage-projects",
+            label: intl.formatMessage({ id: "projectManagement.manage" }),
+            icon: Folders,
+            run: onManageProjects,
+            separatorBefore: true,
+          },
+        ]
+      : []),
   ];
+  // 单目录分支曾省略路径；统一展示完整 rootPath，让右键菜单始终明确文件目标。
   const files: ProjectRowAction[] = project.roots.map((root, index) => ({
     id: `files-${index}`,
-    label: project.roots.length > 1 ? `${showFiles} · ${root.rootPath}` : showFiles,
+    label: `${showFiles} · ${root.rootPath}`,
     icon: ListTree,
     run: () => onViewFiles?.(root.rootPath),
     disabled: Boolean(primaryRootDisabledReason) || !onViewFiles,
@@ -190,10 +204,9 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
     <>
       <ContextMenu modal={false}>
         {/* 标题区域不含行尾按钮，作为锚点时浮层会遮住操作；以整行边界定位，保留更多/新建入口可点击。 */}
-        <RemoteIdentityHoverCard
+        <ProjectIdentityHoverCard
           host={remoteHost}
           title={project.name}
-          projectName={project.name}
           deviceName={deviceLabel}
           paths={project.roots.map((root) => root.rootPath)}
           connectionError={diagnostics?.error}
@@ -265,7 +278,7 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
                       <span className="truncate text-ui-base text-foreground-subtle">
                         {project.name}
                       </span>
-                      {remoteHost ? (
+                      {remoteHost && !hideDeviceName ? (
                         <span
                           data-testid="project-device"
                           className="max-w-24 truncate text-ui-sm text-remote-foreground-muted"
@@ -356,7 +369,10 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
                             </Button>
                           </DropdownMenuTrigger>
                         </ControlHintTooltip>
-                        <DropdownMenuContent align="end">
+                        <DropdownMenuContent
+                          align="end"
+                          className="max-w-(--radix-dropdown-menu-content-available-width)"
+                        >
                           <ProjectMenuItems actions={files} />
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -375,21 +391,6 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
                         <ListTree className="size-3.5" />
                       </TaskRowActionButton>
                     )}
-                    {onOpenSidePaneFiles ? (
-                      // 入口 B（spec sidebar-file-viewer.md §2）：「打开文件面板」直达右侧面板
-                      // 文件树，与上方「查看文件」（左侧覆盖层文件树）图标/文案区分；
-                      // 断连行随同块隐藏，只读/主目录失效与「查看文件」同一禁用门槛。
-                      <TaskRowActionButton
-                        testId={TID_WORKSPACE_SIDE_PANE_FILES_BUTTON}
-                        label={intl.formatMessage({ id: "workspaceSidebar.openSidePaneFiles" })}
-                        showTooltip
-                        disabledReason={primaryRootDisabledReason}
-                        className="text-foreground-subtle hover:text-foreground"
-                        onClick={onOpenSidePaneFiles}
-                      >
-                        <FolderOpen className="size-3.5" />
-                      </TaskRowActionButton>
-                    ) : null}
                     <TaskRowActionButton
                       testId="virtual-project-create-task"
                       label={msg("createTask")}
@@ -405,9 +406,10 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
               </div>
             </div>
           </ContextMenuTrigger>
-        </RemoteIdentityHoverCard>
+        </ProjectIdentityHoverCard>
         {/* 非模态菜单只负责导航，避免退出动画与编辑弹窗交错后残留指针锁。 */}
-        <ContextMenuContent>
+        {/* 完整路径可能比窄屏更宽；按浮层可用宽度收口，再由文件项换行，避免裁掉目标目录。 */}
+        <ContextMenuContent className="max-w-(--radix-context-menu-content-available-width)">
           <ProjectMenuItems actions={contextActions} context />
         </ContextMenuContent>
       </ContextMenu>
@@ -415,6 +417,8 @@ export const ProjectNodeContent = memo(function ProjectNodeContent({
       <CollapsibleContent data-testid="virtual-project-tasks">
         {/* 原因：旧任务文字的 34px 缩进外只需 8px 留白，空态与项目名称保持对齐。 */}
         <div className="pl-2 pt-1">
+          {/* 正在新 worktree 中启动的任务排在真实任务前面（docs/git/worktree.md §3.3）。 */}
+          <ManagedWorktreeCreatingRows projectId={project.id} />
           <ProjectTaskRows tasks={tasks} onSelect={onSelect} refresh={refresh} />
         </div>
       </CollapsibleContent>
@@ -430,16 +434,21 @@ function ProjectMenuItems({
   context?: boolean;
 }) {
   const Item = context ? ContextMenuItem : DropdownMenuItem;
-  return actions.map((action) => (
+  const Separator = context ? ContextMenuSeparator : DropdownMenuSeparator;
+  return actions.map((action, index) => [
+    action.separatorBefore && index > 0 ? <Separator key={`${action.id}-separator`} /> : null,
     <Item
       key={action.id}
       disabled={action.disabled}
       data-testid={`virtual-project-${context && (action.id.startsWith("files-") || action.id === "create-task") ? "context-" : ""}${action.id}`}
-      className={action.destructive ? "text-destructive" : undefined}
+      className={cn(
+        action.destructive && "text-destructive",
+        action.id.startsWith("files-") && "break-all",
+      )}
       onSelect={action.run}
     >
       {action.icon ? <action.icon className="size-4 shrink-0" aria-hidden="true" /> : null}
       {action.label}
-    </Item>
-  ));
+    </Item>,
+  ]);
 }

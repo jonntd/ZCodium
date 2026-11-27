@@ -1,14 +1,16 @@
 import {
+  Archive,
+  Folders,
   Monitor,
   Moon,
   Settings,
   Settings2,
+  SlidersHorizontal,
   Package,
   Bot,
   Palette,
   Sun,
   BarChart3,
-  Archive,
   Terminal,
   AlarmClock,
   Anchor,
@@ -17,11 +19,11 @@ import {
   Globe2,
   Cable,
   WandSparkles,
+  HardDrive,
   Keyboard,
   FileSearch,
-  ScrollText,
-  ShieldCheck,
-  Server,
+  RefreshCw,
+  User,
 } from "lucide-react";
 import { isSettingsSectionEnabled, type SettingsSectionId } from "@/lib/settingsNavigation.js";
 import type { Theme } from "@/useTheme.js";
@@ -77,19 +79,19 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.modelProviderTitle",
     groupId: "basics",
   },
-  // 系统提示词在「Agent 能力」分组首位（codex_ui 还原说明 §4）：它决定 Agent 的
-  // 身份与行为契约，比记忆/子代理等能力项更靠前。
+  // 个性化（用户自定义指令）是 Agent 能力组的第一项：编辑 ~/.zcode/AGENTS.md，
+  // 对所有会话生效（spec：docs/ui/settings-personalization.md）。
   {
-    id: "systemPrompt",
-    icon: ScrollText,
-    titleId: "settings.systemPrompt",
+    id: "personalization",
+    icon: User,
+    titleId: "settings.personalization.title",
     groupId: "agentCapabilities",
   },
   {
-    id: "remoteDevices",
-    icon: Server,
-    titleId: "settings.remoteDevicesTitle",
-    groupId: "basics",
+    id: "agentBehavior",
+    icon: SlidersHorizontal,
+    titleId: "settings.agentBehavior.title",
+    groupId: "agentCapabilities",
   },
   {
     id: "memory",
@@ -154,7 +156,15 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.computerUse.title",
     groupId: "basics",
   },
-  // 键盘快捷键紧跟「电脑控制」：同属本机操控/效率配置，收纳在基础设置尾部。
+  // 远程设备放在电脑控制下方，保持浏览器与电脑控制两个本机操控入口相邻。
+  {
+    id: "remoteDevices",
+    icon: HardDrive,
+    titleId: "settings.remoteDevicesTitle",
+    contentTitleId: "settings.remoteDevicesTitle",
+    groupId: "basics",
+  },
+  // 键盘快捷键收纳在基础设置尾部，位于远程设备之后。
   {
     id: "shortcuts",
     icon: Keyboard,
@@ -168,34 +178,45 @@ const BASE_SETTINGS_SECTIONS: SettingsSectionDefinition[] = [
     titleId: "settings.workspaceFileSearch.title",
     groupId: "basics",
   },
+  // 数据同步是「数据与统计」的第一项（docs/remote/data-sync.md），仅桌面端显示。
+  {
+    id: "dataSync",
+    icon: RefreshCw,
+    titleId: "remoteSync.title",
+    contentTitleId: "remoteSync.title",
+    groupId: "dataAndStats",
+  },
   {
     id: "usage",
     icon: BarChart3,
     titleId: "settings.usageTitle",
     groupId: "dataAndStats",
   },
-  // #99：归档组件与 Host 命令仍存在，缺少分区注册会让已归档会话失去管理入口。
+  // 项目管理排在归档管理之前（docs/superpowers/specs/2026-10-24-project-management.md）。
+  {
+    id: "projects",
+    icon: Folders,
+    titleId: "projectManagement.nav",
+    groupId: "dataAndStats",
+  },
   {
     id: "archives",
     icon: Archive,
     titleId: "archives.nav",
     groupId: "dataAndStats",
   },
-  {
-    id: "officialServices",
-    icon: ShieldCheck,
-    titleId: "settings.officialServicesTitle",
-    groupId: "dataAndStats",
-  },
+  // 暂时隐藏设置页里的 Migration 入口，只保留页面实现，后续可以直接恢复这一项。
+  // {
+  //   id: "migration",
+  //   icon: ArrowLeftRight,
+  //   titleId: "settings.migration.title",
+  // },
 ];
 
 // 兼容既有只读消费者：默认配置代表不带桌面平台能力的 Web 视图；
 // macOS/Windows/Linux 必须继续通过 createSettingsPageConfig 动态加入 Computer Use。
 export const SETTINGS_SECTIONS = BASE_SETTINGS_SECTIONS.filter(
-  (section) =>
-    section.id !== "computerUse" &&
-    section.id !== "remoteDevices" &&
-    isSettingsSectionEnabled(section.id),
+  (section) => section.id !== "computerUse" && isSettingsSectionEnabled(section.id),
 );
 
 export interface SettingsPageConfigOptions {
@@ -212,7 +233,6 @@ export function createSettingsPageConfig({
   const showComputerUse = isDesktop || isMacDesktop || isWindowsDesktop;
   const settingsSections = BASE_SETTINGS_SECTIONS.filter((section) => {
     if (section.id === "computerUse" && !showComputerUse) return false;
-    if (section.id === "remoteDevices" && !isDesktop) return false;
     return isSettingsSectionEnabled(section.id);
   });
   const settingsSectionGroups = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({
@@ -235,4 +255,23 @@ export function resolveSettingsSectionForPlatform(
   return visibleSections[0]?.id ?? "general";
 }
 
+export const SETTINGS_SECTION_GROUPS = BASE_SETTINGS_SECTION_GROUPS.map((group) => ({
+  ...group,
+  sections: SETTINGS_SECTIONS.filter((section) => section.groupId === group.id),
+})).filter((group) => group.sections.length > 0);
+
 export type { SettingsSectionId };
+
+/** 依赖本机 Source Server 管理与设备连接的设置页，Web 与手机远控不显示。 */
+const DESKTOP_ONLY_SETTINGS_SECTIONS = new Set<SettingsSectionId>([
+  "remoteDevices",
+  "dataSync",
+  "shares",
+]);
+
+export function isSettingsSectionAvailable(
+  section: SettingsSectionId,
+  isDesktop: boolean,
+): boolean {
+  return isDesktop || !DESKTOP_ONLY_SETTINGS_SECTIONS.has(section);
+}

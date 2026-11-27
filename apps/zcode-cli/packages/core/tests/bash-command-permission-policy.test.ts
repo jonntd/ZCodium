@@ -5,6 +5,38 @@ import { createBashPermissionRulePolicy } from "../src/tool/handlers/bash-comman
 import { bashToolEntry } from "../src/tool/handlers/bash.js";
 
 describe("Bash command permission rule policy", () => {
+  it.each(["cmd", "legacy-shell"] as const)(
+    "only suggests and accepts exact command grants for %s",
+    (dialect) => {
+      const command = "npm run test # & python script.py";
+      const policy = createBashPermissionRulePolicy(command, {
+        bashShellSelection: { dialect, source: "legacy-fallback", display: { name: dialect } },
+      });
+      expect(policy.suggestedPermissionUpdates).toEqual([
+        {
+          behavior: "allow",
+          type: "addRules",
+          rules: [{ toolName: "Bash", ruleContent: command }],
+        },
+      ]);
+      for (const ruleContent of ["npm run:*", "npm *", "npm run test"]) {
+        expect(policy.evaluateRules("allow", [{ toolName: "Bash", ruleContent }])).toBe(false);
+      }
+      expect(policy.evaluateRules("allow", [{ toolName: "Bash", ruleContent: command }])).toBe(
+        true,
+      );
+      expect(policy.evaluateRules("allow", [{ toolName: "Bash" }])).toBe(true);
+      for (const behavior of ["deny", "ask"] as const) {
+        expect(policy.evaluateRules(behavior, [{ toolName: "Bash", ruleContent: command }])).toBe(
+          true,
+        );
+        expect(
+          policy.evaluateRules(behavior, [{ toolName: "Bash", ruleContent: "npm run:*" }]),
+        ).toBe(true);
+      }
+    },
+  );
+
   it.each([
     ["pnpm run lint --fix", "pnpm run lint:*"],
     ["pnpm --dir /tmp/project run lint --fix", "pnpm run lint:*"],
@@ -32,6 +64,28 @@ describe("Bash command permission rule policy", () => {
       "pnpm run lint:*",
       "git push:*",
     ]);
+  });
+
+  it("treats list-only archive and Windows lookups as readonly segments of a compound grant", () => {
+    const rules: PermissionRuleset = {
+      allow: [{ ruleContent: "npm run test:*", toolName: "Bash" }],
+      version: 1,
+    };
+    expect(ruleContents("unzip -l a.zip && tar -tzf a.tgz && npm run test")).toEqual([
+      "npm run test:*",
+    ]);
+    expect(check("unzip -l a.zip && tar -tzf a.tgz && npm run test", rules).decision).toBe("allow");
+    expect(check('findstr /S /I "foo" *.java && npm run test', rules).decision).toBe("allow");
+
+    // 解压模式和输出文件仍是需要授权的独立调用，不能被 npm 的前缀授权顺带放行。
+    expect(ruleContents("unzip a.zip && npm run test")).toEqual(["unzip a.zip && npm run test"]);
+    expect(check("unzip a.zip && npm run test", rules).decision).toBe("ask");
+    expect(check("tar -xf a.tar && npm run test", rules).decision).toBe("ask");
+    expect(check("xxd -r a.hex b.bin && npm run test", rules).decision).toBe("ask");
+    expect(check("tar -tf - * && npm run test", rules).decision).toBe("ask");
+    expect(check("xxd *.bin && npm run test", rules).decision).toBe("ask");
+    expect(check("unzip -l -- -l a.zip && npm run test", rules).decision).toBe("ask");
+    expect(check("unzip -:-l a.zip && npm run test", rules).decision).toBe("ask");
   });
 
   it("falls back to the whole exact command above the five-rule limit", () => {

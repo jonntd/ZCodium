@@ -4,6 +4,8 @@ import {
   LoaderCircle,
   MoreHorizontal,
   Power,
+  ShieldAlert,
+  ShieldCheck,
   TriangleAlert,
   Trash2,
 } from "lucide-react";
@@ -28,6 +30,7 @@ import {
   resolveItemDisplayName,
   type StorePluginItem,
 } from "@/settings/pluginStoreListing.js";
+import { runUserAction } from "@/lib/userActionTelemetry.js";
 
 /** 商店条目的通用动作集：列表卡片、详情页共用同一套回调与进行中态判定。 */
 export interface PluginStoreActions {
@@ -40,8 +43,76 @@ export interface PluginStoreActions {
   /** 删除当前 Workspace scope 的显式配置，使其回退到 User。 */
   onResetConfig?: (pluginId: string) => void;
   onUpdate: (pluginId: string) => void;
+  /** 信任项目 `plugins.dirs` 声明的目录插件；只有设置页「项目」视图提供。 */
+  onTrustWorkspacePlugin?: (pluginId: string) => void;
   activeOperations: ReadonlyArray<{ id: string }>;
   togglingPluginId: string | null;
+}
+
+/**
+ * 项目目录插件未被本机用户信任（docs/plugins/workspace-plugin-dir-trust.md）。
+ * 这类插件由 Agent 强制停用：开关锁定为关，启用菜单与打开 UI 都不提供，只能先「信任」。
+ */
+export function isWorkspaceTrustPending(item: Pick<StorePluginItem, "info"> | null | undefined) {
+  return item?.info?.workspaceTrust?.state === "pending";
+}
+
+export function PluginStoreTrustPendingBadge({ item }: { item: StorePluginItem }) {
+  const { intl } = useZCodeIntl();
+  if (!isWorkspaceTrustPending(item)) return null;
+  const label = intl.formatMessage({ id: "settings.plugins.workspaceTrust.pending" });
+  return (
+    <ControlHintTooltip
+      title={intl.formatMessage({ id: "settings.plugins.workspaceTrust.pendingHint" })}
+    >
+      <span
+        data-testid="plugin-settings-trust-pending"
+        data-plugin-id={item.id}
+        className="inline-flex shrink-0 items-center gap-1 rounded-full bg-warning-surface px-1.5 py-0.5 text-ui-sm leading-none whitespace-nowrap text-warning-surface-foreground"
+        aria-label={label}
+      >
+        <ShieldAlert className="size-3" aria-hidden="true" />
+        {label}
+      </span>
+    </ControlHintTooltip>
+  );
+}
+
+export function PluginStoreTrustButton({
+  item,
+  actions,
+  size = "sm",
+}: {
+  item: StorePluginItem;
+  actions: PluginStoreActions;
+  size?: "sm" | "default" | "lg";
+}) {
+  const { intl } = useZCodeIntl();
+  if (!isWorkspaceTrustPending(item) || !actions.onTrustWorkspacePlugin) return null;
+  const trusting = actions.togglingPluginId === item.id;
+  return (
+    <Button
+      type="button"
+      data-testid="plugin-settings-trust"
+      data-plugin-id={item.id}
+      variant="secondary"
+      size={size}
+      className="rounded-full"
+      disabled={isItemBusy(item, actions)}
+      aria-busy={trusting}
+      onClick={(event) => {
+        event.stopPropagation();
+        actions.onTrustWorkspacePlugin?.(item.id);
+      }}
+    >
+      {trusting ? (
+        <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
+      ) : (
+        <ShieldCheck className="size-3.5" aria-hidden="true" />
+      )}
+      {intl.formatMessage({ id: "settings.plugins.workspaceTrust.trust" })}
+    </Button>
+  );
 }
 
 /**
@@ -59,12 +130,8 @@ export function PluginStorePaidPlanBadge({
 }) {
   const { intl } = useZCodeIntl();
   if (!item.listing?.requiresPaidPlan) return null;
-  const label = intl.formatMessage({
-    id: "settings.plugins.store.requiresPaidPlan",
-  });
-  const badgeLabel = intl.formatMessage({
-    id: "settings.plugins.store.paidPlanBadge",
-  });
+  const label = intl.formatMessage({ id: "settings.plugins.store.requiresPaidPlan" });
+  const badgeLabel = intl.formatMessage({ id: "settings.plugins.store.paidPlanBadge" });
   return (
     <ControlHintTooltip title={label}>
       <span
@@ -100,7 +167,9 @@ export function PluginStoreItemMenu({
   const enabled = item.info?.enabled ?? false;
   const busy = isItemBusy(item, actions);
   const canToggleEnabled =
-    showEnabledAction && Boolean(item.info && actions.onSetEnabled);
+    showEnabledAction &&
+    Boolean(item.info && actions.onSetEnabled) &&
+    !isWorkspaceTrustPending(item);
   // 分隔线不应跟随 item.installed 无条件渲染；启停/更新/恢复配置都不出现时，
   // 菜单只剩「卸载」一项，上方却留下一条孤立横线。分隔线只在卸载前确有其他操作项时才有意义。
   const hasActionsBeforeUninstall = canToggleEnabled;
@@ -118,9 +187,7 @@ export function PluginStoreItemMenu({
           variant={triggerVariant}
           size={triggerSize}
           className={triggerClassName}
-          aria-label={intl.formatMessage({
-            id: "settings.plugins.store.menu.label",
-          })}
+          aria-label={intl.formatMessage({ id: "settings.plugins.store.menu.label" })}
           onClick={(event) => event.stopPropagation()}
         >
           {busy ? (
@@ -130,10 +197,7 @@ export function PluginStoreItemMenu({
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
         {canToggleEnabled ? (
           <DropdownMenuItem
             data-testid="plugin-store-menu-enabled"
@@ -143,12 +207,8 @@ export function PluginStoreItemMenu({
           >
             <Power className="size-4" aria-hidden="true" />
             {enabled
-              ? intl.formatMessage({
-                  id: "settings.plugins.store.menu.disable",
-                })
-              : intl.formatMessage({
-                  id: "settings.plugins.store.menu.enable",
-                })}
+              ? intl.formatMessage({ id: "settings.plugins.store.menu.disable" })
+              : intl.formatMessage({ id: "settings.plugins.store.menu.enable" })}
           </DropdownMenuItem>
         ) : null}
         {item.installed ? (
@@ -195,20 +255,14 @@ export function PluginStoreInstallButton({
         className="rounded-full"
         disabled
       >
-        {intl.formatMessage({
-          id: "settings.plugins.store.extension.requiresUpdate",
-        })}
+        {intl.formatMessage({ id: "settings.plugins.store.extension.requiresUpdate" })}
       </Button>
     );
   }
   const installing =
     actions.activeOperations.some(
-      (operation) =>
-        operation.id === `plugin:install:${item.name}@${item.marketplace}`,
-    ) ||
-    actions.activeOperations.some(
-      (operation) => operation.id === `plugin:restore:${item.id}`,
-    );
+      (operation) => operation.id === `plugin:install:${item.name}@${item.marketplace}`,
+    ) || actions.activeOperations.some((operation) => operation.id === `plugin:restore:${item.id}`);
   return (
     <Button
       type="button"
@@ -220,12 +274,15 @@ export function PluginStoreInstallButton({
       disabled={installing}
       onClick={(event) => {
         event.stopPropagation();
-        actions.onInstall(item);
+        runUserAction({
+          input: { featureId: "extension.plugin", action: "install", trigger: "button" },
+          operation: () => actions.onInstall(item),
+          completed: { resultSource: "optimistic_projection" },
+          failureStage: "plugin_install",
+        });
       }}
     >
-      {installing ? (
-        <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
-      ) : null}
+      {installing ? <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" /> : null}
       {installing
         ? intl.formatMessage({ id: "settings.plugins.marketplace.installing" })
         : intl.formatMessage({ id: "settings.plugins.store.install" })}
@@ -237,16 +294,11 @@ export function PluginStoreInstallButton({
 export function PluginStoreUpdateBadge({
   item,
 }: {
-  item:
-    | Pick<StorePluginItem, "id" | "installedMeta" | "orphaned">
-    | null
-    | undefined;
+  item: Pick<StorePluginItem, "id" | "installedMeta" | "orphaned"> | null | undefined;
 }) {
   const { intl } = useZCodeIntl();
   if (!canUpdatePluginItem(item)) return null;
-  const label = intl.formatMessage({
-    id: "settings.plugins.list.updateAvailable",
-  });
+  const label = intl.formatMessage({ id: "settings.plugins.list.updateAvailable" });
   return (
     <span
       data-testid="plugin-store-update-badge"
@@ -317,9 +369,7 @@ export function PluginUpdateAllButton({
   if (pluginIds.length === 0) return null;
   const updating =
     pending ||
-    actions.activeOperations.some((operation) =>
-      operation.id.startsWith("plugin:update:"),
-    );
+    actions.activeOperations.some((operation) => operation.id.startsWith("plugin:update:"));
   return (
     <Button
       type="button"
@@ -385,6 +435,7 @@ export function PluginStoreCard({
           </span>
           <PluginStorePaidPlanBadge item={item} />
           <PluginStoreUpdateBadge item={item} />
+          <PluginStoreTrustPendingBadge item={item} />
         </div>
         {item.orphaned ? (
           <div
@@ -394,9 +445,7 @@ export function PluginStoreCard({
           >
             <TriangleAlert className="size-3 shrink-0" aria-hidden="true" />
             <span className="truncate">
-              {intl.formatMessage({
-                id: "settings.plugins.store.sourceMissing",
-              })}
+              {intl.formatMessage({ id: "settings.plugins.store.sourceMissing" })}
             </span>
           </div>
         ) : null}
@@ -407,16 +456,9 @@ export function PluginStoreCard({
       <div className="flex shrink-0 items-center gap-1.5">
         {item.installed ? (
           <>
-            <PluginStoreOpenUiButton
-              item={item}
-              actions={actions}
-              size="default"
-            />
-            <PluginStoreUpdateButton
-              item={item}
-              actions={actions}
-              size="default"
-            />
+            <PluginStoreTrustButton item={item} actions={actions} size="default" />
+            <PluginStoreOpenUiButton item={item} actions={actions} size="default" />
+            <PluginStoreUpdateButton item={item} actions={actions} size="default" />
             {item.info?.packageStatus !== "missing" ? (
               <PluginStoreItemMenu
                 item={item}
@@ -432,13 +474,12 @@ export function PluginStoreCard({
               <Switch
                 className="after:-inset-x-2"
                 data-testid={
-                  management
-                    ? "plugin-settings-enabled-switch"
-                    : "plugin-store-enabled-switch"
+                  management ? "plugin-settings-enabled-switch" : "plugin-store-enabled-switch"
                 }
                 data-plugin-id={item.id}
                 checked={item.info.enabled}
-                disabled={isItemBusy(item, actions)}
+                // 待信任时 Agent 已强制停用，开关只表达「不会运行」，不能操作。
+                disabled={isItemBusy(item, actions) || isWorkspaceTrustPending(item)}
                 aria-busy={actions.togglingPluginId === item.id}
                 aria-label={intl.formatMessage(
                   {
@@ -449,18 +490,12 @@ export function PluginStoreCard({
                   { plugin: displayName },
                 )}
                 onClick={(event) => event.stopPropagation()}
-                onCheckedChange={(enabled) =>
-                  actions.onSetEnabled?.(item.id, enabled)
-                }
+                onCheckedChange={(enabled) => actions.onSetEnabled?.(item.id, enabled)}
               />
             ) : null}
           </>
         ) : (
-          <PluginStoreInstallButton
-            item={item}
-            actions={actions}
-            size="default"
-          />
+          <PluginStoreInstallButton item={item} actions={actions} size="default" />
         )}
       </div>
     </div>
@@ -477,7 +512,12 @@ export function PluginStoreOpenUiButton({
   size?: "sm" | "default" | "lg";
 }) {
   const { intl } = useZCodeIntl();
-  if (!item.installed || !isUiPluginItem(item) || !actions.onOpenUi)
+  if (
+    !item.installed ||
+    !isUiPluginItem(item) ||
+    !actions.onOpenUi ||
+    isWorkspaceTrustPending(item)
+  )
     return null;
   return (
     <Button

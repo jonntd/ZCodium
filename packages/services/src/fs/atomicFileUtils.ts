@@ -12,18 +12,10 @@ import {
 } from "node:fs/promises";
 import { dirname, basename, join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import {
-  acquireFileLock,
-  atomicWritePrivateTextFile,
-} from "@zcode/shared/node";
-import {
-  isInjectedFsFaultError,
-  maybeThrowInjectedFsFault,
-} from "./fsFaultInjection.js";
+import { acquireFileLock, atomicWritePrivateTextFile } from "@zcode/shared/node";
+import { isInjectedFsFaultError, maybeThrowInjectedFsFault } from "./fsFaultInjection.js";
 
-const DEFAULT_RENAME_RETRY_DELAYS_MS = [
-  50, 100, 200, 400, 800, 1600, 3200,
-] as const;
+const DEFAULT_RENAME_RETRY_DELAYS_MS = [50, 100, 200, 400, 800, 1600, 3200] as const;
 const DEFAULT_LOCK_RETRY_DELAYS_MS = [25, 50, 100, 200, 400] as const;
 const DEFAULT_LOCK_OWNERLESS_GRACE_MS = 100;
 const DEFAULT_LOCK_MAX_WAIT_MS = 8_000;
@@ -212,8 +204,7 @@ export async function atomicWriteText(
     // Windows Defender、索引服务或另一个窗口可能短暂占用目标 JSON，
     // 导致原子替换 rename 抛 EPERM/EBUSY/EACCES。这里只对这类临时锁做短暂重试，
     // 仍然把真实权限问题原样抛出，避免静默丢失会话快照。
-    const renameFile = () =>
-      renameWithRetry(tempFile, filePath, options?.renameRetryDelaysMs);
+    const renameFile = () => renameWithRetry(tempFile, filePath, options?.renameRetryDelaysMs);
     if (options?.runRename) {
       await options.runRename(renameFile);
     } else {
@@ -268,26 +259,18 @@ export async function readJsonObjectFileForUpdate(
     raw = await readFile(filePath, "utf-8");
   } catch (error) {
     if (getErrorCode(error) === "ENOENT") return {};
-    throw new JsonObjectFileUnreadableError(
-      filePath,
-      `Failed to read config file ${filePath}`,
-      {
-        cause: error,
-      },
-    );
+    throw new JsonObjectFileUnreadableError(filePath, `Failed to read config file ${filePath}`, {
+      cause: error,
+    });
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw) as unknown;
   } catch (error) {
-    throw new JsonObjectFileUnreadableError(
-      filePath,
-      `Config file ${filePath} is not valid JSON`,
-      {
-        cause: error,
-      },
-    );
+    throw new JsonObjectFileUnreadableError(filePath, `Config file ${filePath} is not valid JSON`, {
+      cause: error,
+    });
   }
   if (!isJsonObject(parsed)) {
     throw new JsonObjectFileUnreadableError(
@@ -312,9 +295,5 @@ export async function updateJsonObjectFile(
   update: (current: Record<string, unknown>) => Record<string, unknown>,
 ): Promise<void> {
   const next = update(await readJsonObjectFileForUpdate(filePath));
-  await atomicWritePrivateTextFile(
-    filePath,
-    `${JSON.stringify(next, null, 2)}\n`,
-    [],
-  );
+  await atomicWritePrivateTextFile(filePath, `${JSON.stringify(next, null, 2)}\n`, []);
 }

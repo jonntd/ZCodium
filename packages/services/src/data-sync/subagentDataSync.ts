@@ -14,10 +14,7 @@ import {
   type ModelSelection,
   type SubagentDataSyncPayload,
 } from "@zcode/shared";
-import {
-  migrateSubagentStateFile,
-  migrateUserSubagentMarkdown,
-} from "@zcode/shared/node";
+import { migrateSubagentStateFile, migrateUserSubagentMarkdown } from "@zcode/shared/node";
 import {
   pathExists,
   readJsonObjectFileForUpdate,
@@ -44,10 +41,7 @@ const logger = createServiceLogger("subagent-data-sync");
 
 const AGENT_FILE_NAME = /^[^/\\]+\.(md|markdown)$/iu;
 
-const BUILT_IN_AGENT_NAMES: readonly BuiltInSubagentName[] = [
-  "general-purpose",
-  "Explore",
-];
+const BUILT_IN_AGENT_NAMES: readonly BuiltInSubagentName[] = ["general-purpose", "Explore"];
 
 interface ResolvedUserSubagent {
   key: string;
@@ -96,9 +90,7 @@ function toBuiltInOverrideKey(name: BuiltInSubagentName): string {
   return createAgentStateId({ name, scope: "built-in", source: "built-in" });
 }
 
-const BUILT_IN_OVERRIDE_KEYS = new Set(
-  BUILT_IN_AGENT_NAMES.map(toBuiltInOverrideKey),
-);
+const BUILT_IN_OVERRIDE_KEYS = new Set(BUILT_IN_AGENT_NAMES.map(toBuiltInOverrideKey));
 
 interface ResolvedBuiltInOverride {
   key: string;
@@ -120,22 +112,15 @@ function resolveBuiltInOverrides(
       key,
       name,
       modelSelection,
-      hash: createHash("sha256")
-        .update(stableStringify(modelSelection))
-        .digest("hex"),
+      hash: createHash("sha256").update(stableStringify(modelSelection)).digest("hex"),
     });
   }
   return resolved;
 }
 
-function toModelOverrideSummary(
-  selection: ModelSelection,
-): DataSyncModelOverrideSummary {
+function toModelOverrideSummary(selection: ModelSelection): DataSyncModelOverrideSummary {
   const reasoningLevel = selection.options?.reasoningLevel;
-  return {
-    modelId: selection.modelId,
-    ...(reasoningLevel ? { reasoningLevel } : {}),
-  };
+  return { modelId: selection.modelId, ...(reasoningLevel ? { reasoningLevel } : {}) };
 }
 
 /**
@@ -150,11 +135,7 @@ async function resolveUserSubagents(): Promise<{
   const root = await resolveUserSubagentRoot();
   const migration = await migrateUserSubagentMarkdown(root);
   for (const failure of migration.failures) {
-    logger.warn(
-      undefined,
-      "用户 Subagent Markdown 迁移失败，按原文件计算",
-      failure,
-    );
+    logger.warn(undefined, "用户 Subagent Markdown 迁移失败，按原文件计算", failure);
   }
   const agents = new Map<string, ResolvedUserSubagent>();
   for (const filePath of await collectAgentMarkdownPaths(root)) {
@@ -172,9 +153,7 @@ async function resolveUserSubagents(): Promise<{
     agents.set(key, {
       key,
       name: parsed.name,
-      description: model
-        ? `${model} · ${parsed.description}`
-        : parsed.description,
+      description: model ? `${model} · ${parsed.description}` : parsed.description,
       filePath,
       ...(dependencies ? { dependencies } : {}),
       content,
@@ -198,15 +177,11 @@ async function readSubagentState(): Promise<{
     return {
       disabled: new Set(
         Array.isArray(parsed.disabledAgentIds)
-          ? parsed.disabledAgentIds.filter(
-              (id): id is string => typeof id === "string",
-            )
+          ? parsed.disabledAgentIds.filter((id): id is string => typeof id === "string")
           : [],
       ),
       builtInOverrides: resolveBuiltInOverrides(
-        normalizeBuiltInSelectionOverrides(
-          parsed.builtInModelSelectionOverrides,
-        ),
+        normalizeBuiltInSelectionOverrides(parsed.builtInModelSelectionOverrides),
       ),
     };
   } catch {
@@ -221,13 +196,8 @@ export function createSubagentDataSyncMethods(): IDataSyncCategoryService<Subage
     root: string,
     current: Map<string, ResolvedUserSubagent>,
   ): Promise<DataSyncImportResultItem & { createdPath?: string }> {
-    const failed = (error: string) => ({
-      key: item.key,
-      status: "failed" as const,
-      error,
-    });
-    if (!payloadItem)
-      return failed("subagent is missing from the sync payload");
+    const failed = (error: string) => ({ key: item.key, status: "failed" as const, error });
+    if (!payloadItem) return failed("subagent is missing from the sync payload");
     if (!AGENT_FILE_NAME.test(payloadItem.fileName)) {
       return failed(`invalid subagent file name: ${payloadItem.fileName}`);
     }
@@ -252,8 +222,7 @@ export function createSubagentDataSyncMethods(): IDataSyncCategoryService<Subage
         await writeFileAtomically(targetPath, content);
         return { key: item.key, status: "created", createdPath: targetPath };
       }
-      if (!existing || !item.expectedTargetHash)
-        return { key: item.key, status: "conflict" };
+      if (!existing || !item.expectedTargetHash) return { key: item.key, status: "conflict" };
       if (hashContent(existing.content) !== item.expectedTargetHash) {
         return { key: item.key, status: "conflict" };
       }
@@ -272,32 +241,25 @@ export function createSubagentDataSyncMethods(): IDataSyncCategoryService<Subage
         resolveUserSubagents(),
         readSubagentState(),
       ]);
-      const userItems: DataSyncListItem[] = [...agents.values()].map(
-        (agent) => ({
-          key: agent.key,
-          name: agent.name,
-          description: agent.description,
-          signature: { fileCount: 1, totalBytes: agent.content.byteLength },
-          // 单个 markdown 文件，列表时已读入字节，哈希直接返回，比较时不再单独请求。
-          contentHash: hashContent(agent.content),
-          enabled: !disabled.has(toUserAgentStateId(agent.key)),
-          ...(agent.dependencies ? { dependencies: agent.dependencies } : {}),
-        }),
-      );
+      const userItems: DataSyncListItem[] = [...agents.values()].map((agent) => ({
+        key: agent.key,
+        name: agent.name,
+        description: agent.description,
+        signature: { fileCount: 1, totalBytes: agent.content.byteLength },
+        // 单个 markdown 文件，列表时已读入字节，哈希直接返回，比较时不再单独请求。
+        contentHash: hashContent(agent.content),
+        enabled: !disabled.has(toUserAgentStateId(agent.key)),
+        ...(agent.dependencies ? { dependencies: agent.dependencies } : {}),
+      }));
       // 内置智能体的模型覆盖与用户子智能体放在同一个列表（不分组），哈希直接返回。
-      const overrideItems: DataSyncListItem[] = [
-        ...builtInOverrides.values(),
-      ].map((override) => ({
+      const overrideItems: DataSyncListItem[] = [...builtInOverrides.values()].map((override) => ({
         key: override.key,
         name: override.name,
         contentHash: override.hash,
         enabled: true,
         builtInModelOverride: toModelOverrideSummary(override.modelSelection),
       }));
-      return {
-        items: [...userItems, ...overrideItems],
-        homeDir: resolveUserHomeDir(),
-      };
+      return { items: [...userItems, ...overrideItems], homeDir: resolveUserHomeDir() };
     },
 
     async getSyncContentHashes(params) {
@@ -308,9 +270,7 @@ export function createSubagentDataSyncMethods(): IDataSyncCategoryService<Subage
       const hashes: Record<string, string> = {};
       for (const key of params.keys) {
         const agent = agents.get(key);
-        const hash = agent
-          ? hashContent(agent.content)
-          : builtInOverrides.get(key)?.hash;
+        const hash = agent ? hashContent(agent.content) : builtInOverrides.get(key)?.hash;
         if (hash) hashes[key] = hash;
       }
       return { hashes };
@@ -334,13 +294,8 @@ export function createSubagentDataSyncMethods(): IDataSyncCategoryService<Subage
           .filter((key) => BUILT_IN_OVERRIDE_KEYS.has(key))
           .map((key) => {
             const override = builtInOverrides.get(key);
-            if (!override)
-              throw new Error(`subagent sync item not found: ${key}`);
-            return {
-              key,
-              name: override.name,
-              modelSelection: override.modelSelection,
-            };
+            if (!override) throw new Error(`subagent sync item not found: ${key}`);
+            return { key, name: override.name, modelSelection: override.modelSelection };
           }),
         items: params.keys
           .filter((key) => !BUILT_IN_OVERRIDE_KEYS.has(key))
@@ -361,17 +316,11 @@ export function createSubagentDataSyncMethods(): IDataSyncCategoryService<Subage
     async importSyncItems(params) {
       // 目标端同样先迁移再计算哈希，与列表时给出的 expectedTargetHash 口径一致。
       const { root, agents } = await resolveUserSubagents();
-      const payloadByKey = new Map(
-        params.payload.items.map((item) => [item.key, item]),
-      );
-      const results: Array<
-        DataSyncImportResultItem & { createdPath?: string }
-      > = [];
+      const payloadByKey = new Map(params.payload.items.map((item) => [item.key, item]));
+      const results: Array<DataSyncImportResultItem & { createdPath?: string }> = [];
       for (const item of params.items) {
         if (BUILT_IN_OVERRIDE_KEYS.has(item.key)) continue;
-        results.push(
-          await importOne(item, payloadByKey.get(item.key), root, agents),
-        );
+        results.push(await importOne(item, payloadByKey.get(item.key), root, agents));
       }
       await applyCreatedEnabledState(results, payloadByKey);
       const overrideResults = await importBuiltInModelOverrides(
@@ -408,9 +357,7 @@ async function applyCreatedEnabledState(
     if (result.status !== "created" || !result.createdPath) return [];
     const id = toUserAgentStateId(result.key);
     const disabled = payloadByKey.get(result.key)?.enabled === false;
-    return disabled === currentDisabled.has(id)
-      ? []
-      : [{ result, id, disabled }];
+    return disabled === currentDisabled.has(id) ? [] : [{ result, id, disabled }];
   });
   if (entries.length === 0) return;
   const stateFile = await resolveSubagentStateFile();
@@ -419,9 +366,7 @@ async function applyCreatedEnabledState(
     await updateJsonObjectFile(stateFile, (state) => {
       const disabledIds = new Set(
         Array.isArray(state.disabledAgentIds)
-          ? state.disabledAgentIds.filter(
-              (id): id is string => typeof id === "string",
-            )
+          ? state.disabledAgentIds.filter((id): id is string => typeof id === "string")
           : [],
       );
       for (const { id, disabled } of entries) {
@@ -449,34 +394,23 @@ interface BuiltInOverrideCandidate {
 function planBuiltInOverrideImport(
   state: Record<string, unknown>,
   candidates: readonly BuiltInOverrideCandidate[],
-): {
-  results: DataSyncImportResultItem[];
-  next: Record<string, unknown>;
-  changed: boolean;
-} {
+): { results: DataSyncImportResultItem[]; next: Record<string, unknown>; changed: boolean } {
   const current = resolveBuiltInOverrides(
     normalizeBuiltInSelectionOverrides(state.builtInModelSelectionOverrides),
   );
   const raw = state.builtInModelSelectionOverrides;
   const overrides: Record<string, unknown> =
     raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw } : {};
-  const results = candidates.map(
-    ({ item, name, selection }): DataSyncImportResultItem => {
-      const existing = current.get(item.key);
-      const conflict =
-        item.mode === "createOnly"
-          ? Boolean(existing)
-          : !existing ||
-            !item.expectedTargetHash ||
-            existing.hash !== item.expectedTargetHash;
-      if (conflict) return { key: item.key, status: "conflict" };
-      overrides[name] = selection;
-      return {
-        key: item.key,
-        status: item.mode === "createOnly" ? "created" : "updated",
-      };
-    },
-  );
+  const results = candidates.map(({ item, name, selection }): DataSyncImportResultItem => {
+    const existing = current.get(item.key);
+    const conflict =
+      item.mode === "createOnly"
+        ? Boolean(existing)
+        : !existing || !item.expectedTargetHash || existing.hash !== item.expectedTargetHash;
+    if (conflict) return { key: item.key, status: "conflict" };
+    overrides[name] = selection;
+    return { key: item.key, status: item.mode === "createOnly" ? "created" : "updated" };
+  });
   return {
     results,
     next: { ...state, builtInModelSelectionOverrides: overrides },
@@ -501,9 +435,7 @@ async function importBuiltInModelOverrides(
   const candidates: BuiltInOverrideCandidate[] = [];
   for (const item of items) {
     const payloadItem = payloadByKey.get(item.key);
-    const selection = modelSelectionSchema.safeParse(
-      payloadItem?.modelSelection,
-    ).data;
+    const selection = modelSelectionSchema.safeParse(payloadItem?.modelSelection).data;
     if (
       !payloadItem ||
       !selection ||
@@ -513,8 +445,7 @@ async function importBuiltInModelOverrides(
       results.set(item.key, {
         key: item.key,
         status: "failed",
-        error:
-          "built-in subagent model override is missing or invalid in the sync payload",
+        error: "built-in subagent model override is missing or invalid in the sync payload",
       });
       continue;
     }
@@ -544,11 +475,7 @@ async function importBuiltInModelOverrides(
       for (const result of planned.results) results.set(result.key, result);
     } catch (error) {
       for (const { item } of candidates) {
-        results.set(item.key, {
-          key: item.key,
-          status: "failed",
-          error: errorMessage(error),
-        });
+        results.set(item.key, { key: item.key, status: "failed", error: errorMessage(error) });
       }
     }
   }

@@ -1,5 +1,5 @@
 import { useId, useRef, useState, type FocusEvent, type KeyboardEvent } from "react";
-import { Loader2Icon, Pencil } from "lucide-react";
+import { LoaderCircle, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import {
   Dialog,
@@ -38,16 +38,11 @@ import {
 } from "@/settings/model-provider-section/ModelConfigHelp.js";
 
 import { ModelEditorAdvanced } from "@/settings/model-provider-section/ModelEditorAdvanced.js";
-import {
-  RemoteModelDetectionSection,
-  type RemoteModelDetectionControl,
-} from "@/settings/model-provider-section/RemoteModelDetectionSection.js";
 
 export function selectFocusedInputText(event: Pick<FocusEvent<HTMLInputElement>, "currentTarget">) {
   event.currentTarget.select();
 }
 
-/** 检测状态由 ProviderModelsSection 持有；对话框只渲染列表并把点选回填到模型 ID 草稿。 */
 export function ProviderModelMetadataDialog({
   mode = "edit",
   open,
@@ -66,7 +61,6 @@ export function ProviderModelMetadataDialog({
   saving = false,
   modelDefaultsLoaded = false,
   onModelIdBlur,
-  remoteModelDetection,
 }: {
   mode?: "add" | "edit";
   open: boolean;
@@ -85,7 +79,6 @@ export function ProviderModelMetadataDialog({
   saving?: boolean;
   modelDefaultsLoaded?: boolean;
   onModelIdBlur?: () => void;
-  remoteModelDetection?: RemoteModelDetectionControl;
 }) {
   const { intl } = useZCodeIntl();
   const [validationAttempt, setValidationAttempt] = useState(0);
@@ -153,7 +146,7 @@ export function ProviderModelMetadataDialog({
         className="max-h-[min(48rem,calc(100vh-4rem))] max-w-2xl grid-rows-[auto_minmax(0,1fr)_auto_auto] overflow-clip"
         data-no-model-drag="true"
       >
-        <DialogHeader className="pe-8">
+        <DialogHeader className="pr-8">
           <DialogTitle className="truncate">
             {intl.formatMessage({
               id:
@@ -176,7 +169,7 @@ export function ProviderModelMetadataDialog({
         {/* 保存期间锁定正文交互，不改变原有滚动容器；页脚单独显示提交状态。 */}
         <div
           inert={saving}
-          className="min-h-0 min-w-0 -me-3 space-y-4 overflow-y-auto pe-4"
+          className="min-h-0 min-w-0 -mr-3 space-y-4 overflow-y-auto pr-4"
           data-model-settings-scroll="true"
         >
           <ModelSettingsGroup group="basic">
@@ -204,14 +197,6 @@ export function ProviderModelMetadataDialog({
                   onCompositionEnd={handleCompositionEnd}
                   onKeyDown={handleTechnicalInputKeyDown}
                 />
-                {mode === "add" && remoteModelDetection ? (
-                  <RemoteModelDetectionSection
-                    control={remoteModelDetection}
-                    typedModelId={draft.idValue}
-                    saving={saving}
-                    onPick={(modelId) => onDraftChange({ idValue: modelId })}
-                  />
-                ) : null}
               </div>
             </div>
           </ModelSettingsGroup>
@@ -269,7 +254,7 @@ export function ProviderModelMetadataDialog({
                       className="inline-flex shrink-0 items-center text-foreground-subtlest"
                       role="status"
                     >
-                      <Loader2Icon className="size-3.5 animate-spin" aria-hidden="true" />
+                      <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
                       <span className="sr-only">
                         {intl.formatMessage({ id: "common.loading" })}
                       </span>

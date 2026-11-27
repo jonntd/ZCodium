@@ -1,11 +1,4 @@
-import {
-  chmod,
-  lstat,
-  mkdir,
-  readFile,
-  readdir,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, lstat, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join, posix, resolve } from "node:path";
 import { promisify } from "node:util";
 import { gunzip, gzip } from "node:zlib";
@@ -57,11 +50,7 @@ export async function createPluginSyncArchive(params: {
   const parts: Buffer[] = [];
   for (const entry of params.entries) {
     if ("sourcePath" in entry) {
-      await appendTarEntry(
-        parts,
-        entry.sourcePath,
-        normalizeArchivePath(entry.archivePath),
-      );
+      await appendTarEntry(parts, entry.sourcePath, normalizeArchivePath(entry.archivePath));
     } else {
       appendTarFile(
         parts,
@@ -118,10 +107,7 @@ export async function extractPluginSyncArchive(
       await mkdir(targetPath, { recursive: true });
     } else if (typeFlag === "0" || typeFlag === "\0") {
       extractedBytes += size;
-      if (
-        maxExtractedBytes !== undefined &&
-        extractedBytes > maxExtractedBytes
-      ) {
+      if (maxExtractedBytes !== undefined && extractedBytes > maxExtractedBytes) {
         throw new Error(
           `plugin sync archive exceeds limit: ${extractedBytes}/${maxExtractedBytes}`,
         );
@@ -146,8 +132,7 @@ async function gunzipWithLimit(
   if (maxExtractedBytes === undefined) {
     return await gunzipAsync(Buffer.from(archive));
   }
-  const maxTarBytes =
-    maxExtractedBytes + TAR_END_BLOCK_BYTES + TAR_BLOCK_SIZE * 512;
+  const maxTarBytes = maxExtractedBytes + TAR_END_BLOCK_BYTES + TAR_BLOCK_SIZE * 512;
   try {
     return await gunzipAsync(Buffer.from(archive), {
       maxOutputLength: maxTarBytes,
@@ -179,8 +164,8 @@ async function appendTarEntry(
         typeFlag: "5",
       }),
     );
-    const children = (await readdir(sourcePath, { withFileTypes: true })).sort(
-      (left, right) => left.name.localeCompare(right.name),
+    const children = (await readdir(sourcePath, { withFileTypes: true })).sort((left, right) =>
+      left.name.localeCompare(right.name),
     );
     for (const child of children) {
       await appendTarEntry(
@@ -196,13 +181,7 @@ async function appendTarEntry(
     throw new Error(`unsupported plugin archive source: ${sourcePath}`);
   }
 
-  appendTarFile(
-    parts,
-    archivePath,
-    await readFile(sourcePath),
-    sourceStat.mode,
-    sourceStat.mtimeMs,
-  );
+  appendTarFile(parts, archivePath, await readFile(sourcePath), sourceStat.mode, sourceStat.mtimeMs);
 }
 
 function appendTarFile(
@@ -221,10 +200,7 @@ function appendTarFile(
       typeFlag: "0",
     }),
     content,
-    Buffer.alloc(
-      Math.ceil(content.length / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE -
-        content.length,
-    ),
+    Buffer.alloc(Math.ceil(content.length / TAR_BLOCK_SIZE) * TAR_BLOCK_SIZE - content.length),
   );
 }
 
@@ -251,17 +227,11 @@ function createTarHeader(options: {
   writeTarString(header, "zcode", 265, 32);
   writeTarString(header, "zcode", 297, 32);
   writeTarString(header, prefix, 345, 155);
-  writeTarChecksum(
-    header,
-    header.reduce((sum, byte) => sum + byte, 0),
-  );
+  writeTarChecksum(header, header.reduce((sum, byte) => sum + byte, 0));
   return header;
 }
 
-function splitTarEntryPath(entryPath: string): {
-  name: string;
-  prefix: string;
-} {
+function splitTarEntryPath(entryPath: string): { name: string; prefix: string } {
   if (Buffer.byteLength(entryPath) <= 100) {
     return { name: entryPath, prefix: "" };
   }

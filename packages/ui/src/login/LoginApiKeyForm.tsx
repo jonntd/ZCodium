@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { isApiKeyAccess } from "@zcode/provider";
-import { Loader2Icon, TriangleAlertIcon } from "lucide-react";
+import { LoaderCircle, TriangleAlertIcon } from "lucide-react";
+import { BIGMODEL_PROVIDER_ID, ZAI_PROVIDER_ID } from "@zcode/shared";
 import {
-  BIGMODEL_PROVIDER_ID,
   TID_LOGIN_API_KEY_CANCEL_BUTTON,
   TID_LOGIN_API_KEY_CONTINUE_BUTTON,
   TID_LOGIN_API_KEY_ERROR,
@@ -10,18 +10,15 @@ import {
   TID_LOGIN_API_KEY_PROVIDER_ITEM,
   TID_LOGIN_API_KEY_PROVIDER_TRIGGER,
   TID_LOGIN_API_KEY_SKIP_BUTTON,
-  ZAI_PROVIDER_ID,
   testId,
-} from "@zcode/shared";
+} from "@zcode/shared/test-ids";
 import { Alert, AlertDescription } from "@/components/ui/alert.js";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select.js";
@@ -177,30 +174,24 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end" className="rounded-lg">
-                <SelectGroup>
-                  <SelectItem
-                    value="zai"
-                    className="rounded-md"
-                    data-testid={testId(TID_LOGIN_API_KEY_PROVIDER_ITEM, "zai")}
-                  >
-                    {renderOAuthProviderIcon(ZAI_PROVIDER_ID, "size-4")}
-                    {intl.formatMessage({ id: "login.apiKey.provider.zai" })}
-                  </SelectItem>
-                  <SelectItem
-                    value="bigmodel"
-                    className="rounded-md"
-                    data-testid={testId(TID_LOGIN_API_KEY_PROVIDER_ITEM, "bigmodel")}
-                  >
-                    {renderOAuthProviderIcon(BIGMODEL_PROVIDER_ID, "size-4")}
-                    {intl.formatMessage({
-                      id: "login.apiKey.provider.bigmodel",
-                    })}
-                  </SelectItem>
-                  {/* 下拉里只列内置两家，提示其余供应商在设置里配置，避免用户以为只有这两个可选。 */}
-                  <SelectLabel className="mx-1 mt-1 border-t border-border pt-2 text-ui-xs font-normal leading-4 whitespace-normal text-foreground-subtle">
-                    {intl.formatMessage({ id: "login.apiKey.moreProvidersHint" })}
-                  </SelectLabel>
-                </SelectGroup>
+                <SelectItem
+                  value="zai"
+                  className="rounded-md"
+                  data-testid={testId(TID_LOGIN_API_KEY_PROVIDER_ITEM, "zai")}
+                >
+                  {renderOAuthProviderIcon(ZAI_PROVIDER_ID, "size-4")}
+                  {intl.formatMessage({ id: "login.apiKey.provider.zai" })}
+                </SelectItem>
+                <SelectItem
+                  value="bigmodel"
+                  className="rounded-md"
+                  data-testid={testId(TID_LOGIN_API_KEY_PROVIDER_ITEM, "bigmodel")}
+                >
+                  {renderOAuthProviderIcon(BIGMODEL_PROVIDER_ID, "size-4")}
+                  {intl.formatMessage({
+                    id: "login.apiKey.provider.bigmodel",
+                  })}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -209,7 +200,7 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
               id="login-api-key"
               type="password"
               size="lg"
-              className={`h-10 w-full text-ui-base ${showApiKeyLink ? "pe-28" : ""}`}
+              className={`h-10 w-full text-ui-base ${showApiKeyLink ? "pr-28" : ""}`}
               data-testid={TID_LOGIN_API_KEY_INPUT}
               aria-label={intl.formatMessage({
                 id: "login.apiKey.placeholder",
@@ -232,7 +223,7 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
             {showApiKeyLink ? (
               <button
                 type="button"
-                className="absolute end-3.5 top-1/2 -translate-y-1/2 text-ui-base font-medium text-brand underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-ui-base font-medium text-brand underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                 disabled={busy}
                 onClick={() => {
                   if (apiKeyUrl) {
@@ -254,22 +245,22 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
         </Alert>
       ) : null}
 
-      <div className="space-y-2">
+      <div className="flex flex-col items-center gap-2">
         <Button
           type="button"
-          className="h-10 w-full text-ui-base"
+          className="h-10 w-fit min-w-50 px-6 text-ui-base font-medium"
           size="lg"
           data-testid={TID_LOGIN_API_KEY_CONTINUE_BUTTON}
           disabled={!apiKeyValue.trim() || busy}
           onClick={() => void saveApiKeyProvider()}
         >
-          {saving ? <Loader2Icon className="size-4 animate-spin" /> : null}
+          {saving ? <LoaderCircle className="size-4 animate-spin" /> : null}
           {intl.formatMessage({ id: "login.apiKey.continue" })}
         </Button>
         <Button
           type="button"
           variant="outline"
-          className="h-10 w-full text-ui-base"
+          className="h-10 w-fit min-w-50 px-6 text-ui-base font-medium"
           size="lg"
           data-testid={TID_LOGIN_API_KEY_CANCEL_BUTTON}
           disabled={busy}
@@ -280,12 +271,12 @@ export function LoginApiKeyForm({ onCancel, onSaved, onSkipped }: LoginApiKeyFor
         <Button
           type="button"
           variant="link"
-          className="h-7 w-full text-ui-base text-foreground-subtle hover:text-foreground"
+          className="mt-0.5 h-7 w-fit text-ui-base text-foreground-subtle hover:text-foreground"
           data-testid={TID_LOGIN_API_KEY_SKIP_BUTTON}
           disabled={busy}
           onClick={() => void skipApiKeyProvider()}
         >
-          {skipping ? <Loader2Icon className="size-4 animate-spin" /> : null}
+          {skipping ? <LoaderCircle className="size-4 animate-spin" /> : null}
           {intl.formatMessage({ id: "login.skip" })}
         </Button>
       </div>

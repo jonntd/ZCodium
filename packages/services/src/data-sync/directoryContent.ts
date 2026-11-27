@@ -32,10 +32,7 @@ export function isPathWithin(root: string, path: string): boolean {
 }
 
 /** `path` 本身或它位于 `root` 以内的某个上级目录是软链。 */
-export async function hasSymlinkWithin(
-  root: string,
-  path: string,
-): Promise<boolean> {
+export async function hasSymlinkWithin(root: string, path: string): Promise<boolean> {
   let current = path;
   while (isPathWithin(root, current)) {
     if ((await lstat(current)).isSymbolicLink()) return true;
@@ -60,9 +57,7 @@ async function listDirectoryContent(
   while (stack.length > 0) {
     const current = stack.pop();
     if (!current) continue;
-    const children = await readdir(current.absolutePath, {
-      withFileTypes: true,
-    });
+    const children = await readdir(current.absolutePath, { withFileTypes: true });
     for (const child of children) {
       if (!current.relativePath && excluded.has(child.name)) continue;
       const absolutePath = join(current.absolutePath, child.name);
@@ -72,30 +67,16 @@ async function listDirectoryContent(
       if (child.isSymbolicLink()) {
         entries.push({ relativePath, kind: "symlink", absolutePath, size: 0 });
       } else if (child.isDirectory()) {
-        entries.push({
-          relativePath,
-          kind: "directory",
-          absolutePath,
-          size: 0,
-        });
+        entries.push({ relativePath, kind: "directory", absolutePath, size: 0 });
         stack.push({ absolutePath, relativePath });
       } else if (child.isFile()) {
         const stat = await lstat(absolutePath);
-        entries.push({
-          relativePath,
-          kind: "file",
-          absolutePath,
-          size: stat.size,
-        });
+        entries.push({ relativePath, kind: "file", absolutePath, size: stat.size });
       }
     }
   }
   return entries.sort((left, right) =>
-    left.relativePath < right.relativePath
-      ? -1
-      : left.relativePath > right.relativePath
-        ? 1
-        : 0,
+    left.relativePath < right.relativePath ? -1 : left.relativePath > right.relativePath ? 1 : 0,
   );
 }
 

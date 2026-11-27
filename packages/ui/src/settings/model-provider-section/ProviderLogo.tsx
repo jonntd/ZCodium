@@ -19,11 +19,10 @@ import openrouterLight from "@/assets/provider-icons/model-provider-openrouter-l
 import openrouterDark from "@/assets/provider-icons/model-provider-openrouter-dark.svg";
 import opencodeLight from "@/assets/provider-icons/model-provider-opencode-light.svg";
 import opencodeDark from "@/assets/provider-icons/model-provider-opencode-dark.svg";
-import orcaRouterLogo from "@/assets/provider-icons/model-provider-orcarouter.png";
-import cheaperInferenceLight from "@/assets/provider-icons/model-provider-cheaperinference-light.svg";
-import cheaperInferenceDark from "@/assets/provider-icons/model-provider-cheaperinference-dark.svg";
-import cheapaimodelLight from "@/assets/provider-icons/model-provider-cheapaimodel-light.svg";
-import cheapaimodelDark from "@/assets/provider-icons/model-provider-cheapaimodel-dark.svg";
+import volcengineLogo from "@/assets/provider-icons/model-provider-volcengine.png";
+import stepfunLogo from "@/assets/provider-icons/model-provider-stepfun.png";
+import siliconflowLogo from "@/assets/provider-icons/model-provider-siliconflow.png";
+import tencentCloudLogo from "@/assets/provider-icons/model-provider-tencent-cloud.png";
 
 type ProviderLogoRef = NonNullable<ProviderConfigObject["logo"]>;
 
@@ -48,10 +47,10 @@ const BUILTIN_PROVIDER_LOGO_ASSETS: Readonly<Record<string, BuiltinProviderLogoA
   xai: { light: xAiLogo },
   openrouter: { light: openrouterLight, dark: openrouterDark },
   opencode: { light: opencodeLight, dark: opencodeDark },
-  // 官方经典图标，同一素材同时用于 API Key 与 PKCE 两个入口。
-  orcarouter: { light: orcaRouterLogo },
-  cheaperinference: { light: cheaperInferenceLight, dark: cheaperInferenceDark },
-  cheapaimodel: { light: cheapaimodelLight, dark: cheapaimodelDark },
+  "tencent-cloud": { light: tencentCloudLogo },
+  volcengine: { light: volcengineLogo },
+  stepfun: { light: stepfunLogo },
+  siliconflow: { light: siliconflowLogo },
 };
 
 export function resolveBuiltinProviderLogoAsset(

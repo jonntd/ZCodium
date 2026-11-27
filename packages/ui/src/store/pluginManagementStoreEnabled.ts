@@ -13,10 +13,7 @@ function toMessage(error: unknown): string {
 }
 
 let nextToggleRequestId = 0;
-const requestsByStore = new WeakMap<
-  () => PluginManagementState,
-  Map<string, number>
->();
+const requestsByStore = new WeakMap<() => PluginManagementState, Map<string, number>>();
 
 function buildToggleRequestKey(input: {
   workspacePath: string;
@@ -80,9 +77,7 @@ export async function setPluginEnabledOptimistically(
     ...(previousPlugin
       ? {
           plugins: get().plugins.map((plugin) =>
-            plugin.id === pluginId
-              ? { ...plugin, enabled, enabledSource: scope }
-              : plugin,
+            plugin.id === pluginId ? { ...plugin, enabled, enabledSource: scope } : plugin,
           ),
         }
       : {}),
@@ -108,9 +103,7 @@ export async function setPluginEnabledOptimistically(
     }
     set({
       plugins: get().plugins.map((plugin) =>
-        plugin.id === pluginId
-          ? { ...plugin, ...result.plugin, enabled: result.enabled }
-          : plugin,
+        plugin.id === pluginId ? { ...plugin, ...result.plugin, enabled: result.enabled } : plugin,
       ),
     });
     await loadInto(set, get, {
@@ -132,11 +125,7 @@ export async function setPluginEnabledOptimistically(
   } catch (error) {
     // 启停失败时必须返回 false 并恢复 optimistic projection，避免
     // 调用方继续刷新其它能力，或让界面把失败的切换误报成成功。
-    logger.error("[plugins] setEnabled failed", {
-      pluginId,
-      enabled,
-      error: toMessage(error),
-    });
+    logger.error("[plugins] setEnabled failed", { pluginId, enabled, error: toMessage(error) });
     if (isCurrentRequest()) {
       set({
         error: toMessage(error),

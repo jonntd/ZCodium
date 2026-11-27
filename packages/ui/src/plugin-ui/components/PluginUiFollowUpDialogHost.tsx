@@ -47,14 +47,9 @@ export function PluginUiFollowUpDialogHost() {
       >
         <div className="flex min-w-0 flex-col gap-3 p-5">
           <DialogHeader className="gap-1 pr-7">
-            <DialogTitle>
-              {intl.formatMessage({ id: "pluginUi.followUp.title" })}
-            </DialogTitle>
+            <DialogTitle>{intl.formatMessage({ id: "pluginUi.followUp.title" })}</DialogTitle>
             <DialogDescription className="text-ui-caption leading-relaxed">
-              {intl.formatMessage(
-                { id: "pluginUi.followUp.description" },
-                { name },
-              )}
+              {intl.formatMessage({ id: "pluginUi.followUp.description" }, { name })}
             </DialogDescription>
           </DialogHeader>
           <Textarea

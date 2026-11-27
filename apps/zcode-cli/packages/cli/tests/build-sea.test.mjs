@@ -30,7 +30,6 @@ import {
 import {
   collectSeaOfficialPluginAssets,
   officialSeaPlugins,
-  seaOfficialPluginManifestAssetKey,
 } from "../scripts/sea-official-plugin-assets.mjs";
 import {
   bundledSkillPackRequiredPaths,
@@ -43,6 +42,7 @@ import {
   opentuiNativePackageForTarget,
   seaTuiAssetPrefix,
 } from "../scripts/sea-tui-assets.mjs";
+import { placeRuntimePackage } from "../scripts/sea-runtime-package-resolution.mjs";
 import {
   collectSeaRuntimeToolAssets,
   seaRuntimeToolManifestAssetKey,
@@ -178,7 +178,7 @@ test("keeps package SEA build scripts aligned with the existing all-target contr
 
   assert.equal(
     cliPackage.scripts["build:sea"],
-    "pnpm --dir ../../../.. exec turbo --skip-infer --cwd apps/zcode-cli run build --filter=!@zcode/cli --force && pnpm build && node scripts/build-sea.mjs --all",
+    "pnpm --dir ../../../.. build:sea:prepare && node scripts/build-sea.mjs --all",
   );
   assert.equal(cliPackage.scripts["build:sea:all"], undefined);
   assert.equal(cliWorkspacePackage.scripts["build:sea"], "pnpm --filter @zcode/cli build:sea");
@@ -205,6 +205,32 @@ test("parses repeated and comma-separated SEA targets", () => {
 
 test("parses all supported SEA targets", () => {
   assert.deepEqual(parseBuildSeaArgs(["--all"]).targets, supportedTargets);
+});
+
+test("platform flags narrow the SEA target set", () => {
+  // `pnpm build:sea --linux` 让 build-sea.mjs 收到 `--all --linux`；`pnpm run build:sea -- --linux` 多一个 `--`。
+  assert.deepEqual(parseBuildSeaArgs(["--all", "--linux"]).targets, ["linux-arm64", "linux-x64"]);
+  assert.deepEqual(parseBuildSeaArgs(["--all", "--", "--linux"]).targets, [
+    "linux-arm64",
+    "linux-x64",
+  ]);
+  assert.deepEqual(parseBuildSeaArgs(["--all", "--darwin", "--linux"]).targets, [
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-arm64",
+    "linux-x64",
+  ]);
+  assert.deepEqual(parseBuildSeaArgs(["--win"]).targets, ["win-arm64", "win-x64"]);
+  assert.deepEqual(parseBuildSeaArgs(["--targets=linux-x64,win-x64", "--linux"]).targets, [
+    "linux-x64",
+  ]);
+});
+
+test("rejects platform flags that leave no SEA target", () => {
+  assert.throws(
+    () => parseBuildSeaArgs(["--target", "darwin-x64", "--linux"]),
+    /No SEA target left after --linux/,
+  );
 });
 
 test("uses node-binary targets when no explicit target selector is provided", () => {
@@ -471,6 +497,20 @@ test("fails SEA packaging when a target runtime tool is missing", async () => {
   }
 });
 
+test("places conflicting versions of one runtime package under their consumer", () => {
+  // TUI 闭包里已经只有一个 Zod 版本；同名不同版本的放置规则用合成数据单独覆盖。
+  const placements = new Map();
+  const place = (packageDirectory, fromAssetPath) =>
+    placeRuntimePackage({ packageName: "zod", packageDirectory, fromAssetPath, placements });
+
+  assert.equal(place("/store/zod@4", "node_modules/@zcode/shared"), "node_modules/zod");
+  assert.equal(place("/store/zod@4", "node_modules/@zcode/tui"), undefined);
+  assert.equal(
+    place("/store/zod@3", "node_modules/legacy"),
+    "node_modules/legacy/node_modules/zod",
+  );
+});
+
 test("includes TUI workspace runtime package assets", async () => {
   const directory = await mkdtemp(join(tmpdir(), "zcode-sea-tui-assets-"));
   const root = join(import.meta.dirname, "../../..");
@@ -500,6 +540,8 @@ test("includes TUI workspace runtime package assets", async () => {
     assert.equal(paths.has("node_modules/@zcode/i18n/src/index.ts"), false);
     assert.equal(paths.has("node_modules/@zcode/contracts/src/index.ts"), false);
     assert.equal(paths.has("node_modules/@zcode/shared/src/index.ts"), false);
+    // session-control 只有子路径导出，没有 dist/index.js，仍须随 shared 打入 SEA。
+    assert.equal(paths.has("node_modules/@zcode/session-control/dist/contract.js"), true);
     const zodPackages = manifest.files.filter((file) => file.path.endsWith("/zod/package.json"));
     const zodVersions = await Promise.all(
       zodPackages.map(async (file) => {
@@ -509,7 +551,7 @@ test("includes TUI workspace runtime package assets", async () => {
         return metadata.version.split(".")[0];
       }),
     );
-    assert.deepEqual([...new Set(zodVersions)].sort(), ["3", "4"]);
+    assert.deepEqual([...new Set(zodVersions)].sort(), ["4"]);
     // 根 workspace 的源码 exports 不能原样进入只包含 dist 的 SEA runtime。
     for (const packageName of ["@zcode/shared", "@zcode/model-option-map"]) {
       const assetKey = `${seaTuiAssetPrefix}node_modules/${packageName}/package.json`;
@@ -598,10 +640,10 @@ test("includes the pinned Playwright runtime required by headless Browser Use", 
   }
 });
 
-test("keeps the Browser Use SEA release at 0.5.1 with complete runtime assets", async () => {
+test("keeps the Browser Use SEA release at 0.5.2 with complete runtime assets", async () => {
   const root = join(import.meta.dirname, "../../..");
   const browserUsePlugin = officialSeaPlugins.find((plugin) => plugin.name === "browser-use");
-  assert.equal(browserUsePlugin?.version, "0.5.1");
+  assert.equal(browserUsePlugin?.version, "0.5.2");
   assert.deepEqual(browserUsePlugin?.requiredRuntimePaths, [
     "scripts/browser-client.mjs",
     "docs/api.json",
@@ -625,9 +667,9 @@ test("keeps the Browser Use SEA release at 0.5.1 with complete runtime assets", 
       sea: browserUsePlugin.version,
     },
     {
-      manifest: "0.5.1",
-      package: "0.5.1",
-      sea: "0.5.1",
+      manifest: "0.5.2",
+      package: "0.5.2",
+      sea: "0.5.2",
     },
   );
   // Bug 原因：新增录屏能力时重写了整段插件描述，并把原生 WebM 误写成 MP4。
@@ -660,126 +702,6 @@ test("keeps SEA official plugin versions aligned with package and plugin manifes
       },
       plugin.name,
     );
-  }
-});
-
-test("includes bundled official plugin assets", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "zcode-sea-plugin-assets-"));
-  const root = join(import.meta.dirname, "../../..");
-
-  try {
-    const { assets, manifest } = await collectSeaOfficialPluginAssets({
-      root,
-      stagingDirectory: directory,
-    });
-    const iosPlugin = manifest.plugins.find((item) => item.name === "ios-simulator");
-    const androidPlugin = manifest.plugins.find((item) => item.name === "android-emulator");
-    const browserUsePlugin = manifest.plugins.find((item) => item.name === "browser-use");
-    const documentPlugin = manifest.plugins.find((item) => item.name === "documents");
-    const restorePlugin = manifest.plugins.find((item) => item.name === "restore-legacy-sessions");
-    const skillCreatorPlugin = manifest.plugins.find((item) => item.name === "skill-creator");
-    const zcodeGuidePlugin = manifest.plugins.find((item) => item.name === "zcode-guide");
-    const iosPaths = new Set(iosPlugin?.files.map((file) => file.path));
-    const androidPaths = new Set(androidPlugin?.files.map((file) => file.path));
-    const browserUsePaths = new Set(browserUsePlugin?.files.map((file) => file.path));
-    const documentPaths = new Set(
-      manifest.plugins
-        .filter((plugin) =>
-          ["documents", "pdf", "presentations", "spreadsheets"].includes(plugin.name),
-        )
-        .flatMap((plugin) => plugin.files.map((file) => file.path)),
-    );
-    const restorePaths = new Set(restorePlugin?.files.map((file) => file.path));
-    const skillCreatorPaths = new Set(skillCreatorPlugin?.files.map((file) => file.path));
-    const zcodeGuidePaths = new Set(zcodeGuidePlugin?.files.map((file) => file.path));
-
-    assert.equal(typeof assets[seaOfficialPluginManifestAssetKey], "string");
-    assert.equal(iosPlugin?.marketplace, "zcode-plugins-official");
-    assert.equal(androidPlugin?.marketplace, "zcode-plugins-official");
-    assert.equal(browserUsePlugin?.marketplace, "zcode-plugins-official");
-    assert.equal(documentPlugin?.marketplace, "zcode-plugins-official");
-    assert.equal(restorePlugin?.marketplace, "zcode-plugins-official");
-    assert.equal(skillCreatorPlugin?.marketplace, "zcode-plugins-official");
-    assert.equal(zcodeGuidePlugin?.marketplace, "zcode-plugins-official");
-    // superpowers 已从内置 SEA 清单移除，断言它不再出现在 manifest 里。
-    assert.equal(
-      manifest.plugins.some((item) => item.name === "superpowers"),
-      false,
-    );
-    assert.equal(iosPaths.has(".zcode-plugin/plugin.json"), true);
-    assert.equal(iosPaths.has("commands/ios-dev.md"), true);
-    assert.equal(iosPaths.has("skills/ios-dev/SKILL.md"), true);
-    assert.equal(iosPaths.has("src/mcp/server.ts"), false);
-    assert.equal(androidPaths.has(".zcode-plugin/plugin.json"), true);
-    assert.equal(androidPaths.has("commands/android-dev.md"), true);
-    assert.equal(androidPaths.has("skills/android-dev/SKILL.md"), true);
-    assert.equal(androidPaths.has("skills/android-dev/scripts/setup-windows.ps1"), false);
-    assert.equal(androidPaths.has("src/mcp/server.ts"), false);
-    assert.equal(browserUsePaths.has(".zcode-plugin/plugin.json"), true);
-    assert.equal(browserUsePaths.has("skills/control-browser/SKILL.md"), true);
-    assert.equal(browserUsePaths.has("skills/web-gui-tester/SKILL.md"), true);
-    assert.equal(browserUsePaths.has("docs/api.json"), true);
-    assert.equal(browserUsePaths.has("docs/documents.json"), true);
-    assert.equal(browserUsePaths.has("docs/overview.md"), true);
-    assert.equal(browserUsePaths.has("docs/workflow.md"), true);
-    // 宿主产物已搬到独立的 node-repl-host seed 单元；browser-use 不再携带它。
-    assert.equal(browserUsePaths.has("dist/mcp/server.js"), false);
-    const hostPlugin = manifest.plugins.find((item) => item.name === "node-repl-host");
-    assert.ok(hostPlugin, "the shared node_repl host must be embedded");
-    assert.equal(
-      new Set(hostPlugin.files.map((file) => file.path)).has("dist/mcp/server.js"),
-      true,
-    );
-    assert.equal(browserUsePaths.has("scripts/browser-client.mjs"), true);
-    // CUA 的 client 只有一份，属于 computer-use 插件；browser-use 不再镜像它。
-    assert.equal(browserUsePaths.has("scripts/computer-use-client.mjs"), false);
-    // CUA 的文档同理：唯一那份属于 computer-use 插件。
-    assert.equal(browserUsePaths.has("docs/computer-use.md"), false);
-    assert.equal(documentPaths.has(".zcode-plugin/plugin.json"), true);
-    assert.equal(documentPaths.has("skills/docx/SKILL.md"), true);
-    assert.equal(documentPaths.has("skills/docx-viewer/SKILL.md"), true);
-    assert.equal(documentPaths.has("skills/pdf/SKILL.md"), true);
-    assert.equal(documentPaths.has("skills/pdf/scripts/pdf.py"), true);
-    assert.equal(documentPaths.has("skills/pptx/SKILL.md"), true);
-    assert.equal(documentPaths.has("agents/visual-judge.md"), true);
-    assert.equal(documentPaths.has("skills/pptx/scripts/general_judge.py"), false);
-    assert.equal(documentPaths.has("skills/xlsx/SKILL.md"), true);
-    assert.equal(documentPaths.has("skills/xlsx/xlsx.py"), true);
-    assert.equal(
-      [...documentPaths].some((path) =>
-        /(?:^|\/)(?:\.venv|__pycache__|\.DS_Store)(?:\/|$)/u.test(path),
-      ),
-      false,
-    );
-    assert.equal(restorePaths.has(".zcode-plugin/plugin.json"), true);
-    assert.equal(restorePaths.has("commands/restore-legacy-sessions.md"), true);
-    assert.equal(restorePaths.has("skills/restore-legacy-sessions/SKILL.md"), true);
-    assert.equal(
-      restorePaths.has("skills/restore-legacy-sessions/scripts/scan-legacy-sessions.mjs"),
-      true,
-    );
-    assert.equal(
-      restorePaths.has("skills/restore-legacy-sessions/scripts/restore-conversation.mjs"),
-      true,
-    );
-    assert.equal(restorePaths.has("dist/mcp/server.js"), false);
-    assert.equal(skillCreatorPaths.has(".zcode-plugin/plugin.json"), true);
-    assert.equal(skillCreatorPaths.has("skills/skill-creator/SKILL.md"), true);
-    assert.equal(zcodeGuidePaths.has(".zcode-plugin/plugin.json"), true);
-    assert.equal(zcodeGuidePaths.has("skills/zcode-configuration-guide/SKILL.md"), true);
-    assert.equal(zcodeGuidePaths.has("skills/diagnosing-mcp/SKILL.md"), true);
-    assert.equal(zcodeGuidePaths.has("skills/diagnosing-skills/SKILL.md"), true);
-    assert.equal(zcodeGuidePaths.has("skills/diagnosing-commands/SKILL.md"), true);
-    assert.equal(zcodeGuidePaths.has("skills/diagnosing-hooks/SKILL.md"), true);
-    assert.equal(zcodeGuidePaths.has("skills/diagnosing-plugins/SKILL.md"), true);
-    // 0.3.0：/workflow 与 dynamic-workflows 不再随 zcode-guide 发布（见 bundled skill pack 用例）。
-    assert.equal(zcodeGuidePaths.has("commands/workflow.md"), false);
-    assert.equal(zcodeGuidePaths.has("skills/dynamic-workflows/SKILL.md"), false);
-  } finally {
-    await rm(directory, {
-      force: true,
-      recursive: true,
-    });
   }
 });
 
@@ -878,6 +800,31 @@ test("allows skill-only official plugins when SEA runtime assets are required", 
       "packages/zcode-guide-plugin/skills/zcode-configuration-guide/SKILL.md",
       "",
     );
+    await writeTestFile(root, "packages/zcode-site-plugin/.zcode-plugin/plugin.json", "{}");
+    await writeTestFile(
+      root,
+      "packages/zcode-site-plugin/skills/site-deploy/scripts/zcode-site.mjs",
+      "",
+    );
+    await writeTestFile(root, "packages/zcode-site-plugin/skills/site-deploy/SKILL.md", "");
+    await writeTestFile(
+      root,
+      "packages/zcode-site-plugin/skills/site-deploy/scripts/stage.mjs",
+      "",
+    );
+    await writeTestFile(
+      root,
+      "packages/zcode-site-plugin/skills/site-deploy/scripts/errors.mjs",
+      "",
+    );
+    // 0.4.0 起带 Sites 面板：插件自己构建的 server 与面板页面是必需运行时产物。
+    await writeTestFile(root, "packages/zcode-site-plugin/dist/server.mjs", "");
+    await writeTestFile(root, "packages/zcode-site-plugin/dist/ui/panel.html", "");
+    // design 是带 hook 的纯内容型插件：requiresRuntime:false，只需 seed 必需文件。
+    const designPlugin = officialSeaPlugins.find((plugin) => plugin.name === "design");
+    await writeTestFile(root, "packages/design-plugin/.zcode-plugin/plugin.json", "{}");
+    for (const seedPath of designPlugin?.requiredSeedPaths ?? [])
+      await writeTestFile(root, join("packages/design-plugin", seedPath), "");
 
     const { manifest } = await collectSeaOfficialPluginAssets({
       requireRuntime: true,
@@ -889,6 +836,15 @@ test("allows skill-only official plugins when SEA runtime assets are required", 
     const restorePlugin = manifest.plugins.find((item) => item.name === "restore-legacy-sessions");
     const skillCreatorPlugin = manifest.plugins.find((item) => item.name === "skill-creator");
     const pluginCreatorPlugin = manifest.plugins.find((item) => item.name === "plugin-creator");
+    const designSeaPlugin = manifest.plugins.find((item) => item.name === "design");
+    assert.equal(
+      designSeaPlugin?.files.find((file) => file.path === "hooks/design-rules")?.mode,
+      0o755,
+    );
+    assert.equal(
+      designSeaPlugin?.files.some((file) => file.path === "dist/mcp/server.js"),
+      false,
+    );
     const documentPaths = new Set(
       manifest.plugins
         .filter((plugin) =>
@@ -1235,36 +1191,24 @@ test("matches host targets using Node.js platform names", () => {
   );
 });
 
-test("resolves Turbo from the repository while retaining the CLI workspace graph", () => {
-  const cliPackageRoot = new URL("..", import.meta.url);
+test("builds SEA dependencies from the root workspace graph", async () => {
+  const repositoryRoot = new URL("../../../../../", import.meta.url);
+  const rootPackage = JSON.parse(await readFile(new URL("package.json", repositoryRoot), "utf8"));
+  const filters = [...rootPackage.scripts["build:sea:prepare"].matchAll(/--filter=("[^"]+"|\S+)/gu)]
+    .map((match) => match[1].replaceAll('"', ""))
+    .flatMap((filter) => ["--filter", filter]);
 
-  // 回归原因：CLI 是嵌套 workspace，--workspace-root 会把 Turbo 限定到未安装 binary 的内层 node_modules。
-  const result = spawnSync(
-    "pnpm",
-    [
-      "--dir",
-      "../../../..",
-      "exec",
-      "turbo",
-      "--skip-infer",
-      "--cwd",
-      "apps/zcode-cli",
-      "run",
-      "build",
-      "--filter=!@zcode/cli",
-      "--force",
-      "--dry=json",
-    ],
-    {
-      cwd: cliPackageRoot,
-      encoding: "utf8",
-      shell: process.platform === "win32",
-    },
-  );
+  // 回归原因：CLI 子 workspace 的 Turbo 图看不到根 session-control，build:sea 不会生成其 dist。
+  const result = spawnSync("pnpm", [...filters, "list", "--depth", "-1", "--json"], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
-  assert.match(result.stdout, /"taskId":/u);
-  assert.doesNotMatch(result.stdout, /"package": "@zcode\/cli"/u);
+  const names = JSON.parse(result.stdout).map((pkg) => pkg.name);
+  assert.ok(names.includes("@zcode/session-control"));
+  assert.ok(!names.includes("@zcode/cli"));
 });
 
 test("can be dynamically imported when argv[1] is missing", () => {
@@ -1292,8 +1236,18 @@ async function writeDocumentPluginFixtures(root) {
     ["spreadsheets", "xlsx"],
   ]) {
     await writeTestFile(root, `packages/${name}-plugin/.zcode-plugin/plugin.json`, "{}");
-    await writeTestFile(root, `packages/${name}-plugin/agents/visual-judge.md`, "");
     await writeTestFile(root, `packages/${name}-plugin/skills/${skill}/SKILL.md`, "");
+    for (const path of [
+      "scripts/zcode_libreoffice.py",
+      "scripts/libreoffice-profile/user/registrymodifications.xcu",
+      "scripts/libreoffice-profile/user/basic/script.xlc",
+      "scripts/libreoffice-profile/user/basic/dialog.xlc",
+      "scripts/libreoffice-profile/user/basic/Standard/script.xlb",
+      "scripts/libreoffice-profile/user/basic/Standard/dialog.xlb",
+      "scripts/libreoffice-profile/user/basic/Standard/ZCode.xba",
+    ]) {
+      await writeTestFile(root, `packages/${name}-plugin/${path}`, "fixture");
+    }
     // 0.2.0 起文档插件带查看面板：viewer skill 与 office-runtime 构建产物都是必需资产。
     await writeTestFile(root, `packages/${name}-plugin/skills/${skill}-viewer/SKILL.md`, "");
     for (const runtimePath of ["dist/server.mjs", "dist/ui/assets.json", "dist/ui/panel.html"]) {

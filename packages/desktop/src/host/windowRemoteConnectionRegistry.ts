@@ -5,7 +5,6 @@ import {
   stripRemoteTargetSecrets,
   type RemoteTarget,
   type SourceServerArtifactPolicy,
-  type RemoteRuntimeAssetSettings,
   type WorkspacePurpose,
   type WindowHostAttachmentScope,
   type WindowHostRemoteWorkspaceDescriptor,
@@ -17,7 +16,6 @@ export interface WindowRemoteAssetDirs {
   remoteCdnBaseUrls?: string[];
   remoteCacheDir?: string;
   sourceServerArtifactPolicy?: SourceServerArtifactPolicy;
-  runtimeAssetSettings?: RemoteRuntimeAssetSettings;
 }
 
 export interface WindowRemoteConnectionCloseEvent {

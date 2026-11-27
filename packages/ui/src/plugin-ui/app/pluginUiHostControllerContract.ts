@@ -18,10 +18,7 @@ import type {
   PluginSandboxTransportPort,
   PluginUiScopeRef,
 } from "@zcode/shared/mcp-apps";
-import type {
-  PluginUiPresentation,
-  PluginUiResourceNotificationTarget,
-} from "../contract.js";
+import type { PluginUiPresentation, PluginUiResourceNotificationTarget } from "../contract.js";
 import type { PluginUiHostBridge } from "./pluginUiHostBridge.js";
 import { type PluginUiInteractionCallbacks } from "./pluginUiInteractionPorts.js";
 
@@ -30,13 +27,7 @@ import { type PluginUiInteractionCallbacks } from "./pluginUiInteractionPorts.js
  * `initialized` 后投喂 tool-input / tool-result → 响应页面的 tools/call / resources/* / open-link / size-changed。
  * 所有 IO 经 deps 注入；页面管理器拥有 controller，hook 只登记展示锚点。
  */
-export type PluginUiHostPhase =
-  | "idle"
-  | "preparing"
-  | "mounted"
-  | "running"
-  | "error"
-  | "disposed";
+export type PluginUiHostPhase = "idle" | "preparing" | "mounted" | "running" | "error" | "disposed";
 
 export interface PluginUiHostScope {
   workspacePath: string;
