@@ -10,7 +10,8 @@ import { useShallow } from "zustand/react/shallow";
 import {
   remoteHostIdFromWorkspaceIdentity,
   type HighspeedCardSnapshot,
-} from "@zcode/shared";
+} from "@zcode/shared",
+  ZCODE_AGENT_PROVIDER,
 import { useRemoteConversationAvailable } from "@/v4/RemoteConversationAvailability.js";
 import {
   createRemoteWorkspaceDisconnectedError,
@@ -707,6 +708,8 @@ export function SessionPane({
     usageStatsService,
   } = useServices();
   const { intl, locale, localeResolved } = useZCodeIntl();
+  const runtimeOffline = false;
+  const runtimeExitBanner: React.ReactNode = null;
   // fork：分区内面板折叠状态（terminal/agent/workflow 三段）。
   const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
   const [agentSectionOpen, setAgentSectionOpen] = useState(false);
