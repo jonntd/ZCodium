@@ -2529,6 +2529,8 @@ const koKR: Record<string, string> = {
     "데스크톱 창이 제시간에 응답하지 않았습니다. 데스크톱 창이 실행 중인지 확인한 후 다시 로드하세요.",
   "webRemoteControl.failure.connectionRecoveryTimeout":
     "모바일 연결이 제시간에 복구되지 않아 웹 원격 제어를 아직 동기화할 수 없습니다.",
+  "webRemoteControl.failure.deviceNotOwned":
+    "이 기기는 현재 계정에 속하지 않습니다. 데스크톱과 동일한 계정으로 로그인하세요.",
   "webRemoteControl.failure.relayUnavailable":
     "외부 릴레이 연결을 사용할 수 없습니다. 데스크톱이 온라인 상태인지 확인한 후 다시 시도하세요.",
   "webRemoteControl.failure.unsupportedAction":

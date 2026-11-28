@@ -5,7 +5,6 @@ import {
   type PreinstalledToolsCommand,
   type PreinstalledToolsState,
 } from "@zcode/shared/preinstalled-tools";
-import { installPluginSandboxHostBridge } from "./pluginSandbox/hostBridge.js";
 import type {
   ExtensionNotificationClick,
   ExtensionNotificationPayload,

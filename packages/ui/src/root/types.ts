@@ -69,6 +69,15 @@ export interface RootProps {
   /** 初始要打开的 task，从全局 task 列表进入时透传 */
   initialTaskId?: string;
   initialTaskDraft?: CreateTaskOptions;
+  /**
+   * v4.0.0 合并：fork 的设置页深链（FR-B14，VS Code 插件跳转入口）。
+   * 值来自 readSettingsSectionFromLocationHash，入口壳（web/插件）只负责把结果传进来。
+   */
+  initialSettingsDeepLink?: true | import("@/lib/settingsNavigation.js").SettingsSectionId;
+  /** v4.0.0 合并：Web 远控跨 workspace 点击任务后的单次移动端落点。 */
+  initialSidebarFileTreeOpen?: boolean;
+  /** v4.0.0 合并：终端归属 ID（TerminalOwnerContext），手机远控 bridge 场景由入口注入。 */
+  terminalOwnerId?: string;
   composerClientNamespace?: string;
   /** Electron renderer 传 true，用于启用自绘标题栏 */
   isDesktop?: boolean;

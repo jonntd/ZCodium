@@ -49,6 +49,11 @@ export function getRemoteWizardStepCopy(
   },
 ) {
   switch (step) {
+    case "kind":
+      return {
+        title: intl.formatMessage({ id: "remote.kindStepTitle" }),
+        description: intl.formatMessage({ id: "remote.kindStepDescription" }),
+      };
     case "device":
       return {
         title: intl.formatMessage({ id: "remote.deviceStepTitle" }),

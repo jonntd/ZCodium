@@ -6,7 +6,7 @@ import {
   type WebRemoteControlAppPayload,
 } from "@zcode/shared";
 import type { WebRemoteControlMobileTaskView, WebRemoteControlTaskTarget } from "@zcode/shared";
-import { markWebRemoteControlBridgeTaskRead } from "../../webRemoteControlTaskRead.js";
+import { markWebRemoteControlBridgeTaskRead } from "../app/webRemoteControlTaskRead.js";
 import { createWebRemoteControlAppPayloadRequester } from "../../webRemoteControlTransport.js";
 import { registerWebRemoteControlWorkspaceBridgeServices } from "../../webRemoteControlWorkspaceBridgeSession.js";
 import { createWebRemoteControlProjectNavigation } from "../app/projectDraftNavigation.js";

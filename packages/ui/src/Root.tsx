@@ -34,6 +34,7 @@ import { toast } from "@/components/ui/toast.js";
 import { CodingPlanUpgradeDialogProvider } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { WelcomeScreen, type LoginCompleteReason } from "@/WelcomeScreen.js";
 import { setDefaultFileDisplayBasePath } from "@/lib/fileDisplay.js";
+import { setPendingSettingsSection } from "@/lib/settingsNavigation.js";
 import {
   isProviderStartupSyncPending,
   shouldEnableProviderAvailabilityLoginEntryGuard,
@@ -123,6 +124,7 @@ export function Root(props: RootProps) {
         <ServiceProvider
           services={props.services}
           composerClientNamespace={props.composerClientNamespace}
+          terminalOwnerId={props.terminalOwnerId}
         >
           <PlatformProvider platform={props.platform}>
             <StoreProvider
@@ -170,11 +172,13 @@ function RootInner({
   supportsEmbeddedBrowser: explicitSupportsEmbeddedBrowser,
   allowRemoteWorkspace = true,
   webRemoteControlWorkspaceSwitcher,
+  initialSidebarFileTreeOpen,
   initialWorkspaceLoadingFallback,
   initialWebRemoteControlMobileNavigationIntent,
   initialWebRemoteControlWorkspaceList,
   webRemoteControlTerminalTransportState,
   initialTaskDraft,
+  initialSettingsDeepLink,
 }: RootProps) {
   useEffect(() => {
     setMcpStorePlatform(platform);
@@ -609,6 +613,19 @@ function RootInner({
     appliedInitialDraft.current = true;
     startDraftInWorkspace(initialWorkspaceAbsPath, initialWorkspaceIdentity, initialTaskDraft);
   }, [initialTaskDraft, initialWorkspaceAbsPath, initialWorkspaceIdentity, startDraftInWorkspace]);
+
+  // 设置页深链（FR-B14）：`#settings=<sectionId>`，只在首次挂载消费一次。
+  // 一次性语义由 ref 守卫保证；`true` 表示「只打开设置页」，section 先写入 pending，
+  // 由 SettingsPage 挂载时取走。刷新后同 URL 再触发一次属于深链的自然语义。
+  const appliedSettingsDeepLink = useRef(false);
+  useEffect(() => {
+    if (!initialSettingsDeepLink || appliedSettingsDeepLink.current) return;
+    appliedSettingsDeepLink.current = true;
+    if (initialSettingsDeepLink !== true) {
+      setPendingSettingsSection(initialSettingsDeepLink);
+    }
+    tabStoreApi.getState().openSettingsTab();
+  }, [initialSettingsDeepLink, tabStoreApi]);
 
   async function openPreparedRemoteProjectWorkspace(target: {
     hostId: string;
@@ -1302,6 +1319,7 @@ function RootInner({
             remoteConnectionLogs={remoteConnectionLogs}
             allowOpenWorkspace={allowOpenWorkspace}
             webRemoteControlWorkspaceSwitcher={webRemoteControlWorkspaceSwitcher}
+            initialSidebarFileTreeOpen={initialSidebarFileTreeOpen}
             initialWebRemoteControlMobileNavigationIntent={
               initialWebRemoteControlMobileNavigationIntent
             }

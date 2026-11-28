@@ -2586,6 +2586,8 @@ const ruRU: Record<string, string> = {
     "Окно на компьютере не ответило вовремя. Убедитесь, что оно работает, и перезагрузите страницу.",
   "webRemoteControl.failure.connectionRecoveryTimeout":
     "Мобильное подключение не восстановилось вовремя, синхронизация веб-управления пока невозможна.",
+  "webRemoteControl.failure.deviceNotOwned":
+    "Это устройство не принадлежит текущему аккаунту. Войдите с тем же аккаунтом, что и на компьютере.",
   "webRemoteControl.failure.relayUnavailable":
     "Внешнее relay-подключение недоступно. Убедитесь, что компьютер в сети, и повторите попытку.",
   "webRemoteControl.failure.unsupportedAction":

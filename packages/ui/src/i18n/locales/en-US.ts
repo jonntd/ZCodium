@@ -3262,6 +3262,8 @@ const enUS: Record<string, string> = {
     "The desktop window did not respond in time. Make sure it is still running, then reload.",
   "webRemoteControl.failure.connectionRecoveryTimeout":
     "The mobile connection did not recover in time, so Web remote control cannot keep syncing yet.",
+  "webRemoteControl.failure.deviceNotOwned":
+    "This device does not belong to this account. Sign in with the same account as your desktop.",
   "webRemoteControl.failure.relayUnavailable":
     "The external relay connection is unavailable. Make sure desktop is online, then try again.",
   "webRemoteControl.failure.unsupportedAction":

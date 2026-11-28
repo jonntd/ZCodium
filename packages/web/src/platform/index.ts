@@ -1,8 +1,6 @@
 import {
-  mobilePluginDiscoveryTelemetrySchema,
   resolveLocaleFromLanguageTag,
   toZhOrEnLocale,
-  sessionCreateTelemetrySchema,
   type IPlatformService,
   type RemoteTarget,
   type WebRemoteControlStatus,
@@ -26,6 +24,11 @@ export function createWebPlatform(options?: {
     canSelectFilePath: false,
     canOpenLocalFiles: false,
     saveFile: saveBrowserFile,
+    // v4.0.0 合并：Web 端无 data-root 导入/远控配对刷新/bot 重连事件，按接口契约给空实现。
+    openDataRootImport: () => {},
+    refreshWebRemoteControlPairing: () =>
+      Promise.reject(new Error("Web remote control pairing can only be refreshed from desktop")),
+    onBotRemoteWorkspaceReconnected: () => () => {},
     // Web 端无法打开系统目录选择框
     selectDirectory: () => Promise.resolve(null),
     // Web 端无法打开系统文件选择框
@@ -143,16 +146,7 @@ export function createWebPlatform(options?: {
     registerOAuthState: (_payload) => {},
     onOAuthCallback: () => () => {},
     onPaymentCallback: () => () => {},
-    onShareImport: () => () => {},
     notifyRendererReady: () => {},
-    reportTelemetryEvent: async (event) => {
-      // 手机只开放 session_create 和插件发现事件；管理结果仍由 Desktop Host 唯一上报。
-      const parsed = sessionCreateTelemetrySchema
-        .or(mobilePluginDiscoveryTelemetrySchema)
-        .safeParse(event);
-      if (parsed.success) platformProxy?.reportTelemetryEvent?.(parsed.data);
-    },
-    reportArmsCustomEvent: () => Promise.resolve(),
     showTaskNotification: (payload) => {
       if (document.hasFocus()) {
         return;

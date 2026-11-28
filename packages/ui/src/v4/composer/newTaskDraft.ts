@@ -2,8 +2,6 @@
 import type { ComposerInitialConfig } from "@/store/zcodeSessionStoreTypes.js";
 import type { ModelSelection } from "@zcode/shared/model-selection";
 import type { ModelSelectionView } from "@zcode/services";
-// @ts-ignore -- v4.0.0 合并过渡期
-import type { ComposerInitialConfig } from "@/store/zcodeSessionStoreTypes.js";
 import { readComposerRecent, resolveDraftInitialModelSelection } from "@/lib/composerRecent.js";
 import {
   readV4ComposerDraft,

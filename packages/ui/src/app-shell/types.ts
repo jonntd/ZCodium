@@ -169,11 +169,15 @@ export interface AppProps {
   onOpenWorkspace: () => void;
   onOpenFolderFromWorkspaceMenu: () => void;
   onOpenRemoteWorkspace?: (preference?: RemoteConnectionOpenPreference) => void | boolean;
-  onCreateScratchWorkspace: (name: string) => Promise<string | null>;
+  // v4.0.0 合并：当前 App（v4 版）不再消费 scratch workspace 创建链（fork 的
+  // ChatEmptyState/ChatEmptyScratchWorkspaceDialog 已成孤儿），先放宽为可选。
+  onCreateScratchWorkspace?: (name: string) => Promise<string | null>;
   remoteConnectionInProgress?: boolean;
   onReturnToWorkspace?: () => void;
   allowOpenWorkspace?: boolean;
   webRemoteControlWorkspaceSwitcher?: WebRemoteControlWorkspaceSwitcherApi;
+  /** v4.0.0 合并：Web 远控跨 workspace 点击任务后的单次移动端落点（初挂载展开文件树）。 */
+  initialSidebarFileTreeOpen?: boolean;
   initialWebRemoteControlMobileNavigationIntent?: import("@zcode/shared").WebRemoteControlMobileNavigationIntent;
   initialWebRemoteControlWorkspaceList?: import("@zcode/shared").WebRemoteControlWorkspaceListResult;
   webRemoteControlTerminalTransportState?: WebRemoteControlTerminalTransportState;

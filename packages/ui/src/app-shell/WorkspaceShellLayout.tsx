@@ -304,6 +304,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
   onOpenRemoteWorkspace,
   allowOpenWorkspace = true,
   webRemoteControlWorkspaceSwitcher,
+  initialSidebarFileTreeOpen,
   initialWebRemoteControlMobileNavigationIntent,
   initialWebRemoteControlWorkspaceList,
   webRemoteControlTerminalTransportState,
@@ -462,7 +463,20 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
     useState<ConversationDropTargetController | null>(null);
   const fileTreeOpenRequestIdRef = useRef(0);
   const [fileTreeOpenRequest, setFileTreeOpenRequest] = useState<SidebarFileTreeOpenRequest | null>(
-    null,
+    () =>
+      // v4.0.0 合并：Web 远控跨 workspace 点任务后的单次移动端落点——
+      // 初次挂载即请求把目标 workspace 的文件树展开到可见。
+      initialSidebarFileTreeOpen
+        ? {
+            id: 0,
+            target: {
+              workspacePath: workspaceAbsPath,
+              workspaceName: getPathLeaf(workspaceAbsPath),
+              workspaceIdentity,
+              workspaceRemoteSessionId,
+            },
+          }
+        : null,
   );
   const [isSidebarFileTreeOpen, setIsSidebarFileTreeOpen] = useState(false);
   const [isWebRemoteControlMobileViewport, setIsWebRemoteControlMobileViewport] = useState(

@@ -1333,12 +1333,6 @@ function ConversationTurnGroupImpl({
       unit.latestAssistantTextRow,
     ],
   );
-// @ts-ignore -- v4.0.0 合并过渡期
-  const assistantFileSummaryText = useMemo(
-    () => unit.assistantTextRows.map((row) => row.text).join("\n\n"),
-    [unit.assistantTextRows],
-  );
-// @ts-ignore -- v4.0.0 合并过渡期
   const assistantFileSummaryText = useMemo(
     () => unit.assistantTextRows.map((row) => row.text).join("\n\n"),
     [unit.assistantTextRows],

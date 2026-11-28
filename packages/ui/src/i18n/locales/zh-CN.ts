@@ -3030,6 +3030,8 @@ const zhCN: Record<string, string> = {
     "桌面端响应超时，请确认窗口仍在运行后刷新页面。",
   "webRemoteControl.failure.connectionRecoveryTimeout":
     "手机端连接恢复超时，当前 Web 远程控制暂时无法继续同步。",
+  "webRemoteControl.failure.deviceNotOwned":
+    "该设备不属于当前账号，请使用与电脑端相同的账号登录。",
   "webRemoteControl.failure.relayUnavailable": "外部 relay 连接不可用，请确认桌面端在线后重试。",
   "webRemoteControl.failure.unsupportedAction":
     "当前是 Web 远程控制模式，只支持访问桌面端当前窗口已经打开的工作区。",

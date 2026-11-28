@@ -2607,6 +2607,8 @@ const jaJP: Record<string, string> = {
     "デスクトップウィンドウが時間内に応答しませんでした。実行中であることを確認してから再読み込みしてください。",
   "webRemoteControl.failure.connectionRecoveryTimeout":
     "モバイル接続が時間内に回復しなかったため、Web リモート操作の同期を続行できません。",
+  "webRemoteControl.failure.deviceNotOwned":
+    "このデバイスは現在のアカウントに属していません。デスクトップと同じアカウントでログインしてください。",
   "webRemoteControl.failure.relayUnavailable":
     "外部リレーに接続できません。デスクトップがオンラインであることを確認してから、もう一度お試しください。",
   "webRemoteControl.failure.unsupportedAction":

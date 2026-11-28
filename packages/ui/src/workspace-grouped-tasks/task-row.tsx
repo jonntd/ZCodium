@@ -236,9 +236,6 @@ function GroupedTaskRowComponent({
     </div>
   );
 
-  // DragOverlay 高频渲染时只返回纯展示节点，避免隐藏 action tooltip 的 Radix ref 循环和 task 路径 RPC。
-  if (dragOverlay) return taskRow;
-
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [taskRowHovered, setTaskRowHovered] = useState(false);
   const [taskRowFocusWithin, setTaskRowFocusWithin] = useState(false);
@@ -267,6 +264,7 @@ function GroupedTaskRowComponent({
     loadTaskPaths: contextMenuOpen,
     loadProviderConfig: contextMenuOpen,
   });
+
   const handleSelect = () => {
     onSelectTask(task.workspacePath, task.taskId, task.workspaceIdentity);
   };
@@ -340,6 +338,11 @@ function GroupedTaskRowComponent({
     disabled: workspaceActionsDisabled || !dragId || dragOverlay,
     data: { type: "grouped-task", taskKey: dragId },
   });
+
+  // DragOverlay 高频渲染时只返回纯展示节点，避免隐藏 action tooltip 的 Radix ref 循环和 task 路径 RPC。
+  // 注意：这个早返回必须放在全部 hooks（含 useDraggable/useDroppable）之后（rules-of-hooks）——
+  // hooks 在 dragOverlay 与普通渲染两种模式下都要按相同顺序执行，否则行元素进入/离开拖拽态时会错位复用状态。
+  if (dragOverlay) return taskRow;
 
   const setTaskRowRef = (element: HTMLDivElement | null) => {
     draggable.setNodeRef(element);

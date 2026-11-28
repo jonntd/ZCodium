@@ -1,6 +1,6 @@
 /* @ts-nocheck -- v4.0.0 合并过渡期 */
 // @vitest-environment jsdom
-// @ts-ignore -- v4.0.0 合并过渡期
+// @ts-ignore -- v4.0.0 合并过渡期（composite 模式下 ts-nocheck 不生效，需逐行抑制）
 import { act, renderHook, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -8,11 +8,8 @@ import {
   CONTROLLER_WORKSPACES_TOPIC,
   type WindowHostControllerTaskRow,
 } from "@zcode/shared/zcode-protocol-v4";
-import type {
-  WindowHostControllerFrame,
-  ProjectTree,
-  RemoteProjectDirectory,
-} from "@/project-sidebar/contract.js";
+import type { ProjectTree, RemoteProjectDirectory } from "@/project-sidebar/contract.js";
+type WindowHostControllerFrame = import("@/project-sidebar/contract.js").WindowHostControllerFrame;
 import { useProjectTree } from "@/project-sidebar/useProjectTree.js";
 import { useTaskGroups } from "@/project-sidebar/useTaskGroups.js";
 import { getTaskListRowActivity } from "@/v4/taskListRowActivity.js";

@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 /* eslint-disable max-lines -- Web 远程控制共享协议同时保留旧 /web-remote 类型和新外部 relay 类型，后续拆分时再按 transport/app payload 分文件。 */
+import type { MobilePluginDiscoveryTelemetry } from "./telemetry.js";
+import type { MobileSessionCreateTelemetry } from "./sessionCreateTelemetry.js";
 import type { DockerContainerInfo, SSHConfigAliasOption, WSLDistro } from "./platform.js";
 import type {
   CreateTempTextAttachmentRequest,
@@ -53,6 +55,7 @@ export type WebRemoteControlFailureReason =
   | "connection-recovery-timeout"
   | "relay-unavailable"
   | "auth-required"
+  | "device-not-owned"
   | "unsupported-action"
   | "unexpected-error";
 
@@ -222,6 +225,15 @@ export const WEB_REMOTE_CONTROL_RELAY_AUTH_PROOF_VECTORS: WebRemoteControlRelayA
 ];
 
 export interface WebRemoteControlExternalQrParams {
+  deviceSid?: string;
+  deviceMid?: string;
+  deviceName?: string;
+  appVersion?: string;
+}
+
+// v4.0.0 合并：web 入口的 V2 二维码参数面与 ExternalQrParams 字段同构，
+// 独立命名以承接 v4 contract/webRemoteControlEntry 的类型引用。
+export interface WebRemoteControlV2QrParams {
   deviceSid?: string;
   deviceMid?: string;
   deviceName?: string;
@@ -716,6 +728,12 @@ export interface WebRemoteControlMobileDiagnosticPayload {
 }
 
 export type WebRemoteControlAppPayload =
+  // v4.0.0 合并：手机端 session_create / 插件发现协议事实（no-telemetry spec 保留面），
+  // 经 relay app payload 透传给桌面 Host 唯一上报。
+  | {
+      zcode_type: "telemetry-report";
+      event: MobileSessionCreateTelemetry | MobilePluginDiscoveryTelemetry;
+    }
   | WebRemoteControlBootstrapRequestPayload
   | WebRemoteControlBootstrapResponsePayload
   | WebRemoteControlWorkspaceListRequestPayload
@@ -872,7 +890,7 @@ export function resolveWebRemoteControlWorkspaceKey(
   return target.workspaceIdentity?.trim() || target.workspacePath;
 }
 
-function isWebRemoteControlBridgeableWorkspaceTarget(
+export function isWebRemoteControlBridgeableWorkspaceTarget(
   workspace: WebRemoteControlWorkspaceTarget,
 ): boolean {
   return (

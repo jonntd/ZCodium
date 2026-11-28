@@ -229,6 +229,9 @@ function getFailureDescription(
       });
     case "relay-unavailable":
       return formatMessage({ id: "webRemoteControl.failure.relayUnavailable" });
+    // v4.0.0 合并：设备归属校验失败（device-not-owned），提示切换账号语义。
+    case "device-not-owned":
+      return formatMessage({ id: "webRemoteControl.failure.deviceNotOwned" });
     case "unsupported-action":
       return formatMessage({
         id: "webRemoteControl.failure.unsupportedAction",
