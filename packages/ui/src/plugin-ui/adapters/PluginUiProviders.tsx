@@ -95,3 +95,4 @@ export function usePluginUiToolBinding(toolCallId: string): PluginUiToolBinding 
     [open, scope, toolCallId],
   );
 }
+export { registerPluginUiPaneSession } from "@/plugin-ui/adapters/pluginUiPaneSession.js";

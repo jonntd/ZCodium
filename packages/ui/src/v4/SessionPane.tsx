@@ -20,6 +20,7 @@ import { resolveSelectionSideInheritedModel } from "@/lib/selectionSideInherited
 import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
 import { useStartPlanRecommendation } from "@/hooks/useStartPlanRecommendation.js";
 import type {
+  ChatViewSummaryPanelVariant,
   GitChangeSourceId,
   GitRepositorySummary,
   SessionCreateSource,
@@ -372,6 +373,8 @@ export interface SessionPaneProps {
   compactForRemoteControl?: boolean;
   /** fork WIP：Escape 关停是否覆盖 pane 外焦点（默认 false）。 */
   allowEscapeStopOutsidePane?: boolean;
+  summaryPanelVariantOverride?: ChatViewSummaryPanelVariant | null;
+  onSummaryPanelVariantOverrideChange?: (variant: ChatViewSummaryPanelVariant | null) => void;
   provider?: ZCodeProvider;
   onSessionCreated?: (sessionId: string, origin?: "draft-promotion") => void;
   /** deleteSession：删除当前会话后回到 draft（shell 起新草稿）。 */
@@ -707,10 +710,29 @@ export function SessionPane({
     usageStatsService,
   } = useServices();
   const { intl, locale, localeResolved } = useZCodeIntl();
+  // fork WIP：远控离线态/退出横幅未接线，安全默认兜底。
+  const runtimeOffline = false;
+  const runtimeExitBanner: React.ReactNode = null;
   // fork：分区内面板折叠状态（terminal/agent/workflow 三段）。
   const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
   const [agentSectionOpen, setAgentSectionOpen] = useState(false);
   const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
+  const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
+    useState<ChatViewSummaryPanelVariant | null>(null);
+  const hasExternalSummaryPanelVariantControl = Boolean(onSummaryPanelVariantOverrideChange);
+  const effectiveSummaryPanelVariantOverride = hasExternalSummaryPanelVariantControl
+    ? (summaryPanelVariantOverride ?? null)
+    : paneLocalSummaryPanelVariantOverride;
+  const handleSummaryPanelVariantChange = useCallback(
+    (variant: ChatViewSummaryPanelVariant | null) => {
+      if (onSummaryPanelVariantOverrideChange) {
+        onSummaryPanelVariantOverrideChange(variant);
+        return;
+      }
+      setPaneLocalSummaryPanelVariantOverride(variant);
+    },
+    [onSummaryPanelVariantOverrideChange],
+  );
   const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
   const baseWorkspaceServices = useBaseWorkspaceServices();
 
