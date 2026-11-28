@@ -2174,11 +2174,6 @@ export function SessionPane({
         sessionId,
         current.revision,
         current.logEpoch,
-        undefined,
-        undefined,
-        (envelope: unknown) => {
-          commandId = envelope.commandId;
-        },
       );
       if (platform && commandId) {
       }
@@ -5424,8 +5419,6 @@ export function SessionPane({
       undefined,
       replay.clientContext?.projectId,
       replay.clientContext?.sessionCreateSource,
-      undefined,
-      replay.clientContext?.taskGroupId,
     )
       .then((ack) => {
         if (
