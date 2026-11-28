@@ -28,6 +28,9 @@ export function toTelemetryUiMode(mode: InterfaceMode): TelemetryUiMode {
   return "unknown";
 }
 
-export function useSetInterfaceModeWithTelemetry() {
+export function useSetInterfaceModeWithTelemetry(
+  _platform?: unknown,
+  _source?: string,
+): (mode: InterfaceMode) => InterfaceMode {
   return (mode: InterfaceMode) => mode;
 }

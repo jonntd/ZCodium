@@ -9,5 +9,4 @@ export const SettingsUserActionFeatureId = {
   pluginStore: "plugin-store",
 } as const;
 
-export type SettingsUserActionFeatureId =
-  (typeof SettingsUserActionFeatureId)[keyof typeof SettingsUserActionFeatureId];
+export type SettingsUserActionFeatureId = string;

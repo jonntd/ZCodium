@@ -76,10 +76,6 @@ import {
   useOptionalProjectDirectory,
 } from "@/project-sidebar/index.js";
 import { resolveRecentRemoteProjectPreference } from "@/project-sidebar/remote-project-connection.js";
-import {
-  SettingsShareManagement,
-  type SettingsShareTaskTarget,
-} from "@/conversation-share-interaction/SettingsShareManagement.js";
 import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
 import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
@@ -95,7 +91,7 @@ import { SegmentPill } from "@/settings/PluginStoreListView.js";
 import { PluginsSection } from "@/settings/PluginsSection.js";
 import { HooksSection } from "@/settings/HooksSection.js";
 import { WorkspaceFileSearchSection } from "@/settings/WorkspaceFileSearchSection.js";
-import { MemorySettingsPage } from "@/settings/MemorySettingsSection.js";
+import { MemorySettingsSection } from "@/settings/MemorySettingsSection.js";
 import { PersonalizationSection } from "@/settings/PersonalizationSection.js";
 import { BrowserSettingsSection } from "@/settings/BrowserSettingsSection.js";
 import { ComputerUseSection } from "@/settings/ComputerUseSection.js";
@@ -331,8 +327,8 @@ export function SettingsPage({
   windowsWindowControlsRightPaddingPx?: number;
   captionWorkspacePath?: string | null;
   onBack?: () => void;
-  /** 设置页内跳转到指定会话（分享管理「跳转对话」）；Root 注入。 */
-  onOpenTask?: (target: SettingsShareTaskTarget) => void;
+  /** 设置页内跳转到指定会话；Root 注入（fork WIP：分享管理移除后仅保留会话导航）。 */
+  onOpenTask?: (target: { sessionId?: string; workspacePath?: string }) => void;
   onCreateTask?: (request?: CreateTaskRequest) => void;
   onOpenWorkspace?: () => void;
   onOpenRemoteWorkspace?: (preference?: RemoteConnectionOpenPreference) => void;
@@ -831,8 +827,23 @@ export function SettingsPage({
     }
     return [...names];
   }, [sharedSettings?.recentProjects, workspaceTabs]);
+  const handleMemoryEnabledChange = useCallback(
+    async (enabled: boolean) => {
+      await (async () => {
+        await updateSharedSettings({ memoryEnabled: enabled });
+        // 手动修改反向回写 record，换号同步不会复活旧值；失败不阻塞开关。
+        await services.onboardingRecordService
+          ?.updateRecordPreferences({ memoryEnabled: enabled })
+          .catch((cause: unknown) => {
+            console.warn("[settings] 回写引导记录失败", String(cause));
+          });
+      })();
+    },
+    [updateSharedSettings],
+  );
   const toolSearchMode = sharedSettings?.toolSearchMode ?? DEFAULT_APP_TOOL_SEARCH_MODE;
   const nativeSearchEnhancementsEnabled = sharedSettings?.nativeSearchEnhancementsEnabled !== false;
+  const memoryEnabled = sharedSettings?.memoryEnabled === true;
   const totalTokensReminderEnabled = sharedSettings?.totalTokensReminderEnabled === true;
   const agentAlwaysBackgroundEnabled = sharedSettings?.agentAlwaysBackgroundEnabled !== false;
   const askUserQuestionAutoResolutionEnabled =
@@ -2127,12 +2138,16 @@ export function SettingsPage({
                               isDesktop={Boolean(isDesktop)}
                             />
                           ) : activeSection === "memory" ? (
-                            <MemorySettingsPage
-                              workspacePath={activeWorkspacePath}
-                              workspaceIdentity={activeWorkspaceIdentity}
-                              isDesktop={Boolean(isDesktop)}
-                              workspaceDisplayNames={memoryWorkspaceDisplayNames}
-                            />
+                            <ServiceProvider services={localHostServices}>
+                              {/* Memory catalog 始终使用本地 Host，避免远程 workspace 误读本机数据。 */}
+                              <MemorySettingsSection
+                                memoryEnabled={memoryEnabled}
+                                memoryService={localHostServices.memoryService}
+                                onMemoryEnabledChange={handleMemoryEnabledChange}
+                                projectMemoryViewerAvailable={Boolean(isDesktop)}
+                                workspaceDisplayNames={memoryWorkspaceDisplayNames}
+                              />
+                            </ServiceProvider>
                           ) : activeSection === "plugin" ? (
                             <PluginsSection
                               key={`plugin:${settingsSectionNavigationVersion}`}
@@ -2201,12 +2216,6 @@ export function SettingsPage({
                               />
                               <ArchiveManagement />
                             </div>
-                          ) : activeSection === "shares" ? (
-                            <SettingsShareManagement
-                              signedIn={Boolean(user)}
-                              onLogin={onLogin}
-                              onOpenTask={onOpenTask}
-                            />
                           ) : activeSection === "usage" ? (
                             <UsageStatsSection
                               activeTab={usageActiveTab}

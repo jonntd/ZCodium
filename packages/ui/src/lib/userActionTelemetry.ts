@@ -4,17 +4,9 @@
 
 import { logger } from "@/logger.js";
 
-export type UserActionTrigger =
-  | "click"
-  | "keyboard"
-  | "command"
-  | "api"
-  | (string & {});
+export type UserActionTrigger = string;
 
-export type UserActionResult =
-  | "success"
-  | "failure"
-  | (string & {});
+export type UserActionResult = Record<string, unknown>;
 
 export interface SettingsUserActionInput {
   featureId: string;
