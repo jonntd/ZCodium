@@ -20,7 +20,6 @@ import { resolveSelectionSideInheritedModel } from "@/lib/selectionSideInherited
 import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
 import { useStartPlanRecommendation } from "@/hooks/useStartPlanRecommendation.js";
 import type {
-  ChatViewSummaryPanelVariant,
   GitChangeSourceId,
   GitRepositorySummary,
   SessionCreateSource,
@@ -260,6 +259,7 @@ import { recordV4CommandAck } from "@/v4/commandAckObservability.js";
 import { pendingCommandRegistry } from "@/v4/pendingCommandRegistry.js";
 import type {
   ChatSearchResultHighlightRequest,
+  ChatViewSummaryPanelVariant,
   ConversationFindMatchState,
 } from "@/v4/legacyChatViewTypes.js";
 import type { SessionLease } from "@/v4/sessionDataLayer.js";
@@ -646,6 +646,8 @@ export function SessionPane({
   remoteSessionId,
   isDesktop = false,
   compactForRemoteControl = false,
+  summaryPanelVariantOverride,
+  onSummaryPanelVariantOverrideChange,
   allowEscapeStopOutsidePane = false,
   provider,
   onSessionCreated,
