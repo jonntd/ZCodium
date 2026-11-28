@@ -258,8 +258,10 @@ export interface ConversationComposerSendOptions {
   /** Prompt 文本内携带的上下文附件数量；用于阻止 /goal 等本地命令误消费。 */
   contextAttachmentCount?: number;
   /** 本次 busy input 的一次性投递覆盖，不改 session 偏好。 */
-  requestedDelivery?: "startNow" | "queue" | "guide";
-}
+  requestedDelivery?: "startNow" | "queue" | "guide";  source?: SessionCreateSource;
+  conversationQuotes?: import("@zcode/shared").ConversationSelectionText[];
+  telemetrySeed?: Record<string, unknown>;
+}}
 
 export type ConversationComposerSendResult =
   | "sent"

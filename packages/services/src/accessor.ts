@@ -1,3 +1,4 @@
+import type { IManagedWorktreeService } from "./managed-worktree-tasks/index.js";
 import type { IRemoteProjectService } from "#src/remote-projects/contract.js";
 import type { ITaskGroupService } from "#src/task-groups/contract.js";
 import type { WindowProjectDirectoryServices } from "#src/window-project-directory/contract.js";
@@ -147,4 +148,5 @@ export interface IServiceAccessor {
   readonly promptAttachmentTransferService: IPromptAttachmentTransferService;
   /** Composer 提示词增强等文本辅助（统一链路走 Agent runtime）；旧测试 double 可不提供。 */
   readonly promptAssistService?: IPromptAssistService;
+  readonly managedWorktreeService?: IManagedWorktreeService;
 }
