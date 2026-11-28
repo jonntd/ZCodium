@@ -188,7 +188,7 @@ export interface ConversationComposerSendOptions {
   conversationQuotes?: import("@zcode/shared").ConversationSelectionText[];
   telemetrySeed?: Record<string, unknown>;
   source?: import("@zcode/shared").SessionCreateSource;
-}}
+}
 
 export type ConversationComposerSendResult = "sent" | "blocked" | "confirmationRequired";
 function getComposerAttachmentTypeLabel(filename: string, mimeType: string): string {
