@@ -37,7 +37,7 @@ import { logger } from "@/logger.js";
 import { ConversationTurnGroup } from "@/v4/ConversationTurnGroup.js";
 import {
   deriveLogicalUiInstances,
-  getPluginUiDisclosureSnapshot,
+  getPluginUiDisclosureVersion,
   getPluginUiManualPin,
   setPluginUiInstanceDerivation,
   subscribePluginUiDisclosure,
@@ -450,8 +450,8 @@ function ConversationTimelineImpl({
   }, [pluginUiDerivation, sessionKey]);
   const pluginUiDisclosureVersion = useSyncExternalStore(
     subscribePluginUiDisclosure,
-    getPluginUiDisclosureSnapshot,
-    getPluginUiDisclosureSnapshot,
+    getPluginUiDisclosureVersion,
+    getPluginUiDisclosureVersion,
   );
   const pluginUiPinResolver = useMemo<PluginUiRowPinResolver>(() => {
     // 手动固定 / 收起变化（version 递增）时重建 resolver，折叠边界随之重算。
