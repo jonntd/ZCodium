@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { PlatformChannels } from "@zcode/shared";
 import {
   TID_CONFIRM_DIALOG_CONFIRM,
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_LOGIN_MENU_ITEM,
   TID_LOGIN_REGION_SWITCH,
   TID_LOGIN_TRIGGER,

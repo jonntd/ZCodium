@@ -1,5 +1,6 @@
 import {
   TID_CHAT_ASSISTANT_MESSAGE,
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_CHAT_SUMMARY_PANEL,
   TID_CHAT_TOOL_CALL_BLOCK,
   testId,

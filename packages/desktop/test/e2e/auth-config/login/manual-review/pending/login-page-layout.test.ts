@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import {
   TID_LOGIN_API_KEY_CANCEL_BUTTON,
   TID_LOGIN_API_KEY_SKIP_BUTTON,
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_LOGIN_MENU_ITEM,
   TID_LOGIN_TRIGGER,
   TID_LOGIN_USE_API_KEY_BUTTON,

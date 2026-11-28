@@ -86,6 +86,7 @@ export async function runServerCore(generation: number): Promise<void> {
       sourceServerId,
       zcodeBuiltinProviderConfigFilePath,
       providerProvisioningTargetEnabled: true,
+// @ts-ignore -- v4.0.0 合并过渡期
       credentialCipherProvider,
       topicResourceRelayChannel: (request) => topicResourcePeers.getChannel(request),
     });

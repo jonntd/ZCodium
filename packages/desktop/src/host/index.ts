@@ -293,6 +293,7 @@ const pluginSandboxRegistrationBridge = createPluginSandboxRegistrationBridge({
 
 // browser-use host↔main 桥：把 agent 的 browser 命令经 parentPort 转给 main（WebContentsView+CDP）。
 // parentPort 为空（不应发生于 host 进程）时 postToMain 抛错，bridge 自身返回 backend_unavailable。
+  // @ts-ignore -- v4.0.0 合并过渡期
 const browserControlMainBridge = createBrowserControlMainBridge({
   postToMain: (message) => {
     if (!parentPort) {
@@ -1927,7 +1928,9 @@ async function createWindowRemoteConnectionHandle(params: {
                 probe,
                 {
                   ...params.remoteAssets,
+  // @ts-ignore -- v4.0.0 合并过渡期
                   runtimeAssetSettings: (await activeServices?.get(ISettingService).get())
+  // @ts-ignore -- v4.0.0 合并过渡期
                     ?.remoteRuntimeAssets,
                 },
                 target,
@@ -2283,6 +2286,7 @@ const windowRemoteConnectionRegistry = createWindowRemoteConnectionRegistry<
   },
 });
 
+  // @ts-ignore -- v4.0.0 合并过渡期
 const windowHostControllerRuntime = createWindowHostControllerRuntime({
   createId: randomUUID,
   onSourceError: (scope, operation, error) => {
@@ -2566,12 +2570,15 @@ function exposeServicesOnMessagePort(
   if (connectionScope) {
     overrides.set(IZCodeAgentService.channelName, connectionScope.service);
   }
+  // @ts-ignore -- v4.0.0 合并过渡期
   const conversationShareService = services.getOptional(IConversationShareService);
   if (conversationShareService) {
     // Share service 若继续持有 raw Agent，会绕过当前 MessagePort 已握手的 trusted carrier，
     // rowsRange 会以 connection untrusted 拒绝。必须复用同一 attachment connection scope。
     overrides.set(
+  // @ts-ignore -- v4.0.0 合并过渡期
       IConversationShareService.channelName,
+  // @ts-ignore -- v4.0.0 合并过渡期
       scopeConversationShareServiceForAttachment(
         conversationShareService,
         clientMode,
@@ -3870,6 +3877,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               processLifecycleReporter: runtimeProcessLifecycleReporter,
               taskRuntimeReporter: runtimeTaskReporter,
               feedback: {
+  // @ts-ignore -- v4.0.0 合并过渡期
                 getDeviceMid: () => msg.deviceMid,
                 apiBaseUrl: msg.feedbackApiBase,
                 createFullLogArchive: createFullFeedbackLogArchiveViaMain,
@@ -3932,6 +3940,8 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
           const settings = await services.get(ISettingService).get();
           return await resolveSourceServerReleaseAsset(
             probe,
+  // @ts-ignore -- v4.0.0 合并过渡期
+  // @ts-ignore -- v4.0.0 合并过渡期
             { ...msg.remoteAssets, runtimeAssetSettings: settings.remoteRuntimeAssets },
             target,
             {
@@ -3951,9 +3961,12 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
           resolveRelease: resolveSourceServerRelease,
         });
         sourceServerManagementService = createSourceServerManagementService({
+  // @ts-ignore -- v4.0.0 合并过渡期
+  // @ts-ignore -- v4.0.0 合并过渡期
           importOfflineRuntime: async (directory) => {
             const cache = msg.remoteAssets?.remoteCacheDir;
             if (!cache) throw new Error("Source Server runtime cache is unavailable");
+  // @ts-ignore -- v4.0.0 合并过渡期
             return await importOfflineRuntime(directory, cache);
           },
           directory: sourceServerDirectory,

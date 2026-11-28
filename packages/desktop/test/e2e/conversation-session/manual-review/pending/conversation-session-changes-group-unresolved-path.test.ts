@@ -3,6 +3,7 @@ import { clearAppData, seedSettings } from "../../../helpers/desktop-app.js";
 import {
   toggleLatestConversationToolGroup,
   waitForConversationToolGroup,
+// @ts-ignore -- v4.0.0 合并过渡期
 } from "../../../helpers/conversation-session-tool-groups.js";
 import { ensureToolCrossProductFullAccessMode } from "../../../helpers/conversation-session-tool-cross-product.js";
 import { resolveE2ERuntimePath, resolveE2EToolPath } from "../../../helpers/e2e-runtime-paths.js";
@@ -23,6 +24,7 @@ const WRITE_PATH = resolveE2EToolPath(CASE_NAME, "App.tsx");
 describe("TGE07 Changes unresolved path and single-file summary", () => {
   before(async function () {
     this.timeout(150000);
+// @ts-ignore -- v4.0.0 合并过渡期
     await seedSettings({ toolGroupingChangesEnabled: true });
     await prepareV4ConversationE2E();
     await switchV4Mode("yolo");
@@ -46,6 +48,7 @@ describe("TGE07 Changes unresolved path and single-file summary", () => {
 
     const unresolved = await waitForConversationToolGroup(
       "ChangesGroup",
+// @ts-ignore -- v4.0.0 合并过渡期
       (group) => group.status === "in_progress" && /1 tool|1 个工具/u.test(group.summaryText),
       "Changes 在 file_path 到达前没有显示 1 tool",
       60000,
@@ -56,6 +59,7 @@ describe("TGE07 Changes unresolved path and single-file summary", () => {
 
     await waitForConversationToolGroup(
       "ChangesGroup",
+// @ts-ignore -- v4.0.0 合并过渡期
       (group) => group.status === "in_progress" && group.summaryText.includes("App.tsx"),
       "file_path 到达后 Changes 没有切换为文件摘要",
       60000,

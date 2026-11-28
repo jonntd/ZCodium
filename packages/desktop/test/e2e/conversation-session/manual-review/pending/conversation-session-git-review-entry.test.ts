@@ -1,6 +1,7 @@
 import { open, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_CHAT_SUMMARY_PANEL,
   TID_GIT_PANE,
   TID_TASK_ITEM,

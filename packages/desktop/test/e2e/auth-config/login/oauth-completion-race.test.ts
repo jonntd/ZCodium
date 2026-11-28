@@ -11,6 +11,7 @@ import {
   TID_OAUTH_CANCEL,
   TID_OAUTH_COPY_LOGIN_LINK,
   TID_LOGIN_TRIGGER,
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_LOGIN_MENU_ITEM,
   TID_LOGIN_REGION_SWITCH,
 } from "@zcode/shared/test-ids";

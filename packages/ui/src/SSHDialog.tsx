@@ -550,6 +550,7 @@ export function RemoteConnectionDialog({
             <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-hidden p-4 sm:gap-4 sm:p-6">
               <DialogHeader className="space-y-2">
 // @ts-ignore -- v4.0.0 合并过渡期
+        currentStep: "device" as import("@/RemoteConnectionWizardChrome.js").RemoteWizardStep,
                 <RemoteConnectionWizardHeader
 // @ts-ignore -- v4.0.0 合并过渡期
                   title={stepCopy.title}

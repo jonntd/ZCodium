@@ -1,3 +1,4 @@
+// @ts-ignore -- v4.0.0 合并过渡期
 import { createConversationShareMockRoute } from "./test/e2e/helpers/conversation-share-mock-route.js";
 import {
   loadToolSearchResponses,

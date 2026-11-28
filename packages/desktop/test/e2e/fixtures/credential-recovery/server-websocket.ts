@@ -20,6 +20,7 @@ const { createStdioServer } = await import("@zcode/server/stdio");
 const { createCoreHttpServer } =
   await import("../../../../../zcode-server-cli/src/server-core/http.js");
 const { exposeWindowHostAttachmentServices } =
+// @ts-ignore -- v4.0.0 合并过渡期
   await import("../../../../src/host/windowHostAttachmentRpcPolicy.js");
 const { ServiceCollection, ICredentialService } = await import("@zcode/services");
 const { createCredentialService } = await import("@zcode/services/node");

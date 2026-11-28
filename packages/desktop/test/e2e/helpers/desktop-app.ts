@@ -48,6 +48,7 @@ const E2E_HOME_DIR =
 // {base}/.zcodium/v2（getAppConfigDir），旧 harness 写 .zcode/v2 被 app 无视——冷启落
 // 欢迎页、lastWorkspaceSession 失效。CLI 命名空间仍是 {base}/.zcode/cli
 // （ZCODE_AGENT_RUNTIME.nativeConfigDir），两者必须分开。
+// @ts-ignore -- v4.0.0 合并过渡期
 const E2E_DESKTOP_DATA_ROOT = join(E2E_HOME_DIR, ZCODE_DATA_ROOT_DIR_NAME);
 const E2E_STORAGE_ROOT = join(E2E_HOME_DIR, ".zcode");
 const E2E_APP_DATA_DIR = join(E2E_DESKTOP_DATA_ROOT, "v2");

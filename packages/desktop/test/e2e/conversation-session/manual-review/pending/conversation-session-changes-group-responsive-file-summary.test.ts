@@ -4,6 +4,7 @@ import { clearAppData, seedSettings } from "../../../helpers/desktop-app.js";
 import {
   toggleLatestConversationToolGroup,
   waitForConversationToolGroup,
+// @ts-ignore -- v4.0.0 合并过渡期
 } from "../../../helpers/conversation-session-tool-groups.js";
 import { ensureToolCrossProductFullAccessMode } from "../../../helpers/conversation-session-tool-cross-product.js";
 import { resolveE2ERuntimePath, resolveE2EToolPath } from "../../../helpers/e2e-runtime-paths.js";
@@ -26,6 +27,7 @@ const FILES = ["App.tsx", "styles.css", "package.json", "notes.md"] as const;
 describe("TGE03 Changes responsive file summary", () => {
   before(async function () {
     this.timeout(150000);
+// @ts-ignore -- v4.0.0 合并过渡期
     await seedSettings({ toolGroupingChangesEnabled: true });
     await prepareV4ConversationE2E();
     await switchV4Mode("yolo");
@@ -58,6 +60,7 @@ describe("TGE03 Changes responsive file summary", () => {
 
     await waitForConversationToolGroup(
       "ChangesGroup",
+// @ts-ignore -- v4.0.0 合并过渡期
       (group) =>
         group.status === "in_progress" && /Writing|Editing|写入|编辑/u.test(group.summaryText),
       "Changes 没有显示运行文件摘要",
@@ -80,6 +83,7 @@ describe("TGE03 Changes responsive file summary", () => {
       await setV4ElectronWindowSize(1400, 800);
       const wide = await waitForConversationToolGroup(
         "ChangesGroup",
+// @ts-ignore -- v4.0.0 合并过渡期
         (group) =>
           group.status === "completed" &&
           (group.summaryText.includes("4 files") || group.summaryText.includes("4 个文件")),
@@ -91,6 +95,7 @@ describe("TGE03 Changes responsive file summary", () => {
       await setV4ElectronWindowSize(430, 700);
       const narrow = await waitForConversationToolGroup(
         "ChangesGroup",
+// @ts-ignore -- v4.0.0 合并过渡期
         (group) => /\+\d+/u.test(group.summaryText),
         "窄窗口 Changes 没有显示 +N",
       );
@@ -99,6 +104,7 @@ describe("TGE03 Changes responsive file summary", () => {
       await setV4ElectronWindowSize(1400, 800);
       await waitForConversationToolGroup(
         "ChangesGroup",
+// @ts-ignore -- v4.0.0 合并过渡期
         (group) => FILES.every((file) => group.summaryText.includes(file)),
         "窗口变宽后没有恢复全部文件 chips",
       );

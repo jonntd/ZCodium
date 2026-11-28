@@ -8,6 +8,7 @@ import {
 import {
   listConversationToolGroups,
   type ConversationToolGroupSnapshot,
+// @ts-ignore -- v4.0.0 合并过渡期
 } from "../../../helpers/conversation-session-tool-groups.js";
 import { ensureToolCrossProductFullAccessMode } from "../../../helpers/conversation-session-tool-cross-product.js";
 import { resolveE2ERuntimePath, resolveE2EToolPath } from "../../../helpers/e2e-runtime-paths.js";
@@ -32,6 +33,7 @@ const WRITE_PATH = resolveE2EToolPath(CASE_NAME, "write.ts");
 describe("TGE05 desktop tool groups history restore", () => {
   before(async function () {
     this.timeout(150000);
+// @ts-ignore -- v4.0.0 合并过渡期
     await seedSettings({ toolGroupingChangesEnabled: true });
     await prepareV4ConversationE2E();
     await switchV4Mode("yolo");

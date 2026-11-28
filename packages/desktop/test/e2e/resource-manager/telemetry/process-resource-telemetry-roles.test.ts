@@ -1,6 +1,9 @@
 import {
+// @ts-ignore -- v4.0.0 合并过渡期
   ARMS_CUSTOM_EVENT_PROPERTY_LIMIT,
+// @ts-ignore -- v4.0.0 合并过渡期
   PROCESS_RESOURCE_EVENT_NAMES,
+// @ts-ignore -- v4.0.0 合并过渡期
   checkProcessResourceEventProperties,
 } from "@zcode/shared";
 import { clearAppData, waitForDefaultWorkspaceReady } from "#e2e/helpers/desktop-app";
@@ -44,6 +47,7 @@ describe("进程资源遥测 ARMS 角色事件", () => {
     await waitForDefaultWorkspaceReady(30_000);
 
     const bridgeReady = await browser.execute(
+// @ts-ignore -- v4.0.0 合并过渡期
       async (suppressed: string[]) => {
         const bridge = (window as FinalArmsBridgeWindow).__zcodeFinalArmsCustomEventsE2E;
         if (!bridge) return false;

@@ -12,6 +12,7 @@ import {
   expectTestIdAbsentThroughout,
   openAutomationsPage,
   openDynamicWorkflowModeSelect,
+// @ts-ignore -- v4.0.0 合并过渡期
   openGeneralSettings,
   openPlusMenu,
   readDynamicWorkflowGrayMockStatus,

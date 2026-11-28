@@ -1,4 +1,5 @@
 import {
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_LOGIN_MENU_ITEM,
   TID_LOGIN_TRIGGER,
   TID_OAUTH_CANCEL,

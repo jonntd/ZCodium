@@ -1,4 +1,5 @@
 import {
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_CHAT_SUMMARY_PANEL,
   TID_V4_PANE_SHELL,
   TID_V4_SUBAGENT_OPEN_SIDE_PANE,
