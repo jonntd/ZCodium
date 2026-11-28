@@ -3398,7 +3398,7 @@ export function SessionPane({
         withBaseRevision ? baseRevision : undefined,
         undefined,
         undefined,
-        creationContext?.createSource,
+        (creationContext?.createSource ?? undefined) as import("@zcode/shared").SessionCreateSource | undefined,
         creationContext?.projectId,
         creationContext?.taskGroupId,
         creationContext?.text,
@@ -3795,7 +3795,7 @@ export function SessionPane({
           heldQueueDisposition,
           expectedHeldQueueItemIds,
           submission,
-          (messageId) => reportDraftCreated(targetSessionId, createSourceAtSend, messageId),
+          (messageId: string) => reportDraftCreated(targetSessionId, createSourceAtSend, messageId),
         );
         if (consumed === "confirmationRequired") return consumed;
         if (consumed) {
@@ -5418,7 +5418,7 @@ export function SessionPane({
       undefined,
       undefined,
       replay.clientContext?.projectId,
-      replay.clientContext?.sessionCreateSource,
+      replay.clientContext?.sessionCreateSource as import("@zcode/shared").SessionCreateSource | undefined,
     )
       .then((ack) => {
         if (
