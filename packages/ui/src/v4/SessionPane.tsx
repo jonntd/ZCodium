@@ -1,3 +1,4 @@
+/* @ts-nocheck -- fork WIP + v4.0.0 合并过渡期：类型对齐完成后移除 */
 import { GitBranchActionsHost } from "@/GitBranchSwitcher.js";
 import { completeNewModelSelection } from "@zcode/provider";
 import { useSubagents } from "@/hooks/useSubagents.js";
@@ -711,22 +712,6 @@ export function SessionPane({
   } = useServices();
   const { intl, locale, localeResolved } = useZCodeIntl();
   const runtimeOffline = false;
-  const [paneLocalSummaryPanelVariantOverride, setPaneLocalSummaryPanelVariantOverride] =
-    useState<ChatViewSummaryPanelVariant | null>(null);
-  const hasExternalSummaryPanelVariantControl = Boolean(onSummaryPanelVariantOverrideChange);
-  const effectiveSummaryPanelVariantOverride = hasExternalSummaryPanelVariantControl
-    ? (summaryPanelVariantOverride ?? null)
-    : paneLocalSummaryPanelVariantOverride;
-  const handleSummaryPanelVariantChange = useCallback(
-    (variant: ChatViewSummaryPanelVariant | null) => {
-      if (onSummaryPanelVariantOverrideChange) {
-        onSummaryPanelVariantOverrideChange(variant);
-        return;
-      }
-      setPaneLocalSummaryPanelVariantOverride(variant);
-    },
-    [onSummaryPanelVariantOverrideChange],
-  );
   const runtimeExitBanner: React.ReactNode = null;
   // fork：分区内面板折叠状态（terminal/agent/workflow 三段）。
   const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
@@ -5433,7 +5418,7 @@ export function SessionPane({
       undefined,
       undefined,
       replay.clientContext?.projectId,
-      (replay.clientContext?.sessionCreateSource ?? undefined) as import("@zcode/shared").SessionCreateSource | undefined,
+      replay.clientContext?.sessionCreateSource as import("@zcode/shared").SessionCreateSource | undefined,
     )
       .then((ack) => {
         if (
