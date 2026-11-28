@@ -71,6 +71,9 @@ export const faIR: ZCodeCopy = {
 `,
   },
   tui: {
+    approval: {
+      fromSession: (sessionId) => `از نشست پس‌زمینه ${sessionId}`,
+    },
     copy: {
       copied: "متن انتخاب‌شده در کلیپ‌بورد کپی شد.",
       failed: "کپی متن انتخاب‌شده ممکن نشد.",

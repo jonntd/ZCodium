@@ -40,7 +40,8 @@ import { parseProviderQualifiedModelSelection } from "./provider-registry-select
 import type { ZCodeAppOptions } from "./types.js";
 
 export interface ScriptWorkflowAgentRuntimeDeps {
-  agentTelemetry: AgentExecutionTelemetryPort;
+  // fork：按 no-telemetry spec 不注入执行遥测采集器——可选透传，缺省 undefined。
+  agentTelemetry?: AgentExecutionTelemetryPort;
   appOptions: ZCodeAppOptions;
   appVersion: string;
   artifactStore?: ToolArtifactStorePort;
@@ -207,7 +208,7 @@ function createRuntimeDeps(
 ): ConstructorParameters<typeof AgentRuntime>[2] {
   return {
     agentTelemetry: deps.agentTelemetry,
-    agentTelemetryCausation: deps.agentTelemetry.captureCausation(),
+    agentTelemetryCausation: deps.agentTelemetry?.captureCausation(),
     // Script workflow child 具有独立生命周期；用 Link 保留发起关系。
     agentTelemetryCausationMode: "linked_root",
     appVersion: deps.appVersion,

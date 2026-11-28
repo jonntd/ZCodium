@@ -359,6 +359,9 @@ export class ZCodeProtocolAgentServer {
       appRuntimePreferences: {
         askUserQuestionAutoResolutionEnabled: true,
         modelIoFullRetentionEnabled: false,
+        // 删除保护 fail-safe：缺省开启 + 阈值 50，Host 同步后覆盖。
+        deleteProtectionEnabled: true,
+        batchDeleteApprovalThreshold: 50,
         offPeakToolEnabled: false,
         // 动态工作流灰度门 fail-closed：Host 必须显式 workspace/updateDynamicWorkflowPolicy
         // 才开启。

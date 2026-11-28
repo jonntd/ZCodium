@@ -77,7 +77,7 @@ it("Host 代际切换立即清空旧候选，旧异步结果不能回填新 Host
   const old = services(vi.fn(async () => [project("old", ["/old"])]));
   state.services = old.service;
   const { result, rerender } = renderHook(() => useConfigWorkspaceTargets());
-  await waitFor(() => expect(result.current[0]?.workspacePath).toBe("/old"));
+  await waitFor(() => expect(result.current.targets[0]?.workspacePath).toBe("/old"));
   const next = services(
     vi.fn(
       () =>
@@ -91,6 +91,6 @@ it("Host 代际切换立即清空旧候选，旧异步结果不能回填新 Host
   expect(result.current).toEqual([]);
   await waitFor(() => expect(typeof finish).toBe("function"));
   await act(async () => finish([project("next", ["/next"])]));
-  await waitFor(() => expect(result.current[0]?.workspacePath).toBe("/next"));
+  await waitFor(() => expect(result.current.targets[0]?.workspacePath).toBe("/next"));
   expect(old.dispose).toHaveBeenCalledTimes(1);
 });

@@ -27,7 +27,7 @@ import type {
   PendingTurnAttachment,
   WorktreeCreationFact,
 } from "@zcode/contracts";
-import type { ZCodeProviderAccountAccess } from "@zcode/shared";
+import type { CustomSystemSegments, ZCodeProviderAccountAccess } from "@zcode/shared";
 import type { EffectiveModelSelectionResult } from "@zcode/shared/model-selection";
 import type { RuntimeMessageEntry } from "../agent/message-history.js";
 import type { ProviderToolRound } from "./provider-tool-rounds/contract.js";
@@ -129,6 +129,12 @@ import type { WorkspaceHookRuntimeAdmissionPort } from "../hooks/workspace-hook-
 // Agent Runtime
 // -----------------------------------------------
 
+/** fork：删除保护偏好的 runtime 形状（docs/spec/delete-protection.md，与 ToolDeleteProtectionPreferences 同构）。 */
+export interface DeleteProtectionRuntimePreferences {
+  deleteProtectionEnabled: boolean;
+  batchDeleteApprovalThreshold: number;
+}
+
 export interface AgentRuntimeConfig {
   toolSearch?: { mode?: ToolSearchMode };
   /** shared-host CUA request routing metadata; desktop is the safe default. */
@@ -145,6 +151,14 @@ export interface AgentRuntimeConfig {
   streamingToolExecution?: "off" | "readOnly";
   /** Session 创建时固定；缺省使用共享的模型上下文预算默认策略。 */
   modelContextBudgetStrategy?: "legacy" | "preflight-v1";
+  // fork：删除保护偏好（docs/spec/delete-protection.md）——bootstrap 从 App Runtime Preferences
+  // 初始化，并经 updateConfig 实时更新。
+  deleteProtection?: DeleteProtectionRuntimePreferences;
+  // fork：分段系统提示词（docs/spec/custom-system-prompt.md v2）——systemPrompt（v1 整段替换）
+  // 在场时被 builder 整体忽略；workflow child 经继承链自动拿到。
+  customSystemSegments?: CustomSystemSegments;
+  // fork：回复语言（docs/spec/response-language.md）——undefined = 跟随用户消息。
+  language?: string;
   maxTurns?: number;
   permissionTimeoutMs?: number;
   compact?: AutoCompactPolicyConfig;

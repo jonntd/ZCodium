@@ -114,6 +114,12 @@ export interface ExecutionEmbeddedSearchPrelude {
   findAndGrepEnabled?: boolean;
 }
 
+// fork：内部 Bash 删除保护 prelude（rm/rmdir/unlink 移入系统废纸篓/回收站）。
+// 只允许 Bash 工具注入，绝不接受用户 hooks 或通用命令执行路径（docs/spec/delete-protection.md）。
+export interface ExecutionDeleteProtectionPrelude {
+  kind: "delete-protection";
+}
+
 export interface ExecutionSandboxPolicy {
   enabled: boolean;
   profile?: string;

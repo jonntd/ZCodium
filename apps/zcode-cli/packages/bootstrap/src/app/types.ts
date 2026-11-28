@@ -107,6 +107,7 @@ import type {
 } from "@zcode/core";
 import type {
   BackgroundBashOutputResult,
+  CustomSystemSegments,
   SubagentRuntimeConfig,
   ZCodeModelOption,
   ZCodeToolExecResource,
@@ -366,6 +367,8 @@ export interface SetLocaleResult {
 
 export interface ZCodeApp {
   readonly sessionId: SessionId;
+  /** fork：本运行实例的目录输入，仅供派生会话继承；冷恢复仍由 Host 重新解析。 */
+  readonly additionalDirectories?: readonly string[];
   readonly traceId: string;
   readonly runtime: AgentRuntime;
   respondWorkspaceHookReview(
@@ -769,6 +772,27 @@ export interface ZCodeApp {
     traceId: TraceContext["traceId"];
   }>;
   setModelIoFullRetentionEnabled?(enabled: boolean): void;
+  /** fork：删除保护偏好实时更新——写主 runtime config，下一次 Bash 权限判定/执行即生效。 */
+  updateDeleteProtection?(preferences: {
+    deleteProtectionEnabled: boolean;
+    batchDeleteApprovalThreshold: number;
+  }): void;
+  /**
+   * fork：自定义系统提示词实时更新（docs/spec/custom-system-prompt.md）——整段替换语义，
+   * undefined = 还原内置默认。空闲会话立即重建上下文前缀；回合中的会话下一回合生效。
+   */
+  updateSystemPrompt?(systemPrompt: string | undefined): void;
+  /**
+   * fork：分段系统提示词实时更新（docs/spec/custom-system-prompt.md v2）——三段常用段落按
+   * 继承/覆盖/追加/清空组合，两作用域。`{}` = 全部恢复继承（有效值，必须下发）；
+   * undefined = 从未使用。空闲会话立即重建上下文前缀；回合中的会话下一回合生效。
+   */
+  updateSystemSegments?(segments: CustomSystemSegments): void;
+  /**
+   * fork：回复语言（docs/spec/response-language.md）——undefined = 跟随用户消息。
+   * 实现必须双写（runtimeConfig + getRuntime().updateConfig），否则「新会话生效、老会话不生效」。
+   */
+  updateLanguage?(language: string | undefined): void;
   setModel(
     modelId: string | ModelSelection,
     options?: {

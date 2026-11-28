@@ -1,19 +1,5 @@
 /// <reference types="node" />
 export const ZCODE_RUNTIME_ENV_KEY = "ZCODE_RUNTIME_ENV";
-export const ZCODE_HTTP_PROXY_ENV_KEY = "ZCODE_HTTP_PROXY";
-export const ZCODE_NO_PROXY_ENV_KEY = "ZCODE_NO_PROXY";
-/** Desktop Host 只向 desktop-attached remote server 传递一次的网络配置。 */
-export const ZCODE_REMOTE_RUNTIME_NETWORK_AUTHORITY_ENV_KEY =
-  "ZCODE_REMOTE_RUNTIME_NETWORK_AUTHORITY";
-export const ZCODE_REMOTE_HTTP_PROXY_ENV_KEY = "ZCODE_REMOTE_HTTP_PROXY";
-export const ZCODE_REMOTE_NO_PROXY_ENV_KEY = "ZCODE_REMOTE_NO_PROXY";
-export const ZCODE_AGENT_CA_CERT_ENV_KEY = "ZCODE_AGENT_CA_CERT";
-export const ZCODE_TOOL_ENV_PASSTHROUGH_ENV_KEY = "ZCODE_TOOL_ENV_PASSTHROUGH_JSON";
-/** Desktop Main 将服务端裁决的单功能灰度结果传给 Local/Remote Host。 */
-export const ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV = "ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED";
-export const ZCODE_CUA_PRODUCT_HELPER_ENV_KEY = "ZCODE_CUA_PRODUCT_HELPER";
-export const ZCODE_CUA_BROKER_SOCKET_ENV_KEY = "ZCODE_CUA_PERMISSION_BROKER_SOCKET";
-
 // ZCodium fork 私有 broker socket 的下发键（docs/spec/cua-runtime-builtin.md §E 跨安装共存）。
 // 为什么不是直接用上面的标准键：host/agent 启动时 initializeRuntimeProcessEnv →
 // sanitizeZCodeRuntimeEnvInPlace(process.env) 会把标准键当作 broker 凭据剥掉（confused-deputy
@@ -46,6 +32,22 @@ export function restoreZCodiumCuaBrokerSocketEnv(
   }
   delete env[ZCODIUM_CUA_BROKER_SOCKET_ENV_KEY];
 }
+
+export const ZCODE_HTTP_PROXY_ENV_KEY = "ZCODE_HTTP_PROXY";
+export const ZCODE_NO_PROXY_ENV_KEY = "ZCODE_NO_PROXY";
+/** Desktop Host 只向 desktop-attached remote server 传递一次的网络配置。 */
+export const ZCODE_REMOTE_RUNTIME_NETWORK_AUTHORITY_ENV_KEY =
+  "ZCODE_REMOTE_RUNTIME_NETWORK_AUTHORITY";
+export const ZCODE_REMOTE_HTTP_PROXY_ENV_KEY = "ZCODE_REMOTE_HTTP_PROXY";
+export const ZCODE_REMOTE_NO_PROXY_ENV_KEY = "ZCODE_REMOTE_NO_PROXY";
+export const ZCODE_AGENT_CA_CERT_ENV_KEY = "ZCODE_AGENT_CA_CERT";
+export const ZCODE_TOOL_ENV_PASSTHROUGH_ENV_KEY = "ZCODE_TOOL_ENV_PASSTHROUGH_JSON";
+/** Desktop Main 将服务端裁决的单功能灰度结果传给 Local/Remote Host。 */
+export const ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED_ENV = "ZCODE_DESKTOP_CONTEXT_PROMPT_ENABLED";
+export const ZCODE_CUA_PRODUCT_HELPER_ENV_KEY = "ZCODE_CUA_PRODUCT_HELPER";
+export const ZCODE_CUA_BROKER_SOCKET_ENV_KEY = "ZCODE_CUA_PERMISSION_BROKER_SOCKET";
+/** 独立 CLI 自签凭据组时的 socket 哨兵值：node_repl 见到它就在本进程内运行 broker。 */
+export const ZCODE_CUA_IN_PROCESS_BROKER_SOCKET = "in-process";
 // 官方命令端点（agent 侧代理，技术方案 5.8）：地址与 session token 只由 agent 按 session 注入
 // Bash/tool 子进程，不随 agent 全局 env 继承。
 export const ZCODE_OFFICIAL_ENDPOINT_ENV_KEY = "ZCODE_OFFICIAL_ENDPOINT";
@@ -179,10 +181,11 @@ interface CapturedCuaBrokerCredentials {
 }
 
 let capturedCuaBrokerCredentials: Readonly<CapturedCuaBrokerCredentials> | undefined;
+const capturedZCodeAgentTelemetryEnv: Record<string, string> = {};
 
 // CUA broker socket 会被上面的 sanitize 从子进程 env 中剔除（confused-deputy 防护 —— 不能让
 // 其它 MCP server / Bash / tool 子进程直接驱动已授权 Helper）。但 CLI 入口在 bootstrap
-// 解析全局 ~/.zcodium/cli/config.json 里的 `zcode-cua` server 之前就会先 sanitize process.env，导致
+// 解析全局 ~/.zcode/cli/config.json 里的 `zcode-cua` server 之前就会先 sanitize process.env，导致
 // 定向注入时已经读不到凭据 → 全局 zcode-cua 回退 `--backend auto`，让 Python/uvx 成为 TCC 主体
 // （fail-open，违反 "Python/uvx must never become the implicit permission owner"）。因此在剔除前把
 // 凭据捕获进本进程私有存储，只经 getCapturedZCodeCuaBrokerCredentials() 暴露给 bootstrap 的定向
@@ -207,6 +210,39 @@ function captureZCodeCuaBrokerCredentials(env: Record<string, string | undefined
   }
 }
 
+function captureZCodeAgentTelemetryEnv(env: Record<string, string | undefined>): void {
+  Object.assign(capturedZCodeAgentTelemetryEnv, readZCodeAgentTelemetryEnv(env));
+}
+
+/**
+ * 只提取供 Agent telemetry bootstrap 使用的配置。宿主可在经过通用 env 清洗后，
+ * 将这组值定向传给 host/Agent；不得把它并入 Bash/MCP 的 tool env。
+ */
+export function readZCodeAgentTelemetryEnv(
+  env: Record<string, string | undefined>,
+): Record<string, string> {
+  const telemetryEnv: Record<string, string> = {};
+  for (const key of SANITIZED_RUNTIME_ENV_KEYS) {
+    if (!isZCodeAgentTelemetryEnvKey(key)) continue;
+    const value = env[key]?.trim();
+    if (value) telemetryEnv[key] = value;
+  }
+  return telemetryEnv;
+}
+
+export function getCapturedZCodeAgentTelemetryEnv(): Record<string, string> {
+  return { ...capturedZCodeAgentTelemetryEnv };
+}
+
+export function mintStandaloneZCodeCuaBrokerCredentials(): boolean {
+  if (capturedCuaBrokerCredentials) return false;
+  capturedCuaBrokerCredentials = Object.freeze({
+    socket: ZCODE_CUA_IN_PROCESS_BROKER_SOCKET,
+    pluginAuthority: globalThis.crypto.randomUUID().replaceAll("-", ""),
+  });
+  return true;
+}
+
 export function getCapturedZCodeCuaBrokerCredentials(): {
   socket: string | undefined;
   pluginAuthority: string | undefined;
@@ -222,10 +258,17 @@ export function resetCapturedZCodeCuaBrokerCredentialsForTest(): void {
   capturedCuaBrokerCredentials = undefined;
 }
 
+export function resetCapturedZCodeAgentTelemetryEnvForTest(): void {
+  for (const key of Object.keys(capturedZCodeAgentTelemetryEnv)) {
+    delete capturedZCodeAgentTelemetryEnv[key];
+  }
+}
+
 export function sanitizeZCodeRuntimeEnv<T extends Record<string, string | undefined>>(
   env: T,
 ): Record<string, string> {
   captureZCodeCuaBrokerCredentials(env);
+  captureZCodeAgentTelemetryEnv(env);
   const sanitized: Record<string, string> = {};
   for (const [key, value] of Object.entries(env)) {
     if (value === undefined || shouldSanitizeZCodeRuntimeEnvKey(key)) {
@@ -279,6 +322,7 @@ export function readZCodeToolEnvPassthroughEnv(env: EnvRecord): Record<string, s
 
 export function sanitizeZCodeRuntimeEnvInPlace(env: Record<string, string | undefined>): void {
   captureZCodeCuaBrokerCredentials(env);
+  captureZCodeAgentTelemetryEnv(env);
   for (const key of Object.keys(env)) {
     if (shouldSanitizeZCodeRuntimeEnvKey(key)) {
       delete env[key];

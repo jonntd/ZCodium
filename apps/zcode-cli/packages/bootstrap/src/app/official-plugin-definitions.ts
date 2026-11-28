@@ -100,6 +100,20 @@ export const OFFICIAL_BROWSER_USE_REQUIRED_SEED_PATHS = [
   "skills/web-gui-tester/SKILL.md",
 ] as const;
 
+// vendored 插件（仓库根 plugins/，来自 ZcodePro 合入，见 docs/spec/builtin-zcodepro-plugins.md）
+// 的 dev 态候选：dev 下 agent resolver dist 优先，entrypointDir = apps/zcode-cli/packages/cli/dist，
+// 五级向上到达仓库根。打包态 entrypointDir = resources/glm，首候选 packages/<name>-plugin
+// 直接命中 staged 包，这条候选解析为不存在路径、无副作用。
+// 注意 computer-use 的包目录名是 zcode-cua-plugin（沿用原生 Helper identity），与插件名不同。
+const VENDORED_PLUGIN_ROOT_CANDIDATES = (name: string, directory = `${name}-plugin`) =>
+  [
+    `packages/${directory}`,
+    `../${directory}`,
+    `../../${directory}`,
+    `../../../${directory}`,
+    `../../../../../plugins/${directory}`,
+  ] as const;
+
 export const OFFICIAL_CUA_REQUIRED_SEED_PATHS = [
   "docs/computer-use.md",
   "scripts/computer-use-client.mjs",
@@ -112,6 +126,13 @@ export const OFFICIAL_CUA_REQUIRED_SEED_PATHS = [
 // 这里钉住的是配置指南技能正文。
 export const OFFICIAL_ZCODE_GUIDE_REQUIRED_SEED_PATHS = [
   "skills/zcode-configuration-guide/SKILL.md",
+  // fork：ZcodePro 合入的五个诊断技能随包分发（plugins/zcode-guide-plugin/skills/），
+  // seed 丢任一项直接报错，不静默装出残缺插件。
+  "skills/diagnosing-commands/SKILL.md",
+  "skills/diagnosing-hooks/SKILL.md",
+  "skills/diagnosing-mcp/SKILL.md",
+  "skills/diagnosing-plugins/SKILL.md",
+  "skills/diagnosing-skills/SKILL.md",
 ] as const;
 
 // design 是纯内容型插件（技能 + 设计资源 + SessionStart hook，无 MCP），技能正文按需读取 references/
@@ -180,12 +201,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       "skills/visualize/assets/standalone-host-bridge.js",
       "skills/visualize/assets/standalone-shell.js",
     ],
-    rootCandidates: [
-      "packages/visualize-plugin",
-      "../visualize-plugin",
-      "../../visualize-plugin",
-      "../../../visualize-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("visualize"),
     version: "0.1.2",
   },
   {
@@ -200,12 +216,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     buildIdentityPath: NODE_REPL_HOST_BUILD_IDENTITY_PATH,
     name: OFFICIAL_NODE_REPL_HOST_PLUGIN_NAME,
     requiredSeedPaths: OFFICIAL_NODE_REPL_HOST_REQUIRED_SEED_PATHS,
-    rootCandidates: [
-      "packages/node-repl-host",
-      "../node-repl-host",
-      "../../node-repl-host",
-      "../../../node-repl-host",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("node-repl-host"),
     version: "0.7.1",
   },
   {
@@ -220,12 +231,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       },
     },
     name: "android-emulator",
-    rootCandidates: [
-      "packages/android-emulator-plugin",
-      "../android-emulator-plugin",
-      "../../android-emulator-plugin",
-      "../../../android-emulator-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("android-emulator"),
     version: "0.1.3",
   },
   {
@@ -245,12 +251,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     },
     name: OFFICIAL_BROWSER_USE_PLUGIN_NAME,
     requiredSeedPaths: OFFICIAL_BROWSER_USE_REQUIRED_SEED_PATHS,
-    rootCandidates: [
-      "packages/browser-use-plugin",
-      "../browser-use-plugin",
-      "../../browser-use-plugin",
-      "../../../browser-use-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("browser-use"),
     // 插件 package/manifest 升版时遗漏官方 seed 版本，会继续加载旧缓存目录。
     // package、manifest、definition 三处版本应保持一致，避免发布内容和安装版本再次分叉。
     version: "0.5.2",
@@ -287,12 +288,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
         ...OFFICIAL_OFFICE_VIEWER_RUNTIME_PATHS,
         ...OFFICIAL_OFFICE_INVOCATION_PATHS,
       ],
-      rootCandidates: [
-        `packages/${name}-plugin`,
-        `../${name}-plugin`,
-        `../../${name}-plugin`,
-        `../../../${name}-plugin`,
-      ],
+      rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES(name),
       version,
     }),
   ),
@@ -308,12 +304,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     },
     name: "image-search",
     requiredSeedPaths: [".mcp.json"],
-    rootCandidates: [
-      "packages/image-search-plugin",
-      "../image-search-plugin",
-      "../../image-search-plugin",
-      "../../../image-search-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("image-search"),
     version: "0.1.1",
   },
   {
@@ -328,12 +319,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       },
     },
     name: "ios-simulator",
-    rootCandidates: [
-      "packages/ios-simulator-plugin",
-      "../ios-simulator-plugin",
-      "../../ios-simulator-plugin",
-      "../../../ios-simulator-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("ios-simulator"),
     version: "0.1.0",
   },
   {
@@ -348,12 +334,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       },
     },
     name: "restore-legacy-sessions",
-    rootCandidates: [
-      "packages/restore-legacy-sessions-plugin",
-      "../restore-legacy-sessions-plugin",
-      "../../restore-legacy-sessions-plugin",
-      "../../../restore-legacy-sessions-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("restore-legacy-sessions"),
     version: "0.1.0",
   },
   {
@@ -370,12 +351,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
         "zh-CN": "开发、校验 ZCode 插件，完成本地 dev 市场安装、试用与更新。",
       },
     },
-    rootCandidates: [
-      "packages/plugin-creator-plugin",
-      "../plugin-creator-plugin",
-      "../../plugin-creator-plugin",
-      "../../../plugin-creator-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("plugin-creator"),
     requiredSeedPaths: [
       "skills/plugin-creator/SKILL.md",
       "skills/plugin-creator/scripts/create-basic-plugin.mjs",
@@ -398,12 +374,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       description_i18n: { "zh-CN": "创建、编辑和验证可复用的 ZCode 技能。" },
     },
     name: "skill-creator",
-    rootCandidates: [
-      "packages/skill-creator-plugin",
-      "../skill-creator-plugin",
-      "../../skill-creator-plugin",
-      "../../../skill-creator-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("skill-creator"),
     version: "0.1.0",
   },
   {
@@ -429,12 +400,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     },
     name: "zcode-guide",
     requiredSeedPaths: OFFICIAL_ZCODE_GUIDE_REQUIRED_SEED_PATHS,
-    rootCandidates: [
-      "packages/zcode-guide-plugin",
-      "../zcode-guide-plugin",
-      "../../zcode-guide-plugin",
-      "../../../zcode-guide-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("zcode-guide"),
     version: "0.3.0",
   },
   {
@@ -456,12 +422,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
     },
     name: "design",
     requiredSeedPaths: OFFICIAL_DESIGN_REQUIRED_SEED_PATHS,
-    rootCandidates: [
-      "packages/design-plugin",
-      "../design-plugin",
-      "../../design-plugin",
-      "../../../design-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("design"),
     version: "0.8.0",
   },
   {
@@ -489,12 +450,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       // 插件更名为 computer-use 后，CDN 图标仍发布在 zcode-cua 目录；沿用资源路径避免 404。
       icon: `${OFFICIAL_PLUGIN_ASSETS_BASE_URL}/zcode-cua/icon.png`,
     },
-    rootCandidates: [
-      "packages/zcode-cua-plugin",
-      "../zcode-cua-plugin",
-      "../../zcode-cua-plugin",
-      "../../../zcode-cua-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("computer-use", "zcode-cua-plugin"),
     requiredSeedPaths: OFFICIAL_CUA_REQUIRED_SEED_PATHS,
     // Bug 根因：迁移 node_repl 时把旧 MCP launcher 与 SDK 仍需的 Sharp runtime 一并裁掉了。
     // Dev/desktop 会把最小 Sharp 闭包 stage 到这里；官方 cache 必须继续携带 node_modules，
@@ -524,12 +480,7 @@ export const OFFICIAL_PLUGIN_DEFINITIONS: readonly OfficialPluginDefinition[] = 
       examplePrompts_i18n: { "zh-CN": ["把这个项目部署成网站"] },
       icon: `${OFFICIAL_PLUGIN_ASSETS_BASE_URL}/zcode-site/icon.png`,
     },
-    rootCandidates: [
-      "packages/zcode-site-plugin",
-      "../zcode-site-plugin",
-      "../../zcode-site-plugin",
-      "../../../zcode-site-plugin",
-    ],
+    rootCandidates: VENDORED_PLUGIN_ROOT_CANDIDATES("zcode-site"),
     requiredSeedPaths: [
       "commands/site-deploy.md",
       "skills/site-deploy/scripts/zcode-site.mjs",

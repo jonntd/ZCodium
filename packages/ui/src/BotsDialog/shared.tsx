@@ -6,6 +6,7 @@ import type {
 } from "@zcode/shared";
 import { ALL_BOT_WORKSPACES, BOT_BIND_CODE_TTL_MS } from "@zcode/shared";
 import {
+  AstrBotChannelIcon,
   DingDingChannelIcon,
   DiscordChannelIcon,
   FeishuChannelIcon,
@@ -76,7 +77,10 @@ export function ProviderIcon({
   className?: string;
 }) {
   const iconSrc =
-    provider === "telegram"
+    // fork：AstrBot 频道图标（ZcodePro 独有集成）。
+    provider === "astrbot"
+      ? AstrBotChannelIcon
+      : provider === "telegram"
       ? TelegramChannelIcon
       : provider === "weixin"
         ? WeixinChannelIcon

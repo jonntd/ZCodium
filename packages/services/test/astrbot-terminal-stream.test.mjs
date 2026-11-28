@@ -27,9 +27,19 @@ test(
   () => {
     if (!source) return;
     const lines = source.split("\n");
-    const start = lines.findIndex((line) =>
-      line.includes('event.type === "task_complete" || event.type === "task_error"'),
+    // v4 合并后同一事件流里出现多个 task_complete/task_error 小分支（runId 记账、群 echo 等）；
+    // 守卫锚定持有 terminalPhase 收口的主终态分支：先找 phase 定义行，再回溯其所属分支起点。
+    const phaseIndex = lines.findIndex((line) =>
+      line.includes('const terminalPhase = event.type === "task_error" ? "failed" : "completed";'),
     );
+    assert.ok(phaseIndex >= 0, "未找到 terminalPhase 收口定义");
+    let start = -1;
+    for (let i = phaseIndex; i >= 0; i -= 1) {
+      if (lines[i].includes('event.type === "task_complete" || event.type === "task_error"')) {
+        start = i;
+        break;
+      }
+    }
     assert.ok(start >= 0, "未找到终态事件分支");
 
     // 从分支起点向后找第一个属于该分支的 finally（缩进与分支同级）。
@@ -60,10 +70,11 @@ test(
     // 该调用必须出现在 try 体内所有出站（sendOutbound / finalizeTransientInteractionCard）之后。
     const tryIndex = lines.findIndex((line, i) => i > start && line.trim() === "try {");
     assert.ok(tryIndex >= 0 && tryIndex < finallyIndex, "finally 之前未找到 try 块");
+    // v4 合并后出站函数演进为 sendTaskOutbound；两种命名都算出站。
     const lastOutboundBeforeFinally = Math.max(
       ...lines
         .slice(tryIndex, finallyIndex)
-        .map((line, i) => (line.includes("sendOutbound(") ? i : -1)),
+        .map((line, i) => (line.includes("sendOutbound(") || line.includes("sendTaskOutbound(") ? i : -1)),
     );
     assert.ok(
       lastOutboundBeforeFinally >= 0,

@@ -4663,6 +4663,9 @@ export function createBotsService(
     }
     if (action === "accept") {
       startTyping(auth.bot, actor, pending.taskId);
+      // fork：与 permission.respond 同理——问答提交后任务恢复，重新通知 started，
+      // 避免恢复后的出站失去 stream 归属（v4 合并丢失后按 da8c055df 原文回贴）。
+      providers[auth.bot.provider]?.notifyTaskLifecycle?.(auth.bot, actor, "started");
       // Bugfix: AskUserQuestion 只是在回复问题，不属于命令配置成功；这里保留原问答提交文案，避免误回 /status。
       return [createCompletedElicitationOutbound(actor, pending, auth.locale, action)];
     }
@@ -5779,6 +5782,13 @@ export function createBotsService(
         runningTasks.delete(event.taskId);
         liveStatusProgressByTaskId.delete(event.taskId);
         stopTyping(event.taskId);
+        // fork：终态收口放在 finally——notifyTaskLifecycle 的终态分支会发出 status 终止符并删除
+        // 任务流，若在分支开头调用，后面的失败原因、变更摘要、「任务已完成。」与 transient
+        // card 收尾都会因找不到 stream 而落到 idFactory() 的新流上（orphan stream）。
+        // 约定：status 必须是该 binding 的最后一条帧；终态文案不得落在未 accepted 预告的流上。
+        // （v4 合并丢失后按 da8c055df 原文语义回贴；出站函数已演进为 sendTaskOutbound。）
+        const terminalPhase = event.type === "task_error" ? "failed" : "completed";
+        try {
         if (context.pendingElicitation?.taskId === event.taskId) {
           clearPendingElicitationSelection(context.pendingElicitation);
           await writeContext(
@@ -5929,6 +5939,9 @@ export function createBotsService(
         for (const text of replyMessages) {
           sentAnyAssistantReply = true;
           await sendTaskOutbound(bot, createOutbound(actor, text));
+        }
+        } finally {
+          providers[bot.provider]?.notifyTaskLifecycle?.(bot, actor, terminalPhase);
         }
       }
     };
@@ -9709,6 +9722,9 @@ export function createBotsService(
               },
             );
             startTyping(auth.bot, message.actor, auth.context.activeTaskId);
+            // fork：权限应答成功后任务立即恢复输出——重新通知 started，
+            // 让 provider 把当前轮次的 stream 提升为任务流并保留收口归属（见 astrbotProvider）。
+            providers[auth.bot.provider]?.notifyTaskLifecycle?.(auth.bot, message.actor, "started");
             return [
               createOutbound(
                 message.actor,

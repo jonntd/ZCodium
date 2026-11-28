@@ -17,6 +17,7 @@ import {
   embeddedBrowserViewportPreferenceSchema,
 } from "./browser-use/command-metadata.js";
 import { providerFamilyConnectionSelectionSettingsSchema } from "./provider-family-connection-selection.js";
+import { customSystemSegmentsSchema } from "./system-prompt-segments.js";
 import {
   connectionProfileSchema,
   sourceServerRecordSchema,
@@ -49,6 +50,15 @@ export const localePreferenceSchema = z.enum(["system", ...SUPPORTED_LOCALES]);
 /** Agent 回复语言：用户自由输入的语言名，见 docs/i18n/agent-reply-language.md。 */
 export const REPLY_LANGUAGE_MAX_LENGTH = 256;
 export const replyLanguageSchema = z.string().trim().min(1).max(REPLY_LANGUAGE_MAX_LENGTH);
+// fork：自定义系统提示词（docs/spec/custom-system-prompt.md）——非空即整段替换内置身份段并跳过
+// 动态 system 段；空串/缺席 = 内置默认。空串必须合法：RPC 会丢弃 undefined，"恢复默认"只能以
+// 空串穿越边界。
+const customSystemPromptSchema = z.string().max(200_000);
+// fork：分段系统提示词（docs/spec/custom-system-prompt.md v2）——必须进存储 schema，否则写盘被
+// strip、开关回弹。schema 本体在 system-prompt-segments.ts。
+const customSystemSegmentsSettingSchema = customSystemSegmentsSchema;
+// fork：批量删除审批阈值（docs/spec/delete-protection.md §4）。
+const batchDeleteApprovalThresholdSchema = z.number().int().min(1).max(10_000);
 const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
 // launch.md「The user's choice」：读文件时未知取值（降级后读到新版本写的值）按「跟随」处理，
 // 不能让一个偏好字段把整份设置读坏。
@@ -598,6 +608,11 @@ const appSettingsObjectSchema = z.object({
   onboardingOccupation: appSettingsOccupationSchema.nullish(),
   proactiveSuggestionsEnabled: z.boolean().optional(),
   memoryEnabled: z.boolean().default(false),
+  // fork：自定义系统提示词（docs/spec/custom-system-prompt.md）——AppSettings 是唯一持久化
+  // 事实源；非空 = 整段替换，空串/缺席 = 内置默认。空串必须合法："恢复默认"只能以空串穿越边界。
+  customSystemPrompt: customSystemPromptSchema.optional(),
+  // fork：分段系统提示词——必须进存储 schema，否则写盘被 strip、开关回弹。
+  customSystemSegments: customSystemSegmentsSettingSchema.optional(),
   // 手改出的非法值（空串、超长）按未设置处理，不能让这一项把整份设置读坏。
   replyLanguage: replyLanguageSchema.optional().catch(undefined),
   lastWorkspaceSession: z.array(appWorkspaceSessionEntrySchema).default([]),
@@ -687,6 +702,12 @@ export const appSettingsPatchSchema = z.object({
   messageStreamShowTodos: z.boolean().optional(),
   zcodeInteractionBehavior: zcodeInteractionBehaviorSchema.optional(),
   askUserQuestionAutoResolutionEnabled: z.boolean().optional(),
+  // fork：删除保护偏好（docs/spec/delete-protection.md）——v4 合并丢失后按 fork 原文回贴。
+  deleteProtectionEnabled: z.boolean().optional(),
+  batchDeleteApprovalThreshold: batchDeleteApprovalThresholdSchema.optional(),
+  customSystemPrompt: customSystemPromptSchema.optional(),
+  customSystemSegments: customSystemSegmentsSettingSchema.optional(),
+  language: z.string().max(64).optional(),
   pluginAutoRecommendationEnabled: z.boolean().optional(),
   modelIoFullRetentionEnabled: z.boolean().optional(),
   // 空串是「删除选择、回到跟随」的哨兵：RPC 会吞掉 undefined，normalizeSettingsPatch 把它归一成删除。

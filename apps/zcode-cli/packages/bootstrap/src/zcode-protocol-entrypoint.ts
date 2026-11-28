@@ -69,7 +69,12 @@ import { ZCodeProtocolNdjsonConnection } from "./zcode-protocol/transport.js";
 import { cleanupProtocolRuntime } from "./zcode-protocol/runtime-cleanup.js";
 import { startProtocolResourceSampler } from "./zcode-protocol/resource-sampler.js";
 import { acquireProtocolStartupResource } from "./zcode-protocol/startup-resource.js";
-import { prepareZCodeTelemetryEnv, shutdownZCodeTelemetry } from "./telemetry-bootstrap.js";
+// fork：遥测收集域已按 no-telemetry spec 剥离（@zcode/telemetry 与 telemetry-bootstrap 均不复存在）。
+// deviceMid 属保留面：只读既有 telemetry-state.json（不新建、不上报），供 MCP tracker id salt 使用。
+import {
+  readExistingDeviceMid,
+  resolveTelemetryStateFile,
+} from "./provider-endpoint-routing-source-headers.js";
 import type { ZCodeProcessResourceSampler } from "./process-resource-sampler.js";
 
 export function applyProtocolPresentationSurface(
@@ -224,18 +229,10 @@ export async function runZCodeProtocolAgent(
       providerCount: providerRegistryRuntime.snapshot.registry.providers.length,
     });
     const runtimeSurface = resolveProtocolRuntimeSurface(runtimeEnv);
-    const telemetryEnv = await acquireProtocolStartupResource({
-      signal: options.lifecycle?.signal,
-      logger,
-      disposeLate: () => shutdownZCodeTelemetry(),
-      create: () =>
-        prepareZCodeTelemetryEnv(runtimeEnv, {
-          cliVersion: options.version,
-          productVersion: options.env?.ZCODE_APP_VERSION,
-          runtimeSurface,
-        }),
-    });
-    const telemetryDeviceMid = telemetryEnv.ZCODE_TELEMETRY_DEVICE_MID;
+    const telemetryEnv = runtimeEnv;
+    const telemetryDeviceMid = await readExistingDeviceMid(
+      resolveTelemetryStateFile(runtimeEnv),
+    );
     mcpTelemetryTracker =
       configResult.config.features.mcp === false
         ? undefined

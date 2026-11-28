@@ -13,7 +13,8 @@ export type RunContext = {
   stdout: NodeJS.WriteStream;
 };
 
-export type GlobalLocale = "auto" | "en-US" | "zh-CN";
+// fork：GlobalLocale 含 fa-IR（波斯语为 fork 一等支持语言），与 @zcode/shared 的 UiLocale 兼容。
+export type GlobalLocale = "auto" | "en-US" | "zh-CN" | "fa-IR";
 export type GlobalDetectedLocale = Exclude<GlobalLocale, "auto">;
 
 /**

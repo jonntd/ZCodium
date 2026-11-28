@@ -1,5 +1,12 @@
 import { analyzeBashCommand, type BashCommandInvocation } from "./bash-command-parser.js";
-import type { ToolDeleteProtectionPreferences } from "../types.js";
+
+// fork：v4 合并后 core 的旧 types.ts 已不存在；偏好形状与 shared 的
+// zcodeDeleteProtectionPreferencesSchema 对齐（deleteProtectionEnabled + batchDeleteApprovalThreshold）。
+// 当前处理器处于休眠态（合并丢失了 bash handler 的调用点），重挂调用链时直接传 schema infer 类型即可。
+interface ToolDeleteProtectionPreferences {
+  deleteProtectionEnabled?: boolean;
+  batchDeleteApprovalThreshold: number;
+}
 
 /**
  * 删除保护的批量审批计数（docs/spec/delete-protection.md §4.2）。

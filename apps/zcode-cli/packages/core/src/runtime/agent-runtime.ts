@@ -618,7 +618,20 @@ export interface AgentRuntime {
   beginShutdown(): void;
   closeBrowserSession(): Promise<void>;
   closeOwnedWork(): Promise<void>;
-  updateConfig(patch: Pick<AgentRuntimeConfig, "mode" | "planEnabled" | "outputStyle">): void;
+  // fork：扩回 language / deleteProtection / systemPrompt / customSystemSegments 的实时更新
+  // （docs/spec/delete-protection.md、custom-system-prompt.md、response-language.md）。
+  updateConfig(
+    patch: Pick<
+      AgentRuntimeConfig,
+      | "mode"
+      | "planEnabled"
+      | "language"
+      | "outputStyle"
+      | "deleteProtection"
+      | "systemPrompt"
+      | "customSystemSegments"
+    >,
+  ): void;
   initializeSessionShellEnvironmentIfNeeded(
     selection: ExecutionShellSelection | (() => ExecutionShellSelection),
   ): boolean;

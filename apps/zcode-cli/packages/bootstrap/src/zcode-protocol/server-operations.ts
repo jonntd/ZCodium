@@ -100,6 +100,7 @@ import {
   type ZCodeSessionRuntimePreferencesResult,
   type ZCodeModelContextBudgetStrategy,
   type ZCodeDeleteProtectionPreferences,
+  type CustomSystemSegments,
   type ZCodeProtocolTrace,
   type ZCodeSessionEvent,
   type ZCodeSessionHistoryTarget,
@@ -204,6 +205,19 @@ interface SessionStartupPreferences {
   toolSearchMode: AppToolSearchMode;
   totalTokensReminderEnabled: boolean;
   agentAlwaysBackgroundEnabled: boolean;
+  // fork：会话启动偏好（Host 同步/进程缓存），v4 合并丢失后按 fork 原文回贴。
+  /** 删除保护偏好；Host 缺省（旧 Host）时按默认值开启 + 阈值 50。 */
+  deleteProtection: ZCodeDeleteProtectionPreferences;
+  /** 自定义系统提示词（docs/spec/custom-system-prompt.md）；undefined = 内置默认。 */
+  customSystemPrompt?: string;
+  /**
+   * 分段系统提示词（docs/spec/custom-system-prompt.md v2）；undefined = 全部继承。
+   * 与 customSystemPrompt 的差别：`{}`（已全部恢复继承）是有效值，必须原样注入 runtimeConfig，
+   * 不能按 falsy 折叠。
+   */
+  customSystemSegments?: CustomSystemSegments;
+  /** 回复语言（docs/spec/response-language.md）；undefined = 跟随用户消息。 */
+  language?: string;
   resolveInitialBashShellSelection: () => Promise<ExecutionShellSelection | undefined>;
 }
 
@@ -3743,6 +3757,12 @@ async function resolveSessionStartupPreferences(
       toolSearchMode: source.parent.toolSearchMode,
       totalTokensReminderEnabled: source.parent.totalTokensReminderEnabled,
       agentAlwaysBackgroundEnabled: source.parent.agentAlwaysBackgroundEnabled,
+      // fork：删除保护结构性继承——child 绕过它等于绕过移废纸篓/批量审批。
+      deleteProtection: source.parent.deleteProtection,
+      // fork：自定义提示词/分段/语言都跟父会话走（创建时固化值 = 父会话实际生效值）。
+      customSystemPrompt: source.parent.customSystemPrompt,
+      customSystemSegments: source.parent.customSystemSegments,
+      language: source.parent.language,
       resolveInitialBashShellSelection: async () => inheritedShellSelection,
     };
   }
@@ -3769,6 +3789,15 @@ async function resolveSessionStartupPreferences(
     toolSearchMode: runtimePreferences.toolSearchMode,
     totalTokensReminderEnabled: runtimePreferences.totalTokensReminderEnabled,
     agentAlwaysBackgroundEnabled: runtimePreferences.agentAlwaysBackgroundEnabled,
+    // fork：旧 Host 缺省 deleteProtection 字段——zod optional 解析为 undefined，按默认值处理。
+    deleteProtection: runtimePreferences.deleteProtection ?? {
+      deleteProtectionEnabled: true,
+      batchDeleteApprovalThreshold: 50,
+    },
+    // fork：旧 Host 缺省时按各自语义回退（提示词=内置默认、分段=全部继承、语言=跟随消息）。
+    customSystemPrompt: runtimePreferences.customSystemPrompt,
+    customSystemSegments: runtimePreferences.customSystemSegments,
+    language: runtimePreferences.language,
     resolveInitialBashShellSelection: async () => {
       const executionPreferences = await requestSessionRuntimePreferences(
         context,
@@ -4035,6 +4064,11 @@ async function createRecord(
     toolSearchMode: startupPreferences.toolSearchMode,
     totalTokensReminderEnabled: startupPreferences.totalTokensReminderEnabled,
     agentAlwaysBackgroundEnabled: startupPreferences.agentAlwaysBackgroundEnabled,
+    // fork：会话创建时固化启动偏好（与 SessionStartupPreferences 固化语义一致）。
+    deleteProtection: startupPreferences.deleteProtection,
+    customSystemPrompt: startupPreferences.customSystemPrompt,
+    customSystemSegments: startupPreferences.customSystemSegments,
+    language: startupPreferences.language,
     ...(parentSessionId ? { parentSessionId } : {}),
     persistence: "persistence" in params ? (params.persistence ?? "immediate") : "immediate",
     protocolEventSequences: new Map(),

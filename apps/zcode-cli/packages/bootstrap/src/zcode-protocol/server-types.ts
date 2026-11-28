@@ -31,12 +31,15 @@ import {
   type ZCodeSessionMode,
   type ZCodeSessionPersistence,
   type ZCodeWorkspaceRef,
+  type DynamicWorkflowMode,
+  type CustomSystemSegments,
+  type ZCodeDeleteProtectionPreferences,
 } from "@zcode/shared";
 import type { ZCodeApp, ZCodeAppOptions } from "../app/types.js";
 import type { V4InteractionRegistry } from "../zcode-protocol-v4/interaction-registry.js";
 import type { ConversationV4Gateway } from "../zcode-protocol-v4/v4-gateway.js";
 import type { SessionResidentPool, SessionResidentPoolOptions } from "./session-resident-pool.js";
-import type { DynamicWorkflowMode } from "@zcode/shared";
+
 
 export interface ParamsSchema<T> {
   parse(input: unknown): T;
@@ -100,6 +103,24 @@ export interface ZCodeProtocolSessionRecord {
   totalTokensReminderEnabled: boolean;
   /** Agent 是否总在后台运行；创建或冷恢复时从 Host 读一次，fork 与旁路会话沿用父记录。 */
   agentAlwaysBackgroundEnabled: boolean;
+  // fork：会话创建时固化的偏好（v4 合并丢失后按 fork 原文回贴）；inherit 源的子会话从这里继承。
+  /** 删除保护偏好（docs/spec/delete-protection.md）。 */
+  deleteProtection: ZCodeDeleteProtectionPreferences;
+  /**
+   * 会话创建时固化的自定义系统提示词（docs/spec/custom-system-prompt.md）；
+   * undefined = 内置默认。inherit 源的子会话从这里继承，保证与父会话一致。
+   */
+  customSystemPrompt?: string;
+  /**
+   * 会话创建时固化的分段系统提示词（docs/spec/custom-system-prompt.md v2）；undefined =
+   * 全部继承。inherit 源的子会话从这里继承（与 customSystemPrompt 同一固化模式）。
+   */
+  customSystemSegments?: CustomSystemSegments;
+  /**
+   * 会话创建时固化的回复语言（docs/spec/response-language.md）；undefined =
+   * 跟随用户消息。inherit 源的子会话从这里继承（与 customSystemSegments 同一固化模式）。
+   */
+  language?: string;
   modelContextBudgetStrategy: ZCodeModelContextBudgetStrategy;
   createdAt: number;
   deliveryKind?: ZCodeDeliveryKind;
@@ -154,6 +175,9 @@ export interface ZCodeProtocolAgentServerContext {
   appRuntimePreferences: {
     askUserQuestionAutoResolutionEnabled: boolean;
     modelIoFullRetentionEnabled: boolean;
+    /** fork：删除保护（移废纸篓 + 批量删除审批）；缺省 true / 50，fail-safe。 */
+    deleteProtectionEnabled: boolean;
+    batchDeleteApprovalThreshold: number;
     /** host 同步的 Off-Peak 工具面门禁；缺省 false（fail-closed），供 v4 冷恢复等无 host 参数的路径读取。 */
     offPeakToolEnabled: boolean;
     /**
@@ -162,6 +186,23 @@ export interface ZCodeProtocolAgentServerContext {
      * 工作流工具面、`/workflow` 与 dynamic-workflows 技能一律不露出。
      */
     dynamicWorkflowEnabled: boolean;
+    /**
+     * host 同步的自定义系统提示词（docs/spec/custom-system-prompt.md）；
+     * undefined = 内置默认。新会话的权威来源是反向请求（现读 settingService，冷启动安全），
+     * 这里只是热更通道的进程缓存；两个来源都归一化为 trim 后非空或 undefined。
+     */
+    customSystemPrompt?: string;
+    /**
+     * host 同步的分段系统提示词（docs/spec/custom-system-prompt.md v2）。语义与
+     * customSystemPrompt 的空串不同：**缺席 = 从未使用**（不同步），`{}` = 已全部恢复继承
+     * （仍同步，让新建 CLI client 拿到清空态）。
+     */
+    customSystemSegments?: CustomSystemSegments;
+    /**
+     * host 同步的回复语言（docs/spec/response-language.md）。空串在 CLI handler 里
+     * 归一化为 undefined（跟随用户消息），缓存里只存非空值或缺席。
+     */
+    language?: string;
     /**
      * 与 dynamicWorkflowEnabled 同行到达的灰度 mode（launch.md「On demand: activation」）。
      * 缺席（旧 Host 只发布尔）= alwaysOn；`onDemand` 让 createRecord 写 runtimeConfig.dynamicWorkflowToolsOnDemand。
