@@ -67,6 +67,9 @@ export interface RootProps {
   initialTaskId?: string;
   /** 手机目录 admission 完成后，在 prewarm 前接收项目和输入草稿。 */
   initialTaskDraft?: CreateTaskOptions;
+  initialWebRemoteControlWorkspaceList?: WebRemoteControlWorkspaceListResult;
+  /** fork：设置页深链入口载荷（FR-B14 权限规则入口）。 */
+  initialSettingsDeepLink?: unknown;
   /** 本客户端连接目标的稳定身份，手机跨设备切换必须隔离草稿和 Recent。 */
   composerClientNamespace?: string;
   terminalOwnerId?: string;

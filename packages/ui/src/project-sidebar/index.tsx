@@ -431,3 +431,4 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
 });
 
 export { ComposerSubmissionPendingContext } from "@/project-sidebar/ComposerSubmissionPendingContext.js";
+export { RemoteProjectPicker as ProjectConnectionPicker } from "@/project-sidebar/RemoteProjectPicker.js";

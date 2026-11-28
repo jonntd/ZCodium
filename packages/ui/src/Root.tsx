@@ -1,3 +1,4 @@
+import { buildRemoteWorkspaceIdentity } from "@/lib/remoteWorkspaceHistory.js";
 /* eslint-disable max-lines -- Root 当前集中编排启动和 workspace shell wiring，先保持入口收口避免跨层状态拆散。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LucideProvider, RefreshCw } from "lucide-react";
@@ -5,6 +6,8 @@ import {
   APP_RUNTIME_PREFERENCES_CHANGED_BROADCAST_CHANNEL,
   DesktopCommandIds,
   appRuntimePreferencesChangedBroadcastPayloadSchema,
+  buildServerRemoteWorkspaceIdentity,
+  remoteHostIdFromWorkspaceIdentity,
 } from "@zcode/shared";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { Button } from "@/components/ui/button.js";
@@ -29,13 +32,19 @@ import { SSHDialog } from "@/SSHDialog.js";
 import {
   attachRemoteProjectWorkspace,
   ProjectConnectionPicker,
+  RemoteProjectPicker,
   ProjectDirectoryProvider,
   resolveEntryProject,
   useRemoteWorkspaceConnectionGate,
   useWebRemoteControlRendererActions,
 } from "@/project-sidebar/index.js";
 import type { RemoteProjectHost } from "@zcode/services";
-import type { CreateTaskOptions, RemoteConnectionOpenPreference } from "@/app-shell/types.js";
+import type {
+  CreateTaskOptions,
+  DeviceAdditionResult,
+  DeviceAdditionReturnTarget,
+  RemoteConnectionOpenPreference,
+} from "@/app-shell/types.js";
 import { SettingsPage } from "@/SettingsPage.js";
 import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
 import { CodingPlanUpgradeDialogProvider } from "@/settings/CodingPlanUpgradeDialogProvider.js";
@@ -45,6 +54,14 @@ import {
   WelcomeScreen,
   type LoginCompleteReason,
 } from "@/WelcomeScreen.js";
+import { createSourceServerSettingsNavigation } from "@/source-server-settings/index.js";
+import { toast } from "@/components/ui/toast.js";
+import {
+  RequestSecurityWorkspaceBridge,
+  setRequestSecurityReporter,
+} from "@/request-security-edition/index.js";
+import { useSourceServerUpdateNotifications } from "@/root/sourceServerUpdateNotifications.js";
+import { RemoteConnectionProgressProvider } from "@/remote-connection-flow/ui/RemoteConnectionProgress.js";
 import { useCredentialStoreRecovery } from "@/hooks/useCredentials.js";
 import { setDefaultFileDisplayBasePath } from "@/lib/fileDisplay.js";
 import {
@@ -80,7 +97,11 @@ import { useDesktopNativeThemeSync } from "@/root/useDesktopNativeThemeSync.js";
 import { useRootPlatformEffects } from "@/root/useRootPlatformEffects.js";
 import { useRootWorkspaceActions } from "@/root/useRootWorkspaceActions.js";
 import { useBotBroadcastEffects } from "@/root/useBotBroadcastEffects.js";
-import { registerBaseWorkspaceServices } from "@/store/remoteWorkspaceSessionStore.js";
+import {
+  registerBaseWorkspaceServices,
+  useRemoteWorkspaceSessionStore,
+  getRemoteWorkspaceSession,
+} from "@/store/remoteWorkspaceSessionStore.js";
 import type { RootProps } from "@/root/types.js";
 import { DiffsWorkerPoolProvider } from "@/root/DiffsWorkerPoolProvider.js";
 import { ScopedErrorBoundary } from "@/ErrorBoundary.js";
@@ -178,7 +199,6 @@ function RootInner({
   initialWorkspaceIdentity,
   initialWorkspacePurpose,
   initialTaskId,
-  initialTaskDraft,
   isDesktop,
   isMacDesktop,
   isWindowsDesktop,
@@ -197,7 +217,10 @@ function RootInner({
   initialSettingsDeepLink,
 }: RootProps) {
   const credentialRecovery = useCredentialStoreRecovery(isDesktop === true);
-  useInterfaceModeTelemetry(platform, isDesktop === true);
+  // fork：请求安全桥节点（desktop 常驻，web 端不渲染）。
+  const requestSecurityBridgeNode = isDesktop ? (
+    <RequestSecurityWorkspaceBridge workspaceTabs={windowWorkspaceTabs} />
+  ) : null;
   useEffect(() => {
     setRequestSecurityReporter(platform);
     setMcpStorePlatform(platform);
@@ -761,42 +784,6 @@ function RootInner({
     reconnectingRemoteWorkspaceKeys,
   );
 
-  async function openPreparedRemoteProjectWorkspace(target: {
-    expectedMembershipId?: string;
-    hostId: string;
-    workspacePath: string;
-    workspaceIdentity?: string;
-    projectId: string | null;
-    isCurrent?: () => boolean;
-  }): Promise<void> {
-    if (!target.workspaceIdentity) throw new Error("project.workspace-identity-required");
-    if (!services.remoteProjectService) throw new Error("remote-project.service-unavailable");
-    await attachRemoteProjectWorkspace({
-      ...target,
-      workspaceIdentity: target.workspaceIdentity,
-      remoteService: services.remoteProjectService,
-      ...(target.expectedMembershipId ? { projectService: services.projectService } : {}),
-      findSession: (identity) =>
-        Object.values(useRemoteWorkspaceSessionStore.getState().sessionsById).find(
-          (session) => session.workspaceIdentity === identity,
-        ),
-      waitForPendingConnection: waitForRemoteWorkspaceConnection,
-      connect: handleConnectRemote,
-      cancel: handleCancelRemoteProject,
-      bind: async (remoteSessionId, path, isCurrent) => {
-        const session = useRemoteWorkspaceSessionStore.getState().sessionsById[remoteSessionId];
-        await remoteWorkspaceController.dispatch({
-          type: "open-project",
-          sourceServerId: session?.sourceServerId ?? "",
-          path,
-          remoteSessionId,
-          draftProjectId: target.projectId,
-          preparedWorkspaceIdentity: target.workspaceIdentity,
-          isCurrent,
-        });
-      },
-    });
-  }
 
   const handleResolveConversationWorkspaceForShell = useCallback(
     async () =>
@@ -1624,6 +1611,7 @@ function RootInner({
     return (
       <RootShell>
         {rootModelSelectionErrorNode}
+
         {requestSecurityBridgeNode}
         {remoteConnectionDialog}
         {directoryBrowserDialog}

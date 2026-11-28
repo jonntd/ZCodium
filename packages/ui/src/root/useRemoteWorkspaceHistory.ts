@@ -2423,6 +2423,7 @@ export function useRemoteWorkspaceHistory({
       localWorkspacePath?: string,
       preparedWorkspaceIdentity?: string,
       isCurrent?: () => boolean | Promise<boolean>,
+      onWorkspaceActivatedOverride?: () => void,
     ) => {
       const session = getRemoteWorkspaceSession(sessionId);
       await remoteWorkspaceController.dispatch({
@@ -2434,8 +2435,9 @@ export function useRemoteWorkspaceHistory({
         remoteSessionId: sessionId,
         ...(preparedWorkspaceIdentity ? { preparedWorkspaceIdentity } : {}),
       });
-    },
-    [remoteWorkspaceController],
+      // fork：项目打开成功后的激活回调（分组草稿提升路径传入）。
+      onWorkspaceActivatedOverride?.();
+    }, [remoteWorkspaceController, onWorkspaceActivatedOverride],
   );
 
   const handleOpenRemoteConversation = useCallback(
