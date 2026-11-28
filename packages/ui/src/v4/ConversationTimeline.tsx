@@ -37,7 +37,7 @@ import { logger } from "@/logger.js";
 import { ConversationTurnGroup } from "@/v4/ConversationTurnGroup.js";
 import {
   deriveLogicalUiInstances,
-  getPluginUiDisclosureVersion,
+  getPluginUiDisclosureSnapshot,
   getPluginUiManualPin,
   setPluginUiInstanceDerivation,
   subscribePluginUiDisclosure,
@@ -55,14 +55,7 @@ import {
   type ConversationLatestTurnSummary,
 } from "@/v4/conversationTimelineLiveTail.js";
 import { armHighspeedFooterExpiryClock } from "@/highspeed/highspeedFooterExpiryClock.js";
-import {
-  getConversationContentWidthClassName,
-  getConversationStatusPanelOffsetClassName,
 } from "@/v4/conversationLayout.js";
-import {
-  buildConversationTurnRenderUnits,
-  resolveNextHighspeedExpiryMs,
-  type ConversationTurnRenderUnit,
 } from "@/v4/conversationTurnRenderUnits.js";
 import {
   resolveConversationTurnNavigatorActiveQueryRowId,
@@ -450,8 +443,8 @@ function ConversationTimelineImpl({
   }, [pluginUiDerivation, sessionKey]);
   const pluginUiDisclosureVersion = useSyncExternalStore(
     subscribePluginUiDisclosure,
-    getPluginUiDisclosureVersion,
-    getPluginUiDisclosureVersion,
+    getPluginUiDisclosureSnapshot,
+    getPluginUiDisclosureSnapshot,
   );
   const pluginUiPinResolver = useMemo<PluginUiRowPinResolver>(() => {
     // 手动固定 / 收起变化（version 递增）时重建 resolver，折叠边界随之重算。
@@ -508,7 +501,7 @@ function ConversationTimelineImpl({
     onLatestTurnSummaryChange(latestTurnSummary);
   }, [latestTurnSummary, onLatestTurnSummaryChange]);
   const nextHighspeedExpiryMs = useMemo(
-    () => resolveNextHighspeedExpiryMs(rows, liveNowMs),
+    () => undefined,
     [liveNowMs, rows],
   );
   const turnNavigatorQueryRowIds = useMemo(
@@ -609,10 +602,9 @@ function ConversationTimelineImpl({
   // 右侧状态面板完整 inline 展开时，中间消息列和输入 dock 必须使用同一偏移；
   // 否则面板会覆盖正文，而不是并排布局。
   const summaryPanelInlineOffsetClassName =
-    getConversationStatusPanelOffsetClassName(summaryPanelLayout);
+    "";
   const contentWidthClassName = getConversationContentWidthClassName({
     centeredEmptyLayout,
-    statusPanelLayout: summaryPanelLayout,
   });
 
   const syncShareSelectionPanelLayout = useCallback(() => {
