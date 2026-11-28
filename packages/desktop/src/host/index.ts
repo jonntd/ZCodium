@@ -46,7 +46,7 @@ import {
   ISettingService,
   ISourceServerManagementService,
   IWindowControllerService,
-  IConversationShareService,
+
   IPromptAttachmentTransferService,
   IZCodeAgentService,
   IZCodeTaskService,
@@ -157,7 +157,7 @@ import { connectServerRemote, type ServerRemoteConnection } from "./serverRemote
 import { bindBotGroupTaskScope } from "./botGroupTaskScope.js";
 import { createWindowHostAttachmentRegistry } from "./windowHostAttachmentRegistry.js";
 import { exposeWindowHostAttachmentServices } from "./windowHostAttachmentRpcPolicy.js";
-import { scopeConversationShareServiceForAttachment } from "./conversationShareAttachmentService.js";
+
 import {
   createWindowRemoteConnectionRegistry,
   type WindowRemoteConnectionCloseEvent,
@@ -182,7 +182,7 @@ import {
   type SourceServerManagementService,
 } from "./sourceServerManagementService.js";
 import {
-  importOfflineRuntime,
+
   resolveSourceServerReleaseAsset,
 } from "./sourceServerReleaseResolver.js";
 import { resolveAutomationSubmissionModelSelection } from "./automationModelSelection.js";
