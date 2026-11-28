@@ -2174,7 +2174,7 @@ export function SessionPane({
         current.logEpoch,
         undefined,
         undefined,
-        (envelope: { commandId: string }) => {
+        (envelope: unknown) => {
           commandId = envelope.commandId;
         },
       );
