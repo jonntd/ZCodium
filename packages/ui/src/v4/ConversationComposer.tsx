@@ -158,6 +158,7 @@ import {
   appendWorkspaceFileMentionToComposer,
 } from "@/lib/workspaceFileComposer.js";
 import type { ModelSelectionView } from "@zcode/services";
+import type { SessionCreateSource } from "@zcode/shared";
 import type {
   ModelSelectionState,
   ModelSelectionRefreshResult,
@@ -263,6 +264,9 @@ export interface ConversationComposerSendOptions {
   conversationQuotes?: import("@zcode/shared").ConversationSelectionText[];
   telemetrySeed?: Record<string, unknown>;
 }
+
+type ComposerSubmit = { type: string; payload?: unknown; targetSessionId?: string };
+type ComposerSubmitOutcome = "sent" | "blocked" | "failed";
 
 export type ConversationComposerSendResult =
   | "sent"
@@ -673,6 +677,19 @@ function ConversationComposerImpl({
   onDropTargetControllerChange,
 }: ConversationComposerProps) {
   const remoteAvailable = useRemoteConversationAvailable();
+  // fork WIP：以下 ref/handler 为草稿提交/命令解析流程的断链补齐。
+  const subscribeComposerSubmissionSettled = useCallback(
+    (listener: (submission: unknown) => void) => {
+      // fork WIP：提交结算事件订阅未接线，暂返回空清理。
+      return () => {};
+    },
+    [],
+  );
+  const programmaticFocusRef = useRef(false);
+  const commandResolutionCleanupsRef = useRef<Array<() => void>>([]);
+  const pendingShareContext = useRef<Record<string, unknown> | null>(null);
+  const submittedDraft = useRef<string | null>(null);
+
   const remoteController = useOptionalRemoteWorkspaceController();
   const reconnectProject = useRemoteProjectReconnect();
   const remoteKind = useOptionalTabStore((state) =>
