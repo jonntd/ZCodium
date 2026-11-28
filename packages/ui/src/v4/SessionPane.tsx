@@ -3273,7 +3273,7 @@ export function SessionPane({
       setLease({ sessionId, layer, lease: null });
       return;
     }
-    const nextLease = layer.acquire(effectiveSessionId);
+    const nextLease = layer.acquire(effectiveSessionId!);
     // Bug 原因：acquire 会立即启动 connect，activation 可能在下一轮 effect 前释放
     // 一次性 online 帧；必须在 acquire 返回后同步监听，不能靠 snapshot 重放补偿。
     const offOnlineModelTransition = nextLease.store.onOnlineModelTransition((transition) => {
@@ -4162,11 +4162,10 @@ export function SessionPane({
         latest.logEpoch,
         // Bug 根因：编辑重发曾不带 seed，这一轮没有 send_btn / completion / agent_step。
         // localTtft 维持原口径不纳入编辑轮。
-        telemetrySeed && {
-          ...telemetrySeed,
+        ...(telemetrySeed ? {
           localTtft: undefined,
-          extraDetail: { ...telemetrySeed.extraDetail, send_type: "edit" },
-        },
+          extraDetail: { ...(telemetrySeed as Record<string, unknown>).extraDetail, send_type: "edit" },
+        } : {}),
         highspeed.acceleratedCard,
         (envelope: { commandId: string }) => {
           editCommandId = envelope.commandId;
@@ -5680,7 +5679,6 @@ export function SessionPane({
       onDropTargetControllerChange={handleDropTargetControllerChange}
     />
   );
-  const pendingGuideProjection = snapshot
     ? projectPendingGuideQueue(snapshot.queue)
     : null;
   const conversationBottomDockContent = readOnly ? null : (
