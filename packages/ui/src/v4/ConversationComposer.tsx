@@ -98,6 +98,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog.js";
+import { useRemoteConversationAvailable } from "@/v4/RemoteConversationAvailability.js";
+import { useOptionalRemoteWorkspaceController } from "@/remote/useRemoteWorkspaceController.js";
+import { useRemoteProjectReconnect } from "@/hooks/RemoteProjectPresentationContext.js";
+import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import { Spinner } from "@/components/ui/spinner.js";
 import { ImagePreviewDialog } from "@/components/ai-elements/image-preview-dialog.js";
 import {

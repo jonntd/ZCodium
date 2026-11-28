@@ -167,12 +167,13 @@ export function createWorkspaceFileComposerMention(
 // fork：Explorer 文件拖拽的 text/uri-list 解析（v4 composer 拖放入口消费）。
 export const FILE_URI_LIST_MIME = "text/uri-list";
 
-export function hasExplorerResourceDragSignal(dataTransfer: DataTransfer | null): boolean {
+export function hasExplorerResourceDragSignal(dataTransfer: DataTransfer | string | null): boolean {
+  if (typeof dataTransfer === "string") return dataTransfer.includes(FILE_URI_LIST_MIME);
   return Boolean(dataTransfer?.types.includes(FILE_URI_LIST_MIME));
 }
 
-export function parseFileUriList(dataTransfer: DataTransfer | null): string[] {
-  const raw = dataTransfer?.getData(FILE_URI_LIST_MIME);
+export function parseFileUriList(dataTransfer: DataTransfer | string | null): string[] {
+  const raw = typeof dataTransfer === "string" ? dataTransfer : dataTransfer?.getData(FILE_URI_LIST_MIME);
   if (!raw) return [];
   return raw.split("\n").map((line) => line.trim()).filter(Boolean);
 }
