@@ -10,8 +10,8 @@ import { useShallow } from "zustand/react/shallow";
 import {
   remoteHostIdFromWorkspaceIdentity,
   type HighspeedCardSnapshot,
-} from "@zcode/shared",
   ZCODE_AGENT_PROVIDER,
+} from "@zcode/shared";
 import { useRemoteConversationAvailable } from "@/v4/RemoteConversationAvailability.js";
 import {
   createRemoteWorkspaceDisconnectedError,
