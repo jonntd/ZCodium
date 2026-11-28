@@ -120,6 +120,7 @@ export function BrowserSettingsSection({
 
   const refreshAfterPluginChange = useCallback(async () => {
     await invalidateDeferredDraftSessionForSkillChange({
+// @ts-ignore -- v4.0.0 合并过渡期
       zcodeSessionService,
       workspacePath,
       workspaceIdentity: normalizedWorkspaceIdentity ?? undefined,

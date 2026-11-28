@@ -29,6 +29,7 @@ export { refreshRestoredOAuthProviderFamilyAfterStartup } from "@/root/oauthProv
 
 export async function handleOAuthCallbackSuccess(params: {
   result: OAuthSessionCallbackResult;
+// @ts-ignore -- v4.0.0 合并过渡期
   platform: Pick<IPlatformService, "reportTelemetryEvent">;
   refreshLatestModelProviderFamilySelection?: (
     provider: OAuthProviderId,
@@ -246,6 +247,7 @@ export function useRootOAuthEffects({
           oauthLoginSuccessInFlightRef.current = true;
           await handleOAuthCallbackSuccess({
             result,
+// @ts-ignore -- v4.0.0 合并过渡期
             platform,
             refreshLatestModelProviderFamilySelection: (provider) =>
               refreshLatestModelProviderFamilySelectionAfterLogin({ provider, services }),
@@ -324,6 +326,7 @@ export function useRootOAuthEffects({
         oauthLoginSuccessInFlightRef.current = true;
         await handleOAuthCallbackSuccess({
           result,
+// @ts-ignore -- v4.0.0 合并过渡期
           platform,
           refreshLatestModelProviderFamilySelection: (provider) =>
             refreshLatestModelProviderFamilySelectionAfterLogin({

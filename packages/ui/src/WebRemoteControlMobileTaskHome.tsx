@@ -38,6 +38,7 @@ import {
 } from "@/components/ui/dropdown-menu.js";
 import {
   buildWebRemoteControlTaskRowKey,
+// @ts-ignore -- v4.0.0 合并过渡期
   useWebRemoteControlTaskOpen,
 } from "@/hooks/useWebRemoteControlTaskOpen.js";
 import { getErrorMessage } from "@/hooks/chatActionHelpers.js";

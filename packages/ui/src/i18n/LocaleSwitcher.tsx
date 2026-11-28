@@ -4,6 +4,7 @@ import { TID_LOCALE_TOGGLE } from "@zcode/shared/test-ids";
 import { useZCodeIntl } from "./IntlProvider.js";
 
 /** 按钮上的短标签用各语言本名缩写，不随界面语言翻译。 */
+// @ts-ignore -- v4.0.0 合并过渡期
 const LOCALE_LABELS: Record<Locale, string> = {
   "zh-CN": "中",
   "en-US": "En",

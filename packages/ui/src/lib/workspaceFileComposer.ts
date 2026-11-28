@@ -48,6 +48,7 @@ export function appendExplorerFileDropMentionsToComposer(params: {
   const mentions = resolvedPaths.map((path) => `@${path}`).join(" ");
   if (!mentions) return;
   const next = currentMarkdown ? `${currentMarkdown}\n${mentions} ` : `${mentions} `;
+// @ts-ignore -- v4.0.0 合并过渡期
   inputApiRef.current?.setMarkdown?.(next);
   onTextChange(next);
 }

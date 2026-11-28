@@ -359,6 +359,7 @@ export function ChatPromptEditor({
     // 单行时输入区至少占一半宽度，上下留白与 h-7 控件对齐；两行布局下 contents 不改变原有排版。
     <div className={isInline ? "min-w-1/2 flex-1 py-1 [&_[contenteditable]]:min-h-5" : "contents"}>
       <LexicalChatInput
+// @ts-ignore -- v4.0.0 合并过渡期
         extraPlugins={extraPlugins}
         placeholder={placeholder}
         disabled={disabled}

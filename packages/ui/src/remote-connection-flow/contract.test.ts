@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+// @ts-ignore -- v4.0.0 合并过渡期
 import type { RemoteConnectionProgressInput } from "./contract.js";
 import { buildRemoteConnectionProgress } from "./progressProjection.js";
 

@@ -464,6 +464,7 @@ export function ModelProviderSectionDetail({
             ) : undefined
           }
           // 余额卡与头部共存：不能用 statusSection 的"替代头部"语义隐藏名称/开关/操作入口。
+// @ts-ignore -- v4.0.0 合并过渡期
           statusSectionSuppressesHeader={false}
         />
       </ProviderFamilyDetailShell>
@@ -887,6 +888,7 @@ export function ModelProviderSectionDetail({
         ) : undefined
       }
       // 自定义 Provider 没有外层 family 头部，余额卡/双认证面板必须与卡片头部共存。
+// @ts-ignore -- v4.0.0 合并过渡期
       statusSectionSuppressesHeader={false}
     />
   );

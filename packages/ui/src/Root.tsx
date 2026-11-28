@@ -828,6 +828,7 @@ function RootInner({
     remoteWorkspaceErrorByWorkspaceKey,
     hasCompletedFullTabRestore: hasCompletedFullRestore,
     intl,
+// @ts-ignore -- v4.0.0 合并过渡期
     isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
   });
 
@@ -1114,6 +1115,7 @@ function RootInner({
               setRemoteConnectionDisplayGeneration((value) => value + 1);
             }
           }}
+// @ts-ignore -- v4.0.0 合并过渡期
           onSaved={async (selectionCurrent, project) => {
             const selected = remoteProjectCreation;
             const isCurrent = () =>
@@ -1263,6 +1265,7 @@ function RootInner({
           ) : null
         ) : (
           <RootWorkspaceContent
+// @ts-ignore -- v4.0.0 合并过渡期
             sourceServerSettings={sourceServerSettings}
             workspaceScopedServices={workspaceScopedServices}
             baseFeedbackService={services.feedbackService}

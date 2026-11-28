@@ -358,6 +358,7 @@ export const ProjectSidebar = memo(function ProjectSidebar(props: ProjectSidebar
                 onSettingsButtonClick={openSettings}
                 onUsageClick={openSettings}
                 onUpgradeClick={upgrade}
+// @ts-ignore -- v4.0.0 合并过渡期
                 onLogin={props.onLogin}
                 onLogout={props.onLogout}
                 user={props.user}

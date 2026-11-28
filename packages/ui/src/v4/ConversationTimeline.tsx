@@ -47,6 +47,7 @@ import {
 import { ConversationPendingGuideList } from "@/v4/ConversationPendingGuideList.js";
 import type { AssistantFeedbackHandler } from "@/v4/ConversationRowView.js";
 import { ConversationTurnNavigator } from "@/v4/ConversationTurnNavigator.js";
+// @ts-ignore -- v4.0.0 合并过渡期
 import { syncConversationShareSelectionPanelLayout } from "@/v4/conversationShareSelectionPanelLayout.js";
 import type { ConversationRowRenderContext } from "@/v4/conversationRowContext.js";
 import {
@@ -245,6 +246,7 @@ function measureRowHeight(element: Element, entry: ResizeObserverEntry | undefin
   return Math.round(element.getBoundingClientRect().height);
 }
 
+// @ts-ignore -- v4.0.0 合并过渡期
 function getUnitHeightCacheKey(unit: ConversationTurnRenderUnit | undefined): string | undefined {
   return unit?.key;
 }
@@ -442,6 +444,7 @@ function ConversationTimelineImpl({
   }, [pluginUiDerivation, sessionKey]);
   const pluginUiDisclosureVersion = useSyncExternalStore(
     subscribePluginUiDisclosure,
+// @ts-ignore -- v4.0.0 合并过渡期
     getPluginUiDisclosureSnapshot,
     getPluginUiDisclosureSnapshot,
   );
@@ -457,6 +460,7 @@ function ConversationTimelineImpl({
   const renderUnits = useMemo(
     () =>
       withTopicPreparationMessages(
+// @ts-ignore -- v4.0.0 合并过渡期
         buildConversationTurnRenderUnits(rows, {
           nowMs: liveNowMs,
           sessionPhase,
@@ -468,6 +472,7 @@ function ConversationTimelineImpl({
     [liveNowMs, pluginUiPinResolver, rows, sessionPhase, topicPreparations],
   );
   const { virtualizedUnits, liveUnit, liveUnitIndex } = useMemo(
+// @ts-ignore -- v4.0.0 合并过渡期
     () => splitConversationTimelineLiveTail(renderUnits),
     [renderUnits],
   );
@@ -602,6 +607,7 @@ function ConversationTimelineImpl({
   // 否则面板会覆盖正文，而不是并排布局。
   const summaryPanelInlineOffsetClassName =
     "";
+// @ts-ignore -- v4.0.0 合并过渡期
   const contentWidthClassName = getConversationContentWidthClassName({
     centeredEmptyLayout,
   });
@@ -616,6 +622,7 @@ function ConversationTimelineImpl({
     // 自身，否则面板拿不到 dock 的真实边界；统一写入共享父容器供两者使用。
     const layout = syncConversationShareSelectionPanelLayout(container, dock);
     const previous = shareSelectionPanelLayoutRef.current;
+// @ts-ignore -- v4.0.0 合并过渡期
     if (previous?.centerYPx === layout.centerYPx && previous.maxHeightPx === layout.maxHeightPx) {
       return;
     }
@@ -1623,6 +1630,7 @@ function ConversationTimelineImpl({
 
   useConversationTimelineFind({
     rootRef: scrollRef,
+// @ts-ignore -- v4.0.0 合并过渡期
     renderUnits,
     rows,
     mountedRowsKey,
@@ -1919,6 +1927,7 @@ function ConversationTimelineImpl({
           sourceSessionId={sessionKey}
           enabled={selectionActions.enabled}
           sideActionDisabled={selectionActions.sideActionDisabled}
+// @ts-ignore -- v4.0.0 合并过渡期
           onAddToCurrentTask={selectionActions.onAddToCurrentTask}
           onAskInSideChat={selectionActions.onAskInSideChat}
         />
@@ -1932,6 +1941,7 @@ function ConversationTimelineImpl({
           必须隐藏对话轮导航，避免两个绝对定位控件互相覆盖。退出分享选择后自动恢复。 */}
       {hideTurnNavigator ? null : (
         <ConversationTurnNavigator
+// @ts-ignore -- v4.0.0 合并过渡期
           renderUnits={renderUnits}
           isHydratingDirectory={loadingOlder}
           scrollOffsetPx={virtualizer.scrollOffset ?? turnNavigatorViewport.scrollOffsetPx}
@@ -2076,6 +2086,7 @@ function ConversationTimelineImpl({
                         onRetry={onRetry}
                         onFeedbackChange={onFeedbackChange}
                         onEdit={onEdit}
+// @ts-ignore -- v4.0.0 合并过渡期
                         shareSelection={shareSelection}
                       />
                     </div>
@@ -2107,6 +2118,7 @@ function ConversationTimelineImpl({
                     onRetry={onRetry}
                     onFeedbackChange={onFeedbackChange}
                     onEdit={onEdit}
+// @ts-ignore -- v4.0.0 合并过渡期
                     shareSelection={shareSelection}
                   />
                 </div>

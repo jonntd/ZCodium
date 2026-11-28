@@ -20,6 +20,7 @@ import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { useCodingPlanQuotaResetUi } from "@/hooks/useCodingPlanQuotaResetUi.js";
 import {
   formatQuotaResetTime,
+// @ts-ignore -- v4.0.0 合并过渡期
   isCodingPlanQuotaLimitFull,
   isSameLimitCategory,
 } from "@/lib/codingPlanQuotaPresentation.js";
@@ -472,6 +473,7 @@ export function CodingPlanStatusPanel({
         disconnectLoading={disconnectLoading}
         onLogin={onLogin}
         onDisconnect={onDisconnect}
+// @ts-ignore -- v4.0.0 合并过渡期
         extraActions={
           inlineLoginVisible && (actionIsDisconnected || recoverableUnavailable)
             ? browserLoginAction

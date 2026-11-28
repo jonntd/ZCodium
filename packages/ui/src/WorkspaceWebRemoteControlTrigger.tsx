@@ -156,6 +156,7 @@ function WorkspaceWebRemoteControlTriggerContent({
             if (platform) {
               void reportAppTelemetryEvent(
                 platform,
+// @ts-ignore -- v4.0.0 合并过渡期
                 buildWebRemoteControlEntryViewTelemetry({
                   workspaceKind:
                     workspaceIdentity?.trim() || currentRemoteSessionId ? "remote" : "local",

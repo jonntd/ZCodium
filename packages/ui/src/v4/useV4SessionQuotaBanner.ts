@@ -25,6 +25,7 @@ import {
 import type { McpUnavailableNotice } from "@/v4/mcpUnavailableBannerNotice.js";
 import { logger } from "@/logger.js";
 import { sessionQuotaBannerDismissalStore } from "@/v4/sessionQuotaBannerDismissalStore.js";
+// @ts-ignore -- v4.0.0 合并过渡期
 import { startPlanQuotaReminderStore } from "@/v4/startPlanQuotaReminderStore.js";
 
 function isGlmQuotaBannerProviderId(providerId: string | null): boolean {

@@ -173,6 +173,7 @@ const MODEL_SELECTION_LOADING_STATE: ModelSelectionState = { status: "loading" }
 export interface ConversationComposerSendOptions {
   /** 原始正文用于接纳恢复对账；协议正文可能附带提及与页面上下文。 */
   submittedDraftText?: string;
+// @ts-ignore -- v4.0.0 合并过渡期
   source?: import("@zcode/shared/zcode-protocol-v4").ConversationInputSource;
   /** 点击发送时复制的配置；null 表示未完成选择，Host 不得从 Session 补齐。 */
   submission?: ComposerSubmissionConfig | null;
@@ -188,6 +189,7 @@ export interface ConversationComposerSendOptions {
   sharedContextRefs?: Array<{ kind: "shared_context_import"; context_id: string }>;  /** fork：会话引文与编辑埋点 */
   conversationQuotes?: import("@zcode/shared").ConversationSelectionText[];
   telemetrySeed?: Record<string, unknown>;
+// @ts-ignore -- v4.0.0 合并过渡期
   source?: import("@zcode/shared").SessionCreateSource;
 }
 
@@ -603,6 +605,7 @@ function ConversationComposerImpl({
   // 传过它（全仓 `sharedContextImport=` 零命中），于是首条消息永远不带 sharedContextRefs。
   // 现在从必然拿到的 snapshot 推导，理由与边界见 resolveAttachableShareContext。
   const activeShareContext = undefined;
+// @ts-ignore -- v4.0.0 合并过渡期
   const pendingShareContext = activeShareContext?.status === "pending" ? activeShareContext : null;
   const inputApiRef = useRef<LexicalChatInputHandle | null>(null);
   const isMobileTextInputViewport = useIsMobileTextInputViewport();
@@ -1325,6 +1328,7 @@ function ConversationComposerImpl({
                 sharedContextRefs: [
                   {
                     kind: "shared_context_import" as const,
+// @ts-ignore -- v4.0.0 合并过渡期
                     context_id: submittedShareContext.contextId,
                   },
                 ],

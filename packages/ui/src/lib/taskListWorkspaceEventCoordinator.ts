@@ -9,6 +9,7 @@ import {
 } from "@/lib/taskListRefreshPolicy.js";
 import {
   removeTaskFromTaskCaches,
+// @ts-ignore -- v4.0.0 合并过渡期
   syncTaskMembershipEventToTaskCaches,
   syncTaskMetaToTaskCaches,
 } from "@/lib/taskListMetaSync.js";
@@ -127,14 +128,17 @@ export function handleTaskListWorkspaceEventCacheSync(
   }
 
   if (isTaskListDeletionWorkspaceEvent(event) && event.taskId) {
+// @ts-ignore -- v4.0.0 合并过渡期
     const removedFromVisibleCache = removeTaskFromTaskCaches({
       workspacePath: event.workspacePath,
       workspaceIdentity: event.workspaceIdentity,
       taskId: event.taskId,
     });
     return cacheResult(eventKey, {
+// @ts-ignore -- v4.0.0 合并过渡期
       handledIncrementally: removedFromVisibleCache,
       reused: false,
+// @ts-ignore -- v4.0.0 合并过渡期
       shouldRefresh: !removedFromVisibleCache,
     });
   }

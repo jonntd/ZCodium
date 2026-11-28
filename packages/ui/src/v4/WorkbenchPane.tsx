@@ -392,6 +392,7 @@ export function WorkbenchLeafPane({
     >
       <V4PaneConversationProvider
         scope={scope}
+// @ts-ignore -- v4.0.0 合并过渡期
         sessionId={sessionId}
         unavailableFallback={<RemoteConversationDisconnected {...scope} sessionId={sessionId} />}
         disconnectedBanner={<RemoteConversationBanner {...scope} sessionId={sessionId} />}

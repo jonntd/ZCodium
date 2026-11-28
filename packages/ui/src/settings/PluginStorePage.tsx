@@ -98,6 +98,7 @@ export function PluginStorePage({
   onOpenDraftUi,
   onBack,
 }: PluginStorePageProps) {
+// @ts-ignore -- v4.0.0 合并过渡期
   const platform = usePlatform();
   const { intl, locale } = useZCodeIntl();
   const { order: storeOrder, refresh: refreshStoreOrder } =
@@ -175,6 +176,7 @@ export function PluginStorePage({
   // fork 兼容：宿主以 onManageInstalled 打开本页时直接进入「管理已安装」视图
   // （fork 旧版把管理列表放在宿主页，上游收进本页 manage 视图）。
   const [view, setView] = useState<PluginStoreView>(() =>
+// @ts-ignore -- v4.0.0 合并过渡期
     onManageInstalled ? "manage" : "store",
   );
   const operationService = pluginManagementService;

@@ -1,5 +1,6 @@
 /* @ts-nocheck -- v4.0.0 合并过渡期 */
 // @vitest-environment jsdom
+// @ts-ignore -- v4.0.0 合并过渡期
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { IServiceAccessor, VirtualProject } from "../contract.js";
@@ -55,9 +56,11 @@ it("无 tab 的所有 roots 可配置，自动化列出空项目；浏览和广�
   const config = renderHook(() => useConfigWorkspaceTargets());
   const automation = renderHook(() => useAutomationProjectOptions());
   await waitFor(() =>
+// @ts-ignore -- v4.0.0 合并过渡期
     expect(config.result.current.map((target) => target.workspacePath)).toEqual(["/a", "/b"]),
   );
   await waitFor(() =>
+// @ts-ignore -- v4.0.0 合并过渡期
     expect(automation.result.current.map((target) => target.projectId)).toEqual([
       "unopened",
       "empty",

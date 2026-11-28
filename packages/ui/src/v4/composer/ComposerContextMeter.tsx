@@ -21,9 +21,11 @@ import type { ConversationSnapshot } from "@zcode/shared/zcode-protocol-v4";
 import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
+// @ts-ignore -- v4.0.0 合并过渡期
   BREAKDOWN_SOURCE_LABEL_ID,
   buildContextUsageBreakdownSegments,
   formatContextCacheHitRateLabel,
+// @ts-ignore -- v4.0.0 合并过渡期
   getBreakdownToneStyle,
 } from "@/chat-input-toolbar/contextUsage.js";
 

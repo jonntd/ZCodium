@@ -286,6 +286,7 @@ export function ConversationDraftSuggestedPromptsContainer({
   const revalidateAndPrependPlugin = useCallback(
     async (current: DraftSuggestedPluginFlow, requestVersion: number) => {
       await invalidateDeferredDraftSessionForSkillChange({
+// @ts-ignore -- v4.0.0 合并过渡期
         zcodeSessionService: resolution.services.zcodeSessionService,
         workspacePath,
         workspaceIdentity,

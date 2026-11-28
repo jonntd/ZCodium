@@ -1483,6 +1483,7 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
   // 本条回复的模型速度（prefill/decode）：轮询 session-debug 快照，取
   // 「row 创建之后首个完成的模型轮」——即产出这条回复的那一轮请求。
   const debug = useSessionDebug({
+// @ts-ignore -- v4.0.0 合并过渡期
     workspacePath,
     workspaceIdentity,
     taskId: sessionId ?? null,

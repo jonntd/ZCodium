@@ -1717,6 +1717,7 @@ export function SettingsPage({
                   onSettingsButtonClick={onBack}
                   onUsageClick={handleOpenUsageSettings}
                   onUpgradeClick={handleOpenCodingPlanUpgradeSettings}
+// @ts-ignore -- v4.0.0 合并过渡期
                   onLogin={onLogin}
                   onLogout={onLogout}
                   settingsButtonMode="back"

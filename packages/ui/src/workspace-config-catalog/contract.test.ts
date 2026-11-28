@@ -3,6 +3,7 @@ import type { VirtualProject, RemoteProjectDirectory } from "./contract.js";
 import {
   projectConfigTargets,
   readConfigCatalog,
+// @ts-ignore -- v4.0.0 合并过渡期
   resolveWorkflowRunProjectOwnership,
 } from "./index.js";
 

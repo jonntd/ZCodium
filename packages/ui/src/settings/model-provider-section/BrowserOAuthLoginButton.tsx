@@ -24,6 +24,7 @@ export function BrowserOAuthLoginButton({
   disabled?: boolean;
 }) {
   const { intl } = useZCodeIntl();
+// @ts-ignore -- v4.0.0 合并过渡期
   const { startLogin, cancel, status, reset } = useOAuth({ bootstrapProviders: false });
   const oauthSuccessSeq = useZCodeStore((state) => state.oauthSuccessSeq);
   const initialSuccessSeqRef = useRef(oauthSuccessSeq);

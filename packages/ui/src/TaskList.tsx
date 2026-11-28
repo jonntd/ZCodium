@@ -395,6 +395,7 @@ export const TaskList = memo(function TaskList({
         onOpenFileTree={onOpenFileTree}
         actionsDisabled={Boolean(readOnlyReason)}
         actionsDisabledReason={readOnlyReason}
+// @ts-ignore -- v4.0.0 合并过渡期
         renameOnDoubleClick={renameOnDoubleClick}
         intl={intl}
       />

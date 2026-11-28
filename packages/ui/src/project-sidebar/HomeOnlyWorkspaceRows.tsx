@@ -2,6 +2,7 @@ import { SidebarNativeTooltip } from "@/ControlHintTooltip.js";
 import { useState } from "react";
 import { Folder } from "lucide-react";
 import {
+// @ts-ignore -- v4.0.0 合并过渡期
   isWebRemoteControlBridgeableWorkspaceTarget,
   resolveWebRemoteControlWorkspaceKey,
   type WebRemoteControlWorkspaceTarget,

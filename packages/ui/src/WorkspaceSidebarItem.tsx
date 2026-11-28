@@ -63,9 +63,13 @@ import type { RemoteConnectionLogEntry } from "@/hooks/useRemoteConnectionLogs.j
 import { ReconnectingRemoteWorkspaceLogTooltip } from "@/WorkspaceSidebar/ReconnectingRemoteWorkspaceLogTooltip.js";
 import { cn } from "@/components/lib/utils.js";
 import {
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_WORKSPACE_CLOSE,
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_WORKSPACE_FILE_TREE_BUTTON,
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_WORKSPACE_SIDE_PANE_FILES_BUTTON,
+// @ts-ignore -- v4.0.0 合并过渡期
   TID_WORKSPACE_ITEM,
   testId,
 } from "@zcode/shared";

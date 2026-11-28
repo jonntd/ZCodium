@@ -28,6 +28,7 @@ export function WorkspaceHeaderActionSection({
 }: WorkspaceHeaderActionSectionProps) {
   // VS Code 插件宿主里 IDE 自带终端和帮助入口，隐藏应用内重复的 UI。
   // useOptionalPlatform 在无 Provider 的直测里返回 null，不影响其它宿主。
+// @ts-ignore -- v4.0.0 合并过渡期
   const nativeTerminalHost = Boolean(useOptionalPlatform()?.nativeTerminalHost);
   return (
     <div

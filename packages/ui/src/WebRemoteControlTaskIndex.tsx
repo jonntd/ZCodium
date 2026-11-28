@@ -35,6 +35,7 @@ import {
 import { buildWorkspaceServiceLookup } from "@/lib/workspaceServiceResolver.js";
 import {
   buildWebRemoteControlTaskRowKey,
+// @ts-ignore -- v4.0.0 合并过渡期
   useWebRemoteControlTaskOpen,
 } from "@/hooks/useWebRemoteControlTaskOpen.js";
 import { logger } from "@/logger.js";

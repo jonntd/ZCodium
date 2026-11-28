@@ -79,6 +79,7 @@ export async function ensureRetiredProviderFamilySettingsPurge(
   services: Pick<IServiceAccessor, "settingService">,
 ): Promise<void> {
   const settings = await services.settingService.get();
+// @ts-ignore -- v4.0.0 合并过渡期
   if (settings.retiredProviderFamilySettingsPurged) return;
 
   const purgedDomain = settings.providerFamilyDomain ?? null;
@@ -94,6 +95,7 @@ export async function ensureRetiredProviderFamilySettingsPurge(
       providerFamilyConnectionSelections: {},
       // 同时置位既有迁移守卫：否则同一次启动里下面的推断会把刚清掉的 family 写回来。
       providerFamilyDomainMigrated: true,
+// @ts-ignore -- v4.0.0 合并过渡期
       retiredProviderFamilySettingsPurged: true,
     },
     {

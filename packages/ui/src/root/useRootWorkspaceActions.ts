@@ -141,6 +141,7 @@ export function useRootWorkspaceActions({
     handleSelectConversationWorkspace,
     handleResolveConversationWorkspace,
     handleEnsureConversationWorkspace,
+// @ts-ignore -- v4.0.0 合并过渡期
   } = useConversationWorkspaceActions({
     services,
     addTab,

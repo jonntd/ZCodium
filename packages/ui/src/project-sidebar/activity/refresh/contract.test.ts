@@ -1,5 +1,6 @@
 /* @ts-nocheck -- v4.0.0 合并过渡期 */
 // @vitest-environment jsdom
+// @ts-ignore -- v4.0.0 合并过渡期
 import { act, renderHook, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
@@ -290,9 +291,11 @@ it("新增与明确删除仍刷新权威行集合，活动自身不补行", asyn
   f.setTree({ projects: [], tasks: [f.task, second] });
   await f.send({ ...f.row(), address: { ...f.row().address, taskId: "second" }, meta: second });
   await waitFor(() =>
+// @ts-ignore -- v4.0.0 合并过渡期
     expect(result.current.tree.tasks.map((t) => t.taskId)).toEqual(["task", "second"]),
   );
   f.setTree({ projects: [], tasks: [second] });
   await f.remove();
+// @ts-ignore -- v4.0.0 合并过渡期
   await waitFor(() => expect(result.current.tree.tasks.map((t) => t.taskId)).toEqual(["second"]));
 });

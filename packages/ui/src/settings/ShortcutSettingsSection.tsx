@@ -65,6 +65,7 @@ export function ShortcutSettingsSection({ isDesktop = false }: { isDesktop?: boo
       // 完整视图只在桌面端提供，Web 没有处理器，不展示无效的改键入口。
       if (entry.id === "toggleSidePaneFullView" && !isDesktop) return false;
       // 语音输入只在桌面端提供，Web 和手机远控没有处理器。
+// @ts-ignore -- v4.0.0 合并过渡期
       if (entry.id === "toggleVoiceInput" && !isDesktop) return false;
       const matchesText =
         !keyword ||

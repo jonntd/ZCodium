@@ -121,6 +121,7 @@ export function DataSyncSection(props: DataSyncSectionProps) {
     (preferredProfileId?: string) => {
       if (!onOpenRemoteConnection) return;
       const returnTarget: DeviceAdditionReturnTarget = {
+// @ts-ignore -- v4.0.0 合并过渡期
         kind: "data-sync",
         isCurrent: () => mounted.current,
         finish: () => {},

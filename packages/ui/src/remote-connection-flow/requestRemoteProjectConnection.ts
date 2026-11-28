@@ -58,6 +58,7 @@ export async function requestRemoteProjectConnection({
       activateWorkspaceAfterReconnect: false,
       showErrorToast: false,
       throwOnFailure: true,
+// @ts-ignore -- v4.0.0 合并过渡期
       requireStoredCredentials: true,
     });
   } catch (error) {

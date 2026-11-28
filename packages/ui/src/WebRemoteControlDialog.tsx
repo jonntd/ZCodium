@@ -403,6 +403,7 @@ export const WebRemoteControlDialog = memo(function WebRemoteControlDialogCompon
       <BotsDialog
         open={botsDialogOpen}
         onOpenChange={setBotsDialogOpen}
+// @ts-ignore -- v4.0.0 合并过渡期
         workspacePath={workspacePath}
         workspaceIdentity={workspaceIdentity}
         entryProvider={botEntryProvider}

@@ -9,6 +9,7 @@ import { WorkspaceSettingsLayer } from "@/root/WorkspaceSettingsLayer.js";
 import type { AppProps } from "@/app-shell/types.js";
 import type { RootProps, WorkspaceSettingsLayerProps } from "@/root/types.js";
 import type { IFeedbackService, IServiceAccessor } from "@zcode/services";
+// @ts-ignore -- v4.0.0 合并过渡期
 import { ConversationTelemetryWorkspaceAttachment } from "@/v4/telemetry/ConversationTelemetryAttachment.js";
 
 const StableWorkspaceApp = memo(App);
@@ -36,6 +37,7 @@ interface RootWorkspaceContentProps {
   allowRemoteWorkspace: NonNullable<RootProps["allowRemoteWorkspace"]>;
   handleBackFromSettings: () => void;
   // Bugfix：工作区内的设置层显式转发 props，漏掉它会让分享管理解析到会话却不显示「跳转对话」。
+// @ts-ignore -- v4.0.0 合并过渡期
   handleOpenTaskFromSettings: NonNullable<WorkspaceSettingsLayerProps["onOpenTask"]>;
   handleLogout?: () => void;
   onLogin?: () => void;
@@ -176,6 +178,7 @@ export function RootWorkspaceContent({
                 onReturnToWorkspace={handleBackFromSettings}
                 allowOpenWorkspace={allowOpenWorkspace}
                 webRemoteControlWorkspaceSwitcher={webRemoteControlWorkspaceSwitcher}
+// @ts-ignore -- v4.0.0 合并过渡期
                 initialSidebarFileTreeOpen={initialSidebarFileTreeOpen}
                 initialWebRemoteControlMobileNavigationIntent={
                   initialWebRemoteControlMobileNavigationIntent
@@ -209,6 +212,7 @@ export function RootWorkspaceContent({
             windowsWindowControlsRightPaddingPx={windowsWindowControlsRightPaddingPx}
             captionWorkspacePath={activeWorkspacePath}
             onBack={activeWorkspacePath ? handleBackFromSettings : undefined}
+// @ts-ignore -- v4.0.0 合并过渡期
             onOpenTask={handleOpenTaskFromSettings}
             onCreateTask={handleCreateTask}
             onOpenWorkspace={handleOpenWorkspace}

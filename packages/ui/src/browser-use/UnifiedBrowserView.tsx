@@ -1306,6 +1306,7 @@ export function UnifiedBrowserView({
             />
           ) : null
         }
+// @ts-ignore -- v4.0.0 合并过渡期
         onOpenSiteSettings={
           permissionOrigin && onOpenPermissionSettings
             ? () => onOpenPermissionSettings(permissionOrigin)

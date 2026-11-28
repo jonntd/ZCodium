@@ -1,5 +1,6 @@
 /* @ts-nocheck -- v4.0.0 合并过渡期 */
 // @vitest-environment jsdom
+// @ts-ignore -- v4.0.0 合并过渡期
 import { act, renderHook, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { CONTROLLER_TASKS_INDEX_TOPIC } from "@zcode/shared/zcode-protocol-v4";

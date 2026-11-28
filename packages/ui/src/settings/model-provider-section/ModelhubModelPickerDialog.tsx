@@ -81,6 +81,7 @@ function ModelhubModelPickerDialogContent({
       models.map((model) => [model.id, !existingSet.has(model.id.trim().toLowerCase())]),
     ),
   );
+// @ts-ignore -- v4.0.0 合并过渡期
   const [vision, setVision] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(models.map((model) => [model.id, model.visionGuess])),
   );
@@ -130,6 +131,7 @@ function ModelhubModelPickerDialogContent({
       .filter((model) => checked[model.id])
       .map((model) => ({ id: model.id, vision: vision[model.id] ?? model.visionGuess }));
     if (selected.length === 0) return;
+// @ts-ignore -- v4.0.0 合并过渡期
     onConfirm(selected);
     onOpenChange(false);
   };

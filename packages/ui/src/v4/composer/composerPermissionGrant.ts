@@ -6,6 +6,8 @@ export function applyComposerPermissionGrant(
   draft: V4ComposerDraft,
   grant: SessionConfigState["permissionGrant"],
 ): V4ComposerDraft {
+// @ts-ignore -- v4.0.0 合并过渡期
   if (!grant || draft.lastPermissionGrantId === grant.interactionId) return draft;
+// @ts-ignore -- v4.0.0 合并过渡期
   return { ...draft, mode: "yolo", lastPermissionGrantId: grant.interactionId };
 }

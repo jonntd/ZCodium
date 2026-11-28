@@ -2,6 +2,7 @@ import type { ConversationRow, ConversationRowTarget } from "@zcode/shared/zcode
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
 import type { AssistantCodeCommentCard } from "@/lib/assistantCodeComment.js";
 import { extractPlanToolCallContent } from "@/lib/planToolCall.js";
+// @ts-ignore -- v4.0.0 合并过渡期
 import { ConversationRowView, type UserInputEditHandler } from "@/v4/ConversationRowView.js";
 import type {
   AssistantFeedbackHandler,

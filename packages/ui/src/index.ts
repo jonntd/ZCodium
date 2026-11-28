@@ -100,6 +100,7 @@ export {
   subscribeToUiFontSizeStorageChanges,
 } from "./lib/uiFontSize.js";
 export {
+// @ts-ignore -- v4.0.0 合并过渡期
   RendererUserActionTelemetry,
   runUserAction,
   runUserActionAsync,

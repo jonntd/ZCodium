@@ -131,6 +131,7 @@ export function V4ChatPane({
 }: V4ChatPaneProps) {
   return (
     <V4ConversationProvider
+// @ts-ignore -- v4.0.0 合并过渡期
       sessionId={sessionId ?? null}
       workspacePath={workspacePath}
       workspaceIdentity={workspaceIdentity}

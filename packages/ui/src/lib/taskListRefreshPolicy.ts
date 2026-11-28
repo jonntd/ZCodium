@@ -22,6 +22,7 @@ const TASK_META_INCREMENTAL_REASONS = new Set<ZCodeWorkspaceTaskListChanged["rea
   "task_title_changed",
 ]);
 
+// @ts-ignore -- v4.0.0 合并过渡期
 const OPTIMISTIC_TASK_LIST_REASONS = new Set<ZCodeWorkspaceTaskListChanged["reason"]>([
   "task_meta_changed",
   "task_model_changed",

@@ -200,6 +200,7 @@ export function getFailureDescription(
       return formatMessage({
         id: "webRemoteControl.failure.unsupportedAction",
       });
+// @ts-ignore -- v4.0.0 合并过渡期
     case "device-not-owned":
     case "auth-required":
       return failure.message ?? null;

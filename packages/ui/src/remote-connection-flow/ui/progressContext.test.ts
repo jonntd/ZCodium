@@ -96,6 +96,7 @@ describe("连接进度 Context 生命周期", () => {
     let update: ((next: RemoteConnectionProgress) => void) | undefined;
     const initial: RemoteConnectionProgress = {
       view: "connecting",
+// @ts-ignore -- v4.0.0 合并过渡期
       loading: true,
       selectingDirectory: false,
       dialogOpen: false,
@@ -121,6 +122,7 @@ describe("连接进度 Context 生命周期", () => {
         root.render(
           createElement(
             RemoteConnectionProgressProvider,
+// @ts-ignore -- v4.0.0 合并过渡期
             {},
             createElement(Publisher),
             createElement(Reader),
@@ -138,6 +140,7 @@ describe("连接进度 Context 生命周期", () => {
       expect(initial.onResume).not.toHaveBeenCalled();
       expect(initial.onCancel).not.toHaveBeenCalled();
       await act(async () => {
+// @ts-ignore -- v4.0.0 合并过渡期
         root.render(createElement(RemoteConnectionProgressProvider, {}, createElement(Reader)));
       });
       expect(latest).toBeNull();

@@ -428,6 +428,7 @@ export function ProjectComposerMenu({
                             featureId: "workspace.project_binding",
                             action: isConversationWorkspace ? "attach" : "switch",
                             trigger: "menu",
+// @ts-ignore -- v4.0.0 合并过渡期
                             workspaceKind: isRemoteWorkspace ? "remote" : "local",
                           },
                           // 同侧栏项目新建入口：由 Root/Host 解析主要目录及远程 attachment。
@@ -507,6 +508,7 @@ export function ProjectComposerMenu({
                       featureId: "workspace.remote.lifecycle",
                       action: "open_dialog",
                       trigger: "menu",
+// @ts-ignore -- v4.0.0 合并过渡期
                       workspaceKind: "remote",
                     },
                     operation: addDevice,

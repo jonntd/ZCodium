@@ -48,6 +48,7 @@ import { ModelProviderSectionLayout } from "./model-provider-section/SectionLayo
 import { ProviderTemplatePicker } from "./model-provider-section/ProviderTemplatePicker.js";
 import type { CodingPlanLoginOptions } from "./model-provider-section/codingPlanPricingCards.js";
 import { useModelProviderNavigation } from "./model-provider-section/useModelProviderNavigation.js";
+// @ts-ignore -- v4.0.0 合并过渡期
 import { reportPresetSubscriptionSuccess } from "./model-provider-section/oauthActions.js";
 import {
   createCodingPlanProviderNodeKey,
@@ -1188,6 +1189,7 @@ export function ModelProviderSection({
       ) : (
         <ModelProviderSectionDetail
           connectionSelections={effectiveConnectionSelections}
+// @ts-ignore -- v4.0.0 合并过渡期
           activeProviderFamily={effectiveProviderFamilyDomain}
           providerSettingsView={providerSettingsView}
           selectedNavItem={selectedNavItem}

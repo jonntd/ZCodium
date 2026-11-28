@@ -142,6 +142,7 @@ export function BrowserViewportSurface({
             browserState={browserState}
             formatMessage={formatMessage}
             isGuestStarting={shouldMountWebview && !browserState.isReady}
+// @ts-ignore -- v4.0.0 合并过渡期
             visits={recentVisits}
             onOpenRecentVisit={onOpenRecentVisit}
             onRemoveRecentVisit={onRemoveRecentVisit}

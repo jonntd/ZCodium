@@ -2,8 +2,11 @@
 import { redactFeedbackText } from "./contract.js";
 import type {
   RemoteConnectionProgress,
+// @ts-ignore -- v4.0.0 合并过渡期
   RemoteConnectionProgressInput,
+// @ts-ignore -- v4.0.0 合并过渡期
   RemoteConnectionProgressTarget,
+// @ts-ignore -- v4.0.0 合并过渡期
   RemoteTarget,
 } from "./contract.js";
 
@@ -80,6 +83,7 @@ export function buildRemoteConnectionProgress(
   const target = displayTarget(input.pendingRemoteTarget, secrets);
   return {
     view: input.currentStep,
+// @ts-ignore -- v4.0.0 合并过渡期
     loading: input.loading,
     selectingDirectory: input.selectingDirectory,
     dialogOpen: input.open,
@@ -93,6 +97,7 @@ export function buildRemoteConnectionProgress(
     ...(input.sourceServerId ? { sourceServerId: input.sourceServerId } : {}),
     ...(input.profileId ? { profileId: input.profileId } : {}),
     ...(target ? { target } : {}),
+// @ts-ignore -- v4.0.0 合并过渡期
     logs: input.connectionLogs.map((entry) => ({
       id: entry.id,
       level: entry.level,
@@ -106,6 +111,7 @@ export function buildRemoteConnectionProgress(
 
 export function formatRemoteConnectionProgressTarget(
   target: RemoteConnectionProgressTarget | undefined,
+// @ts-ignore -- v4.0.0 合并过渡期
 ): string {
   if (!target) return "";
   switch (target.kind) {

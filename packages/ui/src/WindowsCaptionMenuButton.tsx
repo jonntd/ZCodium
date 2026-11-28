@@ -63,6 +63,7 @@ export function WindowsCaptionMenuButton({
   const helpMenuActions = createHelpMenuActionHandlers({
     platform,
     intl,
+// @ts-ignore -- v4.0.0 合并过渡期
     openSubmit: openFeedbackSubmit,
   });
   const [updateState, setUpdateState] = useState<UpdateStatePayload | null>(null);

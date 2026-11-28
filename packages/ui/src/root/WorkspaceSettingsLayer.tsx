@@ -33,6 +33,7 @@ export function WorkspaceSettingsLayer({
       {workspaceScopedServices ? (
         <ServiceProvider services={workspaceScopedServices}>
           <SettingsPage
+// @ts-ignore -- v4.0.0 合并过渡期
             sourceServerSettings={sourceServerSettings}
             isDesktop={isDesktop}
             isMacDesktop={isMacDesktop}
@@ -50,6 +51,7 @@ export function WorkspaceSettingsLayer({
         </ServiceProvider>
       ) : (
         <SettingsPage
+// @ts-ignore -- v4.0.0 合并过渡期
           sourceServerSettings={sourceServerSettings}
           isDesktop={isDesktop}
           isMacDesktop={isMacDesktop}

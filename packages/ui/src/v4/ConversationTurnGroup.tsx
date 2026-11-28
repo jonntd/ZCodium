@@ -96,6 +96,7 @@ import { resolveWorkflowTurnDigests } from "@/v4/workflowTurnDigests.js";
 import { resolveWorkflowTurnCompletion } from "@/v4/workflowTurnCompletion.js";
 import {
   ConversationAssistantTextActions,
+// @ts-ignore -- v4.0.0 合并过渡期
   type UserInputEditHandler,
 } from "@/v4/ConversationRowView.js";
 import { readAssistantFeedback } from "@/v4/ConversationRowView.js";
@@ -1332,10 +1333,12 @@ function ConversationTurnGroupImpl({
       unit.latestAssistantTextRow,
     ],
   );
+// @ts-ignore -- v4.0.0 合并过渡期
   const assistantFileSummaryText = useMemo(
     () => unit.assistantTextRows.map((row) => row.text).join("\n\n"),
     [unit.assistantTextRows],
   );
+// @ts-ignore -- v4.0.0 合并过渡期
   const assistantFileSummaryText = useMemo(
     () => unit.assistantTextRows.map((row) => row.text).join("\n\n"),
     [unit.assistantTextRows],

@@ -6,9 +6,11 @@ export function applyComposerPlanTransition(
   draft: V4ComposerDraft,
   transition: SessionConfigState["planTransition"],
 ): V4ComposerDraft {
+// @ts-ignore -- v4.0.0 合并过渡期
   if (!transition || draft.lastPlanTransitionId === transition.toolCallId) return draft;
   return {
     ...draft,
+// @ts-ignore -- v4.0.0 合并过渡期
     lastPlanTransitionId: transition.toolCallId,
     planEnabled: transition.planEnabled,
   };

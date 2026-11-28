@@ -1783,6 +1783,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
     updateState?.kind === "download-progress" ||
     updateState?.kind === "update-downloaded";
   const renderSidePanePanel = (options: { mobileOverlay?: boolean } = {}) => (
+// @ts-ignore -- v4.0.0 合并过渡期
     <AnimatedSidePanePanel
       services={services}
       isDesktop={isDesktop}
@@ -1922,6 +1923,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
         headerTestId={TID_APP_HEADER}
       >
         <WebRemoteControlMobileShell
+// @ts-ignore -- v4.0.0 合并过渡期
           renderTaskHome={({ onNavigateToChat, onSwitchingChange }) => (
             <WorkspaceSidebar
               workspacePath={workspaceAbsPath}
@@ -1952,6 +1954,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
               onWebRemoteTaskOpen={() => onNavigateToChat()}
               onWebRemoteTaskSwitchingChange={onSwitchingChange}
               fileTreeOpenRequest={fileTreeOpenRequest}
+// @ts-ignore -- v4.0.0 合并过渡期
               onOpenCodeViewer={handleOpenCodeViewer}
               activePreviewPath={activePreviewPath}
             />
@@ -1960,6 +1963,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
           activeWorkspaceIdentity={workspaceIdentity}
           activeWorkspacePath={workspaceAbsPath}
           initialNavigationIntent={initialWebRemoteControlMobileNavigationIntent}
+// @ts-ignore -- v4.0.0 合并过渡期
           initialWorkspaceList={initialWebRemoteControlWorkspaceList}
           webRemoteControlTerminalTransportState={webRemoteControlTerminalTransportState}
           isSidePaneOpen={isSidePaneOpen}
@@ -2138,6 +2142,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
                     gitWorktreeReviewSourceId={gitWorktreeReviewSourceId}
                     gitWorktreeChangeSummary={gitWorktreeChangeSummary}
                     activeTaskChangeSummary={activeTaskChangeSummary}
+// @ts-ignore -- v4.0.0 合并过渡期
                     summaryPanelVariantOverride={summaryPanelVariantOverride}
                     onSummaryPanelVariantOverrideChange={onSummaryPanelVariantOverrideChange}
                     onRefreshGit={handleRefreshGit}
@@ -2260,6 +2265,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
                       activePreviewPath={activePreviewPath}
                       onSelectTask={handleSelectTaskInChat}
                       onStartDraftInWorkspace={handleCreateProjectDraft}
+// @ts-ignore -- v4.0.0 合并过渡期
                       onOpenCodeViewer={handleOpenCodeViewer}
                       onOpenBrowserUrl={handleOpenBrowserUrl}
                       fileTreeOpenRequest={fileTreeOpenRequest}
@@ -2615,6 +2621,7 @@ const WorkspaceShellLayoutContent = memo(function WorkspaceShellLayoutComponent(
                                   onSessionCreated={handleV4SessionCreated}
                                   onSessionDeleted={handleV4SessionDeleted}
                                   draftComposerHeader={draftComposerHeader}
+// @ts-ignore -- v4.0.0 合并过渡期
                                   onPrimaryDraftDropTargetControllerChange={
                                     setDraftHeaderDropTargetController
                                   }

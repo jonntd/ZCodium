@@ -109,6 +109,7 @@ export function WorkspaceArchivedTasksFlatSection({
             buildTaskWorkspaceKey(tab.workspacePath, tab.workspaceIdentity),
           )?.services.zcodeTaskService,
         }))}
+// @ts-ignore -- v4.0.0 合并过渡期
         onDeleted={removeTaskFromTaskCaches}
         onRefresh={refresh}
       />
@@ -307,6 +308,7 @@ export function WorkspaceArchivedTasksFlatSection({
                             });
                             // Bugfix: 删除只发生在归档列表，不能把它当成“取消归档”写回普通列表。
                             // 这里直接从 task caches 移除目标项，避免失效整表 query cache 导致列表闪空。
+// @ts-ignore -- v4.0.0 合并过渡期
                             removeTaskFromTaskCaches({
                               workspacePath: task.workspacePath,
                               workspaceIdentity: task.workspaceIdentity,

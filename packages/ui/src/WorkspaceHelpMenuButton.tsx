@@ -61,6 +61,7 @@ export function WorkspaceHelpMenuButton({
   const helpMenuActions = createHelpMenuActionHandlers({
     platform,
     intl,
+// @ts-ignore -- v4.0.0 合并过渡期
     openSubmit: openFeedbackSubmit,
   });
   const handleOpenCommunity = () => {

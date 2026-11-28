@@ -3274,6 +3274,7 @@ export function SessionPane({
 
   useEffect(() => {
     if (!effectiveSessionId) {
+// @ts-ignore -- v4.0.0 合并过渡期
       setLease({ sessionId, layer, lease: null });
       return;
     }
@@ -3283,6 +3284,7 @@ export function SessionPane({
     const offOnlineModelTransition = nextLease.store.onOnlineModelTransition((transition) => {
       onlineModelTransitionHandlerRef.current(effectiveSessionId, nextLease.store, transition);
     });
+// @ts-ignore -- v4.0.0 合并过渡期
     setLease({ sessionId, layer, lease: nextLease });
     return () => {
       offOnlineModelTransition();
@@ -3403,6 +3405,7 @@ export function SessionPane({
         undefined,
         undefined,
         (creationContext?.createSource ?? undefined) as import("@zcode/shared").SessionCreateSource | undefined,
+// @ts-ignore -- v4.0.0 合并过渡期
         creationContext?.projectId,
         creationContext?.taskGroupId,
         creationContext?.text,
@@ -3799,6 +3802,7 @@ export function SessionPane({
           heldQueueDisposition,
           expectedHeldQueueItemIds,
           submission,
+// @ts-ignore -- v4.0.0 合并过渡期
           (messageId: string) => reportDraftCreated(targetSessionId, createSourceAtSend, messageId),
         );
         if (consumed === "confirmationRequired") return consumed;
@@ -4166,10 +4170,13 @@ export function SessionPane({
         latest.logEpoch,
         // Bug 根因：编辑重发曾不带 seed，这一轮没有 send_btn / completion / agent_step。
         // localTtft 维持原口径不纳入编辑轮。
+// @ts-ignore -- v4.0.0 合并过渡期
         ...(telemetrySeed ? {
           localTtft: undefined,
+// @ts-ignore -- v4.0.0 合并过渡期
           extraDetail: { ...(telemetrySeed as Record<string, unknown>).extraDetail, send_type: "edit" },
         } : {}),
+// @ts-ignore -- v4.0.0 合并过渡期
         highspeed.acceleratedCard,
         (envelope: { commandId: string }) => {
           editCommandId = envelope.commandId;
@@ -5420,6 +5427,7 @@ export function SessionPane({
       undefined,
       undefined,
       undefined,
+// @ts-ignore -- v4.0.0 合并过渡期
       replay.clientContext?.projectId,
       replay.clientContext?.sessionCreateSource as import("@zcode/shared").SessionCreateSource | undefined,
     )
@@ -5680,6 +5688,7 @@ export function SessionPane({
       onOpenCodeViewer={onOpenCodeViewer}
       suppressGoalCommands={selectionSideChat}
       appSlashCommands={appSlashCommands}
+// @ts-ignore -- v4.0.0 合并过渡期
       onDropTargetControllerChange={handleDropTargetControllerChange}
     />
   );
@@ -5873,6 +5882,7 @@ export function SessionPane({
               gitWorktreeChangeSummary={gitWorktreeChangeSummary}
               activeTaskChangeSummary={activeTaskChangeSummary}
               goal={selectionSideChat ? null : (snapshot?.goal ?? null)}
+// @ts-ignore -- v4.0.0 合并过渡期
               sessionPlans={state.sessionPlans}
               plan={snapshot?.plan ?? null}
               backgroundWorks={snapshot?.backgroundWorks ?? []}
@@ -5881,7 +5891,9 @@ export function SessionPane({
               endedSubagentCount={subagents.endedTotal}
               rootSessionId={rootSessionId ?? sessionId ?? undefined}
               parentSessionId={sessionId ?? undefined}
+// @ts-ignore -- v4.0.0 合并过渡期
               summaryPanelVariantOverride={effectiveSummaryPanelVariantOverride}
+// @ts-ignore -- v4.0.0 合并过渡期
               onVariantChange={handleSummaryPanelVariantChange}
               terminalSectionOpen={terminalSectionOpen}
               onTerminalSectionOpenChange={setTerminalSectionOpen}

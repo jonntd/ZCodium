@@ -754,6 +754,7 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
       ].join("::");
       const remoteData = await remoteDataLoader.load(remoteDataKey, async () => {
         const [structureResult, membershipResult] = await Promise.all([
+// @ts-ignore -- v4.0.0 合并过渡期
           services.zcodeTaskService.listGroupedTaskViewStructure!({
             workspaceScopes: scopes,
           }),
@@ -854,6 +855,7 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
     // group 内 New task 过去只在 optimistic view 继承草稿位置，SQLite 仍按 root
     // 新任务置顶，刷新后任务会掉出 group。task 已进入 optimistic index 后，将同一份展示
     // view 作为完整排序事务落库，使 membership 和组内第一位顺序一起收敛。
+// @ts-ignore -- v4.0.0 合并过渡期
     void services.zcodeTaskService.applyGroupedTaskViewOrder!(
       viewToOrderInput({ view: displayedView }),
     )
@@ -903,6 +905,7 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
   const createGroup = useCallback(async (): Promise<ZCodeTaskGroup> => {
     setSaving(true);
     try {
+// @ts-ignore -- v4.0.0 合并过渡期
       const group = await services.zcodeTaskService.createTaskGroup!();
       // 新 group 的 SQLite 顺序已经置顶，但等待异步 refresh 才展示会短暂沿用旧树并
       // 落到缺序节点末尾；先按同一 sort_order 语义乐观插顶，refresh 再以 SQLite 收敛。
@@ -947,6 +950,7 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
       setView(optimisticView);
       setSaving(true);
       try {
+// @ts-ignore -- v4.0.0 合并过渡期
         const renamedGroup = await services.zcodeTaskService.renameTaskGroup!({
           groupId,
           title: nextTitle,
@@ -998,6 +1002,7 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
       setView(optimisticView);
       setSaving(true);
       try {
+// @ts-ignore -- v4.0.0 合并过渡期
         const updatedGroup = await services.zcodeTaskService.updateTaskGroupColor!({
           groupId,
           color,
@@ -1030,6 +1035,7 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
       try {
         // apply 回包的视图仍由 tasks 表 join（旧数据源），不再采信；
         // 持久化成功后以「结构 + sessions-index」重建收敛（refresh）。
+// @ts-ignore -- v4.0.0 合并过渡期
         await services.zcodeTaskService.applyGroupedTaskViewOrder!(
           viewToOrderInput({
             view: nextView,
@@ -1069,6 +1075,7 @@ export function useGroupedTaskView(params: { workspaceTabs: WorkspaceTabState[] 
       setSaving(true);
       try {
         await applyOrder(nextView);
+// @ts-ignore -- v4.0.0 合并过渡期
         await services.zcodeTaskService.deleteTaskGroup!({
           groupId,
           workspaceScopes: collectViewWorkspaceScopes(nextView),

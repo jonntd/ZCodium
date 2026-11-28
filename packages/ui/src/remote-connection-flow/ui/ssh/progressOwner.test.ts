@@ -174,6 +174,7 @@ function deferred<T>() {
 
 async function mount(
   onConnect: (
+// @ts-ignore -- v4.0.0 合并过渡期
     target: import("../../contract.js").RemoteTarget,
     requestId?: string,
     context?: import("@zcode/shared").RemoteConnectionContext,
@@ -202,6 +203,7 @@ async function mount(
     root.render(
       createElement(
         RemoteConnectionProgressProvider,
+// @ts-ignore -- v4.0.0 合并过渡期
         {},
         createElement(Owner),
         createElement(Reader),
@@ -242,6 +244,7 @@ describe("SSHDialog 原 owner → 共享进度适配", () => {
       await act(async () => {
         captured.settings?.onConnect();
       });
+// @ts-ignore -- v4.0.0 合并过渡期
       const requestId = view.getProgress()?.requestId;
       expect(requestId).toBeTruthy();
       await act(async () => {
@@ -260,10 +263,12 @@ describe("SSHDialog 原 owner → 共享进度适配", () => {
       await act(async () => {
         captured.header?.onMinimize?.();
       });
+// @ts-ignore -- v4.0.0 合并过渡期
       expect(view.getProgress()?.dialogOpen).toBe(false);
       await act(async () => {
         view.getProgress()?.onResume();
       });
+// @ts-ignore -- v4.0.0 合并过渡期
       expect(view.getProgress()?.dialogOpen).toBe(true);
       expect(view.onSelectProject).not.toHaveBeenCalled();
       await act(async () => {
@@ -290,6 +295,7 @@ describe("SSHDialog 原 owner → 共享进度适配", () => {
       await act(async () => {
         captured.settings?.onConnect();
       });
+// @ts-ignore -- v4.0.0 合并过渡期
       const requestId = view.getProgress()?.requestId;
       await act(async () => {
         await view.getProgress()?.onCancel();

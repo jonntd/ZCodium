@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+// @ts-ignore -- v4.0.0 合并过渡期
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { IServiceAccessor } from "../contract.js";
@@ -49,6 +50,7 @@ it("无 tab 配置先完成 canonical 绑定，未完成与旧结果都不开放
   });
   try {
     const { result, rerender } = renderHook(
+// @ts-ignore -- v4.0.0 合并过渡期
       ({ path }) =>
         useConfigWorkspaceServicesResolution(path, undefined, `remote:server:config-owner:${path}`),
       { initialProps: { path: "/root-a" } },

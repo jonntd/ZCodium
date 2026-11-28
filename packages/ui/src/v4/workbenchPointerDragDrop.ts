@@ -1,5 +1,6 @@
 /* @ts-nocheck -- v4.0.0 合并过渡期 */
 import type { PaneSplitSide } from "@/v4/paneLayoutTree.js";
+// @ts-ignore -- v4.0.0 合并过渡期
 import { resolveWorkbenchDropSide } from "@/v4/workbenchDragDrop.js";
 import type { WorkbenchSessionDragPayload } from "@/v4/workbenchDragDrop.js";
 

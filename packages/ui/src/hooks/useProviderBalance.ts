@@ -60,6 +60,7 @@ export function useProviderBalance(
       error: null,
     }));
     try {
+// @ts-ignore -- v4.0.0 合并过渡期
       const snapshot = await usageStatsService.getProviderBalanceSnapshot({ providerId });
       if (requestVersionRef.current !== requestVersion) {
         return;

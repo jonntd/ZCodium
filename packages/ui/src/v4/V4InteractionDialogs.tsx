@@ -45,7 +45,9 @@ import {
 import { V4UserInputDialog } from "@/v4/V4UserInputDialog.js";
 import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";
 import {
+// @ts-ignore -- v4.0.0 合并过渡期
   buildPermissionPromptResultTelemetryEvent,
+// @ts-ignore -- v4.0.0 合并过渡期
   createPermissionPromptShownClock,
   resolveConversationRewindTarget,
 } from "@zcode/shared/conversation-telemetry";

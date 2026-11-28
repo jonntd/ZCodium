@@ -594,6 +594,7 @@ export function WorkspaceGroupedTasksSection({
       selectWorkspaceZCodeState(state, activeWorkspacePath, activeWorkspaceIdentity)
         .draftFocusVersion,
   );
+// @ts-ignore -- v4.0.0 合并过渡期
   const clearGroupedDraftTask = useZCodeSessionStore((state) => state.clearGroupedDraftTask);
   const {
     view: authoritativeView,

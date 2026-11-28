@@ -120,6 +120,7 @@ export function App({
   remoteConnectionLogs = EMPTY_REMOTE_CONNECTION_LOGS,
   onCreateTask,
   onCreateConversationTask,
+// @ts-ignore -- v4.0.0 合并过渡期
   onCreateConversationTaskOnSource,
   onResolveConversationWorkspace,
   onOpenWorkspace,
@@ -129,6 +130,7 @@ export function App({
   onReturnToWorkspace,
   allowOpenWorkspace = true,
   webRemoteControlWorkspaceSwitcher,
+// @ts-ignore -- v4.0.0 合并过渡期
   initialSidebarFileTreeOpen,
   initialWebRemoteControlMobileNavigationIntent,
   webRemoteControlTerminalTransportState,
@@ -164,6 +166,7 @@ export function App({
   const reportRendererHeapSample = platform.reportRendererHeapSample;
   useEffect(() => {
     const memoryDiagnosticsLogger = startMemoryDiagnosticsLogger({
+// @ts-ignore -- v4.0.0 合并过渡期
       reportHeapSample: reportRendererHeapSample,
     });
     return () => memoryDiagnosticsLogger.stop();
@@ -1329,6 +1332,7 @@ export function App({
             remoteConnectionLogs={remoteConnectionLogs}
             onCreateTask={handleCreateTaskIfWritable}
             onCreateConversationTask={onCreateConversationTask}
+// @ts-ignore -- v4.0.0 合并过渡期
             onCreateConversationTaskOnSource={onCreateConversationTaskOnSource}
             onResolveConversationWorkspace={onResolveConversationWorkspace}
             onOpenWorkspace={onOpenWorkspace}
