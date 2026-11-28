@@ -5679,8 +5679,6 @@ export function SessionPane({
       onDropTargetControllerChange={handleDropTargetControllerChange}
     />
   );
-    ? projectPendingGuideQueue(snapshot.queue)
-    : null;
   const conversationBottomDockContent = readOnly ? null : (
     <>
       {quotaBanner.state.visible &&
