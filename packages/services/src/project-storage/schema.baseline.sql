@@ -103,9 +103,17 @@ CREATE TABLE projects (
 CREATE TABLE remote_project_entries (
  entry_id TEXT PRIMARY KEY, host_id TEXT NOT NULL REFERENCES hosts(host_id) ON DELETE CASCADE,
  remote_project_id TEXT, cached_name TEXT NOT NULL, cached_roots_json TEXT NOT NULL DEFAULT '[]',
- legacy_workspace_json TEXT, last_synced_at INTEGER, initial_position INTEGER, UNIQUE(host_id,remote_project_id));
+ legacy_workspace_json TEXT, last_synced_at INTEGER, initial_position INTEGER, cached_deleted INTEGER NOT NULL DEFAULT 0, UNIQUE(host_id,remote_project_id));
 
 CREATE TABLE "schema_migration" (id text primary key, checksum text not null, app_version text, "applied_at" integer not null);
+
+CREATE TABLE session_creation_commands (
+  workspace_key TEXT NOT NULL,
+  client_id TEXT NOT NULL,
+  command_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  PRIMARY KEY (workspace_key, client_id, command_id)
+);
 
 CREATE TABLE task_group_admissions (
   workspace_key TEXT NOT NULL,
@@ -154,6 +162,12 @@ CREATE TABLE task_groups (
         updated_at INTEGER NOT NULL
       );
 
+CREATE TABLE task_purge (
+        workspace_key TEXT NOT NULL, task_id TEXT NOT NULL,
+        state TEXT NOT NULL CHECK(state IN ('pending','deleted')),
+        PRIMARY KEY(workspace_key,task_id)
+      );
+
 CREATE TABLE tasks (
         workspace_key TEXT NOT NULL,
         workspace_path TEXT NOT NULL,
@@ -174,7 +188,7 @@ CREATE TABLE tasks (
         archived INTEGER NOT NULL DEFAULT 0,
         deleted INTEGER NOT NULL DEFAULT 0,
         title_overridden INTEGER NOT NULL DEFAULT 0,
-        meta_json TEXT NOT NULL DEFAULT '{}', searchable_text TEXT NOT NULL DEFAULT '', cron_automation_id TEXT, off_peak_task_id TEXT, host_id TEXT, root_path TEXT, project_id TEXT, execution_directories TEXT, sort_order INTEGER, cli_title TEXT, handoff_pending INTEGER NOT NULL DEFAULT 0, cli_title_source TEXT, cli_created_at INTEGER, cli_updated_at INTEGER, cli_last_outcome TEXT, cli_deleted INTEGER,
+        meta_json TEXT NOT NULL DEFAULT '{}', searchable_text TEXT NOT NULL DEFAULT '', cron_automation_id TEXT, off_peak_task_id TEXT, host_id TEXT, root_path TEXT, project_id TEXT, execution_directories TEXT, sort_order INTEGER, cli_title TEXT, handoff_pending INTEGER NOT NULL DEFAULT 0, cli_title_source TEXT, cli_created_at INTEGER, cli_updated_at INTEGER, cli_last_outcome TEXT, cli_deleted INTEGER, worktree_root TEXT,
         PRIMARY KEY (workspace_key, task_id)
       );
 
@@ -215,6 +229,8 @@ CREATE INDEX idx_tasks_cron_automation ON tasks(cron_automation_id, updated_at D
 
 CREATE UNIQUE INDEX idx_tasks_host_task ON tasks(host_id,task_id);
 
+CREATE INDEX idx_tasks_host_worktree ON tasks(host_id, worktree_root) WHERE worktree_root IS NOT NULL;
+
 CREATE INDEX idx_tasks_off_peak_task ON tasks(off_peak_task_id, updated_at DESC)
     WHERE off_peak_task_id IS NOT NULL AND deleted=0;
 
@@ -227,3 +243,11 @@ CREATE INDEX idx_tasks_workspace_archived_updated
 CREATE INDEX idx_tasks_workspace_pinned_updated
       ON tasks (workspace_key, pinned, updated_at DESC)
       WHERE deleted = 0;
+
+CREATE TRIGGER task_purge_insert_guard BEFORE INSERT ON tasks
+      WHEN EXISTS(SELECT 1 FROM task_purge WHERE workspace_key=new.workspace_key AND task_id=new.task_id AND state='deleted')
+      BEGIN SELECT RAISE(ABORT, 'task.permanently-deleted'); END;
+
+CREATE TRIGGER task_purge_restore_guard BEFORE UPDATE OF archived ON tasks
+      WHEN new.archived=0 AND EXISTS(SELECT 1 FROM task_purge WHERE workspace_key=new.workspace_key AND task_id=new.task_id)
+      BEGIN SELECT RAISE(ABORT, 'task.permanent-deletion-pending'); END;
