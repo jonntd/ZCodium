@@ -209,8 +209,7 @@ export {
   buildLocalMediaPreviewUrl,
   createOpenInEditorRemoteTarget,
   unwrapRemoteWorkspaceBindResult,
-  RemoteConnectionContext,
-} from "./platform.js";
+
 export type {
   ArmsCustomEventPayload,
   ConfigureFinalArmsCustomEventE2ERequest,
@@ -334,6 +333,7 @@ export type {
   WSLDistro,
   WindowControlsOverlayReadyPayload,
   ZCodeStdioTapDevState,
+  RemoteConnectionContext,
 } from "./platform.js";
 export type {
   CuaAccessibilitySettingsResult,
