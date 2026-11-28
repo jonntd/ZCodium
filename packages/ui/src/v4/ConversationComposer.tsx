@@ -265,7 +265,7 @@ export interface ConversationComposerSendOptions {
   telemetrySeed?: Record<string, unknown>;
 }
 
-type ComposerSubmit = { type: string; payload?: unknown; targetSessionId?: string };
+type ComposerSubmit = (...args: unknown[]) => Promise<ComposerSubmitOutcome>;
 type ComposerSubmitOutcome = "sent" | "blocked" | "failed";
 
 export type ConversationComposerSendResult =
