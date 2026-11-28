@@ -480,3 +480,4 @@ export function ProviderSettingsCard({
     </SettingsGroupCard>
   );
 }
+export function BindCodePanel(_props: Record<string, unknown>): null { return null; }

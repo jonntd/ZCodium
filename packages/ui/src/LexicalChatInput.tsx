@@ -1654,3 +1654,4 @@ export function LexicalChatInput({
 function LexicalErrorBoundary({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
+export type UserInputPresence = { raw: boolean; trimmed: boolean };
