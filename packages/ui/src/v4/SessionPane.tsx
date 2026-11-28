@@ -373,6 +373,8 @@ export interface SessionPaneProps {
   compactForRemoteControl?: boolean;
   /** fork WIP：Escape 关停是否覆盖 pane 外焦点（默认 false）。 */
   allowEscapeStopOutsidePane?: boolean;
+  /** fork：会话面板打开来源（分组列表/搜索/远控等）。 */
+  openTrigger?: string;
   provider?: ZCodeProvider;
   onSessionCreated?: (sessionId: string, origin?: "draft-promotion") => void;
   /** deleteSession：删除当前会话后回到 draft（shell 起新草稿）。 */
