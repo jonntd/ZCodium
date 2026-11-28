@@ -35,7 +35,7 @@ import {
 } from "@/components/ui/select.js";
 import { Input } from "@/components/ui/input.js";
 import { DirectoryBrowser } from "@/DirectoryBrowser.js";
-import { useRemoteBoundaryAcknowledgement } from "@/RemoteConnectionDialogContent.js";
+import { useRemoteBoundaryAcknowledgement } from "@/project-sidebar/useRemoteBoundaryAcknowledgement.js";
 import { useProjectDirectoryServices } from "@/project-sidebar/useProjectDirectoryServices.js";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";

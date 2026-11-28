@@ -1,4 +1,3 @@
-import { buildRemoteWorkspaceIdentity } from "@/lib/remoteWorkspaceHistory.js";
 /* eslint-disable max-lines -- Root 当前集中编排启动和 workspace shell wiring，先保持入口收口避免跨层状态拆散。 */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LucideProvider, RefreshCw } from "lucide-react";
@@ -11,58 +10,28 @@ import {
 } from "@zcode/shared";
 import { TooltipProvider } from "@/components/ui/tooltip.js";
 import { Button } from "@/components/ui/button.js";
-import { setPendingSettingsSection } from "@/lib/settingsNavigation.js";
 import { PlatformProvider } from "@/hooks/usePlatform.js";
-import { ServiceProvider, useComposerClientNamespace } from "@/hooks/useServices.js";
-import {
-  readComposerWorkspaceScope,
-  readV4ComposerDraft,
-  V4_DRAFT_SCOPE_ROOT,
-} from "@/v4/composer/composerDraftStore.js";
-import {
-  useDynamicWorkflowAvailabilityLoader,
-  useDynamicWorkflowUserModeSync,
-} from "@/hooks/useDynamicWorkflowAvailability.js";
+import { ServiceProvider } from "@/hooks/useServices.js";
+import { useDynamicWorkflowAvailabilityLoader } from "@/hooks/useDynamicWorkflowAvailability.js";
 import { DirectoryBrowser } from "@/DirectoryBrowser.js";
-import { useTabPersistence, type WorkspacePersistenceGate } from "@/hooks/useTabPersistence.js";
+import { useTabPersistence } from "@/hooks/useTabPersistence.js";
 import { useTokenRefresh } from "@/hooks/useTokenRefresh.js";
 import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { SSHDialog } from "@/SSHDialog.js";
 import {
+  ProjectDirectoryProvider,
   attachRemoteProjectWorkspace,
   ProjectConnectionPicker,
-  RemoteProjectPicker,
-  ProjectDirectoryProvider,
-  resolveEntryProject,
-  useRemoteWorkspaceConnectionGate,
-  useWebRemoteControlRendererActions,
 } from "@/project-sidebar/index.js";
 import type { RemoteProjectHost } from "@zcode/services";
-import type {
-  CreateTaskOptions,
-  DeviceAdditionResult,
-  DeviceAdditionReturnTarget,
-  RemoteConnectionOpenPreference,
-} from "@/app-shell/types.js";
+import type { CreateTaskOptions, RemoteConnectionOpenPreference } from "@/app-shell/types.js";
 import { SettingsPage } from "@/SettingsPage.js";
-import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
-import { CodingPlanUpgradeDialogProvider } from "@/settings/CodingPlanUpgradeDialogProvider.js";
-import { RewardsProvider } from "@/rewards/RewardsProvider.js";
-import {
-  CredentialStoreRecovery,
-  WelcomeScreen,
-  type LoginCompleteReason,
-} from "@/WelcomeScreen.js";
+import { RemoteConnectionProgressProvider } from "@/remote-connection-flow/ui/RemoteConnectionProgress.js";
 import { createSourceServerSettingsNavigation } from "@/source-server-settings/index.js";
 import { toast } from "@/components/ui/toast.js";
-import {
-  RequestSecurityWorkspaceBridge,
-  setRequestSecurityReporter,
-} from "@/request-security-edition/index.js";
-import { useSourceServerUpdateNotifications } from "@/root/sourceServerUpdateNotifications.js";
-import { RemoteConnectionProgressProvider } from "@/remote-connection-flow/ui/RemoteConnectionProgress.js";
-import { useCredentialStoreRecovery } from "@/hooks/useCredentials.js";
+import { CodingPlanUpgradeDialogProvider } from "@/settings/CodingPlanUpgradeDialogProvider.js";
+import { WelcomeScreen, type LoginCompleteReason } from "@/WelcomeScreen.js";
 import { setDefaultFileDisplayBasePath } from "@/lib/fileDisplay.js";
 import {
   isProviderStartupSyncPending,
@@ -80,17 +49,14 @@ import { isSettingsTab, isWorkspaceTab } from "@/store/tabStore.js";
 import { logger } from "@/logger.js";
 import { RootShell } from "@/root/RootShell.js";
 import { RootWorkspaceContent } from "@/root/RootWorkspaceContent.js";
-import { resolveConversationWorkspaceTarget } from "@/conversation-workspace-target/index.js";
 import { resolveRootWorkspaceShellTarget } from "@/root/rootWorkspaceShellTarget.js";
 import { OccupationOnboarding } from "@/onboarding/OccupationOnboarding.js";
 import { OnboardingDialog } from "@/onboarding/OnboardingDialog.js";
 import { useRemoteWorkspaceHistory } from "@/root/useRemoteWorkspaceHistory.js";
 import { useRemoteWorkspaceTabLifecycle } from "@/root/useRemoteWorkspaceTabLifecycle.js";
-import { RemoteWorkspaceControllerProvider } from "@/remote/useRemoteWorkspaceController.js";
 import { useRootProviderStateRefresh } from "@/root/useRootProviderStateRefresh.js";
 import { useModelSelectionServiceView } from "@/hooks/useModelSelectionView.js";
 import { useRootProviderSettingsSnapshot } from "@/root/useRootProviderSettingsSnapshot.js";
-import { useWebRemoteControlAuthSync } from "@/web-remote-control/app/useWebRemoteControlAuthSync.js";
 import { useRootOAuthEffects } from "@/root/useRootOAuthEffects.js";
 import { consumeZcodeJwtInvalidRestartMarker } from "@/root/zcodeJwtInvalidRestartMarker.js";
 import { useDesktopNativeThemeSync } from "@/root/useDesktopNativeThemeSync.js";
@@ -99,18 +65,13 @@ import { useRootWorkspaceActions } from "@/root/useRootWorkspaceActions.js";
 import { useBotBroadcastEffects } from "@/root/useBotBroadcastEffects.js";
 import {
   registerBaseWorkspaceServices,
-  useRemoteWorkspaceSessionStore,
   getRemoteWorkspaceSession,
+  useRemoteWorkspaceSessionStore,
 } from "@/store/remoteWorkspaceSessionStore.js";
 import type { RootProps } from "@/root/types.js";
 import { DiffsWorkerPoolProvider } from "@/root/DiffsWorkerPoolProvider.js";
 import { ScopedErrorBoundary } from "@/ErrorBoundary.js";
-import {
-  WebRemoteControlFeatureProvider,
-  useWebRemoteControlFeatureEnabled,
-} from "@/WebRemoteControlFeatureProvider.js";
 import { useRemoteConnectionLogs } from "@/hooks/useRemoteConnectionLogs.js";
-import { useWebRemoteControlStatus } from "@/hooks/useWebRemoteControlStatus.js";
 import {
   CODE_COMMENT_REMOVE_BROADCAST_CHANNEL,
   CODE_COMMENT_PREVIEW_RESTORE_BROADCAST_CHANNEL,
@@ -161,7 +122,6 @@ export function Root(props: RootProps) {
         <ServiceProvider
           services={props.services}
           composerClientNamespace={props.composerClientNamespace}
-          terminalOwnerId={props.terminalOwnerId}
         >
           <PlatformProvider platform={props.platform}>
             <StoreProvider
@@ -214,18 +174,10 @@ function RootInner({
   initialWebRemoteControlWorkspaceList,
   webRemoteControlTerminalTransportState,
   initialTaskDraft,
-  initialSettingsDeepLink,
 }: RootProps) {
-  const credentialRecovery = useCredentialStoreRecovery(isDesktop === true);
-  // fork：请求安全桥节点（desktop 常驻，web 端不渲染）。
-  const requestSecurityBridgeNode = isDesktop ? (
-    <RequestSecurityWorkspaceBridge workspaceTabs={windowWorkspaceTabs} />
-  ) : null;
   useEffect(() => {
-    setRequestSecurityReporter(platform);
     setMcpStorePlatform(platform);
     return () => {
-      setRequestSecurityReporter(null);
       setMcpStorePlatform(null);
     };
   }, [isDesktop, platform]);
@@ -235,15 +187,10 @@ function RootInner({
   // 工作区级 ServiceProvider 内（远程 Host 的 accessor），由它们取数会拿到另一台 Host 的答案。
   useDynamicWorkflowAvailabilityLoader(services.codingPlanSubscriptionService);
 
-  const { intl, locale, localeResolved } = useZCodeIntl();
-  const handleRemoteConnectionTargetChange = useSourceServerUpdateNotifications({
-    enabled: isDesktop === true,
-    management: services.sourceServerManagementService,
-  });
+  const { intl, locale } = useZCodeIntl();
   const theme = useZCodeStore((state) => state.theme);
   const user = useZCodeStore((state) => state.user);
   const isRestoringOAuthSession = useZCodeStore((state) => state.isRestoringOAuthSession);
-  useWebRemoteControlAuthSync(platform, services.oauthService, user?.id, isRestoringOAuthSession);
   const setUser = useZCodeStore((state) => state.setUser);
   const setIsRestoringOAuthSession = useZCodeStore((state) => state.setIsRestoringOAuthSession);
   const setOAuthError = useZCodeStore((state) => state.setOAuthError);
@@ -252,22 +199,9 @@ function RootInner({
   const markOAuthSuccess = useZCodeStore((state) => state.markOAuthSuccess);
   const {
     settings: appSettings,
-    loading: appSettingsLoading,
     refresh: refreshAppSettings,
     update: updateAppSettings,
   } = useSettings();
-  // 「动态工作流」用户选择变化后：通知 Host 重发 CLI 策略，并 reload 灰度快照。
-  // 这个 hook 此前只有定义和测试、从未挂到 Root：设置文件其实写成功了
-  // （~/.zcodium/v2/setting.json 里能看到 dynamicWorkflowMode），但快照只在启动时
-  // 取一次，下拉框永远显示启动时的值——用户看到的就是「怎么改不了」。
-  // 首次读到的值只作基线（不发声），之后每次选择变化才串行「同步 → 重读」。
-  const dynamicWorkflowUserMode = appSettings?.dynamicWorkflowMode || undefined;
-  useDynamicWorkflowUserModeSync({
-    settingsLoaded: !appSettingsLoading && appSettings !== null,
-    userMode: dynamicWorkflowUserMode,
-    zcodeAgentService: services.zcodeAgentService,
-    codingPlanSubscriptionService: services.codingPlanSubscriptionService,
-  });
   // 智谱账号体系移除后欢迎屏（套餐/API Key 引导）不可达：reason 恒 null。
   // JWT 重启标记仍消费，防止陈旧标记跨启动残留。
   const [welcomeScreenOpenReason, setWelcomeScreenOpenReason] =
@@ -302,7 +236,6 @@ function RootInner({
   const [sourceSettingsFocusTarget, setSourceSettingsFocusTarget] = useState<string | undefined>();
   const [remoteConnectionOpenPreference, setRemoteConnectionOpenPreference] =
     useState<RemoteConnectionOpenPreference | null>(null);
-  const [remoteConnectionOpenIntentId, setRemoteConnectionOpenIntentId] = useState(0);
   const [directoryBrowserOpen, setDirectoryBrowserOpen] = useState(false);
   const [remoteConnectionInProgress, setRemoteConnectionInProgress] = useState(false);
   const [remoteConnectionRequestId, setRemoteConnectionRequestId] = useState<string | null>(null);
@@ -390,7 +323,6 @@ function RootInner({
         askUserQuestionAutoResolutionEnabled:
           appSettings.askUserQuestionAutoResolutionEnabled !== false,
         modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
-        pluginAutoRecommendationEnabled: appSettings.pluginAutoRecommendationEnabled === true,
       })
       .catch((error) => {
         logger.warn("[settings] 初始化运行时偏好失败", error);
@@ -400,7 +332,6 @@ function RootInner({
         askUserQuestionAutoResolutionEnabled:
           appSettings.askUserQuestionAutoResolutionEnabled !== false,
         modelIoFullRetentionEnabled: appSettings.modelIoFullRetentionEnabled === true,
-        pluginAutoRecommendationEnabled: appSettings.pluginAutoRecommendationEnabled === true,
       })
       .catch((error) => {
         logger.warn("[settings] 初始化 Bot 运行时偏好失败", error);
@@ -408,7 +339,6 @@ function RootInner({
   }, [
     appSettings?.askUserQuestionAutoResolutionEnabled,
     appSettings?.modelIoFullRetentionEnabled,
-    appSettings?.pluginAutoRecommendationEnabled,
     services.botsService,
     services.zcodeAgentService,
   ]);
@@ -457,78 +387,6 @@ function RootInner({
   const addTab = useTabStore((state) => state.addTab);
   const activateTabByPath = useTabStore((state) => state.activateTabByPath);
   const tabStoreApi = useTabStoreApi();
-  const deviceAdditionReturn = useRef<{
-    target: DeviceAdditionReturnTarget;
-    completion?: "checking" | "delivered";
-    tabId: string | null;
-    workspaceKey?: string;
-  } | null>(null);
-  const finishDeviceAddition = useCallback(
-    async (
-      result: DeviceAdditionResult,
-      background = false,
-      canDeliver: () => boolean = () => true,
-    ) => {
-      const pending = deviceAdditionReturn.current;
-      // 同步消费；异步资格校验仍保留同一 owner 标识，新入口替换后旧结果无权导航。
-      if (!pending) return false;
-      if (pending.completion && result.kind === "connected") return true;
-      pending.completion = "checking";
-      const isCurrent = () =>
-        deviceAdditionReturn.current === pending && pending.target.isCurrent();
-      const deliver = (value: DeviceAdditionResult, inBackground: boolean) => {
-        if (!isCurrent()) return;
-        const tabs = tabStoreApi.getState();
-        const tab = tabs.tabs.find((item) => item.id === pending.tabId);
-        const workspaceKey =
-          tab?.kind === "workspace"
-            ? tab.workspaceIdentity?.trim() || tab.workspacePath
-            : undefined;
-        if ((pending.tabId && !tab) || pending.workspaceKey !== workspaceKey) return;
-        if (pending.tabId && !inBackground) tabs.activateTab(pending.tabId);
-        logger.debug("[Root] return from device addition", {
-          kind: value.kind,
-          tabId: pending.tabId,
-        });
-        pending.completion = "delivered";
-        return pending.target.finish(value);
-      };
-      try {
-        if (result.kind === "connected" && pending.target.canFinish) {
-          const valid = await pending.target.canFinish(result);
-          if (!isCurrent()) return true;
-          if (!valid) {
-            await deliver({ kind: "cancelled", background: true }, true);
-            return true;
-          }
-        }
-        if (result.kind === "connected" && !canDeliver()) {
-          pending.completion = undefined;
-          return true;
-        }
-        const finished = deliver(result, background);
-        // 显式取消必须撤销在途校验；迟到成功不能再使用同一返回引用恢复旧聊天。
-        if (result.kind === "cancelled" && deviceAdditionReturn.current === pending)
-          deviceAdditionReturn.current = null;
-        await finished;
-      } catch (error) {
-        if (!isCurrent()) return true;
-        // 读取失败不是取消。保留原 owner 和禁发约束，让连接 flow 显示原因并提供重试/取消。
-        pending.completion = undefined;
-        throw error;
-      }
-      return true;
-    },
-    [tabStoreApi],
-  );
-  const webRemoteControlFeatureEnabled = useWebRemoteControlFeatureEnabled();
-  // Bugfix: WebRemoteControlDialog 只是可开关的展示入口，不能由它的本地 state 决定全局远控状态。
-  // Root 直接轮询 main 进程状态，让远控会话 running/active 成为唯一真值来源。
-  const webRemoteControlStatus = useWebRemoteControlStatus({
-    enabled: Boolean(webRemoteControlFeatureEnabled && isDesktop),
-  });
-  const webRemoteControlSessionActive =
-    webRemoteControlStatus.status === "running" || webRemoteControlStatus.status === "active";
   const refreshProviderState = useRootProviderStateRefresh(services);
   useRootProviderSettingsSnapshot(services);
   useEffect(() => {
@@ -614,10 +472,6 @@ function RootInner({
     !isResolvingStartupAuthState &&
     !isResolvingProviderStartupState &&
     !isStartupProviderLoginEntryOpen;
-  const workspacePersistenceGate = useMemo<WorkspacePersistenceGate>(
-    () => ({ canPersist: false, restoreFailed: false }),
-    [],
-  );
 
   useEffect(() => {
     // 跨 workspace 任务列表需要一个稳定的“本地/root services”入口。
@@ -628,50 +482,17 @@ function RootInner({
 
   useBotBroadcastEffects(services, tabStoreApi);
 
-  const handleOpenRemoteConnection = useCallback(
-    (preference?: RemoteConnectionOpenPreference) => {
-      if (
-        preference?.returnTarget &&
-        (remoteConnectionInProgress ||
-          (deviceAdditionReturn.current && !deviceAdditionReturn.current.completion))
-      )
-        return false;
-      if (!remoteConnectionInProgress) {
-        // 新入口替换尚在资格校验的旧返回，先解除旧 owner 的门禁，再使其迟到结果失效。
-        deviceAdditionReturn.current?.target.onVisibilityChange?.(false);
-        const tabs = tabStoreApi.getState();
-        const tab = tabs.tabs.find((item) => item.id === tabs.activeTabId);
-        deviceAdditionReturn.current = preference?.returnTarget
-          ? {
-              target: preference.returnTarget,
-              tabId: tabs.activeTabId,
-              workspaceKey:
-                tab?.kind === "workspace"
-                  ? tab.workspaceIdentity?.trim() || tab.workspacePath
-                  : undefined,
-            }
-          : null;
-        // 返回目标曾被等同于新增设备，导致已有设备重连也切到设置。
-        if (preference?.returnTarget?.kind === "add-device") {
-          setPendingSettingsSectionIntent("remoteDevices");
-          tabStoreApi.getState().openSettingsTab();
-        }
-      }
-      // 明确入口与卡片恢复分离：空闲流程接受新意图，即使 Profile/目标值相同也重新读取。
-      if (!remoteConnectionInProgress) {
-        setRemoteConnectionOpenPreference(preference ?? null);
-        setRemoteConnectionOpenIntentId((current) => current + 1);
-      }
-      deviceAdditionReturn.current?.target.onVisibilityChange?.(true);
-      setRemoteConnectionDialogOpen(true);
-    },
-    [remoteConnectionInProgress, tabStoreApi],
-  );
+  const handleOpenRemoteConnection = useCallback((preference?: RemoteConnectionOpenPreference) => {
+    if (preference?.returnTarget?.isCurrent() === false) return false;
+    remoteConnectionCompleted.current = false;
+    preference?.returnTarget?.onVisibilityChange?.(true);
+    setRemoteConnectionOpenPreference(preference ?? null);
+    setRemoteConnectionDialogOpen(true);
+    return true;
+  }, []);
   const handleOpenDirectoryBrowser = useCallback(() => {
     setDirectoryBrowserOpen(true);
   }, []);
-  // 桌面端退出流程露出登录入口前到 App 重启为 true；期间只渲染启动画面，不暴露登录入口。
-  const [isLogoutRelaunchPending, setIsLogoutRelaunchPending] = useState(false);
   const handleReauthenticationRequired = useCallback(() => {
     // 账号体系移除后无再认证语义；保留回调签名兼容 dormant 调用方。
   }, []);
@@ -687,9 +508,9 @@ function RootInner({
     handleCreateConversationTask,
     handleOpenWorkspace,
     handleOpenFolderFromWorkspaceMenu,
+    handleCreateScratchWorkspace,
     handleCreateTask,
     handleBackFromSettings,
-    handleOpenTaskFromSettings,
   } = useRootWorkspaceActions({
     intl,
     platform,
@@ -699,7 +520,6 @@ function RootInner({
     activeWorkspacePath,
     activeWorkspaceIdentity,
     supportsSettings,
-    isDesktop,
     allowOpenWorkspace,
     preferDirectoryBrowser: shouldPreferDirectoryBrowser,
     openDirectoryBrowser: handleOpenDirectoryBrowser,
@@ -710,7 +530,6 @@ function RootInner({
     onProviderFamilyDomainClearedAfterLogout: () => {
       // 账号体系移除后登出不再回欢迎屏。
     },
-    setLogoutRelaunchPending: setIsLogoutRelaunchPending,
     userId: user?.id,
     onOpenRemoteConnection: allowRemoteWorkspace ? handleOpenRemoteConnection : undefined,
     openRemoteProjectWorkspace: openPreparedRemoteProjectWorkspace,
@@ -723,46 +542,37 @@ function RootInner({
     ({
       workspacePath,
       workspaceIdentity,
-      restoreSelection,
-      projectId,
     }: {
       workspacePath: string;
       workspaceIdentity: string;
-      restoreSelection?: boolean;
-      projectId?: string | null;
     }) => {
-      // 桌面重连只恢复连接，不得把已选会话覆盖成草稿；手机仍沿用 replayable 入口。
-      const selectedTask = useZCodeSessionStore
-        .getState()
-        .getWorkspaceState(workspacePath, workspaceIdentity).activeTaskId;
-      if (!isDesktop || !restoreSelection || !selectedTask) {
-        if (projectId !== undefined)
-          logger.info("[Root] 按原项目初始化远程草稿", { workspaceIdentity, projectId });
-        startDraftInWorkspace(workspacePath, workspaceIdentity, { projectId });
-      }
+      const intent = remoteDraftIntent.current;
+      startDraftInWorkspace(
+        workspacePath,
+        workspaceIdentity,
+        intent?.workspaceIdentity === workspaceIdentity ? intent : undefined,
+      );
     },
-    [isDesktop, startDraftInWorkspace],
+    [startDraftInWorkspace],
   );
 
   const {
     remoteWorkspaceSessions,
     reconnectingRemoteWorkspaceKeys,
-    remoteWorkspaceRecoveryByWorkspaceKey,
     remoteWorkspaceErrorByWorkspaceKey,
-
+    reconnectingRemoteWorkspaceLogsByWorkspaceKey,
     buildPersistedTabPatch,
-    restorePersistedSession: restoreWorkspaceTabs,
+    restorePersistedSession,
     handleCancelRemoteProject,
     handleSelectRemoteProject,
     handleConnectRemote,
     handleReconnectRemoteWorkspace,
-    remoteWorkspaceController,
+    handleRemoteWorkspaceTabsClosed,
   } = useRemoteWorkspaceHistory({
     intl,
     services,
     platform,
     supportsSettings,
-    isDesktop,
     allowRemoteWorkspace,
     // conversation backing workspace 只属于本地桌面主恢复链路；远程窗口和手机
     // shared-host attachment 不能因此创建独立本地 runtime 或改变 replayable 边界。
@@ -772,31 +582,8 @@ function RootInner({
     tabStoreApi,
     activateTabByPath,
     addTab,
-    persistenceGate: workspacePersistenceGate,
     onWorkspaceActivated: handleRemoteWorkspaceActivated,
-    onOpenRemoteConnection: handleOpenRemoteConnection,
-    manuallyOpeningWorkspaceTabId:
-      remoteConnectionDialogOpen || remoteConnectionInProgress
-        ? remoteConnectionOpenPreference?.preferredWorkspaceTabId
-        : undefined,
   });
-  const waitForRemoteWorkspaceConnection = useRemoteWorkspaceConnectionGate(
-    reconnectingRemoteWorkspaceKeys,
-  );
-
-
-  const handleResolveConversationWorkspaceForShell = useCallback(
-    async () =>
-      // Bug 原因：此前只回传 workspacePath，Shell 再按路径反查 identity；多设备 conversation 路径
-      // 相同时会归到错误 Source。改为在这里按 Source 归属一次性解析 path + identity。
-      await resolveConversationWorkspaceTarget({
-        getTabs: () => tabStoreApi.getState().tabs,
-        activeWorkspacePath,
-        activeWorkspaceIdentity,
-        resolveLocalConversationWorkspacePath: handleResolveConversationWorkspace,
-      }),
-    [activeWorkspacePath, activeWorkspaceIdentity, handleResolveConversationWorkspace, tabStoreApi],
-  );
 
   const remoteDraftIntent = useRef<(CreateTaskOptions & { workspaceIdentity: string }) | null>(
     null,
@@ -821,18 +608,6 @@ function RootInner({
     appliedInitialDraft.current = true;
     startDraftInWorkspace(initialWorkspaceAbsPath, initialWorkspaceIdentity, initialTaskDraft);
   }, [initialTaskDraft, initialWorkspaceAbsPath, initialWorkspaceIdentity, startDraftInWorkspace]);
-
-  // 设置页深链（FR-B14 权限规则入口）：与 initialTaskDraft 同款的一次性 ref 守卫——
-  // 只消费一次 prop，不响应运行中的变更。分区意图缺失（`true`）时保留「上次停留分区」语义。
-  const appliedSettingsDeepLink = useRef(false);
-  useEffect(() => {
-    if (!initialSettingsDeepLink || appliedSettingsDeepLink.current) return;
-    appliedSettingsDeepLink.current = true;
-    if (initialSettingsDeepLink !== true) {
-      setPendingSettingsSection(initialSettingsDeepLink);
-    }
-    tabStoreApi.getState().openSettingsTab();
-  }, [initialSettingsDeepLink, tabStoreApi]);
 
   async function openPreparedRemoteProjectWorkspace(target: {
     hostId: string;
@@ -984,36 +759,7 @@ function RootInner({
   );
 
   useEffect(() => {
-    if (!platform.onWebRemoteControlReconnectWorkspace) {
-      return;
-    }
-
-    return platform.onWebRemoteControlReconnectWorkspace(async (request) => {
-      try {
-        await handleReconnectRemoteWorkspace(request.workspaceKey, {
-          activateWorkspaceAfterReconnect: false,
-          showErrorToast: false,
-          throwOnFailure: true,
-        });
-        return {
-          requestId: request.requestId,
-          workspaceKey: request.workspaceKey,
-          success: true,
-        };
-      } catch (error) {
-        return {
-          requestId: request.requestId,
-          workspaceKey: request.workspaceKey,
-          success: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
-    });
-  }, [handleReconnectRemoteWorkspace, platform]);
-  useWebRemoteControlRendererActions(platform);
-
-  useEffect(() => {
-    // Bugfix: fileDisplay 默认不传 basePath 时需要落到“当前激活 workspace”。
+    // fileDisplay 默认不传 basePath 时需要落到“当前激活 workspace”。
     // 之前纯工具层拿不到窗口内的 workspace 上下文，只能退回绝对路径，导致 mention / 文件展示在输入框里不够简洁。
     // 这里由 Root 在 workspace 切换时同步一份当前上下文，既保留工具层复用性，也不把 Zustand 依赖硬塞进工具函数。
     setDefaultFileDisplayBasePath(activeWorkspacePath);
@@ -1027,67 +773,12 @@ function RootInner({
     setWorkspaceActionError(null);
   }, [activeWorkspacePath, setWorkspaceActionError]);
 
-  const composerClientNamespace = useComposerClientNamespace();
-  const restorePersistedSession = useCallback(
-    async (...args: Parameters<typeof restoreWorkspaceTabs>) => {
-      const restored = await restoreWorkspaceTabs(...args);
-      const restoreDraftIntents = () => {
-        // 桌面刷新通过历史 tab 恢复，不经过 initialWorkspace 入口。先恢复项目意图，
-        // 再打开首屏门禁，避免 Composer 按未归类范围读取并预热同目录的项目草稿。
-        for (const tab of tabStoreApi.getState().tabs) {
-          if (!isWorkspaceTab(tab)) continue;
-          const workspace = useZCodeSessionStore
-            .getState()
-            .getWorkspaceState(tab.workspacePath, tab.workspaceIdentity);
-          if (workspace.activeTaskId || workspace.draftProjectId !== undefined) continue;
-          const scope = readComposerWorkspaceScope(
-            tab.workspacePath,
-            tab.workspaceIdentity,
-            composerClientNamespace,
-          );
-          if (!scope) continue;
-          const draft = readV4ComposerDraft(
-            tab.workspacePath,
-            tab.workspaceIdentity,
-            V4_DRAFT_SCOPE_ROOT,
-            scope,
-          );
-          useZCodeSessionStore
-            .getState()
-            .startDraft(tab.workspacePath, undefined, tab.workspaceIdentity, {
-              projectId: scope.projectId,
-              taskGroupId: draft?.taskGroupId,
-            });
-          logger.info("[Root] 已恢复新建草稿归属", {
-            workspacePath: tab.workspacePath,
-            workspaceIdentity: tab.workspaceIdentity,
-            projectId: scope.projectId,
-          });
-        }
-      };
-      restoreDraftIntents();
-      return {
-        ...restored,
-        ...(restored.deferredRestore
-          ? {
-              deferredRestore: () => {
-                restored.deferredRestore!();
-                restoreDraftIntents();
-              },
-            }
-          : {}),
-      };
-    },
-    [restoreWorkspaceTabs, composerClientNamespace, tabStoreApi],
-  );
-
   const { isRestoring, hasCompletedInitialRestore, hasCompletedFullRestore } = useTabPersistence({
     settingService: supportsSettings ? services.settingService : undefined,
     // 首次安装未连接账号时，provider 登录入口判定会晚于 workspace 恢复。
     // 如果这里先恢复 workspace，ChatView mount 会触发草稿 session 预热并在登录页背后报错。
     restoreSession: restoreSession && canRestoreWorkspaceSession,
     persistSession: restoreSession && canRestoreWorkspaceSession,
-    persistenceGate: workspacePersistenceGate,
     restorePersistedSession,
     buildPersistPatch: buildPersistedTabPatch,
   });
@@ -1107,13 +798,11 @@ function RootInner({
   });
 
   useRootPlatformEffects({
-    clientMode: isWebRemoteControlRoot ? "web-remote-replayable" : "desktop-continuous",
     initialWorkspaceAbsPath,
     initialWorkspaceIdentity,
     initialWorkspacePurpose,
     initialTaskId,
-    initialTaskDraft,
-    // Bugfix: 系统右键/Service 冷启动传入 initialWorkspacePath 时，必须先恢复历史 tabs，
+    // 系统右键/Service 冷启动传入 initialWorkspacePath 时，必须先恢复历史 tabs，
     // 再把目标 workspace 合并并激活。否则先 addTab 会被 restoreTabs 整体替换掉；
     // 直接禁用 restoreSession 又会让其他 workspace 全部消失。
     canBootstrapInitialWorkspace: canRestoreWorkspaceSession && hasCompletedInitialRestore,
@@ -1124,12 +813,13 @@ function RootInner({
     startDraftInWorkspace,
     startNewTaskFromActiveWorkspace,
     openWorkspace: handleOpenWorkspace,
-    openWorkspacePath: handleSelectProject,
+    openWorkspacePath: (path) => {
+      void handleSelectProject(path);
+    },
     setWorkspaceActionError,
     allowOpenWorkspace,
     isDesktop,
     locale,
-    localeResolved,
     tabs,
     activeWorkspacePath,
     activeWorkspaceIdentity,
@@ -1137,6 +827,7 @@ function RootInner({
     remoteWorkspaceErrorByWorkspaceKey,
     hasCompletedFullTabRestore: hasCompletedFullRestore,
     intl,
+    isRestoringOAuthSession: isResolvingStartupAuthState || providerStartupSyncPending,
   });
 
   useEffect(() => {
@@ -1145,9 +836,7 @@ function RootInner({
     }
 
     return platform.onCloseActiveContextRequest(() => {
-      const event = new Event(CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT, {
-        cancelable: true,
-      });
+      const event = new Event(CLOSE_ACTIVE_CONTEXT_REQUEST_EVENT, { cancelable: true });
       window.dispatchEvent(event);
       if (event.defaultPrevented) {
         return;
@@ -1239,25 +928,11 @@ function RootInner({
     theme,
   });
 
-  const handleRemoteWorkspaceUserClose = useCallback(
-    (workspaceKeys: string[]) => {
-      for (const workspaceKey of workspaceKeys) {
-        void remoteWorkspaceController.dispatch({
-          type: "close-workspace",
-          workspaceKey,
-          origin: "user-close",
-        });
-      }
-    },
-    [remoteWorkspaceController],
-  );
-
   useRemoteWorkspaceTabLifecycle({
     tabs,
     activeWorkspaceTab,
     platform,
-    tabStoreApi,
-    onRemoteWorkspaceTabsClosed: handleRemoteWorkspaceUserClose,
+    onRemoteWorkspaceTabsClosed: handleRemoteWorkspaceTabsClosed,
   });
 
   useEffect(() => {
@@ -1342,10 +1017,9 @@ function RootInner({
     // 这里消费掉请求但不渲染欢迎屏（其表单引用的套餐模板已删除）。
   }, [loginEntryRequest]);
 
-  // 登录入口不依赖会话；保持引用稳定，避免草稿更新穿透侧栏 memo。
-  const handleOpenLoginEntry = useCallback(() => {
+  const handleOpenLoginEntry = () => {
     setWelcomeScreenOpenReason("manual-login");
-  }, []);
+  };
   const handleWelcomeScreenComplete = useCallback(
     async (reason: LoginCompleteReason) => {
       await refreshAppSettings();
@@ -1377,173 +1051,108 @@ function RootInner({
       workspaceShellPath,
     ],
   );
-  const remoteProjectIntentEpoch = useRef(0);
-  const [remoteProjectSelection, setRemoteProjectSelection] = useState<{
-    host: RemoteProjectHost;
-    path: string;
-    sessionId: string;
-  } | null>(null);
-  const selectDirectoryForRemoteProject = useCallback(
-    async (sessionId: string, path: string, localWorkspacePath?: string) => {
-      const epoch = remoteProjectIntentEpoch.current;
-      const session = useRemoteWorkspaceSessionStore.getState().sessionsById[sessionId];
-      if (!session?.target || !services.remoteProjectService)
-        throw new Error("project.connection-unavailable");
-      const identity = session.sourceServerId
-        ? buildServerRemoteWorkspaceIdentity({
-            serverId: session.sourceServerId,
-            workspacePath: path,
-          })
-        : buildRemoteWorkspaceIdentity(path, session.target);
-      const hostId = remoteHostIdFromWorkspaceIdentity(identity);
-      const directory = await services.remoteProjectService.readDirectory();
-      if (epoch !== remoteProjectIntentEpoch.current) throw new Error("project.creation-cancelled");
-      const host = directory.hosts.find((item) => item.id === hostId);
-      if (!host) throw new Error("remote-project.host-removed");
-      if (
-        remoteConnectionOpenPreference?.preferredWorkspaceTabId ||
-        remoteConnectionOpenPreference?.preferredProjectEntryId
-      ) {
-        // 原项目的认证/安装/升级完成应回到原目录，不能误入新建项目编辑。
-        const retained = directory.entries.find(
-          (entry) =>
-            entry.hostId === host.id &&
-            (!remoteConnectionOpenPreference.preferredProjectEntryId ||
-              entry.id === remoteConnectionOpenPreference.preferredProjectEntryId) &&
-            (entry.roots.some((root) => root.rootPath === path) ||
-              entry.legacyWorkspace?.workspacePath === path),
-        );
-        if (!retained)
-          throw Object.assign(new Error("remote-project.entry-not-found"), {
-            code: "remote-connection-canceled",
-          });
-        let draftProjectId: string | undefined;
-        // 会话重连只恢复原选择；打开项目才解析草稿归属，避免阻止已删除项目的历史会话重连。
-        if (!remoteConnectionOpenPreference.preferredWorkspaceTabId) {
-          if (!services.projectService) throw new Error("project.service-unavailable");
-          // 入口 ID 只校验成员，不会初始化草稿归属；不能沿用本地同目录旧缓存。
-          const project = resolveEntryProject(
-            retained,
-            await services.projectService.readTree({ hostId: host.id }),
-          );
-          if (!project || project.deleted || !project.roots.some((root) => root.rootPath === path))
-            throw new Error("project.not-found");
-          draftProjectId = project.id;
+  const handleRemoteConnectionDialogOpenChange = useCallback(
+    (open: boolean) => {
+      // 旧 SSHDialog 在 connect ACK 后会请求显示目录页；设备返回意图已完成时不可再打开旧向导。
+      if (open && remoteConnectionCompleted.current) return;
+      setRemoteConnectionDialogOpen(open);
+      if (!open) {
+        const owner = remoteConnectionOpenPreference?.returnTarget;
+        if (owner?.isCurrent() && !remoteConnectionCompleted.current) {
+          owner.onVisibilityChange?.(false);
+          void owner.finish({ kind: "cancelled" });
         }
-        await remoteWorkspaceController.dispatch({
-          type: "open-project",
-          sourceServerId: session.sourceServerId ?? "",
-          remoteSessionId: sessionId,
-          path,
-          localWorkspacePath,
-          preparedWorkspaceIdentity: identity,
-          draftProjectId,
-          isCurrent: async () => {
-            if (epoch !== remoteProjectIntentEpoch.current) return false;
-            // bind 会等待远端 IO；初检快照不能授权迟到结果复活已移除/换代的成员。
-            const current = await services.remoteProjectService!.readDirectory();
-            return (
-              epoch === remoteProjectIntentEpoch.current &&
-              current.hosts.some(
-                (item) => item.id === host.id && item.membershipId === host.membershipId,
-              ) &&
-              current.entries.some(
-                (entry) =>
-                  entry.id === retained.id &&
-                  entry.hostId === host.id &&
-                  (entry.roots.some((root) => root.rootPath === path) ||
-                    entry.legacyWorkspace?.workspacePath === path),
-              )
-            );
-          },
-        });
-        return;
+        setRemoteConnectionOpenPreference(null);
       }
-      // 选目录只进入项目编辑，保存与入口登记完成之前不打开会话。
-      setRemoteProjectSelection({ host, path, sessionId });
     },
-    [
-      services.remoteProjectService,
-      services.projectService,
-      remoteConnectionOpenPreference,
-      remoteWorkspaceController,
-    ],
+    [remoteConnectionOpenPreference],
   );
-  const handleRemoteConnectionDialogOpenChange = useCallback((open: boolean) => {
-    const target =
-      deviceAdditionReturn.current?.completion === "delivered"
-        ? undefined
-        : deviceAdditionReturn.current?.target;
-    if (target?.isCurrent()) target.onVisibilityChange?.(open);
-    if (!open) remoteProjectIntentEpoch.current++;
-    setRemoteConnectionDialogOpen(open);
-  }, []);
-  const handleRemoteProjectIntentCleared = useCallback(() => {
-    // 改选新连接只清除原项目恢复意图；从设置进入仍须独立完成设备管理。
-    setRemoteConnectionOpenPreference((current) =>
-      current?.completion === "device-management"
-        ? { completion: "device-management", returnTarget: current.returnTarget }
-        : null,
-    );
-  }, []);
 
   const remoteConnectionDialog = allowRemoteWorkspace ? (
     <>
-      {remoteProjectSelection && services.projectService && services.remoteProjectService ? (
-        <RemoteProjectPicker
-          key={remoteProjectSelection.host.membershipId}
-          host={remoteProjectSelection.host}
-          initialRoots={[remoteProjectSelection.path]}
-          service={services.projectService}
-          remoteService={services.remoteProjectService}
-          onClose={() => {
-            remoteProjectIntentEpoch.current++;
-            const sessionId = remoteProjectSelection.sessionId;
-            setRemoteProjectSelection(null);
-            void handleCancelRemoteProject(sessionId).catch((error) =>
-              logger.warn("[Root] 释放项目创建 attachment 失败", error),
-            );
-          }}
-          onSaved={async () => {}}
-        />
-      ) : null}
       <SSHDialog
-        completion={remoteConnectionOpenPreference?.completion}
-        onCancelled={(background) => {
-          void finishDeviceAddition(
-            { kind: "cancelled", ...(background ? { background: true } : {}) },
-            background,
-          ).catch((error) => logger.warn("[Root] device addition cancellation failed", error));
-        }}
-        onDeviceConnected={async (sourceServerId, canDeliver) => {
-          if (await finishDeviceAddition({ kind: "connected", sourceServerId }, false, canDeliver))
-            return;
-          if (canDeliver?.() === false) return;
-          setPendingSettingsSectionIntent("remoteDevices", { sourceServerId });
-          tabStoreApi.getState().openSettingsTab();
-        }}
-        onConnect={handleConnectRemote}
-        onSelectProject={selectDirectoryForRemoteProject}
+        key={remoteConnectionDisplayGeneration}
+        onConnect={handleWizardConnect}
+        onSelectProject={handleWizardSelectProject}
         onCancelSession={handleCancelRemoteProject}
         localWorkspacePath={localWorkspacePathForRemoteConnection}
         isWindowsDesktop={isWindowsDesktop}
         remoteWorkspaceSessions={remoteWorkspaceSessions}
-        open={remoteConnectionDialogOpen && !remoteProjectSelection}
+        open={remoteConnectionDialogOpen && !remoteProjectCreation}
         onOpenChange={handleRemoteConnectionDialogOpenChange}
-        onProjectIntentCleared={handleRemoteProjectIntentCleared}
         onFlowActiveChange={setRemoteConnectionInProgress}
         onFlowRequestIdChange={setRemoteConnectionRequestId}
-        onFlowTargetChange={handleRemoteConnectionTargetChange}
-        openIntentId={remoteConnectionOpenIntentId}
-        initialFailure={remoteConnectionOpenPreference?.initialFailure}
         preferredKind={remoteConnectionOpenPreference?.preferredKind}
         preferredWslDistro={remoteConnectionOpenPreference?.preferredWslDistro}
-        preferredSourceServerId={remoteConnectionOpenPreference?.preferredSourceServerId}
-        preferredProfileId={remoteConnectionOpenPreference?.preferredProfileId}
-        preferredDirectoryPath={remoteConnectionOpenPreference?.preferredDirectoryPath}
-        preferredTarget={remoteConnectionOpenPreference?.preferredTarget}
         hideTriggerWhenClosed
       />
+      {remoteProjectCreation && services.projectService && services.remoteProjectService ? (
+        <ProjectConnectionPicker
+          host={remoteProjectCreation.host}
+          initialRoots={[remoteProjectCreation.path]}
+          service={services.projectService}
+          remoteService={services.remoteProjectService}
+          onClose={() => {
+            const selected = remoteProjectCreation;
+            if (remoteProjectCreationRef.current !== selected) return;
+            remoteProjectCreationRef.current = null;
+            setRemoteProjectCreation(null);
+            if (
+              selected.sessionId &&
+              !tabStoreApi
+                .getState()
+                .tabs.some(
+                  (tab) => isWorkspaceTab(tab) && tab.remoteSessionId === selected.sessionId,
+                )
+            )
+              void handleCancelRemoteProject(selected.sessionId);
+            if (selected.sessionId) {
+              setRemoteConnectionDialogOpen(false);
+              setRemoteConnectionInProgress(false);
+              setRemoteConnectionRequestId(null);
+              setRemoteConnectionDisplayGeneration((value) => value + 1);
+            }
+          }}
+          onSaved={async (selectionCurrent, project) => {
+            const selected = remoteProjectCreation;
+            const isCurrent = () =>
+              remoteProjectCreationRef.current === selected && selectionCurrent?.() !== false;
+            if (!isCurrent()) return;
+            if (!project) throw new Error("project.not-found");
+            const prepared = await services.projectService!.prepareSession({
+              hostId: selected.host.id,
+              projectId: project.id,
+            });
+            if (!isCurrent()) return;
+            await openPreparedRemoteProjectWorkspace({
+              ...prepared,
+              hostId: selected.host.id,
+              expectedMembershipId: selected.host.membershipId,
+              isCurrent,
+            });
+            if (!isCurrent()) return;
+            if (
+              selected.sessionId &&
+              !tabStoreApi
+                .getState()
+                .tabs.some(
+                  (tab) => isWorkspaceTab(tab) && tab.remoteSessionId === selected.sessionId,
+                )
+            )
+              void handleCancelRemoteProject(selected.sessionId).catch((cause) =>
+                logger.warn("[Root] 释放目录选择 attachment 失败", cause),
+              );
+            remoteProjectCreationRef.current = null;
+            setRemoteProjectCreation(null);
+            if (selected.sessionId) {
+              setRemoteConnectionDialogOpen(false);
+              setRemoteConnectionInProgress(false);
+              setRemoteConnectionRequestId(null);
+              setRemoteConnectionDisplayGeneration((value) => value + 1);
+            }
+          }}
+        />
+      ) : null}
     </>
   ) : null;
   const directoryBrowserDialog = directoryBrowserOpen ? (
@@ -1571,31 +1180,13 @@ function RootInner({
     previousRemoteConnectionInProgressRef.current = remoteConnectionInProgress;
   }, [remoteConnectionInProgress, resetRemoteConnectionLogs]);
 
-  // 修复原因：没有打开的项目时 Root 只渲染独立设置页，迁移向导没有挂载，数据同步页「迁移」点了没有反应。
-  // 两个分支共用同一个迁移向导节点；没有项目时 workspacePath 为空，用户级的项照常导入（见 useSettingsSync）。
-  const onboardingDialog = (
-    <ScopedErrorBoundary
-      scope="onboarding-dialog"
-      resetKeys={[workspaceShellIdentity?.trim() || workspaceShellPath]}
-      variant="silent"
-    >
-      <OnboardingDialog
-        workspacePath={workspaceShellPath || undefined}
-        workspaceIdentity={workspaceShellIdentity}
-        isDesktop={isDesktop}
-      />
-    </ScopedErrorBoundary>
-  );
-
   const settingsLayerProps = {
     sourceServerSettings,
     isDesktop,
     isMacDesktop,
     isWindowsDesktop,
-    isWebRemoteControl: Boolean(webRemoteControlWorkspaceSwitcher),
     captionWorkspacePath: activeWorkspacePath,
     onBack: activeWorkspacePath ? handleBackFromSettings : undefined,
-    onOpenTask: handleOpenTaskFromSettings,
     onCreateTask: handleCreateTask,
     onOpenWorkspace: handleOpenWorkspace,
     allowOpenWorkspace,
@@ -1603,19 +1194,14 @@ function RootInner({
     user,
   };
 
-  if (credentialRecovery.state) return <CredentialStoreRecovery recovery={credentialRecovery} />;
-
-  // 退出中阻断态复用启动画面：与重启后的启动画面视觉连续，且不渲染登录页或工作区。
-  if (isStartupRenderBlocked || isLogoutRelaunchPending) {
+  if (isStartupRenderBlocked) {
     const loadingLabel = intl.formatMessage({ id: "common.loading" });
     return (
       <RootShell>
         {rootModelSelectionErrorNode}
-
-        {requestSecurityBridgeNode}
         {remoteConnectionDialog}
         {directoryBrowserDialog}
-        {/* 修复原因：HTML 启动壳已经展示 ZCode SVG，但 React 接管 root 后旧壳会被整棵替换。
+        {/* HTML 启动壳已经展示 ZCode SVG，但 React 接管 root 后旧壳会被整棵替换。
             之前阻塞恢复 tab / 初始 workspace 注入时重新渲染纯文字“加载中...”，所以启动被拆成两套 loading。
             这里复用同一套 SVG 启动画面，只把文案保留到 aria-label，保证视觉始终连续且不牺牲可访问性。 */}
         <RootStartupLoading label={loadingLabel} />
@@ -1627,29 +1213,9 @@ function RootInner({
     return (
       <RootShell>
         {rootModelSelectionErrorNode}
-        {requestSecurityBridgeNode}
         {remoteConnectionDialog}
         {directoryBrowserDialog}
         <WelcomeScreen onComplete={handleWelcomeScreenComplete} />
-      </RootShell>
-    );
-  }
-
-  if (!workspaceShellPath && isSettingsTabActive) {
-    return (
-      <RootShell>
-        {rootModelSelectionErrorNode}
-        {remoteConnectionDialog}
-        {directoryBrowserDialog}
-        <ScopedErrorBoundary
-          scope="settings-page"
-          resetKeys={["settings-root"]}
-          variant="panel"
-          className="h-full"
-        >
-          <SettingsPage {...settingsLayerProps} />
-        </ScopedErrorBoundary>
-        {onboardingDialog}
       </RootShell>
     );
   }
@@ -1665,27 +1231,15 @@ function RootInner({
     return (
       <RootShell>
         {rootModelSelectionErrorNode}
-        {requestSecurityBridgeNode}
         {initialWorkspaceLoadingFallback}
         {directoryBrowserDialog}
       </RootShell>
     );
   }
 
-  if (!workspaceShellPath) {
-    return remoteConnectionDialogOpen || directoryBrowserOpen || rootModelSelectionErrorNode ? (
-      <RootShell>
-        {rootModelSelectionErrorNode}
-        {remoteConnectionDialogOpen ? remoteConnectionDialog : null}
-        {directoryBrowserDialog}
-      </RootShell>
-    ) : null;
-  }
-
   return (
     <RootShell>
       {rootModelSelectionErrorNode}
-      {requestSecurityBridgeNode}
       {remoteConnectionDialog}
       {directoryBrowserDialog}
       <OccupationOnboarding
@@ -1755,7 +1309,17 @@ function RootInner({
             supportsEmbeddedBrowser={supportsEmbeddedBrowser}
           />
         )}
-        {onboardingDialog}
+        <ScopedErrorBoundary
+          scope="onboarding-dialog"
+          resetKeys={[workspaceShellIdentity?.trim() || workspaceShellPath]}
+          variant="silent"
+        >
+          <OnboardingDialog
+            workspacePath={workspaceShellPath || undefined}
+            workspaceIdentity={workspaceShellIdentity}
+            isDesktop={isDesktop}
+          />
+        </ScopedErrorBoundary>
       </OccupationOnboarding>
     </RootShell>
   );

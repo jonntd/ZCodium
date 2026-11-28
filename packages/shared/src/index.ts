@@ -209,6 +209,7 @@ export {
   buildLocalMediaPreviewUrl,
   createOpenInEditorRemoteTarget,
   unwrapRemoteWorkspaceBindResult,
+  RemoteConnectionContext,
 } from "./platform.js";
 export type {
   ArmsCustomEventPayload,
