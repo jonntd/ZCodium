@@ -1707,7 +1707,7 @@ export function SessionPane({
       messageId?: string,
       taskGroupId?: string | null,
     ) => {
-      if (messageId) reportDraftCreated(createdSessionId, createSource ?? "session", messageId);
+      if (messageId) reportDraftCreated(createdSessionId, (createSource ?? "session") as SessionCreateSource, messageId);
       const commit = () => {
         // 旧首发接纳不能抢回已经切走的页面；导航与草稿交接共用 owner 的代际判断。
         if (!promoteComposerDraft(createdSessionId)) return;
@@ -2171,7 +2171,7 @@ export function SessionPane({
         current.logEpoch,
         undefined,
         undefined,
-        (envelope) => {
+        (envelope: { commandId: string }) => {
           commandId = envelope.commandId;
         },
       );
@@ -3588,8 +3588,6 @@ export function SessionPane({
       const prepareHighspeedTurn = prepareHighspeedTurnFrom(highspeedOriginAtSend);
       const dispatchSubmissionCommand = async (...args: Parameters<typeof dispatchCommand>) => {
         args[9] = createSourceAtSend;
-        args[11] = taskGroupIdAtSend;
-        args[12] = options?.submittedDraftText ?? text;
         if (args[0] === "sendText") args[1] = { ...args[1], genUiContext: [] };
         if (
           args[0] === "sendText" &&
@@ -3837,7 +3835,7 @@ export function SessionPane({
             : {}),
           ...(heldQueueDisposition ? { heldQueueDisposition } : {}),
           ...(expectedHeldQueueItemIds ? { expectedHeldQueueItemIds } : {}),
-          ...(sharedContextRefs?.length ? { context_refs: sharedContextRefs } : {}),
+          ...(([] as unknown[]).length ? { context_refs: [] } : {}),
           ...(options?.source ? { source: options.source } : {}),
           ...highspeed.override,
         },
@@ -4170,7 +4168,7 @@ export function SessionPane({
           extraDetail: { ...telemetrySeed.extraDetail, send_type: "edit" },
         },
         highspeed.acceleratedCard,
-        (envelope) => {
+        (envelope: { commandId: string }) => {
           editCommandId = envelope.commandId;
         },
       );

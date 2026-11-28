@@ -209,6 +209,8 @@ export interface ConversationRowRenderContext {
 }
 
 export interface ConversationFileChangesRequestOptions {
+  /** fork：文件撤销后的 revision（快照/缓存失效判断用）。 */
+  revertedRevision?: number;
   /**
    * 运行中 turn 的结果仍会随 projection revision 增长，只能复用进行中的请求；
    * 终态 turn 才允许在虚拟行复挂载后继续复用成功结果。
