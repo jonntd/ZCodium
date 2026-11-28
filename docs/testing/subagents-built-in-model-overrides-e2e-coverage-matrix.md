@@ -16,8 +16,8 @@
 | `SM` | `packages/desktop/test/e2e/start-plan-manual-claim-experience.test.ts`                                                                 |
 | `SE` | `packages/desktop/test/e2e/settings/agent/settings-subagent-create-edit-persistence.test.ts`                                           |
 | `SS` | `retired:packages/services/test/subagentsService.test.ts`                                                                              |
-| `SU` | `retired:packages/ui/test/subagentsSection.test.ts`                                                                                    |
-| `TC` | `retired:packages/ui/test/thoughtLevelCycleControlSelectionValue.test.ts`                                                              |
+| `SU` | `packages/ui/test/subagentsSection.test.ts`                                                                                    |
+| `TC` | `packages/ui/test/thoughtLevelCycleControlSelectionValue.test.ts`                                                              |
 | `SC` | `apps/zcode-cli/packages/core/tests/subagent-explore.test.ts`、`apps/zcode-cli/packages/core/tests/subagent-profile.test.ts`           |
 | `BT` | `apps/zcode-cli/packages/bootstrap/tests/subagents.test.ts`、`apps/zcode-cli/packages/bootstrap/tests/runtime-config.test.ts`          |
 | `RM` | `apps/zcode-cli/packages/bootstrap/tests/runtime-model-metadata.test.ts`                                                               |
@@ -28,7 +28,7 @@
 
 - BSM-18/SE-03：保留不可用选择但编辑触发器显示“选择模型”；不恢复旧候选、不写原文件。Pro `desktop-e2e-20260909-143258-266` SE-03通过。
 - 候选新鲜度：公共 `useModelSelectionServiceView` 首读/通知/重挂载；不恢复旧 Family/store 强刷。
-- 同 endpoint 的 Start/Individual/API Key 成员隔离：`retired:packages/provider/test/resolver.test.ts`；（retired: 为退役历史证据，不计现行覆盖。）
+- 同 endpoint 的 Start/Individual/API Key 成员隔离：`packages/provider/test/resolver.test.ts`；（retired: 为退役历史证据，不计现行覆盖。）
   该测试替代已删除的旧 modelProviderServiceStorage 归并测试，不恢复其旧数据源。
 
 ### Todo103 G04-B 插件覆盖接续验收

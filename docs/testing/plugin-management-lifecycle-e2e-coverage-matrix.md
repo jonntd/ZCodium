@@ -192,7 +192,7 @@ PLM-LC-018/019/020：`plugins/marketplace/plugin-localization-creator.test.ts`�
 
 官方创建器本地图标贯穿商店、`@` 候选、Composer 标签与 Session 消息投影。
 `plugin-picker-order.test.mjs` 的 `PLUGIN-CREATOR-ICON` 用例覆盖 catalog 无远端 icon 时打开候选并插入标签，
-1200/390、中英、深浅主题；Session 消息及个人市场同名隔离由 `retired:packages/ui/test/pluginCreatorMentionIcon.test.ts` 覆盖。（retired: 为退役历史证据，不计现行覆盖。）
+1200/390、中英、深浅主题；Session 消息及个人市场同名隔离由 `packages/ui/test/pluginCreatorMentionIcon.test.ts` 覆盖。（retired: 为退役历史证据，不计现行覆盖。）
 状态为 manual-review，不自动转正；不向真实模型发送测试消息。
 
 ## Agent 插件发现新增候选

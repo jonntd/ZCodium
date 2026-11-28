@@ -82,7 +82,7 @@ STF01–04 为 accepted，候选仍为 `ui-shell/navigation/sidebar-toggle-perfo
 - SPT-E2E-007：`packages/ui/test/browser/manual-review/pending/side-pane-plugin-menu.test.mjs`，空态 launcher + active new-tab launcher 使用真实 reducer 创建标签，覆盖鼠标、Tab/Enter、作用域与重复打开、安装/启用、草稿/无宿主门禁及冷加载；1200px/en-US/亮色与 390px/zh-CN/暗色。2026-10-14 自动浏览器 E2E 11/11 通过，其中 8 组以可控响应验证安装/启用进度仅归属目标插件、其他插件保留原文案、全局禁用、失败后换插件重试及成功后不自动打开。仍为 pending，未提升 CI admission，未声明插件沙箱或真实手机远控覆盖。
 - Logo 样式迁移：SPT-E2E-000 在 Windows/Linux 验证旧 28px 点击区域及位置、18px 底座、11px 静态 SVG、真实 hover 和点击收起/恢复 Sidebar。Windows 实测通过：`desktop-e2e-20261009065750634-p17396-21ed3ac7f4753068`，1/1；Linux 真机待补，平台条件由组件测试覆盖。
 
-- SPT-E2E-008：`packages/desktop/test/e2e/ui-shell/panels/side-pane-scope.test.ts`，覆盖对话隔离的关闭与恢复；2026-09-30 macOS Electron 1/1 通过（`desktop-e2e-20260930-063101-322`），保留 manual-review/pending。跨工作区及异步 authority 由 `retired:packages/ui/test/useAppPanelsScope.test.ts` 覆盖，归属类型由 `retired:packages/ui/test/workspaceSidePane.test.ts` 覆盖。未宣称 Windows/Linux 或手机实机验证。（retired: 为退役历史证据，不计现行覆盖。）
+- SPT-E2E-008：`packages/desktop/test/e2e/ui-shell/panels/side-pane-scope.test.ts`，覆盖对话隔离的关闭与恢复；2026-09-30 macOS Electron 1/1 通过（`desktop-e2e-20260930-063101-322`），保留 manual-review/pending。跨工作区及异步 authority 由 `retired:packages/ui/test/useAppPanelsScope.test.ts` 覆盖，归属类型由 `packages/ui/test/workspaceSidePane.test.ts` 覆盖。未宣称 Windows/Linux 或手机实机验证。（retired: 为退役历史证据，不计现行覆盖。）
 - 本轮小重构回归：552/552 相关单测；原侧栏交互 7 通过、1 非 macOS 窗口控件用例跳过（`desktop-e2e-20260930-062902-680`）；完整权限 22/22（`desktop-e2e-20260930-063214-472`）。根 typecheck、E2E typecheck、lint（63 个已有 warning）、architecture check 和变更代码格式检查通过。
 - 修复前证据：Hook 7/8 失败；旧构建 `desktop-e2e-20260930-061702-522` 在 B 关闭其他后找不到 A 设置 tab。快捷 Browser 入口遗漏工作区另有先红后绿的单测。运行报告与逐次日志：`packages/desktop/.e2e-artifacts/side-pane-scope-20260930/README.md`。
 
@@ -121,7 +121,7 @@ STF01–04 为 accepted，候选仍为 `ui-shell/navigation/sidebar-toggle-perfo
 ## 默认新标签页
 
 - SPT-E2E-009：`ui-shell/panels/side-pane-tabs-responsive-interactions.test.ts`，覆盖首次展开、工具替换、收起恢复、加号及最后一个标签关闭。
-- `retired:packages/ui/test/useAppPanelsBrowserViewLifecycle.test.ts` 覆盖真实 hook 的默认入口、工具替换和异步关闭。（retired: 为退役历史证据，不计现行覆盖。）
+- `packages/ui/test/useAppPanelsBrowserViewLifecycle.test.ts` 覆盖真实 hook 的默认入口、工具替换和异步关闭。（retired: 为退役历史证据，不计现行覆盖。）
 - macOS Electron 本轮 9 通过、1 平台条件跳过（Windows 菜单），含 SPT-E2E-009 与 SPT-E2E-000 深浅主题截图；run `desktop-e2e-20261016082511861-p45212-c004286dcc3d9c01`。手机实机、Windows/Linux 真机和卡顿归因未验证。
 
 2026-10-16 评审修复：SPT-E2E-009 定向通过（1/1），run `desktop-e2e-20261016-091135-357`。覆盖末标签关闭收起、再次展开补建、真实关闭菜单命令，以及后续关闭上下文事件不被 App 拦截；测试未实际关闭宿主窗口。受影响单测 79 文件、1320 条通过。此前整文件运行其余 8 条通过、1 条平台跳过；009 的菜单回调和动画等待问题在上述定向重跑中修正。手机实机、Windows/Linux 真机未新增验证。

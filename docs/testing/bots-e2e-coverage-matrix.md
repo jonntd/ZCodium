@@ -173,7 +173,7 @@ card-control scenarios, Lark, physical mobile remote control and
 Windows/Linux remain unverified. TP-02 stays pending.
 
 The 2026-09-08 evidence-update pre-push attempt stopped with `ENOSPC` while loading
-`retired:packages/services/test/zcodeAgentService.v4.test.ts` (22 files / 339 tests passed before the failed suite;（retired: 为退役历史证据，不计现行覆盖。）
+`packages/services/test/zcodeAgentService.v4.test.ts` (22 files / 339 tests passed before the failed suite;（retired: 为退役历史证据，不计现行覆盖。）
 no tests ran in that suite). Only about 159 MiB remained on the system volume.
 This is an environment failure, not a passing gate or a confirmed implementation
 regression. After disk space recovered to 12 GiB, the complete
@@ -245,7 +245,7 @@ BOT-E2E-SR87 位于 `bots/runtime/bot-effective-selection.test.ts`；synthetic�
 - 其余 5 个用例分别使用 `fixtures/bots/` 下同语义命名的 case-local synthetic metadata；所有 fixture 都声明 `syntheticReason` 与 timing 分类。
 - 分类为 `synthetic`，原因：外部 provider replay 只能提供模型 SSE，不能稳定控制 Bot 消费 task event 的逐步观察窗口；该夹具明确生成确定性的 ZCode stream events。
 - Mock Feishu API 必须记录请求而不是只返回成功，以请求次数、URL、method、reaction id 和 Card JSON 作为证据。
-- `bot-automation-result-delivery` 记录 mock Feishu 请求，并用受控 task stream 证明 scheduler 监听早于 prompt 派发；不允许用固定 sleep 代替事件闸门。Weixin `/sendmessage` 由 `retired:packages/services/test/botsService.messageFlow.test.ts` 的共享 watcher/provider service integration test 覆盖，不虚报为 Desktop E2E。（retired: 为退役历史证据，不计现行覆盖。）
+- `bot-automation-result-delivery` 记录 mock Feishu 请求，并用受控 task stream 证明 scheduler 监听早于 prompt 派发；不允许用固定 sleep 代替事件闸门。Weixin `/sendmessage` 由 `packages/services/test/botsService.messageFlow.test.ts` 的共享 watcher/provider service integration test 覆盖，不虚报为 Desktop E2E。（retired: 为退役历史证据，不计现行覆盖。）
 - 用例已通过人工 review 并移出 `manual-review/pending/`；Bot 域当前没有独立 Docker preset，默认 Desktop WDIO 是正式执行入口。
 - CF-01 使用 case-local synthetic metadata；缺失 credential 只用于确定性触发 runtime error，`syntheticReason` 必须说明它替代真实飞书故障注入；该用例已通过 Desktop 人工验收。
 
@@ -672,7 +672,7 @@ worker heap exhaustion; both files passed in isolation (79 tests). The full
 
 继续发送 /stop 前 Mac 锁屏，Computer Use 返回无法自动解锁；未将尚未确认发送的停止命令记为成功。历史文件下载、最终字段回复及最终表情归属仍需解锁并重启新代码后重测，不能用单测或先前 Host 下载哈希验证替代端到端结果。
 
-本地检查：当前资源桥、资源授权、附件上传与 task adapter 共 122 条测试通过，根目录 typecheck、lint 通过（lint 43 个 warning）。本轮完整 pre-push 曾在 `retired:packages/ui/test/subagentsSection.test.ts` 的保存后刷新失败场景失败，单独重跑该场景通过，尚未取得新一轮完整 pre-push 成功。扩展 Agent 全量测试仍有 CUA、文件行数及外部 conformance 路径等失败；未宣称全量通过。当前修改暂未提交，远程 Host 转发、真实手机和 Lark 仍待验证／实现。（retired: 为退役历史证据，不计现行覆盖。）
+本地检查：当前资源桥、资源授权、附件上传与 task adapter 共 122 条测试通过，根目录 typecheck、lint 通过（lint 43 个 warning）。本轮完整 pre-push 曾在 `packages/ui/test/subagentsSection.test.ts` 的保存后刷新失败场景失败，单独重跑该场景通过，尚未取得新一轮完整 pre-push 成功。扩展 Agent 全量测试仍有 CUA、文件行数及外部 conformance 路径等失败；未宣称全量通过。当前修改暂未提交，远程 Host 转发、真实手机和 Lark 仍待验证／实现。（retired: 为退役历史证据，不计现行覆盖。）
 
 ### 2026-09-08 后续代码与受控远程链路检查
 
@@ -772,7 +772,7 @@ Desktop 与手机远控分别验证（窄 Desktop 不代替手机）；窄屏机
 ## BOT-UI-TP-PREPARATION：准备态消息气泡
 
 - 候选：`packages/ui/test/browser/manual-review/pending/topic-preparation.test.mjs`，同目录 case-local fixture。
-- 单测：`retired:packages/ui/test/v4BotTopicPreparation.test.ts`；覆盖原始消息 ID 去重、合批 ID、同正文不同 ID 保留、空白正文无气泡、来源行加载图标及 hover/focus tooltip。（retired: 为退役历史证据，不计现行覆盖。）
+- 单测：`packages/ui/test/v4BotTopicPreparation.test.ts`；覆盖原始消息 ID 去重、合批 ID、同正文不同 ID 保留、空白正文无气泡、来源行加载图标及 hover/focus tooltip。（retired: 为退役历史证据，不计现行覆盖。）
 - 浏览器：桌面/手机宽度 × 中英文 × 深浅主题，真实组件和样式；准备、等待、失败移除及接收重叠；正文沿用正式消息折叠/展开，loading 位于渠道/姓名旁。
 - 真实 Desktop/手机远控/飞书 E2E 待验证，不将窄屏 Chrome 计为真实手机验收。
 
