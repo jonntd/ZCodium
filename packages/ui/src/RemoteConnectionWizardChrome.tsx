@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { RemoteConnectionKindTag } from "@/remote-connection/RemoteConnectionTags.js";
 
-export type RemoteWizardStep = "device" | "settings" | "connecting" | "directory";
+export type RemoteWizardStep = "kind" | "device" | "settings" | "connecting" | "directory";
 
 /** 表单屏头部的实时预览：target 为空时显示该类型的占位。 */
 export interface RemoteSettingsPreview {
