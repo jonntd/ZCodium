@@ -21,21 +21,18 @@ import {
   useDynamicWorkflowUserModeSync,
 } from "@/hooks/useDynamicWorkflowAvailability.js";
 import { DirectoryBrowser } from "@/DirectoryBrowser.js";
-import {
-  attachRemoteProjectWorkspace,
-  resolveEntryProject,
-  useRemoteWorkspaceConnectionGate,
-  useWebRemoteControlRendererActions,
-} from "@/project-sidebar/index.js";
 import { useTabPersistence, type WorkspacePersistenceGate } from "@/hooks/useTabPersistence.js";
 import { useTokenRefresh } from "@/hooks/useTokenRefresh.js";
 import { useWorkspaceServices } from "@/hooks/useWorkspaceServices.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { SSHDialog } from "@/SSHDialog.js";
 import {
-  ProjectDirectoryProvider,
   attachRemoteProjectWorkspace,
   ProjectConnectionPicker,
+  ProjectDirectoryProvider,
+  resolveEntryProject,
+  useRemoteWorkspaceConnectionGate,
+  useWebRemoteControlRendererActions,
 } from "@/project-sidebar/index.js";
 import type { RemoteProjectHost } from "@zcode/services";
 import type { CreateTaskOptions, RemoteConnectionOpenPreference } from "@/app-shell/types.js";
