@@ -125,12 +125,9 @@ import { ConversationSelectionReferenceChip } from "@/v4/composer/ConversationSe
 import { PptxElementReferenceChip } from "@/v4/composer/PptxElementReferenceChip.js";
 import { useOpenPptxElementReference } from "@/v4/composer/useOpenPptxElementReference.js";
 import { ConversationFileRewindDialog } from "@/v4/ConversationFileRewindDialog.js";
-import { ConversationUserInputBubble } from "@/v4/ConversationUserInputBubble.js";
 import { splitUserInputEpilogue } from "@/v4/ConversationUserInputEpilogue.js";
 import { BotGroupSourceLabel } from "@/v4/BotGroupSourceLabel.js";
-import { expandTopicInputMessages } from "@/v4/topicInputMessages.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
-import { ConnectedBotGroupDeliveryAction } from "@/v4/BotGroupDeliveryAction.js";
 import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";

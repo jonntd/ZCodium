@@ -7,7 +7,10 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog.js";
 import { useSessionRuntimeRestart } from "@/app-shell/useWorkspaceSessionReload.js";
 import { isRequestVerificationConfigNetworkError } from "@/request-security-edition/errors.js";
 import { useShallow } from "zustand/react/shallow";
-import { remoteHostIdFromWorkspaceIdentity } from "@zcode/shared";
+import {
+  remoteHostIdFromWorkspaceIdentity,
+  type HighspeedCardSnapshot,
+} from "@zcode/shared";
 import { useRemoteConversationAvailable } from "@/v4/RemoteConversationAvailability.js";
 import {
   createRemoteWorkspaceDisconnectedError,
@@ -16,7 +19,13 @@ import {
 import { resolveSelectionSideInheritedModel } from "@/lib/selectionSideInheritedModel.js";
 import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
 import { useStartPlanRecommendation } from "@/hooks/useStartPlanRecommendation.js";
-import type { SessionCreateSource } from "@zcode/shared";
+import type {
+  GitChangeSourceId,
+  GitRepositorySummary,
+  SessionCreateSource,
+  ZCodeProvider,
+  ZCodeTaskChangeSummary,
+} from "@zcode/shared";
 /* oxlint-disable eslint(max-lines) -- SessionPane 是单 pane 竖切的命令编排收口（订阅/发送/停止/fork/edit/retry/queue/slash 全集），与旧 ChatView 同粒度；HEAD 已超限（693 行计数），拆散命令组会打散 dispatchCommand/snapshotRef 的闭包纪律。 */
 import { useOptionalProjectDirectoryActions } from "@/project-sidebar/index.js";
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
@@ -77,7 +86,6 @@ import {
 } from "@/lib/zcodeCustomModelValue.js";
 import { parseModelPickerValue } from "@/lib/zcodeSessionProjection.js";
 import { prepareComposerRecentReceipt } from "@/lib/composerRecent.js";
-import { useComposerClientNamespace } from "@/hooks/useServices.js";
 import {
   readPendingTaskDraft,
   resolveComposerScope,
@@ -102,11 +110,66 @@ import {
 import { useDraftSessionPrewarm } from "@/v4/composer/useDraftSessionPrewarm.js";
 import { projectSessionConfigToTaskConfigOptions } from "@/v4/composer/sessionConfigTaskCache.js";
 import { useDraftRuntimeRebuildGate } from "@/v4/composer/useDraftRuntimeRebuildGate.js";
+import {
+  claimHighspeedCardAutoShare,
+  claimHighspeedHealthyAttempt,
+  completeHighspeedTurn,
+  discardHighspeedTurn,
+  getHighspeedCardTps,
+  getHighspeedSessionDependencies,
+  hydrateHighspeedTurnsFromTranscript,
+  listExpiredHighspeedCardsAwaitingTps,
+  listHighspeedCardAutoShareCandidates,
+  listHighspeedTurnsAwaitingMetricsPersistence,
+  markHighspeedCardAutoShared,
+  markHighspeedTurnMetricsPersisted,
+  releaseHighspeedHealthyAttempt,
+  resetHighspeedHealthyAttempts,
+  resolveNextHighspeedAutoShareAt,
+  setHighspeedCardTps,
+  subscribeHighspeedTurns,
+} from "@/highspeed/highspeedTurnStore.js";
+import {
+  findTurnHeaderBySourceCommandId,
+  findUserInputBySourceCommandId,
+  listHighspeedInputRows,
+} from "@/highspeed/highspeedConversationRows.js";
+import {
+  HIGHSPEED_SEND_WAIT_BUDGET_MS,
+  type HighspeedSendContext,
+  type HighspeedTurnPreparer,
+  resolveHighspeedPrepareSelection,
+} from "@/highspeed/highspeedSend.js";
+import { buildHighspeedShareNotice } from "@/highspeed/highspeedShare.js";
+import { calculateHighspeedSavedDurationFromMetrics } from "@/highspeed/highspeedSavedTime.js";
+import { claimHighspeedFallbackToast } from "@/highspeed/highspeedToastClaims.js";
+import {
+  collectHighspeedCardShareBlockers,
+  listHighspeedCardsAwaitingAutoShare,
+} from "@/highspeed/highspeedShareDiagnostics.js";
+// fork：判断当前窗口用户行里是否有插件引用卡/引用块（插件引用图标可见性门）。
+function hasPluginReferenceUserRows(rows: readonly unknown[]): boolean {
+  return rows.some((row) => {
+    const record = row as { userRows?: Array<{ reference?: unknown; pluginId?: unknown }> } | null;
+    if (!record?.userRows) return false;
+    return record.userRows.some((entry) => Boolean(entry?.reference) || Boolean(entry?.pluginId));
+  });
+}
+
+// fork：同一失败键的作废请求只放行一次（乐观 UI 防抖），SessionPane 本地会话级去重。
+const claimedHighspeedInvalidationKeys = new Set<string>();
+function claimHighspeedCardInvalidation(failureKey: string): boolean {
+  if (claimedHighspeedInvalidationKeys.has(failureKey)) return false;
+  claimedHighspeedInvalidationKeys.add(failureKey);
+  return true;
+}
+function releaseHighspeedCardInvalidation(failureKey: string): void {
+  claimedHighspeedInvalidationKeys.delete(failureKey);
+}
 import { useDraftModelReadinessGate } from "@/v4/composer/useDraftModelReadinessGate.js";
 import { useSettings } from "@/hooks/useSettingService.js";
 import { useZCodeStoreWithDefault } from "@/store/StoreProvider.js";
 import { useZCodeSessionStore } from "@/store/zcodeSessionStore.js";
-import type { GroupedDraftTaskState } from "@/store/zcodeSessionStoreTypes.js";
 import {
   ConversationComposer,
   type ConversationComposerSendOptions,
@@ -128,7 +191,6 @@ import {
   useQueueConfigApplyPrompt,
 } from "@/composer-edit-mode/index.js";
 import { ConversationFileRewindDialog } from "@/v4/ConversationFileRewindDialog.js";
-import { useConversationPanePresentation } from "@/side-pane-full-view/index.js";
 import { ConversationDraftEmptyState } from "@/v4/ConversationDraftEmptyState.js";
 import { ConversationDraftSuggestedPromptsContainer } from "@/v4/ConversationDraftSuggestedPromptsContainer.js";
 import {
@@ -222,7 +284,6 @@ import { isProviderNotReadyError } from "@/lib/chatPrepareError.js";
 import { useOptionalCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
 import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
-import { useIsMobileTextInputViewport } from "@/lib/mobileTextInput.js";
 import type {
   OpenPlanDetailSideTabRequest,
   OpenScopedPlanDetailSideTabRequest,
@@ -611,6 +672,8 @@ export function SessionPane({
     modelSelectionService,
     zcodeSessionService,
     zcodeTaskService,
+    highspeedCardService,
+    oauthService,
   } = useServices();
   const { intl } = useZCodeIntl();
   const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
