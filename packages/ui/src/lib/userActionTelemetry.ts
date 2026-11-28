@@ -50,3 +50,19 @@ export async function runUserActionAsync<T>(options: {
     throw error;
   }
 }
+
+export interface RendererUserActionTelemetry {
+  featureId: string;
+  action: string;
+  trigger: string;
+}
+
+let _userActionTelemetry: RendererUserActionTelemetry | null = null;
+
+export function setUserActionTelemetry(telemetry: RendererUserActionTelemetry | null): void {
+  _userActionTelemetry = telemetry;
+}
+
+export function startUserAction(input: { featureId: string; action: string; trigger: string }): void {
+  logger.debug("[user-action] start", input);
+}

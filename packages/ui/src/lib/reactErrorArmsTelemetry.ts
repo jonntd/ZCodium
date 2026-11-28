@@ -11,3 +11,5 @@ export function reportReactErrorToArms(
 ): void {
   logger.error("[react-error]", error, context ?? {});
 }
+
+export function setReactErrorArmsReporter(_reporter: unknown): void {}

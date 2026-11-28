@@ -10,3 +10,22 @@ export const SettingsUserActionFeatureId = {
 } as const;
 
 export type SettingsUserActionFeatureId = string;
+
+export const CORE_USER_ACTION_FEATURES = [
+  "settings",
+  "model-provider",
+  "terminal",
+  "search",
+] as const;
+
+export const SETTINGS_USER_ACTION_FEATURES = [
+  "settings.terminal",
+  "settings.search",
+  "settings.theme",
+  "settings.locale",
+] as const;
+
+export const USER_ACTION_CATALOG = {
+  ...CORE_USER_ACTION_FEATURES,
+  ...SETTINGS_USER_ACTION_FEATURES,
+};
