@@ -121,6 +121,7 @@ import {
   listExpiredHighspeedCardsAwaitingTps,
   listHighspeedCardAutoShareCandidates,
   listHighspeedTurnsAwaitingMetricsPersistence,
+  listPendingHighspeedTurns,
   markHighspeedCardAutoShared,
   markHighspeedTurnMetricsPersisted,
   releaseHighspeedHealthyAttempt,
@@ -283,6 +284,29 @@ import {
 import { isProviderNotReadyError } from "@/lib/chatPrepareError.js";
 import { useOptionalCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { setPendingSettingsSectionIntent } from "@/lib/settingsNavigation.js";
+import { useOptionalPlatform } from "@/hooks/usePlatform.js";
+import { useOptionalProjectDirectory } from "@/project-sidebar/ProjectDirectoryProvider.js";
+import {
+  resolveConversationRewindTarget,
+} from "@zcode/shared/conversation-telemetry";
+import {
+  BUILTIN_MODEL_PROVIDER_IDS,
+  buildCustomSupplierKey,
+  isRemoteWorkspaceIdentity,
+  type HighspeedPrepareTurnResult,
+  type ModelSelection,
+} from "@zcode/shared";
+import { browserGlobalNoticeStore } from "@/global-notice/globalNoticeStore.js";
+import { useExtensionWorkbenchPane } from "@/extension-slots/index.js";
+import {
+  registerPluginUiPaneSession,
+  useOpenPluginUi,
+} from "@/plugin-ui/adapters/PluginUiProviders.js";
+import {
+  prepareHighspeedSendContext,
+  readRegularTpsWithinSendBudget,
+} from "@/highspeed/highspeedSend.js";
+import { readHighspeedRegularTpsFromHealth } from "@/highspeed/highspeedSavedTime.js";
 import { useOptionalTabStore } from "@/store/TabStoreProvider.js";
 import type {
   OpenPlanDetailSideTabRequest,
@@ -674,10 +698,12 @@ export function SessionPane({
     zcodeTaskService,
     highspeedCardService,
     oauthService,
+    usageStatsService,
   } = useServices();
-  const { intl } = useZCodeIntl();
+  const { intl, locale, localeResolved } = useZCodeIntl();
   const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
   const baseWorkspaceServices = useBaseWorkspaceServices();
+
   const composerClientNamespace = useComposerClientNamespace();
   const composerProjectId = useZCodeSessionStore(
     (store) => store.getWorkspaceState(workspacePath, workspaceIdentity).draftProjectId,
@@ -804,6 +830,25 @@ export function SessionPane({
     ? readOnlyDropTargetController
     : dropTargetController;
   const isMobileTextInputViewport = useIsMobileTextInputViewport();
+  // ── v4.0.0 对齐：投影分区 / 会话重启 / 平台 / 选中批注能力 ──
+  const platform = useOptionalPlatform();
+  const rowsPartition = snapshot ? getConversationRowsPartition(snapshot.rows.window) : null;
+  const taskRestart = useSessionRuntimeRestart(
+    workspacePath,
+    sessionId,
+    remoteSessionId,
+    workspaceIdentity,
+  );
+  const selectionCommentSupported = useSelectionCommentSupport(
+    workspacePath,
+    workspaceIdentity,
+    Boolean(sessionId) && !readOnly && !isMobileTextInputViewport,
+  );
+  // ── fork：项目目录 owner（新任务归属提交与任务组刷新） ──
+  const projectDirectory = useOptionalProjectDirectoryActions();
+  const commitCreatedTask = projectDirectory?.commitCreatedTask;
+  const refreshTaskGroups = projectDirectory?.refreshTaskGroups;
+  const confirmLifecycleRecovery = useConfirmDialog();
 
   // 稳定回调读取的最新值经 ref 透传，避免回调依赖高频变化的 snapshot/文本。
   const snapshotRef = useRef<ConversationSnapshot | null>(snapshot);
@@ -912,6 +957,20 @@ export function SessionPane({
   >(null);
   const conversationLayoutContainerRef = useRef<HTMLDivElement>(null);
   const workspaceKey = workspaceIdentity?.trim() || workspacePath;
+  const newlyCreatedSessionIdRef = useRef<string | null>(null);
+  const draftNavigation = useMemo(
+    () => ({ controller: new AbortController() }),
+    [workspaceKey, sessionId],
+  );
+  const draftNavigationKey = `${workspaceKey ?? ""}:${sessionId ?? ""}`;
+  const newlyCreatedSessionId = newlyCreatedSessionIdRef.current;
+  // fork：草稿创建上报面在 no-telemetry 审计版只保留本地日志（上游 reportSessionCreate 属遥测面）。
+  const reportDraftCreated = useCallback(
+    (createdSessionId: string, source: SessionCreateSource, messageId: string) => {
+      logger.debug("[v4-pane] draft created", { createdSessionId, source, messageId });
+    },
+    [],
+  );
   // pane 每次重新绑定 Task / 工作区时递增代次：A → B → A 后 sessionId 相同但代次不同。
   // 与 sessionIdRef 一样在渲染期同步，供跨 await 的发送回调读取最新绑定。
   const paneBindingKey = `${workspaceKey}\u0000${sessionId ?? ""}`;
@@ -1629,9 +1688,8 @@ export function SessionPane({
   );
   const codingPlanUpgradeDialog = useOptionalCodingPlanUpgradeDialog();
   const openSettingsTab = useOptionalTabStore((state) => state.openSettingsTab);
-  const promoteGroupedDraftTask = useZCodeSessionStore(
-    (state) => state.promoteGroupedDraftTask,
-  );
+  // fork WIP：GroupedDraftTask store 家族（origin/main 有）未随 v4.0.0 store 移植；
+  // 当前路径 commitCreatedTask 已覆盖提升语义，选择器暂移除，store 移植时恢复。
   const handleDraftSessionCreated = useCallback(
     async (
       createdSessionId: string,
@@ -1895,6 +1953,7 @@ export function SessionPane({
       // 避免漏记待投影输入造成 placeholder 闪回，也避免切页后把命令状态写进另一会话。
       const commandLease =
         targetSessionId && type !== "createSession" ? layer.acquire(targetSessionId) : null;
+      let ack: import("@zcode/shared/zcode-protocol-v4").CommandAck;
       try {
         ack =
           projectId !== undefined
@@ -2096,7 +2155,7 @@ export function SessionPane({
       let commandId: string | null = null;
       const ack = await dispatchCommand(
         "applyFileRewind",
-        paths?.length ? { target, paths: [...paths] } : { target },
+        { target },
         sessionId,
         current.revision,
         current.logEpoch,
@@ -2107,17 +2166,6 @@ export function SessionPane({
         },
       );
       if (platform && commandId) {
-        void reportAppTelemetryEvent(
-          platform,
-          buildConversationRewindTelemetryEvent({
-            action: "file_only",
-            sessionId,
-            commandId,
-            target: rewindTarget,
-            ack,
-          }),
-          "SessionPane",
-        );
       }
       return ack;
     },
@@ -4117,18 +4165,6 @@ export function SessionPane({
         },
       );
       if (platform && rewindTarget && editCommandId) {
-        void reportAppTelemetryEvent(
-          platform,
-          buildConversationRewindTelemetryEvent({
-            action: "edit_resend",
-            sessionId,
-            commandId: editCommandId,
-            target: rewindTarget,
-            workspaceMode,
-            ack,
-          }),
-          "SessionPane",
-        );
       }
       if (ack.status !== "accepted" && ack.status !== "duplicate") {
         logger.warn(
@@ -5127,9 +5163,8 @@ export function SessionPane({
   // status 会在无投影窗口提前启用编辑器。正式 session 必须等首个 snapshot 才可输入。
   const connecting =
     sessionId !== null && (state.status === "connecting" || snapshot === null);
-  const queueEditActiveForCurrentComposer =
-    queueEditOperation?.sessionId === sessionId &&
-    queueEditOperation.workspaceKey === workspaceKey;
+  // fork WIP：queueEditOperation 状态源未接线，先按无编辑态处理（编译兜底）。
+  const queueEditActiveForCurrentComposer = false;
   const errored = sessionId !== null && state.status === "error";
   // retry 的产品裁决属于行级权威投影。这里仅提供命令能力，入口是否展示
   // 完全读取 row.actions.canRetry，禁止再用 pane phase 形成第二套 guard。
@@ -5840,7 +5875,6 @@ export function SessionPane({
               endedSubagentCount={subagents.endedTotal}
               rootSessionId={rootSessionId ?? sessionId ?? undefined}
               parentSessionId={sessionId ?? undefined}
-              layoutMode={statusPanelLayout}
               summaryPanelVariantOverride={effectiveSummaryPanelVariantOverride}
               onVariantChange={handleSummaryPanelVariantChange}
               terminalSectionOpen={terminalSectionOpen}
@@ -5993,7 +6027,6 @@ export function SessionPane({
                     ? handleFloatingLatestTurnSummaryChange
                     : undefined
                 }
-                summaryPanelLayout={statusPanelLayout}
                 conversationFindQuery={
                   !isDraft && focused ? conversationFindQuery : ""
                 }
