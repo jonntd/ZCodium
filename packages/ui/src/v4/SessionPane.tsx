@@ -376,6 +376,7 @@ export interface SessionPaneProps {
   allowEscapeStopOutsidePane?: boolean;
   /** fork：会话面板打开来源（分组列表/搜索/远控等）。 */
   openTrigger?: string;
+  telemetryVisible?: boolean;
   provider?: ZCodeProvider;
   onSessionCreated?: (sessionId: string, origin?: "draft-promotion") => void;
   /** deleteSession：删除当前会话后回到 draft（shell 起新草稿）。 */
