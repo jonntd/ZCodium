@@ -5,6 +5,7 @@ import { logger } from "@/logger.js";
 import type { WorkspaceSettingsLayerProps } from "@/root/types.js";
 
 export function WorkspaceSettingsLayer({
+  sourceServerSettings,
   workspaceScopedServices,
   isDesktop,
   isMacDesktop,
@@ -13,12 +14,9 @@ export function WorkspaceSettingsLayer({
   windowsWindowControlsRightPaddingPx,
   captionWorkspacePath,
   onBack,
-  onOpenTask,
   onCreateTask,
   onOpenWorkspace,
-  onOpenRemoteWorkspace,
   allowOpenWorkspace,
-  onLogin,
   onLogout,
   user,
 }: WorkspaceSettingsLayerProps) {
@@ -34,6 +32,7 @@ export function WorkspaceSettingsLayer({
       {workspaceScopedServices ? (
         <ServiceProvider services={workspaceScopedServices}>
           <SettingsPage
+            sourceServerSettings={sourceServerSettings}
             isDesktop={isDesktop}
             isMacDesktop={isMacDesktop}
             isWindowsDesktop={isWindowsDesktop}
@@ -41,18 +40,16 @@ export function WorkspaceSettingsLayer({
             windowsWindowControlsRightPaddingPx={windowsWindowControlsRightPaddingPx}
             captionWorkspacePath={captionWorkspacePath}
             onBack={onBack}
-            onOpenTask={onOpenTask}
             onCreateTask={onCreateTask}
             onOpenWorkspace={onOpenWorkspace}
-            onOpenRemoteWorkspace={onOpenRemoteWorkspace}
             allowOpenWorkspace={allowOpenWorkspace}
-            onLogin={onLogin}
             onLogout={onLogout}
             user={user}
           />
         </ServiceProvider>
       ) : (
         <SettingsPage
+          sourceServerSettings={sourceServerSettings}
           isDesktop={isDesktop}
           isMacDesktop={isMacDesktop}
           isWindowsDesktop={isWindowsDesktop}
@@ -60,12 +57,9 @@ export function WorkspaceSettingsLayer({
           windowsWindowControlsRightPaddingPx={windowsWindowControlsRightPaddingPx}
           captionWorkspacePath={captionWorkspacePath}
           onBack={onBack}
-          onOpenTask={onOpenTask}
           onCreateTask={onCreateTask}
           onOpenWorkspace={onOpenWorkspace}
-          onOpenRemoteWorkspace={onOpenRemoteWorkspace}
           allowOpenWorkspace={allowOpenWorkspace}
-          onLogin={onLogin}
           onLogout={onLogout}
           user={user}
         />

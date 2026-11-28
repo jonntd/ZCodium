@@ -18,10 +18,7 @@ import { applyTaskQueryCacheMutation } from "@/store/taskQueryCacheStore.js";
 import { removeTaskFromTaskCaches } from "@/lib/taskListMetaSync.js";
 import { TaskListRemoteSyncHint } from "@/TaskListRemoteSyncHint.js";
 import { TaskListLoadingHint } from "@/TaskListLoadingHint.js";
-import {
-  buildWorkspaceServiceLookup,
-  resolveTaskWorkspaceServices,
-} from "@/lib/workspaceServiceResolver.js";
+import { buildWorkspaceServiceLookup } from "@/lib/workspaceServiceResolver.js";
 import { DeleteAllArchivedTasksButton } from "@/DeleteAllArchivedTasksButton.js";
 
 export function WorkspaceArchivedTasksFlatSection({
@@ -125,10 +122,8 @@ export function WorkspaceArchivedTasksFlatSection({
       ) : null}
       <ul className="space-y-1 pb-4">
         {items.map((task) => {
-          const workspaceServices = resolveTaskWorkspaceServices(
-            task,
-            workspaceServiceLookup,
-            baseServices,
+          const workspaceServices = workspaceServiceLookup.get(
+            buildTaskWorkspaceKey(task.workspacePath, task.workspaceIdentity),
           );
           if (!workspaceServices) {
             return null;
