@@ -374,6 +374,8 @@ export interface SessionPaneProps {
   compactForRemoteControl?: boolean;
   /** fork WIP：Escape 关停是否覆盖 pane 外焦点（默认 false）。 */
   allowEscapeStopOutsidePane?: boolean;
+  summaryPanelVariantOverride?: unknown;
+  onSummaryPanelVariantOverrideChange?: (variant: unknown) => void;
   /** fork：会话面板打开来源（分组列表/搜索/远控等）。 */
   openTrigger?: string;
   telemetryVisible?: boolean;
