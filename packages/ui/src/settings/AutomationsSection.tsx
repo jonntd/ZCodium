@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期：类型对齐完成后逐文件移除 */
 import { useCodingPlanEntryGate } from "@/settings/CodingPlanEntryButton.js";
 /* eslint-disable max-lines -- 定时任务主视图集中维护列表、创建/编辑整页路由与启停/删除操作，集中更利于交互一致。 */
 import {

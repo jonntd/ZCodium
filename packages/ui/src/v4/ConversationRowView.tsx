@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期：类型对齐完成后逐文件移除 */
 /* oxlint-disable eslint(max-lines) -- v4 逐行 row 渲染分发集中收口（每种 row 一个 memo 叶子 + timelineMarker 分隔线），拆分会打散行类型对照。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import {

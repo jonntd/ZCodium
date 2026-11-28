@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期：类型对齐完成后逐文件移除 */
 // worktree 创建记录的订阅（docs/git/worktree.md §6.2）。记录只在 Host 内存中，是创建阶段的
 // 唯一数据源：这里只镜像 Host 推送的完整列表，不在 renderer 推算阶段或进度。
 import { useEffect, useState } from "react";

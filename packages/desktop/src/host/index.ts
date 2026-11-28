@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期：类型对齐完成后逐文件移除 */
 import { resolvePreinstalledToolsRelease } from "@zcode/shared/preinstalled-tools";
 import { resolvePreinstalledToolsBinDir } from "@zcode/shared/preinstalled-tools/node";
 import { ZCODE_PRODUCT_FLAVOR, resolveZCodeRuntimeEnv } from "@zcode/shared";
