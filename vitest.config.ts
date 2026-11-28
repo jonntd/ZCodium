@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 import { configDefaults, defineConfig } from "vitest/config";
+// v4.0.0 合并：工程测试用明确清单驱动（v4 的 test:engineering:affected 过滤 engineering 项目）。
+import engineeringTestFiles from "./scripts/engineering-test-files.json";
 
 const processLifecycleTests = [
   "packages/services/test/processTreeTerminator.test.ts",
@@ -115,6 +117,10 @@ export default defineConfig({
       // 默认配置 glob 的尾部 /** 在当前版本不能匹配部分配置文件，补充文件模式。
       "**/{vitest,vite}.config.*",
       "**/vitest.setup.ts",
+      // v4.0.0 合并：engineering 清单变化必须触发工程套件全选（globstar 不匹配隐藏目录，用绝对路径）。
+      ...["package.json", "vitest.config.ts", "vitest.setup.ts", "scripts/engineering-test-files.json"].map(
+        (file) => resolve(__dirname, file),
+      ),
     ],
     // 修复原因：全量 run 的 stdout 会把**通过**测试里的 console 输出一并转发——services 层
     // 用 createServiceLogger 的用例在绿态下也要刷几千行多行日志，全量输出因此膨胀到
@@ -157,6 +163,8 @@ export default defineConfig({
             "packages/zcode-cua/**",
             ...forkIsolatedTests,
             ...nodeRunTestFiles,
+            // v4.0.0 合并：engineering 清单文件归 engineering project（见下），避免在 unit 双跑。
+            ...engineeringTestFiles,
           ],
           // Node 24/macOS 的 threads 全量运行可触发 V8 SIGSEGV；诊断时切换进程隔离，测试范围不变。
           pool: process.env.ZCODE_TEST_POOL === "forks" ? "forks" : "threads",
@@ -202,6 +210,18 @@ export default defineConfig({
             "apps/zcode-vscode/test/e2e-probes/**",
           ],
           environment: "node",
+        },
+      },
+      {
+        // v4.0.0 合并：v4 的工程测试项目——清单 = scripts/engineering-test-files.json，
+        // 串行 fork 池；test:engineering:affected 以 project 过滤 ["engineering"] 选择。
+        extends: true,
+        test: {
+          name: "engineering",
+          include: engineeringTestFiles,
+          pool: "forks",
+          fileParallelism: false,
+          maxWorkers: 1,
         },
       },
       "packages/zcode-cua/vitest.config.ts",
