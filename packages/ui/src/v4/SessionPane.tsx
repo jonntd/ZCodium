@@ -148,6 +148,9 @@ import {
   collectHighspeedCardShareBlockers,
   listHighspeedCardsAwaitingAutoShare,
 } from "@/highspeed/highspeedShareDiagnostics.js";
+/** fork WIP：composer 编辑埋点 seed 形状未定型，先以宽记录承接。 */
+type ConversationPromptTelemetrySeed = Record<string, unknown>;
+
 // fork：判断当前窗口用户行里是否有插件引用卡/引用块（插件引用图标可见性门）。
 function hasPluginReferenceUserRows(rows: readonly unknown[]): boolean {
   return rows.some((row) => {
@@ -367,6 +370,8 @@ export interface SessionPaneProps {
   remoteSessionId?: string | null;
   isDesktop?: boolean;
   compactForRemoteControl?: boolean;
+  /** fork WIP：Escape 关停是否覆盖 pane 外焦点（默认 false）。 */
+  allowEscapeStopOutsidePane?: boolean;
   provider?: ZCodeProvider;
   onSessionCreated?: (sessionId: string, origin?: "draft-promotion") => void;
   /** deleteSession：删除当前会话后回到 draft（shell 起新草稿）。 */
@@ -638,6 +643,7 @@ export function SessionPane({
   remoteSessionId,
   isDesktop = false,
   compactForRemoteControl = false,
+  allowEscapeStopOutsidePane = false,
   provider,
   onSessionCreated,
   onSelectionSideChatUnavailable,
@@ -701,6 +707,10 @@ export function SessionPane({
     usageStatsService,
   } = useServices();
   const { intl, locale, localeResolved } = useZCodeIntl();
+  // fork：分区内面板折叠状态（terminal/agent/workflow 三段）。
+  const [terminalSectionOpen, setTerminalSectionOpen] = useState(false);
+  const [agentSectionOpen, setAgentSectionOpen] = useState(false);
+  const [workflowSectionOpen, setWorkflowSectionOpen] = useState(false);
   const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
   const baseWorkspaceServices = useBaseWorkspaceServices();
 
