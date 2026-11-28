@@ -1,8 +1,3 @@
-import { getLocalTtftObserver } from "@/v4/telemetry/local-ttft/contract.js";
-import { GenUiMessageResponse } from "@/gen-ui/index.js";
-import { ConversationUserInputBubble } from "@/v4/ConversationUserInputBubble.js";
-import { expandTopicInputMessages } from "@/v4/topicInputMessages.js";
-import { ConnectedBotGroupDeliveryAction } from "@/v4/BotGroupDeliveryAction.js";
 /* oxlint-disable eslint(max-lines) -- v4 逐行 row 渲染分发集中收口（每种 row 一个 memo 叶子 + timelineMarker 分隔线），拆分会打散行类型对照。 */
 import { useIsOfficeMode } from "@/hooks/useInterfaceMode.js";
 import {
@@ -10,41 +5,45 @@ import {
   memo,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
 import {
+  ArchiveIcon,
+  ArrowRightLeftIcon,
   CheckIcon,
-  Clock,
   CopyIcon,
+  FileClockIcon,
   FileIcon,
-  InfoIcon,
+  GitBranchIcon,
+  GoalIcon,
   PencilIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
   TrendingUpDownIcon,
   XIcon,
 } from "lucide-react";
-import { parseAutomationRunId } from "@zcode/shared";
 import {
   TID_V4_EDIT,
   TID_V4_EDIT_ATTACHMENT_REMOVE,
-  TID_V4_EDIT_IN_COMPOSER_HINT,
+  TID_V4_EDIT_CANCEL,
+  TID_V4_EDIT_INPUT,
+  TID_V4_EDIT_SUBMIT,
+  TID_V4_EDIT_REWIND_WORKSPACE,
   TID_V4_FEEDBACK_DISLIKE,
   TID_V4_FEEDBACK_LIKE,
   TID_V4_FORK,
   TID_V4_ROW,
   TID_V4_ROW_ATTACHMENTS,
   testId,
-} from "@zcode/shared/test-ids";
+} from "@zcode/shared";
 import type {
   AttachmentRef,
   ArtifactRow,
   AssistantTextRow,
+  CommandAck,
   ConversationRow,
-  ConversationInputSource,
   ConversationRowTarget,
   HookInvocationRow,
   ReasoningRow,
@@ -52,8 +51,8 @@ import type {
   TimelineMarkerRow,
   ToolCallRow,
   TurnHeaderRow,
-  UnreadableConversationRow,
   UserInputRow,
+  V4ConversationFileRewindPreviewResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import { AssistantPreviewCards } from "@/AssistantPreviewCards.js";
 import { AssistantCodeCommentCards } from "@/AssistantCodeCommentCards.js";
@@ -71,13 +70,15 @@ import {
 } from "@/ChatMediaAttachmentPreviewDialog.js";
 import type { PdfViewerRangeSource } from "@/components/ui/pdf-viewer.js";
 import { MessageAction, MessageActions } from "@/components/ai-elements/message.js";
+import { GenUiMessageResponse } from "@/gen-ui/index.js";
 import {
   Reasoning,
   ReasoningContent,
   ReasoningTrigger,
 } from "@/components/ai-elements/reasoning.js";
 import { cn } from "@/components/lib/utils.js";
-import { composerEditSessionKey, useComposerEditStore } from "@/composer-edit-mode/index.js";
+import { Button } from "@/components/ui/button.js";
+import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { WorkflowToolSummary } from "@/v4/WorkflowToolSummary.js";
 import {
   readWorkflowName,
@@ -85,20 +86,12 @@ import {
 } from "@/ToolCallBlocks/renderers/createWorkflowInput.js";
 import { WorkflowRetuneRow } from "@/ToolCallBlocks/renderers/WorkflowRetuneRow.js";
 import { workflowRunDefaultConcurrency } from "@/components/workflow-timeline/workflowRunSettings.js";
-import { isAmendWorkflowToolCall, isFillWorkflowHoleToolCall } from "@/lib/workflowToolNames.js";
-import {
-  readWorkflowHoleTarget,
-  workflowFillCounts,
-} from "@/ToolCallBlocks/renderers/createWorkflowHoleInput.js";
+import { isAmendWorkflowToolCall } from "@/lib/workflowToolNames.js";
 import { ToolCallBlock } from "@/ToolCallBlocks.js";
 import { resolveWorkflowRunOpenToolCallId } from "@/v4/workflowRunCardJoin.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { requestTaskNavigation } from "@/store/zcodeSessionStoreNavigation.js";
-import { useOptionalProjectDirectory } from "@/project-sidebar/ProjectDirectoryProvider.js";
-import type { ProjectTask } from "@/project-sidebar/contract.js";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { logger } from "@/logger.js";
-import { PluginUiModelContextChip, formatPluginDisplayName } from "@/plugin-ui/index.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
 import {
   FileDisplayIcon,
@@ -109,6 +102,9 @@ import {
   projectAssistantCodeComments,
   type AssistantCodeCommentCard,
 } from "@/lib/assistantCodeComment.js";
+import { resolveProviderLabel } from "@/lib/registryProviderView.js";
+import type { LexicalChatInputHandle } from "@/LexicalChatInput.js";
+import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import {
   isConversationReasoningRowVisible,
@@ -119,22 +115,24 @@ import { CodeCommentAttachmentChip } from "@/v4/composer/CodeCommentAttachmentCh
 import {
   countComposerPromptContexts,
   parseComposerPromptContexts,
+  serializeComposerPromptContexts,
 } from "@/v4/composer/composerPromptContexts.js";
 import { WebElementContextAttachmentChip } from "@/v4/composer/WebElementContextAttachmentChip.js";
 import { ConversationSelectionReferenceChip } from "@/v4/composer/ConversationSelectionReferenceChip.js";
 import { PptxElementReferenceChip } from "@/v4/composer/PptxElementReferenceChip.js";
 import { useOpenPptxElementReference } from "@/v4/composer/useOpenPptxElementReference.js";
 import { ConversationFileRewindDialog } from "@/v4/ConversationFileRewindDialog.js";
+import { ConversationUserInputBubble } from "@/v4/ConversationUserInputBubble.js";
 import { splitUserInputEpilogue } from "@/v4/ConversationUserInputEpilogue.js";
 import { BotGroupSourceLabel } from "@/v4/BotGroupSourceLabel.js";
+import { expandTopicInputMessages } from "@/v4/topicInputMessages.js";
 import { ConversationHookDetailsAction } from "@/v4/ConversationHookDetailsAction.js";
+import { ConnectedBotGroupDeliveryAction } from "@/v4/BotGroupDeliveryAction.js";
 import { formatModelChangeLabel } from "@/v4/composer/modelTriggerDisplay.js";
 import { formatMessageTimeLabel } from "@/v4/messageTimeLabel.js";
 import { useSessionDebug } from "@/hooks/useSessionDebug.js";
-import {
-  formatSpeedLabels,
-  shouldStartSessionDebugPolling,
-} from "@/v4/speedLabels.js";
+import { formatSpeedLabels, shouldStartSessionDebugPolling } from "@/v4/speedLabels.js";
+import { parseConversationShareContext } from "@/lib/conversationShareContext.js";
 
 function RowShell({
   rowId,
@@ -156,126 +154,17 @@ function RowShell({
   );
 }
 
-const ArtifactRowView = memo(function ArtifactRowView({
-  row,
-}: {
-  row: ArtifactRow;
-}) {
+const ArtifactRowView = memo(function ArtifactRowView({ row }: { row: ArtifactRow }) {
   return (
     <RowShell rowId={row.rowId} className="px-4 py-1">
       <div className="flex items-center gap-2 rounded-lg border border-card-border bg-card px-3 py-2">
-        <FileIcon
-          className="size-4 shrink-0 text-foreground-subtle"
-          aria-hidden="true"
-        />
+        <FileIcon className="size-4 shrink-0 text-foreground-subtle" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-ui-base text-foreground">
-            {row.displayName}
-          </p>
+          <p className="truncate text-ui-base text-foreground">{row.displayName}</p>
           <p className="text-ui-sm text-foreground-subtle">
             {row.artifactType.toUpperCase()} · {row.sizeBytes} bytes
           </p>
         </div>
-      </div>
-    </RowShell>
-  );
-});
-
-type SessionSource = Extract<ConversationInputSource, { kind: "session" }>;
-
-// 目录树的 tasks 是数组，而来源只有 sessionId。每个提示每次渲染都遍历一遍会随任务规模线性变差，
-// 所以按数组引用缓存一份反查表：stabilizeProjectTree 只在内容真变化时换引用，缓存因此自动失效。
-const taskByIdCache = new WeakMap<object, Map<string, ProjectTask>>();
-function findTaskById(tasks: readonly ProjectTask[], taskId: string): ProjectTask | undefined {
-  let index = taskByIdCache.get(tasks);
-  if (!index) {
-    index = new Map<string, ProjectTask>();
-    for (const task of tasks) if (!index.has(task.taskId)) index.set(task.taskId, task);
-    taskByIdCache.set(tasks, index);
-  }
-  return index.get(taskId);
-}
-
-/**
- * 跨会话发送的来源提示（规格 0.13）。
- *
- * 标题按「当前事实 → 旧快照 → 身份」回落：持久化载荷只带 sessionId，标题在这里按 id 解析。
- * 旧数据里的 `source.title` 是发送那一刻的快照，多半停在 titleSource=default 档（= 首条提示词
- * 原文），所以只作为解析不到时的兜底，不优先于当前标题。
- *
- * 解析用项目目录树——侧栏与 App 控制工具的 OpenSession 用的是同一份跨项目权威列表，
- * 不另起一份任务索引。全量目录 Context 会随任务活动变化，但只有带会话来源的行才挂这个组件，
- * 重渲染面限于这几条提示本身。
- *
- * 解析不到来源会话（已删除、嵌入 pane 没有目录 owner）时保持可读但不可点击：
- * 跳转需要的 workspacePath 与标题同源，猜路径会把「打不开」变成「打开了别的会话」。
- */
-const SessionSourceHint = memo(function SessionSourceHint({ source }: { source: SessionSource }) {
-  const { intl } = useZCodeIntl();
-  const directory = useOptionalProjectDirectory();
-  const task = directory ? findTaskById(directory.tree.tasks, source.sessionId) : undefined;
-  const workspacePath = task?.workspacePath;
-  const workspaceIdentity = task?.workspaceIdentity;
-  const handleOpen = useCallback(() => {
-    if (!workspacePath) return;
-    requestTaskNavigation({
-      taskId: source.sessionId,
-      workspacePath,
-      ...(workspaceIdentity ? { workspaceIdentity } : {}),
-    });
-  }, [source.sessionId, workspaceIdentity, workspacePath]);
-  const label = intl.formatMessage(
-    { id: "conversation.fromSession" },
-    { name: task?.title || source.title || source.sessionId },
-  );
-  return (
-    <div
-      className="mt-1 text-right text-ui-sm text-foreground-subtlest"
-      data-v4-user-input-source="session"
-      data-source-session-id={source.sessionId}
-    >
-      {workspacePath ? (
-        <button
-          type="button"
-          onClick={handleOpen}
-          title={intl.formatMessage({ id: "conversation.fromSession.open" })}
-          data-source-session-navigable="true"
-          className="rounded-sm underline-offset-2 hover:text-foreground-subtle hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        >
-          {label}
-        </button>
-      ) : (
-        label
-      )}
-    </div>
-  );
-});
-
-/**
- * 「这一行读不懂」的占位行（10-protocol-spec §4.4.9，04-sync-and-recovery 封闭规则 13）。
- *
- * 为什么必须画出来而不是返回 null：静默跳过会让用户以为消息丢了，那比显示一条说明更失真。
- * rowId 与 turnId 都保留，所以它就停在原来那条消息的位置上，前后文不会错位。
- *
- * 用中性信息语义而不是 warning 色：会话本身没出错，只是这个 build 认不出其中一行——与
- * ConversationShareReadonlyTimeline 的「部分内容需要更新 ZCode 查看」是同一视觉语言。
- */
-const UnreadableRowView = memo(function UnreadableRowView({
-  row,
-}: {
-  row: UnreadableConversationRow;
-}) {
-  const { intl } = useZCodeIntl();
-  return (
-    <RowShell rowId={row.rowId} className="px-4 py-1">
-      <div
-        data-conversation-unreadable-row={row.sourceKind}
-        className="flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2 text-ui-xs text-foreground-subtle"
-      >
-        <InfoIcon aria-hidden="true" className="size-3.5 shrink-0" />
-        <span className="min-w-0 break-words">
-          {intl.formatMessage({ id: "conversation.row.unreadable" })}
-        </span>
       </div>
     </RowShell>
   );
@@ -311,17 +200,17 @@ const CopyRowAction = memo(function CopyRowAction({
       disabled={text.length === 0}
       onClick={handleCopy}
     >
-      {copied ? (
-        <CheckIcon className="size-3.5 text-success" />
-      ) : (
-        <CopyIcon className="size-3.5" />
-      )}
+      {copied ? <CheckIcon className="size-3.5 text-success" /> : <CopyIcon className="size-3.5" />}
     </MessageAction>
   );
 });
 
-/** 请求在底部 composer 编辑该 user 行（docs/ui/composer-edit-mode.md）；提交由 composer 完成。 */
-export type UserInputEditHandler = (target: ConversationRowTarget) => Promise<void> | void;
+type UserInputEditHandler = (
+  target: ConversationRowTarget,
+  newText: string,
+  attachments?: readonly AttachmentRef[],
+  workspaceMode?: "preserve" | "rewind",
+) => Promise<CommandAck | boolean | void> | CommandAck | boolean | void;
 
 type AssistantMessageFeedback = "like" | "dislike";
 
@@ -339,9 +228,7 @@ export type AssistantFeedbackHandler = (
   feedback: AssistantMessageFeedback | null,
 ) => Promise<boolean | void> | boolean | void;
 
-export function readAssistantFeedback(
-  row: AssistantTextRow,
-): AssistantMessageFeedback | null {
+export function readAssistantFeedback(row: AssistantTextRow): AssistantMessageFeedback | null {
   // feedback 是 additive V4 row 字段；兼容旧 CLI 的 row 时缺省为 null。
   const feedback = row.feedback;
   return feedback === "like" || feedback === "dislike" ? feedback : null;
@@ -352,7 +239,7 @@ export interface EditWorkspaceRewindAvailability {
   reason: "available" | "noFiles" | "reverted" | "running" | "unavailable";
 }
 
-export interface ConversationRowViewProps {
+interface ConversationRowViewProps {
   row: ConversationRow;
   /** 渲染上下文（theme/codePreviewSettings/workspacePath）；宿主保证引用稳定。 */
   context: ConversationRowRenderContext;
@@ -362,7 +249,7 @@ export interface ConversationRowViewProps {
   onFeedbackChange?: AssistantFeedbackHandler;
   /** 协议兼容：上层仍可提供 retryTurn capability，但产品 UI 不渲染普通重试入口。 */
   onRetry?: (target: ConversationRowTarget) => void;
-  /** user 行的 edit 入口：进入底部 composer 编辑态，提交走 editUserQuery。 */
+  /** user 行的 edit 入口（editUserQuery command，用行内编辑文本替换该轮）。 */
   onEdit?: UserInputEditHandler;
   editWorkspaceRewindAvailability?: EditWorkspaceRewindAvailability;
   /** 嵌套在工具 Group 内时去掉 Reasoning 内容的重复左导线与缩进。 */
@@ -418,23 +305,16 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   rowId: number;
   sessionId?: string;
   readAttachment?: NonNullable<ConversationRowRenderContext["readAttachment"]>;
-  readAttachmentRange?: NonNullable<
-    ConversationRowRenderContext["readAttachmentRange"]
-  >;
+  readAttachmentRange?: NonNullable<ConversationRowRenderContext["readAttachmentRange"]>;
 }) {
   const { intl } = useZCodeIntl();
   const [previewIndex, setPreviewIndex] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [failedRefs, setFailedRefs] = useState<ReadonlySet<string>>(
-    () => new Set(),
-  );
-  const [thumbnailUrls, setThumbnailUrls] = useState<
-    ReadonlyMap<string, string>
-  >(() => new Map());
+  const [failedRefs, setFailedRefs] = useState<ReadonlySet<string>>(() => new Set());
+  const [thumbnailUrls, setThumbnailUrls] = useState<ReadonlyMap<string, string>>(() => new Map());
   // 可见消息行预取 image/video Blob：图片直接显示，视频由无控件播放器展示首帧；
   // video URL 同时供 gallery 复用，避免用户点击后再次读取大文件。
-  const [videoPreview, setVideoPreview] =
-    useState<ChatMediaAttachmentPreviewTarget | null>(null);
+  const [videoPreview, setVideoPreview] = useState<ChatMediaAttachmentPreviewTarget | null>(null);
   const [videoPreviewRef, setVideoPreviewRef] = useState<string | null>(null);
   const [videoPreviewLoading, setVideoPreviewLoading] = useState(false);
   const [videoPreviewError, setVideoPreviewError] = useState(false);
@@ -464,6 +344,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
         ...(entityId ? { target: { rowId, entityId }, attachmentIndex: index } : {}),
         signal: controller.signal,
       });
+      // 关闭/切换预览后，迟到结果不能重新打开旧材料。
       if (controller.signal.aborted) return;
       if (!("bytes" in result)) throw new Error("Text attachment bytes unavailable");
       setTextPreview({
@@ -506,12 +387,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   });
 
   useEffect(() => {
-    if (
-      attachmentKind === "file" ||
-      !attachments ||
-      !sessionId ||
-      !readAttachment
-    ) {
+    if (attachmentKind === "file" || !attachments || !sessionId || !readAttachment) {
       return;
     }
     let cancelled = false;
@@ -519,8 +395,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     // 预取生命周期必须通过 AbortSignal 贯穿 transport，及时释放文件 IO 与 IPC 资源。
     const controller = new AbortController();
     const mediaAttachments = attachments.flatMap((attachment, index) =>
-      attachment.mime.startsWith("image/") ||
-      attachment.mime.startsWith("video/")
+      attachment.mime.startsWith("image/") || attachment.mime.startsWith("video/")
         ? [{ attachment, index }]
         : [],
     );
@@ -579,20 +454,11 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       cancelled = true;
       // Desktop local video 返回自定义协议 URL，不是 renderer 创建的 Blob；
       // 只释放本 effect 创建的 object URL，避免把本地媒体 URL 当成 Blob 生命周期管理。
-      for (const url of thumbnailObjectUrlsRef.current)
-        URL.revokeObjectURL(url);
+      for (const url of thumbnailObjectUrlsRef.current) URL.revokeObjectURL(url);
       thumbnailObjectUrlsRef.current.clear();
       thumbnailUrlsRef.current.clear();
     };
-  }, [
-    attachmentIndices,
-    attachmentKind,
-    attachments,
-    entityId,
-    readAttachment,
-    rowId,
-    sessionId,
-  ]);
+  }, [attachmentIndices, attachmentKind, attachments, entityId, readAttachment, rowId, sessionId]);
 
   // ── sent video 预览读取：staging 语义原样保留 ──
   const releaseVideoPreviewUrl = useCallback(() => {
@@ -644,11 +510,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
   );
 
   const openVideoPreview = useCallback(
-    async (
-      attachment: AttachmentRef,
-      attachmentIndex: number,
-      galleryIndex: number,
-    ) => {
+    async (attachment: AttachmentRef, attachmentIndex: number, galleryIndex: number) => {
       if (!sessionId || !readAttachment) return;
       const ref = attachment.previewRef ?? attachment.ref;
       cancelVideoPreviewRead();
@@ -694,9 +556,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
         const url = isLocalUrl
           ? result.url
           : URL.createObjectURL(
-              new Blob([Uint8Array.from(result.bytes)], {
-                type: result.mediaType,
-              }),
+              new Blob([Uint8Array.from(result.bytes)], { type: result.mediaType }),
             );
         if (videoPreviewRequestRef.current !== requestId) {
           if (!isLocalUrl) URL.revokeObjectURL(url);
@@ -721,14 +581,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
         }
       }
     },
-    [
-      cancelVideoPreviewRead,
-      entityId,
-      readAttachment,
-      releaseVideoPreviewUrl,
-      rowId,
-      sessionId,
-    ],
+    [cancelVideoPreviewRead, entityId, readAttachment, releaseVideoPreviewUrl, rowId, sessionId],
   );
 
   const openPdfPreview = useCallback(
@@ -740,20 +593,14 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       pdfPreviewAbortRef.current?.abort();
       const abortController = new AbortController();
       pdfPreviewAbortRef.current = abortController;
-      if (pdfPreviewUrlRef.current)
-        URL.revokeObjectURL(pdfPreviewUrlRef.current);
+      if (pdfPreviewUrlRef.current) URL.revokeObjectURL(pdfPreviewUrlRef.current);
       pdfPreviewUrlRef.current = null;
       setPdfPreviewRef(ref);
-      setPdfPreview({
-        filename: attachment.fileName,
-        mediaType: "application/pdf",
-      });
+      setPdfPreview({ filename: attachment.fileName, mediaType: "application/pdf" });
       setPdfPreviewLoading(true);
       setPdfPreviewError(false);
       try {
-        const target = entityId
-          ? { target: { rowId, entityId }, attachmentIndex }
-          : {};
+        const target = entityId ? { target: { rowId, entityId }, attachmentIndex } : {};
         if (readAttachmentRange) {
           const firstRange = await readAttachmentRange({
             sessionId,
@@ -798,9 +645,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
           "url" in result
             ? result.url
             : URL.createObjectURL(
-                new Blob([Uint8Array.from(result.bytes)], {
-                  type: result.mediaType,
-                }),
+                new Blob([Uint8Array.from(result.bytes)], { type: result.mediaType }),
               );
         if (!("url" in result)) pdfPreviewUrlRef.current = url;
         setPdfPreview({
@@ -826,9 +671,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     .map((attachment, index) => ({ attachment, index }))
     .filter(({ attachment }) => {
       if (attachmentKind === "all") return true;
-      const isMedia =
-        attachment.mime.startsWith("image/") ||
-        attachment.mime.startsWith("video/");
+      const isMedia = attachment.mime.startsWith("image/") || attachment.mime.startsWith("video/");
       return attachmentKind === "media" ? isMedia : !isMedia;
     });
   if (attachmentKind === "all") {
@@ -837,12 +680,8 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     // index 仍指向原数组，避免删除后提交错误的附件。
     visibleAttachments.sort(
       ({ attachment: left }, { attachment: right }) =>
-        Number(
-          right.mime.startsWith("image/") || right.mime.startsWith("video/"),
-        ) -
-        Number(
-          left.mime.startsWith("image/") || left.mime.startsWith("video/"),
-        ),
+        Number(right.mime.startsWith("image/") || right.mime.startsWith("video/")) -
+        Number(left.mime.startsWith("image/") || left.mime.startsWith("video/")),
     );
   }
   if (visibleAttachments.length === 0) return null;
@@ -868,10 +707,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
       alt: attachment.fileName,
       filename: attachment.fileName,
       mediaType: attachment.mime,
-      src:
-        isVideo && videoPreviewRef === ref
-          ? videoPreview?.url
-          : thumbnailUrls.get(ref),
+      src: isVideo && videoPreviewRef === ref ? videoPreview?.url : thumbnailUrls.get(ref),
       loading: isVideo && videoPreviewRef === ref && videoPreviewLoading,
       error: isVideo && videoPreviewRef === ref && videoPreviewError,
     };
@@ -880,11 +716,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     const entry = previewEntries[galleryIndex];
     if (!entry) return;
     if (entry.attachment.mime.startsWith("video/")) {
-      void openVideoPreview(
-        entry.attachment,
-        entry.persistedAttachmentIndex,
-        galleryIndex,
-      );
+      void openVideoPreview(entry.attachment, entry.persistedAttachmentIndex, galleryIndex);
       return;
     }
     cancelVideoPreviewRead();
@@ -902,21 +734,14 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
     const ref = attachment.previewRef ?? attachment.ref;
     const isImage = attachment.mime.startsWith("image/");
     const isVideo = attachment.mime.startsWith("video/");
-    const isPdf =
-      attachment.mime.split(";", 1)[0]?.trim().toLowerCase() ===
-      "application/pdf";
+    const isPdf = attachment.mime.split(";", 1)[0]?.trim().toLowerCase() === "application/pdf";
     const isMedia = isImage || isVideo;
     const isEditingAttachment = attachmentKind === "all";
-    const isThumbnail =
-      attachmentKind === "media" || (isEditingAttachment && isMedia);
-    const fileDisplayDescriptor = resolveFileDisplayDescriptor(
-      attachment.fileName,
-    );
+    const isThumbnail = attachmentKind === "media" || (isEditingAttachment && isMedia);
+    const fileDisplayDescriptor = resolveFileDisplayDescriptor(attachment.fileName);
     const isUnavailable = failedRefs.has(ref);
     const thumbnailUrl = thumbnailUrls.get(ref) ?? "";
-    const previewItemIndex = previewEntries.findIndex(
-      (entry) => entry.index === index,
-    );
+    const previewItemIndex = previewEntries.findIndex((entry) => entry.index === index);
     // 图片与视频共用当前消息的媒体 gallery；video 首次成为 active item 时再读取。
     const canOpen =
       (isTextMaterial && Boolean(sessionId && readAttachment)) ||
@@ -1019,8 +844,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
             options={{
               className: "inline-flex min-w-0 max-w-40 items-center gap-1.5",
               iconSize: 16,
-              fileNameClassName:
-                "truncate text-ui-base font-medium text-foreground",
+              fileNameClassName: "truncate text-ui-base font-medium text-foreground",
             }}
           />
         )}
@@ -1031,10 +855,7 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
             variant="default"
             aria-label={intl.formatMessage({ id: "chat.attachments.remove" })}
             label={intl.formatMessage({ id: "chat.attachments.remove" })}
-            data-testid={testId(
-              TID_V4_EDIT_ATTACHMENT_REMOVE,
-              `${rowId}-${index}`,
-            )}
+            data-testid={testId(TID_V4_EDIT_ATTACHMENT_REMOVE, `${rowId}-${index}`)}
             className="absolute top-0.5 end-0.5 z-10 size-3.5 rounded-full p-0 text-primary-foreground opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
           >
             <XIcon className="size-2.5" />
@@ -1111,10 +932,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
   const { intl, locale } = useZCodeIntl();
   // 引擎尾注折叠：正文只到 epilogueStart，
   // 之后的引擎文本折进气泡底部的披露。提示词上下文解析也只看正文——尾注里没有用户引用。
-  const { body: bodyText, epilogue } = splitUserInputEpilogue(
-    row.text,
-    row.epilogueStart,
-  );
+  const { body: bodyText, epilogue } = splitUserInputEpilogue(row.text, row.epilogueStart);
   // 用户行时间戳：与 assistant 动作栏共用 messageTimeLabel 的相对日判定。
   const timeLabel = formatMessageTimeLabel(row.createdAt, locale, intl);
   const parsedPrompt = useMemo(
@@ -1123,43 +941,35 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
         workspacePath: context.workspacePath,
         workspaceIdentity: context.workspaceIdentity,
       }),
-      ...(row.conversationQuotes
-        ? { conversationSelections: row.conversationQuotes }
-        : {}),
+      ...(row.conversationQuotes ? { conversationSelections: row.conversationQuotes } : {}),
     }),
-    [
-      bodyText,
-      context.workspaceIdentity,
-      context.workspacePath,
-      row.conversationQuotes,
-    ],
+    [bodyText, context.workspaceIdentity, context.workspacePath, row.conversationQuotes],
+  );
+  // 只用于把历史消息里的 share URL 尾块从可见正文里剥掉。
+  // 该块已不再产出（见 ConversationComposer 的 promptText 注释）；这里保留解析，是为了让
+  // 接线修复到本次删除之间发出的消息不至于把裸 markup 当正文显示出来。
+  const parsedShareContext = useMemo(
+    () => parseConversationShareContext(parsedPrompt.visibleContent),
+    [parsedPrompt.visibleContent],
   );
   const [editing, setEditing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [draft, setDraft] = useState(row.text);
-  const [editAttachments, setEditAttachments] = useState<AttachmentRef[]>(
-    () => [...(row.attachments ?? [])],
-  );
+  const [editAttachments, setEditAttachments] = useState<AttachmentRef[]>(() => [
+    ...(row.attachments ?? []),
+  ]);
   // 编辑态删除附件后，持久 FilePart 列表仍保留全部附件；序号数组把可见列表
   // 映射回原 index，避免 video 预览等按 attachmentIndex 的读取指错分块。
-  const [editAttachmentIndices, setEditAttachmentIndices] = useState<number[]>(
-    () =>
-      (row.attachments ?? []).map(
-        (_, index) => attachmentIndices?.[index] ?? index,
-      ),
+  const [editAttachmentIndices, setEditAttachmentIndices] = useState<number[]>(() =>
+    (row.attachments ?? []).map((_, index) => attachmentIndices?.[index] ?? index),
   );
-  const [editPromptContexts, setEditPromptContexts] = useState(
-    () => parsedPrompt,
-  );
+  const [editPromptContexts, setEditPromptContexts] = useState(() => parsedPrompt);
   const [conflictPreview, setConflictPreview] =
     useState<V4ConversationFileRewindPreviewResult | null>(null);
   const [conflictOpen, setConflictOpen] = useState(false);
   const inputApiRef = useRef<LexicalChatInputHandle | null>(null);
   const editContextCount = countComposerPromptContexts(editPromptContexts);
-  const canSubmit =
-    draft.trim().length > 0 ||
-    editAttachments.length > 0 ||
-    editContextCount > 0;
+  const canSubmit = draft.trim().length > 0 || editAttachments.length > 0 || editContextCount > 0;
   const submitLabel = intl.formatMessage({ id: "chat.send" });
   const cancelLabel = intl.formatMessage({ id: "common.cancel" });
   const rewindWorkspaceLabel = intl.formatMessage({
@@ -1174,38 +984,29 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
       : intl.formatMessage({
           id: `chat.edit.resetConversationAndFiles.${editWorkspaceRewindAvailability?.reason ?? "noFiles"}`,
         });
-  const visibleText = parsedPrompt.visibleContent;
+  const visibleText = parsedShareContext.visibleContent;
   const codeCommentContexts = parsedPrompt.codeComments;
-  // 设计稿元素在正文里已经画成 token，卡片只给普通网页「选择元素」的引用
-  const webElementContexts = useMemo(
-    () => parsedPrompt.webElements.filter((context) => !context.inline),
-    [parsedPrompt.webElements],
-  );
+  const webElementContexts = parsedPrompt.webElements;
   const pptxElementReferences = parsedPrompt.pptxElements;
   const conversationSelections = parsedPrompt.conversationSelections;
   const hasAttachments = (row.attachments?.length ?? 0) > 0;
   const hasMediaAttachments =
     row.attachments?.some(
-      (attachment) =>
-        attachment.mime.startsWith("image/") ||
-        attachment.mime.startsWith("video/"),
+      (attachment) => attachment.mime.startsWith("image/") || attachment.mime.startsWith("video/"),
     ) ?? false;
   const hasFileAttachments =
     row.attachments?.some(
       (attachment) =>
-        !attachment.mime.startsWith("image/") &&
-        !attachment.mime.startsWith("video/"),
+        !attachment.mime.startsWith("image/") && !attachment.mime.startsWith("video/"),
     ) ?? false;
   const hasVisibleText = visibleText.trim().length > 0;
-  const pluginUiContexts = parsedPrompt.pluginUiContexts;
   // nudge 轮整条都是引擎文本：正文为空但气泡仍要画，里面只有那一枚披露。
   const hasBubble = hasVisibleText || epilogue !== undefined;
   const hasContextReferences =
     codeCommentContexts.length > 0 ||
     webElementContexts.length > 0 ||
     pptxElementReferences.length > 0 ||
-    conversationSelections.length > 0 ||
-    pluginUiContexts.length > 0;
+    conversationSelections.length > 0;
   const hasAttachmentArea = hasAttachments || hasContextReferences;
   const hasAttachmentPills =
     hasFileAttachments ||
@@ -1213,9 +1014,6 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
     webElementContexts.length > 0 ||
     pptxElementReferences.length > 0 ||
     (!row.botGroupSource && conversationSelections.length > 0);
-  // Bug 根因：旧逻辑只接受 schedule runId，导致用户点击「立即运行」产生的 manual run
-  // 没有来源标识。两种合法 automation runId 都应展示；普通会话输入仍因解析失败而不展示。
-  const isScheduledAutomationPrompt = parseAutomationRunId(row.sourceCommandId ?? "") !== null;
   const openPptxElementReference = useOpenPptxElementReference({
     workspacePath: context.workspacePath,
     workspaceIdentity: context.workspaceIdentity,
@@ -1225,12 +1023,10 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
 
   useEffect(() => {
     if (!editing) {
-      setDraft(parsedPrompt.visibleContent);
+      setDraft(parsedShareContext.visibleContent);
       setEditAttachments([...(row.attachments ?? [])]);
       setEditAttachmentIndices(
-        (row.attachments ?? []).map(
-          (_, index) => attachmentIndices?.[index] ?? index,
-        ),
+        (row.attachments ?? []).map((_, index) => attachmentIndices?.[index] ?? index),
       );
       setEditPromptContexts(parsedPrompt);
       return;
@@ -1253,50 +1049,34 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
   const handleOpenEdit = useCallback(() => {
     // v4 迁移时把 user query 编辑误接成“直接读取主 composer 提交”，
     // 主 composer 为空时点击只会 warn。这里恢复旧行内编辑态。
-    setDraft(parsedPrompt.visibleContent);
+    setDraft(parsedShareContext.visibleContent);
     setEditAttachments([...(row.attachments ?? [])]);
     setEditAttachmentIndices(
-      (row.attachments ?? []).map(
-        (_, index) => attachmentIndices?.[index] ?? index,
-      ),
+      (row.attachments ?? []).map((_, index) => attachmentIndices?.[index] ?? index),
     );
     setEditPromptContexts(parsedPrompt);
     setEditing(true);
-  }, [attachmentIndices, parsedPrompt, row.attachments]);
+  }, [attachmentIndices, parsedPrompt, parsedShareContext, row.attachments]);
 
   const handleCancelEdit = useCallback(() => {
-    setDraft(parsedPrompt.visibleContent);
+    setDraft(parsedShareContext.visibleContent);
     setEditAttachments([...(row.attachments ?? [])]);
     setEditAttachmentIndices(
-      (row.attachments ?? []).map(
-        (_, index) => attachmentIndices?.[index] ?? index,
-      ),
+      (row.attachments ?? []).map((_, index) => attachmentIndices?.[index] ?? index),
     );
     setEditPromptContexts(parsedPrompt);
     setEditing(false);
-  }, [attachmentIndices, parsedPrompt, row.attachments]);
+  }, [attachmentIndices, parsedPrompt, parsedShareContext, row.attachments]);
 
   const handleRemoveEditAttachment = useCallback((index: number) => {
-    setEditAttachments((current) =>
-      current.filter((_, itemIndex) => itemIndex !== index),
-    );
-    setEditAttachmentIndices((current) =>
-      current.filter((_, itemIndex) => itemIndex !== index),
-    );
+    setEditAttachments((current) => current.filter((_, itemIndex) => itemIndex !== index));
+    setEditAttachmentIndices((current) => current.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
   const handleSubmitEdit = useCallback(
-    async (
-      nextText: string,
-      workspaceMode: "preserve" | "rewind" = "preserve",
-    ) => {
+    async (nextText: string, workspaceMode: "preserve" | "rewind" = "preserve") => {
       if (!onEdit) return;
-      if (
-        !nextText.trim() &&
-        editAttachments.length === 0 &&
-        editContextCount === 0
-      )
-        return;
+      if (!nextText.trim() && editAttachments.length === 0 && editContextCount === 0) return;
       setSubmitting(true);
       try {
         const result = await onEdit(
@@ -1327,17 +1107,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
         setSubmitting(false);
       }
     },
-    [
-      editAttachments,
-      editContextCount,
-      editPromptContexts,
-      onEdit,
-      row.entityId,
-      row.rowId,
-    ],
+    [editAttachments, editContextCount, editPromptContexts, onEdit, row.entityId, row.rowId],
   );
-  const rewindWorkspaceDisabled =
-    submitting || editWorkspaceRewindAvailability?.enabled !== true;
+  const rewindWorkspaceDisabled = submitting || editWorkspaceRewindAvailability?.enabled !== true;
   const rewindWorkspaceButton = (
     <Button
       type="button"
@@ -1354,18 +1126,6 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
     </Button>
   );
 
-  // 纯「继续」行整体隐藏（含复制/编辑/时间动作行）；编辑态不可能到达（行从未渲染），
-  // 但保留 editing 判断避免未来接线变化时把编辑器一起吞掉。
-  if (
-    !editing &&
-    epilogue === undefined &&
-    !hasAttachments &&
-    !hasContextReferences &&
-    CONTINUE_BUTTON_ROW_TOKENS.has(visibleText.trim())
-  ) {
-    return null;
-  }
-
   if (editing) {
     return (
       <RowShell rowId={row.rowId} className="flex flex-col items-end">
@@ -1375,9 +1135,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           initialValue={parsedPrompt.visibleContent}
           submitting={submitting}
           submitDisabled={!canSubmit || submitting}
-          allowSubmitWhenEmpty={
-            editAttachments.length > 0 || editContextCount > 0
-          }
+          allowSubmitWhenEmpty={editAttachments.length > 0 || editContextCount > 0}
           submitLabel={submitLabel}
           cancelLabel={cancelLabel}
           showMentionButton
@@ -1408,9 +1166,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                       onRemove={(comment) =>
                         setEditPromptContexts((current) => ({
                           ...current,
-                          codeComments: current.codeComments.filter(
-                            (item) => item !== comment,
-                          ),
+                          codeComments: current.codeComments.filter((item) => item !== comment),
                         }))
                       }
                       onRemoveAll={() =>
@@ -1425,9 +1181,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                       onRemove={(id) =>
                         setEditPromptContexts((current) => ({
                           ...current,
-                          webElements: current.webElements.filter(
-                            (item) => item.id !== id,
-                          ),
+                          webElements: current.webElements.filter((item) => item.id !== id),
                         }))
                       }
                       onRemoveAll={() =>
@@ -1439,17 +1193,11 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                     />
                     <PptxElementReferenceChip
                       references={editPromptContexts.pptxElements}
-                      onOpen={
-                        context.onOpenCodeViewer
-                          ? openPptxElementReference
-                          : undefined
-                      }
+                      onOpen={context.onOpenCodeViewer ? openPptxElementReference : undefined}
                       onRemove={(id) =>
                         setEditPromptContexts((current) => ({
                           ...current,
-                          pptxElements: current.pptxElements.filter(
-                            (item) => item.id !== id,
-                          ),
+                          pptxElements: current.pptxElements.filter((item) => item.id !== id),
                         }))
                       }
                       onRemoveAll={() =>
@@ -1464,10 +1212,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                       onRemove={(id) =>
                         setEditPromptContexts((current) => ({
                           ...current,
-                          conversationSelections:
-                            current.conversationSelections.filter(
-                              (item) => !("id" in item) || item.id !== id,
-                            ),
+                          conversationSelections: current.conversationSelections.filter(
+                            (item) => !("id" in item) || item.id !== id,
+                          ),
                         }))
                       }
                       onRemoveAll={() =>
@@ -1494,10 +1241,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
               {rewindWorkspaceDisabled ? (
                 // Button disabled 会应用 pointer-events-none，TooltipTrigger 直接落在
                 // 按钮上时收不到 hover。禁用态用外层 span 承接 hover，实际按钮仍保持 disabled。
-                <span
-                  className="inline-flex"
-                  data-disabled-tooltip-trigger="true"
-                >
+                <span className="inline-flex" data-disabled-tooltip-trigger="true">
                   {rewindWorkspaceButton}
                 </span>
               ) : (
@@ -1531,15 +1275,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
   }
 
   return (
-    <RowShell
-      rowId={row.rowId}
-      className="group/user-row flex flex-col items-end"
-    >
+    <RowShell rowId={row.rowId} className="group/user-row flex flex-col items-end">
       {row.botGroupSource ? (
-        <div
-          data-v4-user-input-source="true"
-          className="mb-2 flex min-w-0 max-w-full"
-        >
+        <div data-v4-user-input-source="true" className="mb-2 flex min-w-0 max-w-full">
           <BotGroupSourceLabel source={row.botGroupSource} />
         </div>
       ) : null}
@@ -1595,14 +1333,8 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                   readAttachmentRange={context.readAttachmentRange}
                 />
               ) : null}
-              <CodeCommentAttachmentChip
-                comments={codeCommentContexts}
-                contentAlign="end"
-              />
-              <WebElementContextAttachmentChip
-                contexts={webElementContexts}
-                contentAlign="end"
-              />
+              <CodeCommentAttachmentChip comments={codeCommentContexts} contentAlign="end" />
+              <WebElementContextAttachmentChip contexts={webElementContexts} contentAlign="end" />
               <PptxElementReferenceChip
                 references={pptxElementReferences}
                 contentAlign="end"
@@ -1614,7 +1346,6 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
                   contentAlign="end"
                 />
               ) : null}
-              <PluginUiModelContextChip contexts={pluginUiContexts} contentAlign="end" />
             </div>
           ) : null}
         </div>
@@ -1625,7 +1356,6 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
         // 气泡保留 flex item 的自动宽度；宿主至少 624px 时再以 36rem 封顶并保留 48px 余量。
         <ConversationUserInputBubble
           text={visibleText}
-          imagePreviewContext={context}
           contentParts={row.botGroupSource?.contentParts}
           rowId={row.rowId}
           epilogue={epilogue}
@@ -1633,27 +1363,12 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           contextAttachmentCount={countComposerPromptContexts(parsedPrompt)}
         />
       ) : null}
-      {row.source?.kind === "session" && <SessionSourceHint source={row.source} />}
-      {row.source?.kind === "genUi" && (
+      {row.source?.kind === "genUi" ? (
         <div
-          className="mt-1 text-right text-ui-sm text-foreground-subtlest"
+          className="mt-1 text-end text-ui-sm text-foreground-subtlest"
           data-v4-user-input-source="genUi"
         >
           {intl.formatMessage({ id: "genUi.from" }, { name: row.source.title || "Gen UI" })}
-        </div>
-      )}
-      {row.source?.kind === "pluginUi" || row.source?.kind === "extension" ? (
-        // 插件 UI 或扩展（docs/plugins/extension-host.md §17.8）代发：来源标记来自 CLI 持久化的 intent.source，
-        // 不由 renderer 推断。两者同一句文案；名字取插件 id 的名字部分，手机没有扩展静态表，桌面与手机一致。
-        <div
-          data-v4-user-input-source={row.source.pluginId}
-          data-v4-user-input-source-kind={row.source.kind}
-          className="mt-1 text-right text-ui-sm text-foreground-subtlest"
-        >
-          {intl.formatMessage(
-            { id: "pluginUi.fromPlugin" },
-            { name: formatPluginDisplayName(row.source.pluginId) },
-          )}
         </div>
       ) : null}
       {status ? (
@@ -1673,7 +1388,7 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           rowId={row.rowId}
           label={intl.formatMessage({ id: "chat.message.copy" })}
         />
-        {onEdit && row.entityId && !editingInComposer ? (
+        {onEdit && row.entityId ? (
           <MessageAction
             label={intl.formatMessage({ id: "chat.message.edit" })}
             tooltip={intl.formatMessage({ id: "chat.message.edit" })}
@@ -1684,22 +1399,9 @@ const SingleUserInputRowView = memo(function SingleUserInputRowView({
           </MessageAction>
         ) : null}
         {timeLabel ? (
-          <span className="select-none text-ui-sm text-foreground-subtlest">
-            {timeLabel}
-          </span>
+          <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
         ) : null}
       </MessageActions>
-      {editingInComposer ? (
-        <button
-          type="button"
-          data-testid={testId(TID_V4_EDIT_IN_COMPOSER_HINT, String(row.rowId))}
-          className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-ui-sm text-foreground-subtle hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
-          onClick={handleFocusComposerEdit}
-        >
-          <PencilIcon className="size-3.5" aria-hidden />
-          {intl.formatMessage({ id: "chat.composerEdit.inComposerHint" })}
-        </button>
-      ) : null}
     </RowShell>
   );
 });
@@ -1714,13 +1416,10 @@ const UserInputRowView = memo(function UserInputRowView(
       attachmentIndices:
         row === props.row
           ? undefined
-          : row.attachments?.map((attachment) =>
-              props.row.attachments!.indexOf(attachment),
-            ),
+          : row.attachments?.map((attachment) => props.row.attachments!.indexOf(attachment)),
     }));
   }, [props.row]);
-  if (!props.row.botGroupSource?.messages?.length)
-    return <SingleUserInputRowView {...props} />;
+  if (!props.row.botGroupSource?.messages?.length) return <SingleUserInputRowView {...props} />;
   return (
     <div className="flex min-w-0 flex-col gap-3" data-v4-topic-messages="true">
       {messages.map(({ row, attachmentIndices }) => (
@@ -1744,214 +1443,186 @@ const UserInputRowView = memo(function UserInputRowView(
 // memo 组件的数组默认值必须是模块级常量：内联 [] 每次渲染都是新引用，会让 memo 比较失效。
 const EMPTY_SOURCE_COMMAND_IDS: readonly string[] = [];
 
-export const ConversationAssistantTextActions = memo(
-  function ConversationAssistantTextActions({
-    rowId,
-    entityId,
-    text,
-    createdAt,
-    compactForRemoteControl = false,
-    feedback = null,
-    hookInvocations,
-    sessionId,
-    turnId,
-    sourceCommandIds = EMPTY_SOURCE_COMMAND_IDS,
+export const ConversationAssistantTextActions = memo(function ConversationAssistantTextActions({
+  rowId,
+  entityId,
+  text,
+  createdAt,
+  compactForRemoteControl = false,
+  feedback = null,
+  hookInvocations,
+  sessionId,
+  turnId,
+  sourceCommandIds = EMPTY_SOURCE_COMMAND_IDS,
+  workspacePath,
+  workspaceIdentity,
+  onFork,
+  onFeedbackChange,
+  className,
+}: {
+  rowId: number;
+  entityId?: string;
+  text: string;
+  createdAt: number;
+  compactForRemoteControl?: boolean;
+  feedback?: AssistantMessageFeedback | null;
+  hookInvocations?: readonly HookInvocationRow[];
+  sessionId?: string | null;
+  turnId?: string;
+  sourceCommandIds?: readonly string[];
+  workspacePath?: string;
+  workspaceIdentity?: string;
+  onFork?: (target: ConversationRowTarget) => void;
+  onRetry?: (target: ConversationRowTarget) => void;
+  onFeedbackChange?: AssistantFeedbackHandler;
+  className?: string;
+}) {
+  const { intl, locale } = useZCodeIntl();
+  const platform = useOptionalPlatform();
+  // 本条回复的模型速度（prefill/decode）：轮询 session-debug 快照，取
+  // 「row 创建之后首个完成的模型轮」——即产出这条回复的那一轮请求。
+  const debug = useSessionDebug({
     workspacePath,
     workspaceIdentity,
-    onFork,
-    onFeedbackChange,
-    className,
-  }: {
-    rowId: number;
-    entityId?: string;
-    text: string;
-    createdAt: number;
-    compactForRemoteControl?: boolean;
-    feedback?: AssistantMessageFeedback | null;
-    hookInvocations?: readonly HookInvocationRow[];
-    sessionId?: string | null;
-    turnId?: string;
-    sourceCommandIds?: readonly string[];
-    workspacePath?: string;
-    workspaceIdentity?: string;
-    onFork?: (target: ConversationRowTarget) => void;
-    onRetry?: (target: ConversationRowTarget) => void;
-    onFeedbackChange?: AssistantFeedbackHandler;
-    className?: string;
-  }) {
-    const { intl, locale } = useZCodeIntl();
-    const platform = useOptionalPlatform();
-    // 本条回复的模型速度（prefill/decode）：轮询 session-debug 快照，取
-    // 「row 创建之后首个完成的模型轮」——即产出这条回复的那一轮请求。
-    const debug = useSessionDebug({
-      workspacePath,
-      workspaceIdentity,
-      taskId: sessionId ?? null,
-      enabled: shouldStartSessionDebugPolling({ sessionId, workspacePath }),
-    });
-    const producingRound = debug.rounds.find(
-      (round) => round.recordedAt >= createdAt,
-    );
-    const numberFormat = new Intl.NumberFormat(locale, {
-      maximumFractionDigits: 1,
-    });
-    const { decodeLabel, prefillLabel } = formatSpeedLabels(
-      producingRound,
-      numberFormat,
-    );
-    const [localFeedback, setLocalFeedback] =
-      useState<AssistantMessageFeedback | null>(feedback);
-    const copyLabel = intl.formatMessage({ id: "chat.message.copy" });
-    const likeLabel = intl.formatMessage({
-      id: localFeedback === "like" ? "chat.message.liked" : "chat.message.like",
-    });
-    const dislikeLabel = intl.formatMessage({
-      id:
-        localFeedback === "dislike"
-          ? "chat.message.disliked"
-          : "chat.message.dislike",
-    });
-    const forkLabel = intl.formatMessage({ id: "chat.message.fork" });
-    const timeLabel = formatMessageTimeLabel(createdAt, locale, intl);
-    const resolveTooltip = (label: string): string | undefined =>
-      compactForRemoteControl ? undefined : label;
+    taskId: sessionId ?? null,
+    enabled: shouldStartSessionDebugPolling({ sessionId, workspacePath }),
+  });
+  const producingRound = debug.rounds.find((round) => round.recordedAt >= createdAt);
+  const numberFormat = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
+  const { decodeLabel, prefillLabel } = formatSpeedLabels(producingRound, numberFormat);
+  const [localFeedback, setLocalFeedback] = useState<AssistantMessageFeedback | null>(feedback);
+  const copyLabel = intl.formatMessage({ id: "chat.message.copy" });
+  const likeLabel = intl.formatMessage({
+    id: localFeedback === "like" ? "chat.message.liked" : "chat.message.like",
+  });
+  const dislikeLabel = intl.formatMessage({
+    id: localFeedback === "dislike" ? "chat.message.disliked" : "chat.message.dislike",
+  });
+  const forkLabel = intl.formatMessage({ id: "chat.message.fork" });
+  const timeLabel = formatMessageTimeLabel(createdAt, locale, intl);
+  const resolveTooltip = (label: string): string | undefined =>
+    compactForRemoteControl ? undefined : label;
 
-    useEffect(() => {
-      setLocalFeedback(feedback);
-    }, [feedback]);
+  useEffect(() => {
+    setLocalFeedback(feedback);
+  }, [feedback]);
 
-    const handleFeedback = useCallback(
-      (nextFeedback: AssistantMessageFeedback) => {
-        const previousFeedback = localFeedback;
-        const resolvedFeedback =
-          previousFeedback === nextFeedback ? null : nextFeedback;
-        setLocalFeedback(resolvedFeedback);
-        logger.info("[ConversationRowView] 用户反馈 assistant 消息", {
-          messageId: entityId ?? null,
-          reaction: resolvedFeedback ?? "none",
-        });
-        if (entityId) {
-          void Promise.resolve(
-            onFeedbackChange?.({ rowId, entityId }, resolvedFeedback),
-          ).then(
-            (result) => {
-              if (result === false) setLocalFeedback(previousFeedback);
-            },
-            (error: unknown) => {
-              setLocalFeedback(previousFeedback);
-              // V4 初版只改 renderer local state，command 失败后会显示并不存在的反馈。
-              // 失败必须回滚到点击前投影值，等待后续权威 row 再校正。
-              logger.warn("[ConversationRowView] 持久化 assistant 反馈失败", {
-                error: error instanceof Error ? error.message : String(error),
-                messageId: entityId,
-              });
-            },
-          );
-        }
-      },
-      [entityId, localFeedback, onFeedbackChange, platform, rowId, sessionId],
-    );
-    const handleFork = useCallback(() => {
+  const handleFeedback = useCallback(
+    (nextFeedback: AssistantMessageFeedback) => {
+      const previousFeedback = localFeedback;
+      const resolvedFeedback = previousFeedback === nextFeedback ? null : nextFeedback;
+      setLocalFeedback(resolvedFeedback);
+      logger.info("[ConversationRowView] 用户反馈 assistant 消息", {
+        messageId: entityId ?? null,
+        reaction: resolvedFeedback ?? "none",
+      });
       if (entityId) {
-        onFork?.({ rowId, entityId });
+        void Promise.resolve(onFeedbackChange?.({ rowId, entityId }, resolvedFeedback)).then(
+          (result) => {
+            if (result === false) setLocalFeedback(previousFeedback);
+          },
+          (error: unknown) => {
+            setLocalFeedback(previousFeedback);
+            // V4 初版只改 renderer local state，command 失败后会显示并不存在的反馈。
+            // 失败必须回滚到点击前投影值，等待后续权威 row 再校正。
+            logger.warn("[ConversationRowView] 持久化 assistant 反馈失败", {
+              error: error instanceof Error ? error.message : String(error),
+              messageId: entityId,
+            });
+          },
+        );
       }
-    }, [entityId, onFork, rowId]);
-    return (
-      <MessageActions className={cn(className)}>
-        <CopyRowAction
-          text={text}
-          rowId={rowId}
-          label={copyLabel}
-          tooltip={resolveTooltip(copyLabel)}
-        />
-        {entityId && onFeedbackChange ? (
-          <>
-            <MessageAction
-              aria-label={likeLabel}
-              aria-pressed={localFeedback === "like"}
-              label={likeLabel}
-              tooltip={resolveTooltip(likeLabel)}
-              data-testid={testId(TID_V4_FEEDBACK_LIKE, String(rowId))}
-              className={
-                localFeedback === "like" ? "!bg-success/10" : undefined
-              }
-              onClick={() => handleFeedback("like")}
-            >
-              <span
-                className={cn(
-                  "relative inline-flex",
-                  localFeedback === "like" && "zcode-reaction-burst",
-                )}
-              >
-                <ThumbsUpIcon className="size-3.5" />
-              </span>
-            </MessageAction>
-            <MessageAction
-              aria-label={dislikeLabel}
-              aria-pressed={localFeedback === "dislike"}
-              label={dislikeLabel}
-              tooltip={resolveTooltip(dislikeLabel)}
-              data-testid={testId(TID_V4_FEEDBACK_DISLIKE, String(rowId))}
-              className={
-                localFeedback === "dislike" ? "!bg-warning/10" : undefined
-              }
-              onClick={() => handleFeedback("dislike")}
-            >
-              <span
-                className={cn(
-                  "relative inline-flex",
-                  localFeedback === "dislike" && "zcode-reaction-burst",
-                )}
-              >
-                <ThumbsDownIcon className="size-3.5" />
-              </span>
-            </MessageAction>
-          </>
-        ) : null}
-        {onFork && entityId ? (
+    },
+    [entityId, localFeedback, onFeedbackChange, platform, rowId, sessionId],
+  );
+  const handleFork = useCallback(() => {
+    if (entityId) {
+      onFork?.({ rowId, entityId });
+    }
+  }, [entityId, onFork, rowId]);
+  return (
+    <MessageActions className={cn(className)}>
+      <CopyRowAction
+        text={text}
+        rowId={rowId}
+        label={copyLabel}
+        tooltip={resolveTooltip(copyLabel)}
+      />
+      {entityId && onFeedbackChange ? (
+        <>
           <MessageAction
-            aria-label={forkLabel}
-            label={forkLabel}
-            tooltip={resolveTooltip(forkLabel)}
-            data-testid={testId(TID_V4_FORK, String(rowId))}
-            onClick={handleFork}
+            aria-label={likeLabel}
+            aria-pressed={localFeedback === "like"}
+            label={likeLabel}
+            tooltip={resolveTooltip(likeLabel)}
+            data-testid={testId(TID_V4_FEEDBACK_LIKE, String(rowId))}
+            className={localFeedback === "like" ? "!bg-success/10" : undefined}
+            onClick={() => handleFeedback("like")}
           >
-            <TrendingUpDownIcon className="size-3.5" />
+            <span
+              className={cn(
+                "relative inline-flex",
+                localFeedback === "like" && "zcode-reaction-burst",
+              )}
+            >
+              <ThumbsUpIcon className="size-3.5" />
+            </span>
           </MessageAction>
-        ) : null}
-        {turnId && hookInvocations ? (
-          <ConversationHookDetailsAction
-            rows={hookInvocations}
-            turnId={turnId}
-          />
-        ) : null}
-        {/* 旧 conversation surface 删除后，V4 动作栏漏掉了消息创建时间；
+          <MessageAction
+            aria-label={dislikeLabel}
+            aria-pressed={localFeedback === "dislike"}
+            label={dislikeLabel}
+            tooltip={resolveTooltip(dislikeLabel)}
+            data-testid={testId(TID_V4_FEEDBACK_DISLIKE, String(rowId))}
+            className={localFeedback === "dislike" ? "!bg-warning/10" : undefined}
+            onClick={() => handleFeedback("dislike")}
+          >
+            <span
+              className={cn(
+                "relative inline-flex",
+                localFeedback === "dislike" && "zcode-reaction-burst",
+              )}
+            >
+              <ThumbsDownIcon className="size-3.5" />
+            </span>
+          </MessageAction>
+        </>
+      ) : null}
+      {onFork && entityId ? (
+        <MessageAction
+          aria-label={forkLabel}
+          label={forkLabel}
+          tooltip={resolveTooltip(forkLabel)}
+          data-testid={testId(TID_V4_FORK, String(rowId))}
+          onClick={handleFork}
+        >
+          <TrendingUpDownIcon className="size-3.5" />
+        </MessageAction>
+      ) : null}
+      {turnId && hookInvocations ? (
+        <ConversationHookDetailsAction rows={hookInvocations} turnId={turnId} />
+      ) : null}
+      {/* 旧 conversation surface 删除后，V4 动作栏漏掉了消息创建时间；
           时间是 row.createdAt 的只读派生展示，不新增 renderer 状态。 */}
-        {timeLabel ? (
-          <span className="select-none text-ui-sm text-foreground-subtlest">
-            {timeLabel}
-          </span>
-        ) : null}
-        {prefillLabel ? (
-          <span className="select-none text-ui-sm text-foreground-subtlest">
-            ↑{prefillLabel} tok/s
-          </span>
-        ) : null}
-        {decodeLabel ? (
-          <span className="select-none text-ui-sm text-foreground-subtlest">
-            ↓{decodeLabel} tok/s
-          </span>
-        ) : null}
-        {turnId ? (
-          <ConnectedBotGroupDeliveryAction
-            turnId={turnId}
-            sourceCommandIds={sourceCommandIds}
-          />
-        ) : null}
-      </MessageActions>
-    );
-  },
-);
+      {timeLabel ? (
+        <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
+      ) : null}
+      {prefillLabel ? (
+        <span className="select-none text-ui-sm text-foreground-subtlest">
+          ↑{prefillLabel} tok/s
+        </span>
+      ) : null}
+      {decodeLabel ? (
+        <span className="select-none text-ui-sm text-foreground-subtlest">
+          ↓{decodeLabel} tok/s
+        </span>
+      ) : null}
+      {turnId ? (
+        <ConnectedBotGroupDeliveryAction turnId={turnId} sourceCommandIds={sourceCommandIds} />
+      ) : null}
+    </MessageActions>
+  );
+});
 
 const AssistantTextRowView = memo(function AssistantTextRowView({
   row,
@@ -1983,8 +1654,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
   const streaming = row.state === "streaming";
   const isOfficeMode = useIsOfficeMode();
   const codeCommentCardsEnabled = useAssistantCodeCommentFeatureEnabled();
-  const projectsCodeComments =
-    codeCommentCardsEnabled && codeCommentProjectionEnabled === true;
+  const projectsCodeComments = codeCommentCardsEnabled && codeCommentProjectionEnabled === true;
   const visibleText = useMemo(
     () =>
       projectsCodeComments
@@ -1993,64 +1663,14 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
     [projectsCodeComments, row.text, streaming],
   );
   const visiblePreviewCards = previewCards && previewCards.length > 0 ? previewCards : null;
-  const textElement = useRef<HTMLDivElement>(null);
-  const paintFrames = useRef<number[]>([]);
-  useEffect(
-    () => () => {
-      for (const frame of paintFrames.current) cancelAnimationFrame(frame);
-    },
-    [],
-  );
-  useLayoutEffect(() => {
-    if (context.workspaceIdentity || !context.sessionId) return;
-    const observer = getLocalTtftObserver();
-    const args = [context.workspacePath, context.sessionId, row.turnId, row.rowId] as const;
-    if (!observer?.needsTextRender(...args)) return;
-    const element = textElement.current;
-    if (!element?.textContent?.trim()) return;
-    const visible = () => {
-      if (
-        !element.isConnected ||
-        document.visibilityState !== "visible" ||
-        !element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })
-      )
-        return false;
-      const rect = element.getBoundingClientRect();
-      return (
-        rect.bottom > 0 &&
-        rect.right > 0 &&
-        rect.top < window.innerHeight &&
-        rect.left < window.innerWidth
-      );
-    };
-    if (!observer.textRendered(...args, "committed", visible())) return;
-    // 接收帧早于 React 提交；两次 rAF 只代表经过绘制机会，不能声称像素已上屏。
-    // 流式文本更新不能取消首帧观察，仅组件卸载取消，避免高频更新把计时拖到整轮结束。
-    paintFrames.current.push(
-      requestAnimationFrame(() => {
-        paintFrames.current.push(
-          requestAnimationFrame(() => {
-            observer.textRendered(...args, "paint_estimate", visible());
-          }),
-        );
-      }),
-    );
-  }, [
-    context.workspaceIdentity,
-    context.workspacePath,
-    context.sessionId,
-    row.turnId,
-    row.rowId,
-    visibleText,
-  ]);
   return (
     <RowShell rowId={row.rowId} className="group/assistant-row">
-      {/* M5④ 阶段2：assistant 文本走 streamdown（MessageResponse），
+      {/* assistant 文本走 streamdown（MessageResponse），
           markdown/代码块正式渲染；streaming 模式对未闭合 markdown 容错。 */}
-      {/* Bugfix：MessageResponse 只消费自身声明的 props，不会把 data-* 透传到真实 DOM，
+      {/* MessageResponse 只消费自身声明的 props，不会把 data-* 透传到真实 DOM，
           导致 assistant 正文虽然在 JSX 上标了 selectable，框选逻辑却永远找不到该区域。
           selectable 语义必须放在稳定的 DOM 包装层上，完成态和 streaming 共用同一路径。 */}
-      <div ref={textElement} data-conversation-selectable="true" className="w-full text-ui-base">
+      <div data-conversation-selectable="true" className="w-full text-ui-base">
         <GenUiMessageResponse
           completed={row.state === "complete"}
           messageKey={`${row.rowId}:${row.entityId ?? ""}`}
@@ -2071,9 +1691,7 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           {visibleText}
         </GenUiMessageResponse>
       </div>
-      {codeCommentCardsEnabled &&
-      codeCommentCards &&
-      codeCommentCards.length > 0 ? (
+      {codeCommentCardsEnabled && codeCommentCards && codeCommentCards.length > 0 ? (
         <div className="mt-3">
           <AssistantCodeCommentCards
             cards={codeCommentCards}
@@ -2109,7 +1727,6 @@ const AssistantTextRowView = memo(function AssistantTextRowView({
           entityId={row.entityId}
           text={copyText ?? row.text}
           createdAt={row.createdAt}
-          compactForRemoteControl={context.compactForRemoteControl}
           feedback={readAssistantFeedback(row)}
           sessionId={context.sessionId}
           workspacePath={context.workspacePath}
@@ -2138,9 +1755,7 @@ const ReasoningRowView = memo(function ReasoningRowView({
   // 现在 streaming/complete 都默认收起，只保留运行态文案，用户可手动展开。
   // autoCollapseKey 仍保证状态边界不会覆盖已经发生过的用户交互。
   const durationSeconds =
-    row.durationMs !== undefined
-      ? Math.max(1, Math.ceil(row.durationMs / 1000))
-      : undefined;
+    row.durationMs !== undefined ? Math.max(1, Math.ceil(row.durationMs / 1000)) : undefined;
   if (streaming && row.text.length === 0) {
     return null;
   }
@@ -2150,27 +1765,19 @@ const ReasoningRowView = memo(function ReasoningRowView({
         className="w-full"
         isStreaming={streaming}
         autoCollapseKey={streaming ? null : row.state}
-        {...(durationSeconds !== undefined
-          ? { duration: durationSeconds }
-          : {})}
+        {...(durationSeconds !== undefined ? { duration: durationSeconds } : {})}
       >
-        {/* Bug 原因：附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
+        {/* 附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
         <ReasoningTrigger streamingText={row.text} />
         <div data-conversation-selectable="true">
-          <ReasoningContent variant={contentVariant}>
-            {row.text}
-          </ReasoningContent>
+          <ReasoningContent variant={contentVariant}>{row.text}</ReasoningContent>
         </div>
       </Reasoning>
     </RowShell>
   );
 });
 
-const TurnHeaderRowView = memo(function TurnHeaderRowView({
-  row,
-}: {
-  row: TurnHeaderRow;
-}) {
+const TurnHeaderRowView = memo(function TurnHeaderRowView({ row }: { row: TurnHeaderRow }) {
   return (
     <RowShell
       rowId={row.rowId}
@@ -2181,7 +1788,117 @@ const TurnHeaderRowView = memo(function TurnHeaderRowView({
   );
 });
 
-/** timelineMarker 分隔线与分享只读页共用；这里只注入 App 宿主能力。 */
+/** 分隔线图标（对齐旧版 synthetic-timeline dividers：size-3.5 subtle）。 */
+const MARKER_ARCHIVE_ICON = (
+  <ArchiveIcon
+    aria-hidden="true"
+    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
+  />
+);
+const MARKER_FORK_ICON = (
+  <GitBranchIcon
+    aria-hidden="true"
+    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
+  />
+);
+const MARKER_GOAL_ICON = (
+  <GoalIcon
+    aria-hidden="true"
+    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
+  />
+);
+const MARKER_MODEL_ICON = (
+  <ArrowRightLeftIcon
+    aria-hidden="true"
+    className="size-3.5 shrink-0 text-[var(--color-foreground-subtle)]"
+  />
+);
+
+/**
+ * 系统标记分隔线壳：两侧细横线 + 居中「图标 + 文案」pill，视觉对齐旧版
+ * ChatMessage synthetic-timeline dividers（fork / compaction / goal 同款）。
+ * running（压缩/校验进行中）隐藏图标、文案走 animated-gradient-text 流光（同旧版）。
+ */
+function MarkerDividerRow({
+  rowId,
+  markerType,
+  markerStatus,
+  markerOrigin,
+  markerSourceCommandId,
+  icon,
+  label,
+  running = false,
+  onClick,
+}: {
+  rowId: number;
+  markerType: TimelineMarkerRow["marker"]["type"];
+  markerStatus: string;
+  markerOrigin?: string;
+  markerSourceCommandId?: string;
+  icon: React.ReactNode;
+  label: React.ReactNode;
+  running?: boolean;
+  /** 传入即整行可点（fork→跳父会话）；不传为静态分隔线。 */
+  onClick?: () => void;
+}) {
+  const clickable = Boolean(onClick);
+  const rowClassName =
+    "flex w-full items-center gap-3 px-4 py-2 text-ui-base text-[var(--color-foreground-subtle)]";
+  const inner = (
+    <>
+      <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
+      <span className="inline-flex min-w-0 shrink items-center justify-center gap-1.5 text-center leading-5">
+        {running ? null : icon}
+        <span
+          className={`min-w-0 break-words${running ? " animated-gradient-text font-medium" : ""}${clickable ? " underline-offset-4 group-hover/marker:underline" : ""}`}
+        >
+          {label}
+        </span>
+      </span>
+      <div aria-hidden="true" className="h-px min-w-8 flex-1 bg-border/50" />
+    </>
+  );
+  if (onClick) {
+    // 整行 <button>（对齐旧版 fork divider）：hover 变亮 + 文案下划线示意可点。
+    return (
+      <button
+        type="button"
+        data-row-id={rowId}
+        data-row-kind="timelineMarker"
+        data-marker-type={markerType}
+        data-status={markerStatus}
+        data-origin={markerOrigin}
+        data-source-command-id={markerSourceCommandId}
+        data-testid={testId(TID_V4_ROW, String(rowId))}
+        onClick={onClick}
+        className={`group/marker ${rowClassName} text-start transition-colors hover:text-[var(--color-foreground)]`}
+      >
+        {inner}
+      </button>
+    );
+  }
+  return (
+    <div
+      data-row-id={rowId}
+      data-row-kind="timelineMarker"
+      data-marker-type={markerType}
+      data-status={markerStatus}
+      data-origin={markerOrigin}
+      data-source-command-id={markerSourceCommandId}
+      data-testid={testId(TID_V4_ROW, String(rowId))}
+      className={rowClassName}
+    >
+      {inner}
+    </div>
+  );
+}
+
+/**
+ * timelineMarker 行渲染：compact / forkNotice / goalVerify / modelChange 画成分隔线。
+ * modelChange 可见化 = 裁决（切换后实际发送出去的轮才落分隔，含
+ * model-only 续跑轮）；goalSet/forkCreated 已在投影层停产（隐形行清零），
+ * retryNotice·checkpointRestored 无 UI，default 分支兜底不渲染。
+ */
 const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
   row,
   context,
@@ -2189,18 +1906,140 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
   row: TimelineMarkerRow;
   context: ConversationRowRenderContext;
 }) {
+  const { intl } = useZCodeIntl();
   const isOfficeMode = useIsOfficeMode();
-  // "已创建 worktree"是可展开的输出块，不是分隔线（docs/git/worktree.md §3.3）。
-  // 它依赖 App 侧 managed-worktrees 能力，留在宿主这里，不进分享只读页共用的分隔线组件。
-  if (row.marker.type === "worktreeCreated") {
-    return <WorktreeCreatedMarker rowId={row.rowId} output={row.marker.output} />;
+  const marker = row.marker;
+  const modelSelectionView = context.modelSelectionView ?? null;
+  const view = useMemo((): {
+    icon: React.ReactNode;
+    label: React.ReactNode;
+    running: boolean;
+  } | null => {
+    switch (marker.type) {
+      case "compact": {
+        const running = marker.status === "running";
+        const automaticOptimization = isOfficeMode && marker.origin === "auto";
+        const scope = automaticOptimization ? "chat.contextOptimization" : "chat.contextCompaction";
+        const statusMessage =
+          marker.status === "running"
+            ? "started"
+            : marker.status === "noop"
+              ? "skipped"
+              : marker.status === "cancelled"
+                ? "interrupted"
+                : marker.status === "failed"
+                  ? "failed"
+                  : marker.origin === "auto" && !automaticOptimization
+                    ? "completedAuto"
+                    : "completed";
+        return {
+          icon: MARKER_ARCHIVE_ICON,
+          label: intl.formatMessage({ id: `${scope}.${statusMessage}` }),
+          running,
+        };
+      }
+      case "forkNotice":
+        return {
+          icon: MARKER_FORK_ICON,
+          label: intl.formatMessage({ id: "chat.message.fork.derivedFrom" }),
+          running: false,
+        };
+      case "modelChange": {
+        // marker 已携带完整 provider/model 元组，旧渲染却只读取 model，
+        // 且没有订阅 provider snapshot，导致同名模型无差异、目录水合后名称不刷新。
+        // 这里保留 provider ID fallback，并让现有 marker 随目录更新。
+        const fromProvider = resolveProviderLabel(marker.fromProvider, modelSelectionView);
+        const toProvider = resolveProviderLabel(marker.toProvider, modelSelectionView);
+        const to = formatModelChangeLabel(marker.toProvider, toProvider, marker.toModel, intl);
+        if (marker.fromProvider === undefined || marker.fromModel === undefined) {
+          return {
+            // source-less 表示首次使用的模型事实，不是模型切换，因此不显示切换箭头。
+            icon: null,
+            label: intl.formatMessage({ id: "chat.modelChange.using" }, { model: to }),
+            running: false,
+          };
+        }
+        return {
+          icon: MARKER_MODEL_ICON,
+          label: intl.formatMessage(
+            { id: "chat.modelChange.switched" },
+            {
+              from: formatModelChangeLabel(
+                marker.fromProvider,
+                fromProvider,
+                marker.fromModel,
+                intl,
+              ),
+              to,
+            },
+          ),
+          running: false,
+        };
+      }
+      case "goalVerify": {
+        const running = marker.outcome === "running";
+        // pass→完成；notSatisfied/failed→未完成（沿用旧版 failed_closed 归「未完成」的处理）。
+        const statusId =
+          marker.outcome === "running"
+            ? "chat.goalVerification.checking"
+            : marker.outcome === "pass"
+              ? "chat.goalVerification.complete"
+              : "chat.goalVerification.incomplete";
+        return {
+          icon: MARKER_GOAL_ICON,
+          running,
+          // innerText 形如「第 1 次迭代 · 目标校验中」，对齐 goal-timeline 待命 e2e 断言。
+          label: (
+            <>
+              <span>
+                {intl.formatMessage(
+                  { id: "chat.summaryPanel.goalIterationValue" },
+                  { count: String(marker.iteration) },
+                )}
+              </span>
+              <span aria-hidden="true"> · </span>
+              {intl.formatMessage({ id: statusId })}
+            </>
+          ),
+        };
+      }
+      default:
+        return null;
+    }
+  }, [intl, isOfficeMode, marker, modelSelectionView]);
+
+  // fork 跳父会话（Tier 1）：仅 forkNotice 且宿主提供 onNavigateToRow 时可点，
+  // 切到 marker.parentSessionId（rowId 预留 Tier 2 精确滚动，当前恒 0 占位）。
+  const onNavigate = context.onNavigateToRow;
+  const handleClick = useMemo(() => {
+    if (marker.type !== "forkNotice" || !onNavigate) {
+      return undefined;
+    }
+    return () => onNavigate(marker.parentSessionId, marker.parentRowId);
+  }, [marker, onNavigate]);
+
+  if (!view) {
+    return null;
   }
   return (
-    <ConversationTimelineMarkerDivider
-      row={row}
-      isOfficeMode={isOfficeMode}
-      modelSelectionView={context.modelSelectionView ?? null}
-      onNavigateToRow={context.onNavigateToRow}
+    <MarkerDividerRow
+      rowId={row.rowId}
+      markerType={marker.type}
+      markerStatus={
+        marker.type === "compact"
+          ? marker.status
+          : marker.type === "goalVerify"
+            ? marker.outcome
+            : marker.type === "forkNotice"
+              ? "created"
+              : "applied"
+      }
+      markerOrigin={marker.type === "compact" ? marker.origin : undefined}
+      markerSourceCommandId={row.sourceCommandId}
+      icon={view.icon}
+      label={view.label}
+      running={view.running}
+      onClick={handleClick}
     />
   );
 });
@@ -2226,52 +2065,6 @@ const ToolCallRowView = memo(function ToolCallRowView({
     (row.display?.kind === "resume_workflow_run"
       ? context.workflowRunByRunId?.get(row.display.runId)
       : undefined);
-  // 已接进 run 的补全行（docs/dynamic-workflow/presentation.md「The fill row」）：「留白已补全 · {name} ·
-  // {k} 个阶段 · {m} 个子代理 ↗」。按入参的 `run_id` 联接投影（补全行的 toolCallId 不是发起行的），只认成功
-  // 且编过的行——编不过的补全走下面的编译反馈行，什么都没接进 run。卡下方随之长出新的站（轮尾摘要
-  // 取的是这一行的图）。
-  // 名字来自 display 的 `fill` 块（行的入参没有名字——transcript 只存模型自己的入参）。
-  const fillTarget = isFillWorkflowHoleToolCall(row)
-    ? readWorkflowHoleTarget(
-        row.input,
-        row.display?.kind === "create_workflow" ? row.display.fill : undefined,
-      )
-    : undefined;
-  const fillRun =
-    fillTarget?.runId === undefined ? undefined : context.workflowRunByRunId?.get(fillTarget.runId);
-  if (
-    fillTarget !== undefined &&
-    fillTarget.holeId !== undefined &&
-    fillRun !== undefined &&
-    row.status === "success" &&
-    row.display?.kind === "create_workflow" &&
-    row.display.ok
-  ) {
-    const sessionId = context.sessionId;
-    const counts = workflowFillCounts(row.display.causalityGraph, fillTarget.holeId);
-    return (
-      <RowShell rowId={row.rowId} className="py-0">
-        <WorkflowToolSummary
-          toolCallId={row.toolCallId}
-          summary={fillRun}
-          fill={{
-            name: fillTarget.name ?? fillTarget.holeId,
-            ...counts,
-          }}
-          onOpen={
-            context.onOpenWorkflowRun && sessionId
-              ? () =>
-                  context.onOpenWorkflowRun?.({
-                    parentSessionId: sessionId,
-                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, fillRun),
-                    runId: fillRun.runId,
-                  })
-              : undefined
-          }
-        />
-      </RowShell>
-    );
-  }
   // 原因：已启动的工具卡与轮尾摘要重复画同一条实时进度；上方改为普通摘要入口。
   // 只替换成功关联的发起行，编译诊断及 Resume 等其他工具仍走原有渲染。
   if (
@@ -2292,10 +2085,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
               ? () =>
                   context.onOpenWorkflowRun?.({
                     parentSessionId: sessionId,
-                    toolCallId: resolveWorkflowRunOpenToolCallId(
-                      row.toolCallId,
-                      workflowRun,
-                    ),
+                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, workflowRun),
                     runId: workflowRun.runId,
                     ...(workflowName === undefined ? {} : { workflowName }),
                   })
@@ -2305,7 +2095,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
       </RowShell>
     );
   }
-  // 就地生效的修订（docs/dynamic-workflow/concurrency.md）：只改并发上限、run 又在飞时这次调用
+  // 就地生效的修订：只改并发上限、run 又在飞时这次调用
   // 不编译、不铸新 run，结果只有一句话。判据全在已经上线的字段上——入参的形状、**没有** display、
   // 成功且非错误；工具的结构化输出不过 v4，而三处 create_workflow display schema 都是冻结字段集
   // 的 `.strict()`，多一个键会让旧端把整条工具结果丢掉，所以这条路不新增任何协议字段。
@@ -2319,18 +2109,18 @@ const ToolCallRowView = memo(function ToolCallRowView({
     !context.workflowRunByToolCallId?.has(row.toolCallId)
   ) {
     const sessionId = context.sessionId;
-    // 被调整那条 run 的投影：只为两件事——默认并发（措辞据它把「等于默认」念成「恢复为默认」）与
+    // 被调整那条 run 的投影：只为两件事——本机天花板（措辞据它不念出一个大于上限的数）与
     // 打开请求里那条 run 的发起行 id。它不进上面的 `workflowRun`：那个变量回答的是「这一行是不是
     // 某条 run 的发起行」，而这一行不是。
     const retuned = context.workflowRunByRunId?.get(retune.runId);
-    const defaultConcurrency =
+    const ceiling =
       retuned?.run === undefined ? undefined : workflowRunDefaultConcurrency(retuned.run);
     return (
       <RowShell rowId={row.rowId} className="py-0">
         <WorkflowRetuneRow
           requested={retune.requested}
           runId={retune.runId}
-          {...(defaultConcurrency === undefined ? {} : { defaultConcurrency })}
+          {...(ceiling === undefined ? {} : { ceiling })}
           {...(context.onOpenWorkflowRun && sessionId
             ? {
                 onOpen: () =>
@@ -2377,10 +2167,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
                     parentSessionId: context.sessionId!,
                     // 打开请求的关联键是发起行（CreateWorkflow）id，不是点中行的 id——
                     // resume 行点开时两者不同，详情页拿它找 causalityGraph/脚本。
-                    toolCallId: resolveWorkflowRunOpenToolCallId(
-                      row.toolCallId,
-                      workflowRun,
-                    ),
+                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, workflowRun),
                     runId: workflowRun.runId,
                   })
               : undefined
@@ -2388,10 +2175,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
           onOpenWorkflowActor={
             context.onOpenWorkflowActor && context.sessionId && workflowRun
               ? (request) =>
-                  context.onOpenWorkflowActor?.({
-                    ...request,
-                    parentSessionId: context.sessionId!,
-                  })
+                  context.onOpenWorkflowActor?.({ ...request, parentSessionId: context.sessionId! })
               : undefined
           }
           // 脚本药丸 → 脚本 transcript：关联键同 onOpenWorkflowRun（发起行 id + runId）。
@@ -2401,21 +2185,14 @@ const ToolCallRowView = memo(function ToolCallRowView({
                   context.onOpenWorkflowWorkspace?.({
                     ...request,
                     parentSessionId: context.sessionId!,
-                    toolCallId: resolveWorkflowRunOpenToolCallId(
-                      row.toolCallId,
-                      workflowRun,
-                    ),
+                    toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, workflowRun),
                     runId: workflowRun.runId,
                   })
               : undefined
           }
           onResumeWorkflowRun={
             context.onResumeWorkflowRun && workflowRun?.resumable
-              ? (request) =>
-                  context.onResumeWorkflowRun?.(
-                    workflowRun.runId,
-                    request.workflowName,
-                  )
+              ? (request) => context.onResumeWorkflowRun?.(workflowRun.runId, request.workflowName)
               : undefined
           }
           // 产物药丸 → 产物 tab：与通知行的 chips 同一条打开路径（不带版本号，打开即最新版）。
@@ -2431,9 +2208,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
                     parentSessionId: context.sessionId!,
                     runId: workflowRun.runId,
                     artifactId,
-                    ...(artifact?.title === undefined
-                      ? {}
-                      : { title: artifact.title }),
+                    ...(artifact?.title === undefined ? {} : { title: artifact.title }),
                     ...(artifact?.contentType === undefined
                       ? {}
                       : { contentType: artifact.contentType }),
@@ -2449,11 +2224,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
   );
 });
 
-const SubagentRowView = memo(function SubagentRowView({
-  row,
-}: {
-  row: SubagentRow;
-}) {
+const SubagentRowView = memo(function SubagentRowView({ row }: { row: SubagentRow }) {
   // subagent 行已经和 Agent/Task 工具行配对渲染；裸行只保留异常兜底摘要，
   // 避免再生成一个“子会话”卡片或第二套下钻入口。
   const summary = (
@@ -2464,9 +2235,7 @@ const SubagentRowView = memo(function SubagentRowView({
   );
   return (
     <RowShell rowId={row.rowId}>
-      <div className="text-ui-sm text-[var(--color-foreground-subtle)]">
-        {summary}
-      </div>
+      <div className="text-ui-sm text-[var(--color-foreground-subtle)]">{summary}</div>
     </RowShell>
   );
 });
@@ -2537,8 +2306,7 @@ function ConversationRowViewImpl({
       // 在行分发处按同一工具身份规则裁剪，设置关闭时不产生任何 Todo DOM。
       if (
         context.messageStreamShowTodos !== true &&
-        resolveToolCallIdentity({ toolName: row.toolName, kind: row.toolName })
-          .family === "todo"
+        resolveToolCallIdentity({ toolName: row.toolName, kind: row.toolName }).family === "todo"
       ) {
         return null;
       }
@@ -2547,8 +2315,6 @@ function ConversationRowViewImpl({
       return <SubagentRowView row={row} />;
     case "artifact":
       return <ArtifactRowView row={row} />;
-    case "unreadable":
-      return <UnreadableRowView row={row} />;
     default:
       return null;
   }
