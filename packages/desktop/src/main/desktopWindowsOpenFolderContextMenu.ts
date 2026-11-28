@@ -9,6 +9,9 @@ const MENU_LABELS: Record<Locale, string> = {
   "zh-CN": "在ZCode中打开",
   "en-US": "Open in ZCodium",
   "fa-IR": "باز کردن در ZCodium",
+  "ja-JP": "ZCodiumで開く",
+  "ru-RU": "Открыть в ZCodium",
+  "ko-KR": "ZCodium에서 열기",
 };
 
 type Logger = {

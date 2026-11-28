@@ -59,8 +59,8 @@ export function createDesktopCuaHelperInstaller(
   const devBundledAppPath =
     (options.platform ?? process.platform) === "darwin" && !isPackaged
       ? resolveDevCuaHelperAppPath({
-          envOverride: options.env.ZCODE_CUA_BUNDLED_HELPER_APP_PATH?.trim() || undefined,
-          zcodeHome: options.env.ZCODE_HOME?.trim() || join(homedir(), ".zcodium"),
+          envOverride: options.env!.ZCODE_CUA_BUNDLED_HELPER_APP_PATH?.trim() || undefined,
+          zcodeHome: options.env!.ZCODE_HOME?.trim() || join(homedir(), ".zcodium"),
           platformKey: resolvePlatformKeyForPackagedApp(),
           rootCandidates: defaultDevCuaHelperRootCandidates(process.cwd(), import.meta.dirname),
           existsSyncImpl: existsSync,

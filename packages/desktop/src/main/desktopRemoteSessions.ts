@@ -30,7 +30,7 @@ import type {
   RemoteConnectionStats,
   RemoteDisconnectReason,
   RemoteGaugeTransition,
-} from "./desktopRemoteUsageArmsTelemetry.js";
+} from "./remoteConnectionStats.js";
 import type { RemoteAssetDirs } from "./desktopRuntimeEnv.js";
 import {
   ProviderProvisioningEnvironmentCoordinator,

@@ -24,12 +24,14 @@ import {
   sanitizeZCodeRuntimeEnv,
   type SourceServerArtifactPolicy,
   type ZCodeRuntimeEnv,
+  readExternalEnvVar,
 } from "@zcode/shared";
 import { resolvePlatformKeyForPackagedApp } from "../../scripts/target-platform.mjs";
 import { ZCODE_CUA_HELPER_ALLOW_UNSIGNED_LOCAL_ENV } from "./desktopCuaHelperTrustEnv.js";
 import {
   defaultDevCuaHelperRootCandidates as defaultDevCuaHelperRootCandidatesPure,
   readCuaHelperBuildIdFromPlist,
+  defaultDevCuaHelperRootCandidates,
   resolveDevCuaHelperAppPath as resolveDevCuaHelperAppPathPure,
 } from "./desktopCuaHelperBundledPath.js";
 import {
@@ -226,27 +228,6 @@ export function loadHostProcessEnvFromLocalFiles(): Record<string, string> {
   return applySelectedZCodeEnvLinks(merged);
 }
 
-export function resolvePackagedAgentTelemetryEnv(
-  compiledEnv:
-    | Readonly<Record<string, string>>
-    | undefined = typeof __ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__ === "undefined"
-    ? undefined
-    : __ZCODE_PACKAGED_AGENT_TELEMETRY_ENV__,
-): Record<string, string> {
-  if (!compiledEnv) {
-    return {};
-  }
-
-  // 修复原因：开发版通过启动进程继承 OTLP 配置，正式安装包从 Finder/开始菜单启动时没有
-  // 这组运行时环境，Agent 因而静默落入 Noop。构建默认值只允许连接字段进入 Main；
-  // UID、Device MID 和 runtime surface 仍由 Host 的可信运行时上下文生成。
-  return readZCodeAgentTelemetryEnv({
-    OTEL_EXPORTER_OTLP_ENDPOINT: compiledEnv.OTEL_EXPORTER_OTLP_ENDPOINT,
-    OTEL_EXPORTER_OTLP_HEADERS: compiledEnv.OTEL_EXPORTER_OTLP_HEADERS,
-    OTEL_SERVICE_NAME: compiledEnv.OTEL_SERVICE_NAME,
-    ZCODE_TELEMETRY_RUNTIME_DISTRIBUTION: compiledEnv.ZCODE_TELEMETRY_RUNTIME_DISTRIBUTION,
-  });
-}
 
 function resolveDevelopmentMockCdnDir(): string {
   return join(import.meta.dirname, "../../mock-cdn");
@@ -572,10 +553,12 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
       ? undefined
       : packagedDesktop
         ? join(process.resourcesPath, "cua-helper", HELPER_APP_NAME)
-        : resolveDevCuaHelperAppPath({
+        : resolveDevCuaHelperAppPathPure({
             envOverride: rawInheritedEnv.ZCODE_CUA_BUNDLED_HELPER_APP_PATH?.trim() || undefined,
             zcodeHome: rawInheritedEnv.ZCODE_HOME?.trim() || join(homedir(), ".zcodium"),
             platformKey: resolvePlatformKeyForPackagedApp(),
+            rootCandidates: defaultDevCuaHelperRootCandidates(process.cwd(), import.meta.dirname),
+            existsSyncImpl: existsSync,
           });
   const windowsAppInstallDir = resolveWindowsAppInstallDirForDataBaseDirGuard();
   const inheritedEnv = applySelectedZCodeEnvLinks({
@@ -602,7 +585,7 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
   // dev/打包两态都读：vendor 内嵌的期望 buildId 是上游某次发布的字面量，env 优先
   // patch（见 vendor resolveExpectedCuaHelperBuildId）后由这里按实际 helper 钉住。
   const cuaHelperBuildId = bundledCuaHelperAppPath
-    ? readCuaHelperBuildId(bundledCuaHelperAppPath)
+    ? readCuaHelperBuildIdFromPlist(bundledCuaHelperAppPath)
     : undefined;
   // ZCodium 私有 broker socket（docs/spec/cua-runtime-builtin.md §D 跨安装共存）：
   // stable socket 按 user 单例，官方 ZCode.app 的托管 helper 常驻其上，fork 的

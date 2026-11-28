@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 /* eslint-disable max-lines -- Web 远程控制共享协议同时保留旧 /web-remote 类型和新外部 relay 类型，后续拆分时再按 transport/app payload 分文件。 */
 import type { DockerContainerInfo, SSHConfigAliasOption, WSLDistro } from "./platform.js";
 import type {
@@ -1070,6 +1072,13 @@ export type RelayDesktopControlEvent =
   | WebRemoteControlWindowControlResponse;
 
 /** Renderer → Main：OAuth 会话变化通知，不携带凭据。 */
+/** Renderer 只通知会话变化；main 必须重新读取本地凭据。 */
+export const webRemoteControlAuthStateChangeSchema = z
+  .object({
+    state: z.enum(["signed-in", "signed-out"]),
+  })
+  .strict();
+
 export interface WebRemoteControlAuthStateChange {
   state: "signed-in" | "signed-out";
 }

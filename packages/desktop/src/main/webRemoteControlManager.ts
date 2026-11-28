@@ -1,4 +1,3 @@
-import type { RendererTelemetryEventPayload } from "@zcode/shared";
 /* eslint-disable max-lines -- Web 远程控制 manager 承担外部 relay app payload 路由与 workspace bridge 编排。 */
 import type { MessagePortMain, UtilityProcess as ElectronUtilityProcess } from "electron";
 import { randomUUID } from "node:crypto";
@@ -41,11 +40,14 @@ import {
   type WebRemoteControlWindowBootstrapResult,
   type WebRemoteControlWorkspaceBridgeOpenPayload,
   type WebRemoteControlWorkspaceListResult,
+  type WebRemoteControlTaskTarget,
   type WebRemoteControlWorkspaceTarget,
   type RemoteUsageRemoteKind,
-  type TelemetryEventPayload,
   measureWebRemoteControlRpcRelayEnvelopeBytes,
+  type RendererTelemetryEventPayload,
+  type TelemetryEventPayload,
 } from "@zcode/shared";
+
 import { WebRemoteControlV2ConnectionError } from "@zcode/shared/web-remote-relay";
 import {
   WebRemoteControlDeviceTransport,
@@ -344,6 +346,8 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
   let registrationQueue: Promise<unknown> = Promise.resolve();
   const startAuthorizations = new Map<string, WebRemoteControlStartAuthorization>();
   const availableWorkspacesByWindowId = new Map<number, WebRemoteControlWorkspaceTarget[]>();
+  // fork：手机任务列表快照（整快照替换，UI 侧 webRemoteControlTaskSync 保证 loading 期间不同步）。
+  const availableTasksByWindowId = new Map<number, WebRemoteControlTaskTarget[]>();
   const mobileLogPulls = createMobileLogPullCoordinator({
     shardTimeoutMs: dependencies.mobileLogPullShardTimeoutMs,
   });
@@ -1057,6 +1061,7 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
     const initialViewState = getRuntimeInitialViewState(runtime);
     return {
       workspaces: getAvailableWorkspaces(runtime),
+      tasks: availableTasksByWindowId.get(runtime.windowId) ?? [],
       activeWorkspaceKey:
         runtime.mobileViewState?.activeWorkspaceKey ??
         initialViewState?.activeWorkspaceKey ??
@@ -1612,10 +1617,6 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       case "rpc-frame":
       case "rpc-frame-ack":
         routeRpcTransportPayload(runtime, payload);
-        break;
-      case "telemetry-report":
-        // 手机已在创建边界构造事件；Main 只转发，不维护会话事实或干预 replayable 链路。
-        dependencies.reportRendererTelemetryEvent?.(payload.event);
         break;
       case "mobile-diagnostic":
         logMobileDiagnostic(runtime, payload);
@@ -2249,6 +2250,15 @@ export function createWebRemoteControlManager(dependencies: WebRemoteControlMana
       }
 
       return buildRuntimeStatus(runtime);
+    },
+
+    syncAvailableTasks(windowId: number, tasks: WebRemoteControlTaskTarget[]): void {
+      availableTasksByWindowId.set(windowId, tasks);
+      const runtime = runtimes.get(windowId);
+      if (!runtime) {
+        return;
+      }
+      pushWorkspaceListUpdated(runtime);
     },
 
     syncAvailableWorkspaces(windowId: number, workspaces: WebRemoteControlWorkspaceTarget[]): void {

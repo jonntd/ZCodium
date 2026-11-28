@@ -117,7 +117,7 @@ type UpdateDownloadedInfoLike = {
 
 type RuntimeUpdateFeedSource = { url: string };
 
-type AutoUpdaterMenuState = UpdateStatePayload;
+type AutoUpdaterMenuState = UpdateStatePayload & { channel?: ElectronReleaseChannel };
 let menuState: AutoUpdaterMenuState = { kind: "idle", enabled: true };
 
 export type ForceAutoUpdateState =
@@ -140,6 +140,8 @@ interface InitAutoUpdaterOptions {
   updateFeedSource?: RuntimeUpdateFeedSource;
   deviceMid?: string;
   resolveEndpointOrigin?: () => string | Promise<string>;
+  /** fork：灰度配置等公开读取走 ZCode JWT（帮助配置读取链复用）。 */
+  resolveZcodeJwtToken?: () => Promise<string | null | undefined>;
 }
 
 let quitAndInstallInFlight = false;

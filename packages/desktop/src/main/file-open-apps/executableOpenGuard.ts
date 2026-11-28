@@ -135,6 +135,13 @@ const MESSAGES: Record<
     open: "그래도 열기",
     cancel: "취소",
   },
+  "fa-IR": {
+    message: "Opening this file may run commands",
+    detail: (name) =>
+      `The system will run "${name}" as a program or script. Continue only if you trust where it came from.`,
+    open: "Open anyway",
+    cancel: "Cancel",
+  },
 };
 
 /** 用户确认后返回 true；默认按钮与 Esc 都是取消。 */

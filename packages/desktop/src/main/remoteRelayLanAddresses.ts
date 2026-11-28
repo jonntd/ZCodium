@@ -24,7 +24,11 @@ type NetworkInterfaceMap = ReturnType<typeof networkInterfaces>;
 export function pickRemoteRelayLanAddresses(interfaces: NetworkInterfaceMap | undefined): string[] {
   const addresses: string[] = [];
   for (const entries of Object.values(interfaces ?? {})) {
-    for (const entry of entries ?? []) {
+    for (const entry of (entries ?? []) as Array<{
+        address: string;
+        internal: boolean;
+        family: string | number;
+      }>) {
       const family = typeof entry.family === "string" ? entry.family : `IPv${entry.family}`;
       if (family !== "IPv4" || entry.internal) continue;
       if (entry.address.startsWith("169.254.")) continue;

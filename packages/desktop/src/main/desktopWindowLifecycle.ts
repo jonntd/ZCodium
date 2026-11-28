@@ -4,7 +4,6 @@ import { release as readPlatformRelease } from "node:os";
 import { app, BrowserWindow, Menu, MessageChannelMain, nativeImage } from "electron";
 import type { UtilityProcess as ElectronUtilityProcess } from "electron";
 import { HostMessageTypes, InternalChannels, PlatformChannels, type Locale } from "@zcode/shared";
-import { scheduleArmsBrowserPerfLoadNudge } from "./armsBrowserPerfLoadNudge.js";
 import { createBrowserWindow } from "./desktopWindowChrome.js";
 import type { HostInitMessage, WindowBootstrapOptions } from "./desktopHostProcess.js";
 import type { StartupWorkspaceWarmupTarget } from "./startupWorkspace.js";
@@ -132,7 +131,6 @@ export function createWindow(options: {
   registerMainApplicationWindow(wcId);
   let domReadyGeneration = 0;
   let cancelRuntimeProcessEnvWait: (() => void) | null = null;
-  scheduleArmsBrowserPerfLoadNudge(win.webContents);
   win.webContents.on("dom-ready", async () => {
     cancelRuntimeProcessEnvWait?.();
     cancelRuntimeProcessEnvWait = null;

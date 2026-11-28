@@ -30,7 +30,8 @@ export interface WebRemoteControlIpcManager {
 }
 
 interface WebRemoteControlIpcDependencies {
-  reportRemoteUsageEvent: (rendererId: number, event: TelemetryEventPayload) => void;
+  /** fork：渲染层遥测上报按 no-telemetry spec 移除，依赖注入改为可选。 */
+  reportRemoteUsageEvent?: (rendererId: number, event: TelemetryEventPayload) => void;
   webRemoteControlManager: WebRemoteControlIpcManager;
 }
 
@@ -40,7 +41,7 @@ function reportRemoteUsageEventSafely(
   event: TelemetryEventPayload,
 ): void {
   try {
-    reportRemoteUsageEvent(rendererId, event);
+    reportRemoteUsageEvent?.(rendererId, event);
   } catch {
     // Bug 根因：埋点回调原来位于业务 operation 的 try 内，回调抛错会把已成功的启动误判为失败，
     // 甚至覆盖真正的业务错误。埋点是旁路能力，这里必须吞掉异常并保留 operation 的原始终态。

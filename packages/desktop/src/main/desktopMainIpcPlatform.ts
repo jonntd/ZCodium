@@ -78,6 +78,8 @@ export function registerPlatformIpcHandlers(options: {
   applyApplicationLocale: (locale: Locale) => Promise<void>;
   /** 系统关联应用打开可执行类文件前的用户确认（见 file-open-apps/executableOpenGuard）。 */
   confirmExecutableFileOpen: ConfirmExecutableFileOpen;
+  /** fork：远控任务列表/会话统计由 main 侧 remote session manager 提供。 */
+  getRemoteConnectionStats: () => { activeSessionCount: number; activeTargetCount: number };
   /** 保存 Agent 回复语言并推送给各窗口 Host；写盘失败时抛出。 */
   applyReplyLanguage: (language: string) => Promise<void>;
   resolveSystemLocale: () => Locale;
@@ -100,6 +102,10 @@ export function registerPlatformIpcHandlers(options: {
   syncWebRemoteControlWorkspaces: (
     windowId: number,
     workspaces: WebRemoteControlWorkspaceTarget[],
+  ) => void;
+  syncWebRemoteControlTasks: (
+    windowId: number,
+    tasks: import("@zcode/shared").WebRemoteControlTaskTarget[],
   ) => void;
   getDesktopSessionActivity: () => {
     runningAgentSessionCount: number;

@@ -3,13 +3,16 @@ import {
   loadPreinstalledToolsCatalog,
   type PreinstalledToolsProcessHandle,
 } from "@desktop/preinstalled-tools/index.js";
+import {
+  createExecutableFileOpenConfirmer,
+  type ConfirmExecutableFileOpen,
+} from "./file-open-apps/index.js";
 import { installOfficialPlatformNetworkPolicy } from "./desktopOfficialPlatformPolicy.js";
 import {
   BROWSER_LOCAL_PREVIEW_PRIVILEGES,
   installBrowserLocalPreview,
 } from "./browser-local-preview/index.js";
 /* eslint-disable max-lines */
-import { getDesktopDataRootStartupResult } from "./desktopEarlyDataBaseDirBootstrap.js";
 import { runDesktopDataRootDecisionFlow } from "./desktopDataRootDecision.js";
 import "./desktopEarlyChromiumHardwareAccelerationBootstrap.js";
 import {
@@ -52,6 +55,9 @@ import {
   webContents,
 } from "electron";
 import type { UtilityProcess as ElectronUtilityProcess } from "electron";
+import { resolvePreinstalledToolsRelease } from "@zcode/shared/preinstalled-tools";
+import { installRequestSecurityDiagnostics } from "./request-security-edition/index.js";
+import { registerAppControlNavigationIpc } from "#src/app-control-navigation/main.js";
 import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { join } from "node:path";
@@ -937,6 +943,13 @@ const webRemoteControlManager = createWebRemoteControlManager({
   // auth-required 降级；缺少该注入会让 startWebRemoteControl 直接抛
   // “getLogin is not a function”（v3.16.2 同步后运行时暴露）。
   getLogin: async () => undefined,
+  deviceStorage: createWebRemoteControlDeviceStorage({
+    deleteLegacyCredential: () =>
+      webRemoteControlCredentialService.delete("web-remote-control:external-relay:pass_hash"),
+    loadSettings: () => mainSettingService.get(),
+    patchSettings: (patch) => mainSettingService.update(patch),
+  }),
+  setTerminalOwner: webRemoteControlSharedHostAttachments.setTerminalOwner,
   startupRestoreStorageProvider: {
     load: async () => (await mainSettingService.get()).webRemoteControlLastEnabledContext,
     save: async (context) => {
@@ -1217,6 +1230,15 @@ async function getAutoUpdatePreferences() {
  * 保存 Agent 回复语言（空串清除）。先写盘：值不合法（设置 schema 校验，≤256）或写盘失败时抛给设置页，
  * 内存与各 Host 保持旧值；成功后再更新内存并推送。连续保存时写队列按序完成，内存最后等于后一次的值。
  */
+/** fork：设置变更后让所有应用窗口重读设置快照（先例：applyReplyLanguage 的全窗口广播）。 */
+function broadcastSettingsChangedToWindows(): void {
+  for (const win of getApplicationWindowsExcludingCuaIndicator()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send(PlatformChannels.SettingsChanged);
+    }
+  }
+}
+
 async function applyReplyLanguage(raw: string) {
   const language = raw.trim() || null;
   // 进程内调用不经 RPC，undefined 不会被吞掉：合并后该字段为空，setting.json 里删除。
@@ -2093,7 +2115,6 @@ function createWindowInstance(startupBootstrap: StartupWindowBootstrap = {}) {
       await mainSettingService.update({ desktopWindowSize: state });
     },
   });
-  registerStabilityMainWindow(win);
   // 只为主业务窗口提供应用级恢复；网页 guest 和辅助窗口仍由各自 owner 处理。
   win.webContents.on("render-process-gone", (_event, details) => {
     // Electron 的 forcefullyCrashRenderer 在部分平台报告 killed + 非零退出码；
@@ -2522,8 +2543,9 @@ app.whenReady().then(async () => {
   );
   registerPlatformIpcHandlers({
     fetchHelpConfig: readHelpConfig,
-    logger,
     confirmExecutableFileOpen,
+    getRemoteConnectionStats: () => remoteSessionManager.getRemoteConnectionStats(),
+    logger,
     // CDP-on-guest pivot：renderer `<webview>` dom-ready 上报 guest webContentsId → attach。
     attachBrowserGuest: (key, webContentsId, options) => {
       const result = browserGuestManager.attachGuest(key, webContentsId, options);
@@ -2622,18 +2644,11 @@ app.whenReady().then(async () => {
     openUpdateStatusWindow,
     getAutoUpdatePreferences,
     setAutoDownloadAndInstallUpdates,
-    refreshCloseToTrayCapability: async () => getCloseToTrayCapability(),
+    refreshCloseToTrayCapability: async () => await closeToTrayCapabilityMonitor.refresh(),
     getDesktopSessionActivity: () => ({
       runningAgentSessionCount: getRunningAgentSessionCount(),
     }),
-    syncWebRemoteControlWorkspaces: (windowId, workspaces) => {
-      webRemoteControlManager.syncAvailableWorkspaces(windowId, workspaces);
-      void webRemoteControlManager.restorePreviouslyEnabled(windowId, workspaces);
-    },
     syncAppSettings: syncImmediateAppSettings,
-    restorePreviouslyEnabledWebRemoteControl: (windowId, contexts) => {
-      void webRemoteControlManager.restorePreviouslyEnabled(windowId, contexts);
-    },
     syncWebRemoteControlWorkspaces: (windowId, workspaces) => {
       webRemoteControlManager.syncAvailableWorkspaces(windowId, workspaces);
       void webRemoteControlManager.restorePreviouslyEnabled(windowId, workspaces);
@@ -2645,6 +2660,8 @@ app.whenReady().then(async () => {
   });
   registerRemoteIpcHandlers({
     logger,
+    confirmExecutableFileOpen,
+    getRemoteConnectionStats: () => remoteSessionManager.getRemoteConnectionStats(),
     webRemoteControlManager,
     createRemoteWorkspaceSession: remoteSessionManager.createRemoteWorkspaceSession,
     disposeRemoteWorkspaceSession: remoteSessionManager.disposeRemoteWorkspaceSession,

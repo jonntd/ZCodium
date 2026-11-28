@@ -21,6 +21,8 @@ export interface ForceUpdateGuardResult {
 }
 
 export interface ForceUpdateGuardOptions {
+  /** fork：灰度公开读取走 ZCode JWT（帮助配置链复用）。 */
+  resolveZcodeJwtToken?: () => Promise<string | null | undefined>;
   locale: Locale;
   logger: ForceUpdateGuardLogger;
   endpointOrigin?: string;

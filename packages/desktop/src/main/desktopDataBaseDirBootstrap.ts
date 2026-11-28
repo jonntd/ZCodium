@@ -1,31 +1,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import {
-  initializeDataRootInteractive,
-  initializeFreshDataRoot,
-  isDataBaseDirEnvOverrideActive,
-  releasePendingDiagnosticMode,
-  setDataBaseDir,
-  type DataRootStatus,
-} from "@zcode/services/node";
-import { ZCODE_VERSION } from "@zcode/shared";
-
-type DataRootPendingStatus = Extract<DataRootStatus, { kind: "absent" | "unowned" | "corrupt" }>;
-
-/**
- * 桌面启动的数据根判定结果：
- * - ready：数据根合法，正常启动；
- * - initialized：已完成全新初始化（无决策需求）；
- * - pending：需要决策窗口（冲突目录 / 存在旧根），主窗口与 Host 必须延后。
- */
-export type DesktopDataRootStartupResult =
-  | { state: "ready"; baseDir: string }
-  | { state: "initialized"; baseDir: string; forfeitedRoot?: string }
-  | { state: "pending"; baseDir: string; status: DataRootPendingStatus };
+import { setDataBaseDir } from "@zcode/services/node";
+import { ZCODE_CREDENTIALS_FILE_ENV } from "@zcode/shared/credential-security";
 
 export function resolveBootstrapSettingsFile(homePath: string = homedir()): string {
-  return join(homePath, ".zcodium", "v2", "setting.json");
+  return join(homePath, ".zcode", "v2", "setting.json");
 }
 
 export function extractBootstrapDataBaseDir(rawValue: unknown): string | null {
@@ -64,28 +44,10 @@ export function applyEarlyDataBaseDirBootstrap(): string | null {
   // 在任何凭据读写方创建、Host fork 之前删除一次，Main、Host 与 Agent 都只用 Desktop 数据根。
   delete process.env[ZCODE_CREDENTIALS_FILE_ENV];
   const dataBaseDir = readBootstrapDataBaseDirFromDisk();
-  if (!dataBaseDir) {
-    return homeResult.state === "ready"
-      ? { state: "ready", baseDir: homeResult.baseDir }
-      : { state: "initialized", baseDir: homeResult.baseDir };
+  if (dataBaseDir) {
+    // 启动早期就把 dataBaseDir 注入进来，避免 logger / crashReporter 先按默认 HOME 建目录，
+    // 导致后续再切换到自定义目录时，日志和 crash dump 落在两套路径里。
+    setDataBaseDir(dataBaseDir);
   }
-
-  // 启动早期就把 dataBaseDir 注入进来，避免 logger / crashReporter 先按默认 HOME 建目录。
-  setDataBaseDir(dataBaseDir);
-  const customResult = initializeDataRootInteractive({
-    createdBy: "desktop",
-    appVersion: ZCODE_VERSION,
-  });
-  if (customResult.state === "pending") {
-    return isAutomatedTestRun()
-      ? settlePendingForAutomatedTest(customResult.baseDir)
-      : {
-          state: "pending",
-          baseDir: customResult.baseDir,
-          status: customResult.status,
-        };
-  }
-  return customResult.state === "ready"
-    ? { state: "ready", baseDir: customResult.baseDir }
-    : { state: "initialized", baseDir: customResult.baseDir };
+  return dataBaseDir;
 }

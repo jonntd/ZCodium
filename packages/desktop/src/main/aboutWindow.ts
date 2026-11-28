@@ -1,4 +1,6 @@
 interface CustomAboutDialogHtmlInput {
+  /** fork：审计版说明文案（设置页可见性遵循官方服务开关）。 */
+  auditNotice?: string;
   applicationName: string;
   appVersion: string;
   copyright: string;

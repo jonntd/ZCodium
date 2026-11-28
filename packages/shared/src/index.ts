@@ -35,6 +35,11 @@ export type {
 } from "./protocol.js";
 export type { WorkspacePurpose } from "./workspacePurpose.js";
 export type { PromptEnhanceDraftRequest, PromptEnhanceDraftResult } from "./prompt-assist.js";
+export { webRemoteControlAuthStateChangeSchema } from "./web-remote-control.js";
+export type {
+  ProcessResourceRole,
+  ProcessResourceMcpSample,
+} from "./processResourceTelemetry.js";
 export { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "./protocol.js";
 export {
   hasLegacyIncompatiblePersistedLocale,
