@@ -1,3 +1,4 @@
+import type { GroupedDraftTaskPlacement, GroupedDraftTaskState } from "./zcodeSessionStoreTypes.js";
 import type { DraftPluginUiOpenRequest } from "@/plugin-ui/contract.js";
 import type { ManagedWorktreeCreation, SessionCreateSource } from "@zcode/shared";
 /* eslint-disable max-lines -- workspace 级状态动作集中在同一 slice，先保持收口便于维护。 */

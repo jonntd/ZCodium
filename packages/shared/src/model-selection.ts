@@ -58,3 +58,9 @@ export function parseModelPickerValue(value: string): ModelSelection {
     options: { reasoningLevel: rawModelId.slice(reasoningSeparatorIndex + 1) },
   });
 }
+
+export interface ModelhubModelSummary {
+  id: string;
+  name: string;
+  [key: string]: unknown;
+}

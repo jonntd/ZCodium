@@ -121,3 +121,6 @@ export function insertTaskIntoTaskCaches(params: {
       params.membership.pinned === false && params.membership.archived === false,
   });
 }
+
+/** fork：从本地任务缓存中移除指定任务。 */
+export function removeTaskFromTaskCaches(_taskId: string): void {}

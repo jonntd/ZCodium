@@ -133,3 +133,8 @@ export interface RemoteConnectionProgress {
   onResume(): void;
   onCancel(): void;
 }
+
+/** fork：远控反馈文本脱敏（审计版无遥测，直接透传）。 */
+export function redactFeedbackText(text: string): string {
+  return text;
+}
