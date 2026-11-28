@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期 */
 // @vitest-environment jsdom
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";

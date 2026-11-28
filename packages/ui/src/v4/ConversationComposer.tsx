@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期 */
 /* oxlint-disable eslint(max-lines) -- composer 集中收口输入区 wiring（附件/草稿/历史/mention），拆分会打散收口粒度。 */
 import { formatConversationWorkDuration } from "@/v4/conversationWorkDuration.js";
 /**

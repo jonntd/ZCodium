@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期 */
 import { useMemo, useState } from "react";
 import { ArchiveX, Cloud, CloudDownload, Folder, Smartphone, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button.js";

@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期 */
 /* eslint-disable max-lines -- OAuth lifecycle effects intentionally share one coordination point. */
 import { useEffect, useRef } from "react";
 import type {

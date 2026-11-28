@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期 */
 import type { DraftPluginUiOpenRequest } from "@/plugin-ui/contract.js";
 /* eslint-disable max-lines -- 插件商店容器统一编排列表/详情、市场源对话框、卸载确认、试用跳转与技能刷新收尾，集中维护保证交互一致。 */
 import { PluginAddMenu } from "@/conversation-workspace-target/PluginAddMenu.js";

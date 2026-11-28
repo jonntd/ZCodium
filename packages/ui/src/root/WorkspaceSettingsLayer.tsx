@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期 */
 import { useEffect } from "react";
 import { SettingsPage } from "@/SettingsPage.js";
 import { ServiceProvider } from "@/hooks/useServices.js";

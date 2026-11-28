@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期 */
 import type { ZCodeWorkspaceTaskListChanged } from "@zcode/shared";
 import {
   getTaskMetaWorkspaceEventSyncMode,

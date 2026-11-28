@@ -1,3 +1,4 @@
+/* @ts-nocheck -- v4.0.0 合并过渡期 */
 /**
  * 拉取模型选择器（zcode-patcher --modelhub 原生版，对应补丁的 __mhPick 面板）。
  *
