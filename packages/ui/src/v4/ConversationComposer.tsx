@@ -481,8 +481,6 @@ export interface ConversationComposerProps {
   /** 受管 worktree 任务的会话 cwd；Hook 待审核入口据此让设置页按 worktree 发现（D23）。 */
   worktreeCwd?: string;
   remoteSessionId?: string;
-  /** 手机 Web 远控链路：Enter 换行、iOS 防聚焦放大与紧凑 placeholder 由此开关切换。 */
-  isWebRemoteControl?: boolean;
   /** SessionPane 从目标 Host 原子读取的选择事实；Composer 不自行解析 Host。 */
   modelSelectionView?: ModelSelectionView | null;
   modelSelectionState?: ModelSelectionState;
@@ -629,7 +627,6 @@ function ConversationComposerImpl({
   workspaceIdentity,
   worktreeCwd,
   remoteSessionId,
-  isWebRemoteControl = false,
   modelSelectionView = null,
   modelSelectionState = MODEL_SELECTION_LOADING_STATE,
   modelSelectionReload,
@@ -899,7 +896,7 @@ function ConversationComposerImpl({
         event.preventDefault();
         // 复位拖拽反馈即可；不得调 hook 的 drop（其 Files 分支会把带 Files 的拖拽
         // 再附成卡片，造成 pill+卡片双出）。
-        attachmentsApi.resetDragFeedback();
+        // fork WIP：resetDragFeedback 尚未入 ComposerAttachmentsApi，暂空。
         void platform
           .resolveFileDropPaths(fileUris)
           .then((resolved) => {
@@ -933,7 +930,7 @@ function ConversationComposerImpl({
     },
     [
       attachmentsApi.handleDropComposer,
-      attachmentsApi.resetDragFeedback,
+
       attachmentsApi.setAttachmentError,
       inputApiRef,
       intl,

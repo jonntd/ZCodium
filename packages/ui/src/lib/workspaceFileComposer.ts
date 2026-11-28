@@ -34,3 +34,20 @@ export function appendWorkspaceFileMentionToComposer(params: {
 
   return nextText;
 }
+
+/** fork：Explorer 文件拖放后按 resolved paths 批量插入 @ 提及（v4 composer 拖放入口）。 */
+export function appendExplorerFileDropMentionsToComposer(params: {
+  inputApiRef: MutableRefObject<LexicalChatInputHandle | null>;
+  currentMarkdown: string;
+  resolvedPaths: string[];
+  workspacePath: string;
+  workspaceIdentity?: string;
+  onTextChange: (text: string) => void;
+}): void {
+  const { inputApiRef, currentMarkdown, resolvedPaths, onTextChange } = params;
+  const mentions = resolvedPaths.map((path) => `@${path}`).join(" ");
+  if (!mentions) return;
+  const next = currentMarkdown ? `${currentMarkdown}\n${mentions} ` : `${mentions} `;
+  inputApiRef.current?.setMarkdown?.(next);
+  onTextChange(next);
+}
