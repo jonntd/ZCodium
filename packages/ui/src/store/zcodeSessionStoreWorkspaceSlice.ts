@@ -535,11 +535,93 @@ export function createWorkspaceSlice(set: SetFn) {
       );
     },
 
+  promoteGroupedDraftTask: (
+      workspacePath: string,
+      taskId: string,
+      draft: GroupedDraftTaskState,
+      workspaceIdentity?: string,
+    ) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          workspacePath,
+          (current) => {
+            const optimisticTask: ZCodeTaskMeta = {
+              taskId,
+              traceId: `session-${taskId}` as ZCodeTaskMeta["traceId"],
+              title: "",
+              workspacePath,
+              ...(workspaceIdentity ? { workspaceIdentity } : {}),
+              createdAt: draft.createdAt,
+              // 这是只用于填补 ACK 空档的 renderer 占位行，不是 session 真相。
+              // updatedAt 用最低哨兵值，保证任何 sessions-index 权威 meta 都会在
+              // mergeTaskWithOptimisticMeta 中获胜，避免本地时钟压住 mode/provider/status 等字段。
+              updatedAt: 0,
+              mode: "default",
+              provider: current.selectedProvider,
+            };
+            // task 导航和 draft session 创建是不同状态转换。只有创建成功边界
+            // 才能把发起命令时捕获的 grouped placement 绑定到新 task。ACK 返回期间用户
+            // 可能已进入另一份草稿，因此只在 identity 仍匹配时清除当前草稿。
+            // 过去这里先清除 draft row，却要等 sessions-index 才有真实 task meta，
+            // create/send ACK 与权威投影之间会闪出空档。提升事务同时写最小乐观元数据，
+            // 但不伪造 conversation 状态，后续仍由 desktop continuous / web replayable 权威投影收口。
+            return {
+              ...current,
+              groupedDraftTask:
+                current.groupedDraftTask?.draftId === draft.draftId
+                  ? null
+                  : current.groupedDraftTask,
+              optimisticTaskListByTaskId: {
+                ...current.optimisticTaskListByTaskId,
+                // task_created 可能比 command ACK 更早到 renderer；若已有更完整的乐观元数据，
+                // 不能被这个仅用于补空档的最小行反向降级。
+                [taskId]: current.optimisticTaskListByTaskId[taskId] ?? optimisticTask,
+              },
+              promotedGroupedDraftTaskByTaskId: {
+                ...current.promotedGroupedDraftTaskByTaskId,
+                [taskId]: draft,
+              },
+            };
+          },
+          workspaceIdentity,
+        ),
+      );
+    },
+
+  clearPromotedGroupedDraftTask: (
+      workspacePath: string,
+      taskId: string,
+      workspaceIdentity?: string,
+    ) => {
+      set((state) =>
+        updateWorkspaceState(
+          state,
+          workspacePath,
+          (current) => {
+            if (!current.promotedGroupedDraftTaskByTaskId[taskId]) {
+              return current;
+            }
+            // promoted placement 只负责草稿提升到 SQLite 排序收敛前的单次事务。
+            // 落库后必须消费，避免用户后续手动拖动 task 时被旧 placement 再次拉回原 group。
+            const { [taskId]: _consumedPromotedDraft, ...restPromotedGroupedDraftTaskByTaskId } =
+              current.promotedGroupedDraftTaskByTaskId;
+            return {
+              ...current,
+              promotedGroupedDraftTaskByTaskId: restPromotedGroupedDraftTaskByTaskId,
+            };
+          },
+          workspaceIdentity,
+        ),
+      );
+    },
+
     startDraft: (
       workspacePath: string,
       provider?: ZCodeProvider,
       workspaceIdentity?: string,
       options?: {
+        groupedDraftPlacement?: GroupedDraftTaskPlacement;
         projectId?: string | null;
         taskGroupId?: string | null;
         createSource?: SessionCreateSource;

@@ -147,6 +147,17 @@ export interface ComposerInitialization {
   config: ComposerInitialConfig;
 }
 
+export type GroupedDraftTaskPlacement = { type: "top" } | { type: "group"; groupId: string };
+
+export interface GroupedDraftTaskState {
+  draftId: string;
+  workspacePath: string;
+  workspaceIdentity?: string;
+  placement: GroupedDraftTaskPlacement;
+  createdAt: number;
+}
+
+
 export interface WorkspaceZCodeUIState {
   /** 首次分享导入的导航参数；接收、换任务或新建后结束，不持久化。 */
   composerInitialization?: ComposerInitialization;
@@ -205,11 +216,18 @@ export interface WorkspaceZCodeUIState {
   taskUiByTaskId: Record<string, TaskUiState>;
   taskConfigOptionsByTaskId: Record<string, ZCodeConfigOption[]>;
   taskConfigOptionsStatusByTaskId: Record<string, ConfigOptionsStatus>;
+
   /** task 未读状态的兼容缓存；真实未读状态以 task meta.unreadAt 为准 */
   taskUnreadByTaskId: Record<string, boolean>;
   /** 任务列表的乐观元数据，解决新 task 落盘前左侧列表显示慢半拍的问题 */
   optimisticTaskListByTaskId: Record<string, ZCodeTaskMeta>;
   draftCreateSource: SessionCreateSource;
+  /** grouped mode 下点击 New task 后的 UI-only 草稿锚点，不进入真实 task index。 */
+  groupedDraftTask: GroupedDraftTaskState | null;
+  /** 用户发起当前草稿的入口；预热不改变来源。 */
+  /** 首发创建后、grouped sqlite order 落地前，真实 task 继承草稿锚点的本地定位。 */
+  promotedGroupedDraftTaskByTaskId: Record<string, GroupedDraftTaskState>;
+
   /** 当前 workspace 选中的 ZCode Agent provider */
   selectedProvider: ZCodeProvider;
   /** 当前模型供应商选中键（native/custom/ghost） */
@@ -301,6 +319,19 @@ export interface ZCodeSessionStoreState {
     creationId: string | null,
     workspaceIdentity?: string,
   ) => void;
+  promoteGroupedDraftTask: (
+    workspacePath: string,
+    taskId: string,
+    draft: GroupedDraftTaskState,
+    workspaceIdentity?: string,
+  ) => void;
+
+  clearPromotedGroupedDraftTask: (
+    workspacePath: string,
+    taskId: string,
+    workspaceIdentity?: string,
+  ) => void;
+
   startDraft: (
     workspacePath: string,
     provider?: ZCodeProvider,
@@ -556,6 +587,8 @@ export function createDefaultWorkspaceState(
 ): WorkspaceZCodeUIState {
   return {
     activeTaskId: null,
+    groupedDraftTask: null,
+    promotedGroupedDraftTaskByTaskId: {},
     workspaceInit: { ...DEFAULT_WORKSPACE_INIT_STATE },
     draftRuntime: { status: "idle", error: null },
     draftRuntimeInvalidationVersion: 0,
