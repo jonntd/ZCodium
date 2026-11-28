@@ -38,6 +38,7 @@ export type { PromptEnhanceDraftRequest, PromptEnhanceDraftResult } from "./prom
 export { webRemoteControlAuthStateChangeSchema } from "./web-remote-control.js";
 export type {
   ProcessResourceRole,
+  ProcessResourceRuntimeSurface,
 } from "./processResourceTelemetry.js";
 export { DEFAULT_LOCALE, SUPPORTED_LOCALES } from "./protocol.js";
 export {
