@@ -145,7 +145,7 @@ guide 与普通 queue 的状态层级不能折叠成一个 generic round-trip dr
 
 ```text
 Guide inline path
-  admitted -> wait complete tool batch -> one guided drain -> same product turn
+  admitted -> wait complete tool batch -> drain all waiting guides at one boundary -> same product turn
        \-> no batch before terminal -> same intent becomes ordinary queue
 
 Ordinary queue path

@@ -47,7 +47,7 @@ interface TurnView {
 
 interface TurnWorkSegmentView {
   segmentId: string;
-  triggerInputId?: string;
+  triggerEntityId?: string;
   startedAt: number;
   endedAt?: number;
   activeMs?: number;

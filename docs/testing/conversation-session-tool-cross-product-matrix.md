@@ -75,7 +75,7 @@ tool calls emitted: T1, T2, ... Tn
   -> ...
   -> commit result(Tn), success or failure
   -> batch terminal
-  -> drain at most one guide
+  -> drain all waiting guides at the boundary
   -> next provider request in the same product turn
 ```
 
